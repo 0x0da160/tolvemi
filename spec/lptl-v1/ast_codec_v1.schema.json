@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lptl:ast-codec:v1",
+  "title": "LPTL ast_codec_v1",
+  "description": "Structural schema only; strict token parsing, duplicate-key checks, transport budgets and shared static checks are required separately.",
+  "type": "object",
+  "properties": {
+    "codec": {
+      "const": "ast_codec_v1"
+    },
+    "declarations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decl"
+      }
+    }
+  },
+  "required": [
+    "codec",
+    "declarations"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
+      "not": {
+        "enum": [
+          "fn",
+          "entry",
+          "Int",
+          "Bool",
+          "Unit",
+          "List",
+          "Option",
+          "Pair",
+          "true",
+          "false",
+          "unit",
+          "list",
+          "some",
+          "none",
+          "pair",
+          "let",
+          "in",
+          "if",
+          "fold",
+          "add",
+          "sub",
+          "mul",
+          "neg",
+          "lt",
+          "le",
+          "eq",
+          "mod",
+          "fst",
+          "snd",
+          "cons",
+          "concat",
+          "reverse",
+          "length"
+        ]
+      }
+    },
+    "type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "int"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "bool"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "unit"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "list"
+            },
+            "element": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "element"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "option"
+            },
+            "element": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "element"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "pair"
+            },
+            "left": {
+              "$ref": "#/$defs/type"
+            },
+            "right": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "param": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "$ref": "#/$defs/type"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "decl": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "fn"
+            },
+            "name": {
+              "$ref": "#/$defs/identifier"
+            },
+            "params": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/param"
+              }
+            },
+            "return_type": {
+              "$ref": "#/$defs/type"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "name",
+            "params",
+            "return_type",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "entry"
+            },
+            "name": {
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "required": [
+            "tag",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "expr": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "int"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
+            }
+          },
+          "required": [
+            "tag",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "bool"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "tag",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "unit"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "var"
+            },
+            "name": {
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "required": [
+            "tag",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "list"
+            },
+            "element_type": {
+              "$ref": "#/$defs/type"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expr"
+              }
+            }
+          },
+          "required": [
+            "tag",
+            "element_type",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "some"
+            },
+            "value": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "none"
+            },
+            "element_type": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "element_type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "pair"
+            },
+            "left": {
+              "$ref": "#/$defs/expr"
+            },
+            "right": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "call"
+            },
+            "callee": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "add",
+                    "sub",
+                    "mul",
+                    "neg",
+                    "lt",
+                    "le",
+                    "eq",
+                    "mod",
+                    "fst",
+                    "snd",
+                    "cons",
+                    "concat",
+                    "reverse",
+                    "length"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/identifier"
+                }
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expr"
+              }
+            }
+          },
+          "required": [
+            "tag",
+            "callee",
+            "args"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "let"
+            },
+            "name": {
+              "$ref": "#/$defs/identifier"
+            },
+            "value": {
+              "$ref": "#/$defs/expr"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "name",
+            "value",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "if"
+            },
+            "condition": {
+              "$ref": "#/$defs/expr"
+            },
+            "then": {
+              "$ref": "#/$defs/expr"
+            },
+            "else": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "condition",
+            "then",
+            "else"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "fold"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "init": {
+              "$ref": "#/$defs/expr"
+            },
+            "acc": {
+              "$ref": "#/$defs/identifier"
+            },
+            "item": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "init",
+            "acc",
+            "item",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

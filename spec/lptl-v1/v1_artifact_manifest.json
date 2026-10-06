@@ -1,0 +1,100 @@
+{
+  "document_version": "v1",
+  "language_version_label": "v1",
+  "codec_id": "ast_codec_v1",
+  "schema_id": "urn:lptl:ast-codec:v1",
+  "spec_version": null,
+  "status": "freeze-candidate-not-implemented-or-proved",
+  "gates": {
+    "G0": "not_met",
+    "G1": "not_assessed",
+    "G2": "not_assessed",
+    "G3": "not_assessed",
+    "G4": "not_assessed"
+  },
+  "hash_algorithm": "SHA-256",
+  "source_input": {
+    "role": "attached-design-input",
+    "bytes": 122761,
+    "sha256": "6e2565cf4e7f495f81416b85c8ba1328250cf926ea981118982a2ca79f040b9c"
+  },
+  "namespace_registry": "v1_namespace_registry.json",
+  "compatibility": "No cross-namespace codec, contract-ID or hash-identity compatibility claimed.",
+  "schema_changes": [
+    "$id",
+    "title",
+    "properties.codec.const"
+  ],
+  "schema_structure_preserved": true,
+  "computational_rules_preserved_modulo_namespace": true,
+  "structural_checks": {
+    "cases": 34,
+    "passed": 34
+  },
+  "limited_checks": {
+    "cases": 92,
+    "passed": 92,
+    "python": "3.12.8",
+    "jsonschema": "4.23.0",
+    "input_codec_replacements": 33,
+    "expected_preimage_replacements": 1,
+    "scope": "Limited schema fixtures and auxiliary models in the v1 namespace. Not a strict JSON parser, full input codec, LPTL compiler, encoder, BLAKE3 digest validation, proof or LLM experiment. Models omit byte spans, message/repair templates, transport size/depth guards and host behavior. Budget-end model assumes already verified candidate acceptance records. Alternative-anchor cases use control schemas, not the LPTL acceptance schema."
+  },
+  "blake3_digest_validation": false,
+  "spec_bound_syntax_hash": null,
+  "reproducibility_hash": null,
+  "outputs": [
+    {
+      "name": "LPTL_design_v1.md",
+      "bytes": 115489,
+      "sha256": "457e6959d0d4751e735062a485f607a8c243f4752637172765f120c8f143eaf6"
+    },
+    {
+      "name": "LPTL_v1_verification_report.md",
+      "bytes": 8616,
+      "sha256": "f2a1edf870d6293b09d6e54ae04a8b79b37b03d3757181ae147f7ce2a68ce5be"
+    },
+    {
+      "name": "ast_codec_v1.schema.json",
+      "bytes": 10590,
+      "sha256": "eefa368250b12a11afc842c6f92dc03348a18a9e946a4626b23794a17341e593"
+    },
+    {
+      "name": "v1_limited_checks.py",
+      "bytes": 13396,
+      "sha256": "a3c183f8870c97d2e6be7f60c0f3da7f838ca54fb5a0bed29fac4814c13791dc"
+    },
+    {
+      "name": "v1_check_inputs.json",
+      "bytes": 46914,
+      "sha256": "625cc70b793dfbb95e865eb69aa0c945b95cae5e7645012cc676e19188c89aea"
+    },
+    {
+      "name": "v1_checks.csv",
+      "bytes": 11637,
+      "sha256": "a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034"
+    },
+    {
+      "name": "v1_fixture_correspondence.csv",
+      "bytes": 3650,
+      "sha256": "c282e4a22bee20af5fc046626953b1d5d97f31f5a4106f873bc28bbfb7dcfafb"
+    },
+    {
+      "name": "v1_namespace_registry.json",
+      "bytes": 1330,
+      "sha256": "2a350962743a5592f4769cc7dc17860209207d5604deffee7b9d2ebca92216ab"
+    },
+    {
+      "name": "v1_structure_checks.json",
+      "bytes": 6692,
+      "sha256": "f0e2eebdb3c0bb226a8ea147870a8d7ff572878376ef5f51a0b30b61eb6c99bb"
+    },
+    {
+      "name": "v1_edit_ranges.csv",
+      "bytes": 4006,
+      "sha256": "9a4066ff2abd7c42fdf9dac0d3743e2c57b766998d3000b2b9e74cbf70939a04"
+    }
+  ],
+  "manifest_self_hash": "omitted",
+  "archive_self_hash": "not embedded"
+}

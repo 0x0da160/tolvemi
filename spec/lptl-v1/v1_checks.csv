@@ -1,0 +1,93 @@
+case,kind,expected,actual,pass
+v1-C001,schema,true,true,True
+v1-C002,schema,false,false,True
+v1-C003,schema,false,false,True
+v1-C004,schema,true,true,True
+v1-C005,schema,true,true,True
+v1-C006,schema,false,false,True
+v1-C007,schema,false,false,True
+v1-C008,schema,false,false,True
+v1-C009,schema,false,false,True
+v1-C010,schema,false,false,True
+v1-C011,schema,false,false,True
+v1-C012,schema,false,false,True
+v1-C013,schema,false,false,True
+v1-C014,schema,false,false,True
+v1-C015,schema,false,false,True
+v1-C016,schema,true,true,True
+v1-C017,schema,false,false,True
+v1-C018,schema,false,false,True
+v1-C019,schema,false,false,True
+v1-C020,schema,false,false,True
+v1-C021,schema,false,false,True
+v1-C022,schema,false,false,True
+v1-C023,schema,false,false,True
+v1-C024,schema,false,false,True
+v1-C025,schema,false,false,True
+v1-C026,schema,false,false,True
+v1-C027,schema,false,false,True
+v1-C028,schema,true,true,True
+v1-C029,ast_shape_model,null,null,True
+v1-C030,schema,false,false,True
+v1-C031,ast_shape_model,"""E-AST-UNKNOWN-FIELD""","""E-AST-UNKNOWN-FIELD""",True
+v1-C032,ast_shape_model,"""E-AST-FIELD-TYPE""","""E-AST-FIELD-TYPE""",True
+v1-C033,ast_shape_model,"""E-AST-IDENTIFIER""","""E-AST-IDENTIFIER""",True
+v1-C034,type_trace_model,"{""status"": ""finished"", ""counts"": [1, 0, 1], ""total"": 2, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [1, 0, 1], ""total"": 2, ""diagnostics"": []}",True
+v1-C035,type_trace_model,"{""status"": ""finished"", ""counts"": [1, 1, 1], ""total"": 3, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [1, 1, 1], ""total"": 3, ""diagnostics"": []}",True
+v1-C036,type_trace_model,"{""status"": ""finished"", ""counts"": [3, 3, 3], ""total"": 9, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [3, 3, 3], ""total"": 9, ""diagnostics"": []}",True
+v1-C037,type_trace_model,"{""status"": ""finished"", ""counts"": [2, 2, 2], ""total"": 6, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [2, 2, 2], ""total"": 6, ""diagnostics"": []}",True
+v1-C038,type_trace_model,"{""status"": ""finished"", ""counts"": [3, 3, 4], ""total"": 10, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [3, 3, 4], ""total"": 10, ""diagnostics"": []}",True
+v1-C039,type_trace_model,"{""status"": ""finished"", ""counts"": [1, 1, 2], ""total"": 4, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [1, 1, 2], ""total"": 4, ""diagnostics"": []}",True
+v1-C040,type_trace_model,"{""status"": ""cutoff"", ""counts"": [0, 0, 0], ""total"": 0, ""diagnostics"": [""E-LIMIT-STATIC-SEMANTIC-WORK""]}","{""status"": ""cutoff"", ""counts"": [0, 0, 0], ""total"": 0, ""diagnostics"": [""E-LIMIT-STATIC-SEMANTIC-WORK""]}",True
+v1-C041,type_trace_model,"{""status"": ""cutoff"", ""counts"": [1, 0, 0], ""total"": 1, ""diagnostics"": [""E-ARITY-BUILTIN"", ""E-LIMIT-STATIC-SEMANTIC-WORK""]}","{""status"": ""cutoff"", ""counts"": [1, 0, 0], ""total"": 1, ""diagnostics"": [""E-ARITY-BUILTIN"", ""E-LIMIT-STATIC-SEMANTIC-WORK""]}",True
+v1-C042,type_trace_model,"{""status"": ""cutoff"", ""counts"": [3, 3, 2], ""total"": 8, ""diagnostics"": [""E-LIMIT-STATIC-SEMANTIC-WORK""]}","{""status"": ""cutoff"", ""counts"": [3, 3, 2], ""total"": 8, ""diagnostics"": [""E-LIMIT-STATIC-SEMANTIC-WORK""]}",True
+v1-C043,type_trace_model,"{""status"": ""finished"", ""counts"": [3, 3, 3], ""total"": 9, ""diagnostics"": []}","{""status"": ""finished"", ""counts"": [3, 3, 3], ""total"": 9, ""diagnostics"": []}",True
+v1-C044,admission_model,"{""admitted"": 6, ""next"": ""unit"", ""cutoff"": ""AST-NODES""}","{""admitted"": 6, ""next"": ""unit"", ""cutoff"": ""AST-NODES""}",True
+v1-C045,admission_model,"{""admitted"": 7, ""next"": null, ""cutoff"": null}","{""admitted"": 7, ""next"": null, ""cutoff"": null}",True
+v1-C046,recovery_model,"{""result"": ""resume_keep_token"", ""count"": 1, ""q"": 3}","{""result"": ""resume_keep_token"", ""count"": 1, ""q"": 3}",True
+v1-C047,recovery_model,"{""result"": ""resume_keep_token"", ""count"": 1, ""q"": 1}","{""result"": ""resume_keep_token"", ""count"": 1, ""q"": 1}",True
+v1-C048,recovery_model,"{""result"": ""stop_eof"", ""count"": 8, ""q"": 1}","{""result"": ""stop_eof"", ""count"": 8, ""q"": 1}",True
+v1-C049,recovery_model,"{""result"": ""recovery_limit"", ""count"": 8, ""q"": null}","{""result"": ""recovery_limit"", ""count"": 8, ""q"": null}",True
+v1-C050,recovery_model,"{""result"": ""structural_cutoff"", ""count"": 8, ""q"": null}","{""result"": ""structural_cutoff"", ""count"": 8, ""q"": null}",True
+v1-C051,source_boundary,"[1048576, 1048582]","[1048576, 1048582]",True
+v1-C052,int_boundary,"{""digits"": 4097, ""bits"": 13607}","{""digits"": 4097, ""bits"": 13607}",True
+v1-C053,episode_aggregation,"{""episodes"": 1, ""successes"": 1, ""selected"": 3, ""candidate_count"": 4}","{""episodes"": 1, ""successes"": 1, ""selected"": 3, ""candidate_count"": 4}",True
+v1-C054,episode_aggregation,"{""episodes"": 1, ""successes"": 0, ""selected"": 1, ""candidate_count"": 2}","{""episodes"": 1, ""successes"": 0, ""selected"": 1, ""candidate_count"": 2}",True
+v1-C055,budget_vector,true,true,True
+v1-C056,budget_vector,false,false,True
+v1-C057,decoded_duplicate_demo,true,true,True
+v1-C058,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 1, ""depths"": [1]}","{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 1, ""depths"": [1]}",True
+v1-C059,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-DEPTH"", ""admitted"": 1, ""depths"": [1]}","{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-DEPTH"", ""admitted"": 1, ""depths"": [1]}",True
+v1-C060,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-DEPTH"", ""admitted"": 1, ""depths"": [1]}","{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-DEPTH"", ""admitted"": 1, ""depths"": [1]}",True
+v1-C061,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-NODES"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-NODES"", ""admitted"": 0, ""depths"": []}",True
+v1-C062,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-INTEGER"", ""admitted"": 1, ""depths"": [1]}","{""status"": ""invalid"", ""code"": ""E-INPUT-INTEGER"", ""admitted"": 1, ""depths"": [1]}",True
+v1-C063,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-FIELD-TYPE"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-FIELD-TYPE"", ""admitted"": 0, ""depths"": []}",True
+v1-C064,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-TAG"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-TAG"", ""admitted"": 0, ""depths"": []}",True
+v1-C065,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-MISSING-FIELD"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-MISSING-FIELD"", ""admitted"": 0, ""depths"": []}",True
+v1-C066,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 0, ""depths"": []}",True
+v1-C067,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-INTEGER-DIGITS"", ""admitted"": 1, ""depths"": [1]}","{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-INTEGER-DIGITS"", ""admitted"": 1, ""depths"": [1]}",True
+v1-C068,input_admission_model,"{""status"": ""decoded"", ""code"": null, ""admitted"": 3, ""depths"": [1, 2, 2]}","{""status"": ""decoded"", ""code"": null, ""admitted"": 3, ""depths"": [1, 2, 2]}",True
+v1-C069,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-NODES"", ""admitted"": 2, ""depths"": [1, 2]}","{""status"": ""invalid"", ""code"": ""E-LIMIT-INPUT-VALUE-NODES"", ""admitted"": 2, ""depths"": [1, 2]}",True
+v1-C070,input_admission_model,"{""status"": ""decoded"", ""code"": null, ""admitted"": 3, ""depths"": [1, 2, 2]}","{""status"": ""decoded"", ""code"": null, ""admitted"": 3, ""depths"": [1, 2, 2]}",True
+v1-C071,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-STRING-SCALAR"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-STRING-SCALAR"", ""admitted"": 0, ""depths"": []}",True
+v1-C072,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-STRING-SCALAR"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-STRING-SCALAR"", ""admitted"": 0, ""depths"": []}",True
+v1-C073,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-DUPLICATE-KEY"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-DUPLICATE-KEY"", ""admitted"": 0, ""depths"": []}",True
+v1-C074,input_admission_model,"{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 0, ""depths"": []}","{""status"": ""invalid"", ""code"": ""E-INPUT-UNKNOWN-FIELD"", ""admitted"": 0, ""depths"": []}",True
+v1-C075,json_scalar_stage_model,"""E-INPUT-STRING-SCALAR""","""E-INPUT-STRING-SCALAR""",True
+v1-C076,json_scalar_stage_model,"""E-INPUT-STRING-SCALAR""","""E-INPUT-STRING-SCALAR""",True
+v1-C077,json_scalar_stage_model,"""E-INPUT-STRING-SCALAR""","""E-INPUT-STRING-SCALAR""",True
+v1-C078,json_scalar_stage_model,null,null,True
+v1-C079,json_scalar_stage_model,"""E-INPUT-JSON-SYNTAX""","""E-INPUT-JSON-SYNTAX""",True
+v1-C080,json_scalar_stage_model,"""E-INPUT-DUPLICATE-KEY""","""E-INPUT-DUPLICATE-KEY""",True
+v1-C081,json_scalar_stage_model,"""E-INPUT-STRING-SCALAR""","""E-INPUT-STRING-SCALAR""",True
+v1-C082,budget_end_model,"{""reason"": ""normal_stop"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}","{""reason"": ""normal_stop"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}",True
+v1-C083,budget_end_model,"{""reason"": ""budget_reached"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}","{""reason"": ""budget_reached"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}",True
+v1-C084,budget_end_model,"{""reason"": ""operation_guarded"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}","{""reason"": ""operation_guarded"", ""budget_ok"": true, ""selected"": 0, ""success"": 1}",True
+v1-C085,budget_end_model,"{""reason"": ""no_accepted_candidate"", ""budget_ok"": true, ""selected"": null, ""success"": 0}","{""reason"": ""no_accepted_candidate"", ""budget_ok"": true, ""selected"": null, ""success"": 0}",True
+v1-C086,budget_end_model,"{""reason"": ""budget_exceeded"", ""budget_ok"": false, ""selected"": 0, ""success"": 0}","{""reason"": ""budget_exceeded"", ""budget_ok"": false, ""selected"": 0, ""success"": 0}",True
+v1-C087,budget_vector,false,false,True
+v1-C088,budget_vector,false,false,True
+v1-C089,spec_bound_preimage_model,"""4c50544c2d737065632d626f756e642d73796e7461782d7631005b22737065632d746573742d61222c226173745f636f6465635f7631222c2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030225d""","""4c50544c2d737065632d626f756e642d73796e7461782d7631005b22737065632d746573742d61222c226173745f636f6465635f7631222c2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030225d""",True
+v1-C090,spec_bound_version_separation,true,true,True
+v1-C091,spec_bound_preimage_model,null,null,True
+v1-C092,spec_bound_preimage_model,null,null,True

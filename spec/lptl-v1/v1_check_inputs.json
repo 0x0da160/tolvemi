@@ -1,0 +1,2289 @@
+{
+  "scope": "Limited schema fixtures and auxiliary models in the v1 namespace. Not a strict JSON parser, full input codec, LPTL compiler, encoder, BLAKE3 digest validation, proof or LLM experiment. Models omit byte spans, message/repair templates, transport size/depth guards and host behavior. Budget-end model assumes already verified candidate acceptance records. Alternative-anchor cases use control schemas, not the LPTL acceptance schema.",
+  "cases": [
+    {
+      "id": "v1-C001",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "id": "v1-C002",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\n",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false,
+      "alternative_anchor_fixture": false
+    },
+    {
+      "id": "v1-C003",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0\n"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false,
+      "alternative_anchor_fixture": false
+    },
+    {
+      "id": "v1-C004",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\n",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": true,
+      "alternative_anchor_fixture": true
+    },
+    {
+      "id": "v1-C005",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0\n"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": true,
+      "alternative_anchor_fixture": true
+    },
+    {
+      "id": "v1-C006",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\r",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C007",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\r\n",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C008",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\t",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C009",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": " f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C010",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f ",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C011",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "é",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C012",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f ",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C013",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f ",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C014",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "if",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C015",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f\u0000",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C016",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "uncons",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "id": "v1-C017",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0\r"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C018",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0\r\n"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C019",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0\t"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C020",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": " 0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C021",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0 "
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C022",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0 "
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C023",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0 "
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C024",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "-0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C025",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "01"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C026",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "+1"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C027",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": 0
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C028",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "-1"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "id": "v1-C029",
+      "kind": "ast_shape_model",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "id": "v1-C030",
+      "kind": "schema",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                },
+                "tag": "param"
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C031",
+      "kind": "ast_shape_model",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "f",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                },
+                "tag": "param"
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": "E-AST-UNKNOWN-FIELD"
+    },
+    {
+      "id": "v1-C032",
+      "kind": "ast_shape_model",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "if",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": 0
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": "E-AST-FIELD-TYPE"
+    },
+    {
+      "id": "v1-C033",
+      "kind": "ast_shape_model",
+      "input": {
+        "codec": "ast_codec_v1",
+        "declarations": [
+          {
+            "tag": "fn",
+            "name": "if",
+            "params": [
+              {
+                "name": "x",
+                "type": {
+                  "tag": "unit"
+                }
+              }
+            ],
+            "return_type": {
+              "tag": "int"
+            },
+            "body": {
+              "tag": "int",
+              "value": "0"
+            }
+          },
+          {
+            "tag": "entry",
+            "name": "f"
+          }
+        ]
+      },
+      "expected": "E-AST-IDENTIFIER"
+    },
+    {
+      "id": "v1-C034",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "var",
+          "name": "x"
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          1,
+          0,
+          1
+        ],
+        "total": 2,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C035",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "int",
+          "value": "0"
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          1,
+          1,
+          1
+        ],
+        "total": 3,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C036",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "call",
+          "callee": "add",
+          "args": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "int",
+              "value": "2"
+            }
+          ]
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          3,
+          3,
+          3
+        ],
+        "total": 9,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C037",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "some",
+          "value": {
+            "tag": "int",
+            "value": "0"
+          }
+        },
+        "return_type": [
+          "option",
+          [
+            "int"
+          ]
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          2,
+          2,
+          2
+        ],
+        "total": 6,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C038",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "list",
+          "items": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "int",
+              "value": "2"
+            }
+          ]
+        },
+        "return_type": [
+          "list",
+          [
+            "int"
+          ]
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          3,
+          3,
+          4
+        ],
+        "total": 10,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C039",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "none"
+        },
+        "return_type": [
+          "option",
+          [
+            "int"
+          ]
+        ],
+        "limit": 2000000
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          1,
+          1,
+          2
+        ],
+        "total": 4,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C040",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "call",
+          "callee": "add",
+          "args": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "bool",
+              "value": true
+            },
+            {
+              "tag": "int",
+              "value": "0"
+            }
+          ]
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 0
+      },
+      "expected": {
+        "status": "cutoff",
+        "counts": [
+          0,
+          0,
+          0
+        ],
+        "total": 0,
+        "diagnostics": [
+          "E-LIMIT-STATIC-SEMANTIC-WORK"
+        ]
+      }
+    },
+    {
+      "id": "v1-C041",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "call",
+          "callee": "add",
+          "args": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "bool",
+              "value": true
+            },
+            {
+              "tag": "int",
+              "value": "0"
+            }
+          ]
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 1
+      },
+      "expected": {
+        "status": "cutoff",
+        "counts": [
+          1,
+          0,
+          0
+        ],
+        "total": 1,
+        "diagnostics": [
+          "E-ARITY-BUILTIN",
+          "E-LIMIT-STATIC-SEMANTIC-WORK"
+        ]
+      }
+    },
+    {
+      "id": "v1-C042",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "call",
+          "callee": "add",
+          "args": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "int",
+              "value": "2"
+            }
+          ]
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 8
+      },
+      "expected": {
+        "status": "cutoff",
+        "counts": [
+          3,
+          3,
+          2
+        ],
+        "total": 8,
+        "diagnostics": [
+          "E-LIMIT-STATIC-SEMANTIC-WORK"
+        ]
+      }
+    },
+    {
+      "id": "v1-C043",
+      "kind": "type_trace_model",
+      "input": {
+        "expr": {
+          "tag": "call",
+          "callee": "add",
+          "args": [
+            {
+              "tag": "int",
+              "value": "1"
+            },
+            {
+              "tag": "int",
+              "value": "2"
+            }
+          ]
+        },
+        "return_type": [
+          "int"
+        ],
+        "limit": 9
+      },
+      "expected": {
+        "status": "finished",
+        "counts": [
+          3,
+          3,
+          3
+        ],
+        "total": 9,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "v1-C044",
+      "kind": "admission_model",
+      "input": {
+        "events": [
+          "program",
+          "fn",
+          "param",
+          "Unit_annotation",
+          "Unit_return",
+          "some",
+          "unit"
+        ],
+        "limit": 6
+      },
+      "expected": {
+        "admitted": 6,
+        "next": "unit",
+        "cutoff": "AST-NODES"
+      }
+    },
+    {
+      "id": "v1-C045",
+      "kind": "admission_model",
+      "input": {
+        "events": [
+          "program",
+          "fn",
+          "param",
+          "Unit_annotation",
+          "Unit_return",
+          "some",
+          "unit"
+        ],
+        "limit": 7
+      },
+      "expected": {
+        "admitted": 7,
+        "next": null,
+        "cutoff": null
+      }
+    },
+    {
+      "id": "v1-C046",
+      "kind": "recovery_model",
+      "input": {
+        "tokens": [
+          "fn",
+          "x",
+          "=",
+          "fn",
+          "y",
+          "EOF"
+        ],
+        "s": 0,
+        "p": 3,
+        "count": 0
+      },
+      "expected": {
+        "result": "resume_keep_token",
+        "count": 1,
+        "q": 3
+      }
+    },
+    {
+      "id": "v1-C047",
+      "kind": "recovery_model",
+      "input": {
+        "tokens": [
+          "bad",
+          "fn",
+          "x",
+          "EOF"
+        ],
+        "s": 0,
+        "p": 0,
+        "count": 0
+      },
+      "expected": {
+        "result": "resume_keep_token",
+        "count": 1,
+        "q": 1
+      }
+    },
+    {
+      "id": "v1-C048",
+      "kind": "recovery_model",
+      "input": {
+        "tokens": [
+          "fn",
+          "EOF"
+        ],
+        "s": 0,
+        "p": 1,
+        "count": 8
+      },
+      "expected": {
+        "result": "stop_eof",
+        "count": 8,
+        "q": 1
+      }
+    },
+    {
+      "id": "v1-C049",
+      "kind": "recovery_model",
+      "input": {
+        "tokens": [
+          "fn",
+          "bad",
+          "entry",
+          "EOF"
+        ],
+        "s": 0,
+        "p": 1,
+        "count": 8
+      },
+      "expected": {
+        "result": "recovery_limit",
+        "count": 8,
+        "q": null
+      }
+    },
+    {
+      "id": "v1-C050",
+      "kind": "recovery_model",
+      "input": {
+        "tokens": [
+          "fn",
+          "bad",
+          "entry",
+          "EOF"
+        ],
+        "s": 0,
+        "p": 1,
+        "count": 8,
+        "guard": true
+      },
+      "expected": {
+        "result": "structural_cutoff",
+        "count": 8,
+        "q": null
+      }
+    },
+    {
+      "id": "v1-C051",
+      "kind": "source_boundary",
+      "input": {
+        "name_length": 524276
+      },
+      "expected": [
+        1048576,
+        1048582
+      ]
+    },
+    {
+      "id": "v1-C052",
+      "kind": "int_boundary",
+      "input": {
+        "exponent": 4096
+      },
+      "expected": {
+        "digits": 4097,
+        "bits": 13607
+      }
+    },
+    {
+      "id": "v1-C053",
+      "kind": "episode_aggregation",
+      "input": {
+        "candidates": [
+          {
+            "accepted": false,
+            "hidden_pass": false
+          },
+          {
+            "accepted": false,
+            "hidden_pass": false
+          },
+          {
+            "accepted": false,
+            "hidden_pass": false
+          },
+          {
+            "accepted": true,
+            "hidden_pass": true
+          }
+        ],
+        "budget_ok": true
+      },
+      "expected": {
+        "episodes": 1,
+        "successes": 1,
+        "selected": 3,
+        "candidate_count": 4
+      }
+    },
+    {
+      "id": "v1-C054",
+      "kind": "episode_aggregation",
+      "input": {
+        "candidates": [
+          {
+            "accepted": true,
+            "hidden_pass": true
+          },
+          {
+            "accepted": true,
+            "hidden_pass": false
+          }
+        ],
+        "budget_ok": true
+      },
+      "expected": {
+        "episodes": 1,
+        "successes": 0,
+        "selected": 1,
+        "candidate_count": 2
+      }
+    },
+    {
+      "id": "v1-C055",
+      "kind": "budget_vector",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ]
+      },
+      "expected": true
+    },
+    {
+      "id": "v1-C056",
+      "kind": "budget_vector",
+      "input": {
+        "observed": [
+          100,
+          101,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C057",
+      "kind": "decoded_duplicate_demo",
+      "input": "{\"name\":\"x\",\"\\u006eame\":\"y\"}",
+      "expected": true
+    },
+    {
+      "id": "v1-C058",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"pair\",\"left\":{\"tag\":\"unit\",\"extra\":0},\"right\":{\"tag\":\"unit\"}}",
+        "type": [
+          "pair",
+          "unit",
+          "unit"
+        ],
+        "depth_limit": 1,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-UNKNOWN-FIELD",
+        "admitted": 1,
+        "depths": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "v1-C059",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"pair\",\"left\":{\"tag\":\"unit\"},\"right\":{\"tag\":\"unit\"}}",
+        "type": [
+          "pair",
+          "unit",
+          "unit"
+        ],
+        "depth_limit": 1,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-LIMIT-INPUT-VALUE-DEPTH",
+        "admitted": 1,
+        "depths": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "v1-C060",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"pair\",\"left\":{\"tag\":\"unit\"},\"right\":{\"tag\":\"unit\"}}",
+        "type": [
+          "pair",
+          "unit",
+          "unit"
+        ],
+        "depth_limit": 1,
+        "node_limit": 1,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-LIMIT-INPUT-VALUE-DEPTH",
+        "admitted": 1,
+        "depths": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "v1-C061",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"int\",\"value\":\"+1\"}",
+        "type": "int",
+        "depth_limit": 128,
+        "node_limit": 0,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-LIMIT-INPUT-VALUE-NODES",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C062",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"int\",\"value\":\"01\"}",
+        "type": "int",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 1
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-INTEGER",
+        "admitted": 1,
+        "depths": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "v1-C063",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"int\",\"value\":1}",
+        "type": "int",
+        "depth_limit": 128,
+        "node_limit": 0,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-FIELD-TYPE",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C064",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"bool\",\"value\":true}",
+        "type": "unit",
+        "depth_limit": 0,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-TAG",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C065",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"int\"}",
+        "type": "int",
+        "depth_limit": 128,
+        "node_limit": 0,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-MISSING-FIELD",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C066",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"unit\",\"extra\":0}",
+        "type": "unit",
+        "depth_limit": 128,
+        "node_limit": 0,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-UNKNOWN-FIELD",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C067",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"int\",\"value\":\"100\"}",
+        "type": "int",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 2
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-LIMIT-INPUT-INTEGER-DIGITS",
+        "admitted": 1,
+        "depths": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "v1-C068",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"pair\",\"left\":{\"tag\":\"unit\"},\"right\":{\"tag\":\"unit\"}}",
+        "type": [
+          "pair",
+          "unit",
+          "unit"
+        ],
+        "depth_limit": 2,
+        "node_limit": 3,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "decoded",
+        "code": null,
+        "admitted": 3,
+        "depths": [
+          1,
+          2,
+          2
+        ]
+      }
+    },
+    {
+      "id": "v1-C069",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"pair\",\"left\":{\"tag\":\"unit\"},\"right\":{\"tag\":\"unit\"}}",
+        "type": [
+          "pair",
+          "unit",
+          "unit"
+        ],
+        "depth_limit": 128,
+        "node_limit": 2,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-LIMIT-INPUT-VALUE-NODES",
+        "admitted": 2,
+        "depths": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "v1-C070",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"list\",\"items\":[{\"tag\":\"int\",\"value\":\"1\"},{\"tag\":\"int\",\"value\":\"2\"}]}",
+        "type": [
+          "list",
+          "int"
+        ],
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "decoded",
+        "code": null,
+        "admitted": 3,
+        "depths": [
+          1,
+          2,
+          2
+        ]
+      }
+    },
+    {
+      "id": "v1-C071",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"unit\",\"\\ud800\":0,\"z\":0}",
+        "type": "unit",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-STRING-SCALAR",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C072",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"unit\",\"tag\":\"unit\",\"x\":\"\\ud800\"}",
+        "type": "unit",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-STRING-SCALAR",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C073",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"wrong\",\"\\u0074ag\":\"unit\"}",
+        "type": "unit",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-DUPLICATE-KEY",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C074",
+      "kind": "input_admission_model",
+      "input": {
+        "json": "{\"tag\":\"unit\",\"\\ud83d\\ude00\":0}",
+        "type": "unit",
+        "depth_limit": 128,
+        "node_limit": 262144,
+        "digit_limit": 4096
+      },
+      "expected": {
+        "status": "invalid",
+        "code": "E-INPUT-UNKNOWN-FIELD",
+        "admitted": 0,
+        "depths": []
+      }
+    },
+    {
+      "id": "v1-C075",
+      "kind": "json_scalar_stage_model",
+      "input": "\"\\ud800\"",
+      "expected": "E-INPUT-STRING-SCALAR"
+    },
+    {
+      "id": "v1-C076",
+      "kind": "json_scalar_stage_model",
+      "input": "\"\\udc00\"",
+      "expected": "E-INPUT-STRING-SCALAR"
+    },
+    {
+      "id": "v1-C077",
+      "kind": "json_scalar_stage_model",
+      "input": "\"\\ud800\\u0041\"",
+      "expected": "E-INPUT-STRING-SCALAR"
+    },
+    {
+      "id": "v1-C078",
+      "kind": "json_scalar_stage_model",
+      "input": "\"\\ud83d\\ude00\"",
+      "expected": null
+    },
+    {
+      "id": "v1-C079",
+      "kind": "json_scalar_stage_model",
+      "input": "{\"x\":\"\\ud800\",",
+      "expected": "E-INPUT-JSON-SYNTAX"
+    },
+    {
+      "id": "v1-C080",
+      "kind": "json_scalar_stage_model",
+      "input": "{\"name\":0,\"\\u006eame\":1}",
+      "expected": "E-INPUT-DUPLICATE-KEY"
+    },
+    {
+      "id": "v1-C081",
+      "kind": "json_scalar_stage_model",
+      "input": "{\"extra\":{\"x\":\"\\ud800\"}}",
+      "expected": "E-INPUT-STRING-SCALAR"
+    },
+    {
+      "id": "v1-C082",
+      "kind": "budget_end_model",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "stop_reason": "normal_stop",
+        "candidates": [
+          {
+            "accepted": true,
+            "hidden_pass": true
+          }
+        ]
+      },
+      "expected": {
+        "reason": "normal_stop",
+        "budget_ok": true,
+        "selected": 0,
+        "success": 1
+      }
+    },
+    {
+      "id": "v1-C083",
+      "kind": "budget_end_model",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "stop_reason": "budget_reached",
+        "candidates": [
+          {
+            "accepted": true,
+            "hidden_pass": true
+          }
+        ]
+      },
+      "expected": {
+        "reason": "budget_reached",
+        "budget_ok": true,
+        "selected": 0,
+        "success": 1
+      }
+    },
+    {
+      "id": "v1-C084",
+      "kind": "budget_end_model",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "stop_reason": "operation_guarded",
+        "candidates": [
+          {
+            "accepted": true,
+            "hidden_pass": true
+          }
+        ]
+      },
+      "expected": {
+        "reason": "operation_guarded",
+        "budget_ok": true,
+        "selected": 0,
+        "success": 1
+      }
+    },
+    {
+      "id": "v1-C085",
+      "kind": "budget_end_model",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "stop_reason": "budget_reached",
+        "candidates": [
+          {
+            "accepted": false,
+            "hidden_pass": false
+          }
+        ]
+      },
+      "expected": {
+        "reason": "no_accepted_candidate",
+        "budget_ok": true,
+        "selected": null,
+        "success": 0
+      }
+    },
+    {
+      "id": "v1-C086",
+      "kind": "budget_end_model",
+      "input": {
+        "observed": [
+          100,
+          101,
+          4,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ],
+        "stop_reason": "normal_stop",
+        "candidates": [
+          {
+            "accepted": true,
+            "hidden_pass": true
+          }
+        ]
+      },
+      "expected": {
+        "reason": "budget_exceeded",
+        "budget_ok": false,
+        "selected": 0,
+        "success": 0
+      }
+    },
+    {
+      "id": "v1-C087",
+      "kind": "budget_vector",
+      "input": {
+        "observed": [
+          100,
+          100,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C088",
+      "kind": "budget_vector",
+      "input": {
+        "observed": [
+          100,
+          100,
+          -1,
+          4
+        ],
+        "limit": [
+          100,
+          100,
+          4,
+          4
+        ]
+      },
+      "expected": false
+    },
+    {
+      "id": "v1-C089",
+      "kind": "spec_bound_preimage_model",
+      "input": {
+        "spec_version": "spec-test-a",
+        "structural_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": "4c50544c2d737065632d626f756e642d73796e7461782d7631005b22737065632d746573742d61222c226173745f636f6465635f7631222c2230303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030225d"
+    },
+    {
+      "id": "v1-C090",
+      "kind": "spec_bound_version_separation",
+      "input": {
+        "version_a": "spec-test-a",
+        "version_b": "spec-test-b",
+        "structural_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": true
+    },
+    {
+      "id": "v1-C091",
+      "kind": "spec_bound_preimage_model",
+      "input": {
+        "spec_version": null,
+        "structural_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": null
+    },
+    {
+      "id": "v1-C092",
+      "kind": "spec_bound_preimage_model",
+      "input": {
+        "spec_version": "",
+        "structural_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": null
+    }
+  ]
+}
