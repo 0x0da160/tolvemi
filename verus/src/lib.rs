@@ -16,6 +16,7 @@ pub mod ir;
 pub mod json;
 pub mod pipeline;
 pub mod proof;
+pub mod resolve;
 pub mod spec;
 pub mod surface;
 pub mod syntax;

@@ -8,7 +8,11 @@ use crate::check::*;
 use crate::eval::*;
 use crate::ir::*;
 use crate::json::*;
+use crate::parse_proof::*;
 use crate::proof::*;
+use crate::resolve::*;
+use crate::surface::*;
+use crate::syntax::*;
 use crate::spec::*;
 use crate::value::*;
 use std::rc::Rc;
@@ -109,6 +113,79 @@ pub fn run_checked_json(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Output)
             }
             Output::Ran(Ok(o), steps, alloc)
         },
+    }
+}
+
+// ------------------------------------------------------------------ source から実行可能プログラムまで
+
+/// source が表す名前解決済みプログラム（関数列と entry）。d、td は式と型の入れ子の深さ上限。
+pub open spec fn source_prog(src: Seq<char>, d: nat, td: nat) -> Option<(Seq<Func>, nat)> {
+    match parse(src, d, td) {
+        Some(p) => resolve(p),
+        None => None,
+    }
+}
+
+pub enum Compiled {
+    /// 字句・構文の規則に合わない
+    ParseRejected,
+    /// 名前解決・entry 検査に通らない
+    NameRejected,
+    /// 型検査またはランク証明書の検査に通らない
+    NotWellFormed,
+    Accepted(EProg),
+}
+
+/// 検証済みの lexer・parser・名前解決・型検査を通して実行可能プログラムを作る。
+/// rank は呼出しグラフのランク（未検証の Tarjan が作る）で、ここで検査する。
+pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>) -> (r: Compiled)
+    requires
+        src@.len() < 0x1000_0000,
+    ensures
+        r is ParseRejected <==> parse(src@, d as nat, td as nat) is None,
+        r is NameRejected ==> parse(src@, d as nat, td as nat) is Some && source_prog(src@, d as nat, td as nat) is None,
+        r matches Compiled::Accepted(p) ==> source_prog(src@, d as nat, td as nat) == Some(
+            (view_prog(p).funcs, view_prog(p).entry),
+        ) && wf(view_prog(p)),
+{
+    let sp = match parse_e(src, d, td) {
+        Some(sp) => sp,
+        None => return Compiled::ParseRejected,
+    };
+    let (funcs, entry) = match resolve_e(&sp) {
+        Some(r) => r,
+        None => return Compiled::NameRejected,
+    };
+    let p = EProg { funcs, rank, entry };
+    proof {
+        assert(view_prog(p).funcs =~= vfuncs(p.funcs@));
+    }
+    if !check_prog(&p) {
+        return Compiled::NotWellFormed;
+    }
+    Compiled::Accepted(p)
+}
+
+/// 正準ソース。受理した source の整形結果は、parse すると同じ AST に戻り、
+/// 字句解析すると元の source と同じ token 列になる（parse_proof::format_idempotent）。
+pub fn canonical_source(src: &Vec<char>, d: usize, td: usize) -> (r: Option<Vec<char>>)
+    requires
+        src@.len() < 0x1000_0000,
+    ensures
+        r is None <==> parse(src@, d as nat, td as nat) is None,
+        r matches Some(o) ==> o@ == fds(parse(src@, d as nat, td as nat)->Some_0, 0)
+            && parse(o@, d as nat, td as nat) == parse(src@, d as nat, td as nat)
+            && lex(o@) == lex(src@),
+{
+    match parse_e(src, d, td) {
+        Some(sp) => {
+            let o = format_e(&sp);
+            proof {
+                format_idempotent(src@, d as nat, td as nat);
+            }
+            Some(o)
+        },
+        None => None,
     }
 }
 
