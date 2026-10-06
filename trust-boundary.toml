@@ -75,7 +75,7 @@ trusted = [
 [unproved]
 # 未証明のもの（回帰テストと、検証済み部品との突き合わせ・差分テストでのみ確認）
 "spec-review" = "spec 層が設計書を正しく写していること（上の [spec_review]）"
-"diagnostics" = "診断を出す lexer・parser・検査器・入力復号器（コード、span、段階順、recovery）。受理・拒否は検証済み部品と突き合わせ、食い違えば E-INTERNAL-VERIFIED-MISMATCH で拒否する"
+"diagnostics" = "診断を出す lexer・parser・検査器・入力復号器（コード、span、段階順、recovery、repair、--human の表示）。受理・拒否は検証済み部品と突き合わせ、食い違えば E-INTERNAL-VERIFIED-MISMATCH で拒否する"
 "resource-limits" = "StaticProfile、InputAdmission（値の深さ・node 数・桁数）、出力 bytes の判定。評価器の step・割当・bit 長は検証済み評価器の中で数えるが、上限での打ち切りの正しさは spec に含まない"
 "completeness" = "整形式のプログラムを check_prog が必ず受理すること、Tarjan 実装が正しいランクを作ること"
 "10.envelopes" = "検証済み部品の結果を Compile / Decode / Run の envelope に写す接着（crates/tlvm の api.rs、values.rs、evaluator.rs）"
@@ -96,6 +96,8 @@ glue = [
   "crates/tlvm/src/values.rs：入力の UTF-8 から文字列への変換、型の変換（verified_ty）、検証済み復号器との突き合わせ",
   "crates/tlvm/src/evaluator.rs：実行結果を RunResult の envelope に写す、入力整数の bit 長の事前検査",
   "crates/tlvm/src/main.rs：fmt で検証済み formatter の出力を tlvm の整形と突き合わせる",
+  "crates/tlvm/src/plain.rs：普通の JSON と値 JSON の相互変換（設計書の外側の便宜。変換後の値 JSON は検証済みの復号器で読む）",
+  "crates/tlvm/src/main.rs：tlvm test の期待値との照合（出力の正準 JSON の文字列比較）",
 ]
 unsafe = []
 tests = "cargo test --release（回帰テスト）。検証済み部品に切り替える前の処理系との差分テスト（型付きプログラム 400 件、字句・名前を壊したプログラム 2900 件、入力 JSON 4000 件）で出力・診断・終了コードが一致"

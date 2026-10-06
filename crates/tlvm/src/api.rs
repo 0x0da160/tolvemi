@@ -2,7 +2,8 @@
 
 use crate::ast_codec::{self, Transport};
 use crate::checker::{check_program, CheckOutcome, TypedProgram, VerifiedProgram, WorkCounter};
-use crate::diagnostics::{finalize, Diagnostic};
+use crate::diagnostics::{finalize, suggest_repairs, Diagnostic};
+use crate::plain::{canonical_profile, decode_plain, PlainDecode};
 use crate::evaluator::{self, RunResult};
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
@@ -95,6 +96,24 @@ pub fn parse_source(source: &[u8], profile: &StaticProfile) -> Parsed {
 }
 
 pub fn compile(source: &[u8], profile: &StaticProfile) -> SourceCompile {
+    match compile_unrepaired(source, profile) {
+        SourceCompile::Result(r) => SourceCompile::Result(with_repairs(r)),
+        f => f,
+    }
+}
+
+/// source API の診断に修復ヒントを付ける（§10.1。AST API では付けない）。
+fn with_repairs(r: CompileResult) -> CompileResult {
+    match r {
+        CompileResult::Rejected { mut errors, warnings, work } => {
+            suggest_repairs(&mut errors);
+            CompileResult::Rejected { errors, warnings, work }
+        }
+        accepted => accepted,
+    }
+}
+
+fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     match parse_source(source, profile) {
         Parsed::Failed(SourceCompile::Result(r)) => {
             // parse_source が SourceBoundaryFailure を返さなかったので UTF-8 として妥当
@@ -218,13 +237,34 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             let r = result(o.diagnostics.clone(), Some(o));
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）
             let text = format_program(&p);
-            AstCompile::Result(cross_check(&text, r, profile))
+            AstCompile::Result(without_repairs(cross_check(&text, r, profile)))
         }
+    }
+}
+
+/// AST API は安全な JSON 部分木の置換を指定できないので repair を出さない（§10.1）。
+fn without_repairs(r: CompileResult) -> CompileResult {
+    let strip = |ds: Vec<Diagnostic>| ds.into_iter().map(|d| Diagnostic { repair: None, ..d }).collect::<Vec<_>>();
+    match r {
+        CompileResult::Rejected { errors, warnings, work } => {
+            CompileResult::Rejected { errors: strip(errors), warnings: strip(warnings), work }
+        }
+        CompileResult::Accepted { program, warnings, work } => CompileResult::Accepted { program, warnings: strip(warnings), work },
     }
 }
 
 pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
     values::decode_input(t_in, data, profile)
+}
+
+/// 普通の JSON（`plain` モジュールの対応表）で入力を読む。値 JSON へ変換してから `decode_input` と同じ
+/// 経路（診断付きの復号器と検証済みの復号器の突き合わせ）で復号する。診断の span は plain JSON の bytes 上。
+pub fn decode_plain_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
+    match decode_plain(t_in, data, profile) {
+        PlainDecode::Canonical(text) => values::decode_input(t_in, text.as_bytes(), &canonical_profile(profile)),
+        PlainDecode::Invalid(d) => DecodeResult::Invalid(d),
+        PlainDecode::InputBoundaryFailure => DecodeResult::InputBoundaryFailure,
+    }
 }
 
 /// 深い再帰に備えて host-policy のスタック量を持つスレッドで評価する。

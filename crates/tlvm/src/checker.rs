@@ -3,12 +3,15 @@
 //! Surface（compile）と AST（compile_ast）の双方がこのモジュールを通る
 //! （設計書 §5、§6、§10.2、§18.1a）。
 
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{closest, Diagnostic};
 use crate::profiles::StaticProfile;
 use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 // ======================================================================= name
+
+const BUILTINS: [&str; 14] =
+    ["add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length"];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
     let mut diags = vec![];
@@ -24,12 +27,33 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
         match &e.kind {
             ExprKind::Var(n) => {
                 if !env.contains(&n.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-UNBOUND-VARIABLE", e.meta.span()).act(n).at(idx));
+                    let mut d = Diagnostic::error("name", "E-NAME-UNBOUND-VARIABLE", e.meta.span()).act(n).at(idx);
+                    if !env.is_empty() {
+                        // scope 内の変数を、近い名前を先に、最大 8 件
+                        let near = closest(n, env.iter().copied(), 8);
+                        let mut rest: Vec<&str> = env.iter().copied().filter(|v| !near.contains(v)).collect();
+                        rest.sort();
+                        rest.dedup();
+                        let names: Vec<&str> = near.into_iter().chain(rest).take(8).collect();
+                        d = d.fix("replace_identifier", e.meta.span(), format!("variable in scope: {}", names.join(", ")));
+                    }
+                    diags.push(d);
                 }
             }
             ExprKind::Call { callee, args, builtin, callee_span } => {
                 if !builtin && !known.contains(callee.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-UNKNOWN-FUNCTION", callee_span.t()).act(callee).at(idx));
+                    let near = closest(callee, known.iter().copied().chain(BUILTINS), 3);
+                    let constraint = if near.is_empty() {
+                        "name of a defined function or builtin".to_string()
+                    } else {
+                        format!("defined function or builtin, e.g. {}", near.join(", "))
+                    };
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-UNKNOWN-FUNCTION", callee_span.t())
+                            .act(callee)
+                            .at(idx)
+                            .fix("replace_identifier", callee_span.t(), constraint),
+                    );
                 }
                 for a in args {
                     walk(a, env, known, diags);
@@ -84,7 +108,18 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
             }
             Decl::Entry(e) => {
                 if !known.contains(e.name.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-ENTRY-UNKNOWN", e.name_span.t()).act(&e.name).at(e.meta.index));
+                    let near = closest(&e.name, known.iter().copied(), 3);
+                    let constraint = if near.is_empty() {
+                        "name of a defined one-parameter function".to_string()
+                    } else {
+                        format!("defined function, e.g. {}", near.join(", "))
+                    };
+                    diags.push(
+                        Diagnostic::error("name", "E-ENTRY-UNKNOWN", e.name_span.t())
+                            .act(&e.name)
+                            .at(e.meta.index)
+                            .fix("replace_identifier", e.name_span.t(), constraint),
+                    );
                 }
             }
         }

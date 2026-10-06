@@ -53,7 +53,8 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `values.rs` | §9 | 診断付きの値 JSON の復号（InputAdmission を含む）と、検証済み復号器との突き合わせ |
 | `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
-| `main.rs` | — | `tlvm check|run|fmt|ast` |
+| `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
+| `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
 
 ```sh
 cargo build --release
@@ -153,10 +154,55 @@ registry が決まったら差し替える前提です。
 - `E-DIAG-LIMIT`／`W-DIAG-LIMIT` の phase は `diagnostic-limit`、span はゼロ幅 0 としています。
 - `E-LIMIT-STATIC-SOURCE-BYTES` と入力・AST の bytes 上限診断の span はゼロ幅 0 です。
 - 型エラーの主 span は違反した部分式（if 分岐不一致は else 枝、arity は call 全体）です。
-- repair は推測で出さない規則に従い、全て `null` です。
+- repair は source API の診断にだけ、次の機械的に決まる場合に付けます（AST API では §10.1 に従い常に `null`）。
+  修復の正しさ・唯一性は保証しません。欠けた区切り記号（`E-PARSE-EXPECTED-TOKEN`）のように挿入位置や内容が
+  一意に決まらないものには付けません。
+
+  | コード | kind | constraint |
+  |---|---|---|
+  | `E-TYPE-RETURN`、`-ARG`、`-LIST-ITEM`、`-IF-CONDITION`、`-IF-BRANCH`、`-FOLD-BODY`、`-EQ-OPERANDS` | `replace_expression` | `expression of type T`（T は expected） |
+  | `E-TYPE-FOLD-LIST`、`-EXPECTED-LIST`／`-FST-ARG`、`-SND-ARG` | `replace_expression` | `expression of type List<...>`／`Pair<..., ...>` |
+  | `E-ARITY-USER`、`-BUILTIN` | `replace_expression` | `call with N arguments` |
+  | `E-NAME-UNBOUND-VARIABLE` | `replace_identifier` | `variable in scope: …`（近い名前を先に最大 8 件。scope が空なら repair なし） |
+  | `E-NAME-UNKNOWN-FUNCTION`、`E-ENTRY-UNKNOWN` | `replace_identifier` | 編集距離の近い関数名・組込み名（最大 3 件）、無ければ一般的な制約 |
+  | `E-NAME-SHADOW`、`-DUPLICATE-BINDER`、`-DUPLICATE-PARAM`、`-DUPLICATE-FUNCTION` | `replace_identifier` | 未使用の名前 |
+  | `E-ENTRY-MISSING` | `insert_text`（EOF のゼロ幅） | entry 宣言 |
+  | `E-LEX-INVALID-INTEGER` | `replace_expression` | 正規形の整数リテラル |
+  | `E-PARSE-EXPECTED-IDENT`／`-EXPECTED-TYPE` | `replace_identifier`／`replace_type` | 予約語でない識別子／型の文法 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
+
+## 設計書の外側の便宜（plain JSON、--human、tlvm test）
+
+設計書の入出力（§9.2 の値 JSON）と診断 JSON（§10.1）はそのままにして、使いやすくするための層を足しています。
+どれも検証されていない接着部分です（`trust-boundary.toml` の `glue`）。
+
+- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::decode_plain_input`）：entry の入力型で普通の JSON を読み、
+  値 JSON に変換してから従来どおり診断付きの復号器と検証済みの復号器で読みます。出力は検証済み encoder の値 JSON を
+  出力型で普通の JSON に戻します。対応は型ごとに一対一です。
+
+  | 型 | plain JSON |
+  |---|---|
+  | `Int` | 整数の number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理。出力は number |
+  | `Bool`／`Unit` | `true`・`false`／`null` |
+  | `List<T>`／`Pair<A, B>` | 配列／二要素の配列 |
+  | `Option<T>` | `none` は `null`、`some(v)` は v。T が `Unit` か `Option` のときだけ `{"some": v}` |
+
+  入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
+  plain JSON の bytes 上の位置です。
+- **`--human`**：診断を `file:行:列: error[CODE]: message (expected …, found …)` の形で、該当行・下線・修復ヒントを
+  添えて出します。既定の出力は §10.1 の一行 JSON のままです（schema は未知キーを禁じるので、行・列は JSON に足しません）。
+- **`tlvm test FILE [CASES]`**：`CASES`（既定は `FILE` の拡張子を `.tests.json` にしたもの）の
+  `[{"name": …, "input": …, "expected": …}]` を順に実行し、出力の正準 JSON を期待値と比べます。
+  input と expected は plain JSON（`--canonical` なら値 JSON）。一件ごとに一行 JSON、最後に件数を出し、
+  全件 pass なら終了コード 0、それ以外は 1 です。
+
+```sh
+cargo run --release -- run examples/positive_values.tlvm '[3, -1, 2]' --plain     # => [3,2]
+cargo run --release -- check examples/sum_even.tlvm --human
+cargo run --release -- test examples/sum_even.tlvm                                # examples/sum_even.tests.json
+```
 
 ## 未実装
 

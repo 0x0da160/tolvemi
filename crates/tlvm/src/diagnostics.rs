@@ -113,6 +113,16 @@ pub struct Diagnostic {
     pub message: String,
     pub node_index: usize,
     pub seq: usize,
+    pub repair: Option<Repair>,
+}
+
+/// 修復ヒント（設計書 §10.1）。修復の正しさ・唯一性は保証しない。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Repair {
+    /// replace_expression | replace_identifier | replace_type | insert_text | delete_span
+    pub kind: &'static str,
+    pub target_span: Span,
+    pub constraint: String,
 }
 
 impl Diagnostic {
@@ -127,6 +137,7 @@ impl Diagnostic {
             message: message_for(code).to_string(),
             node_index: 0,
             seq: 0,
+            repair: None,
         }
     }
 
@@ -144,6 +155,11 @@ impl Diagnostic {
         self
     }
 
+    pub fn fix(mut self, kind: &'static str, target_span: Span, constraint: impl Into<String>) -> Self {
+        self.repair = Some(Repair { kind, target_span, constraint: constraint.into() });
+        self
+    }
+
     pub fn at(mut self, node_index: usize) -> Self {
         self.node_index = node_index;
         self
@@ -153,14 +169,24 @@ impl Diagnostic {
         matches!(self.phase, "lexical-limits" | "structural-limits" | "semantic-limits")
     }
 
-    /// 正準 key 順の一行 JSON。repair は推測で出さないため常に null。
+    /// 正準 key 順の一行 JSON（§10.1）。repair は実装した規則（`suggest_repairs` と名前検査）が出したものだけ。
     pub fn to_json(&self) -> String {
         let opt = |o: &Option<String>| match o {
             Some(s) => json_string(s),
             None => "null".to_string(),
         };
+        let repair = match &self.repair {
+            Some(r) => format!(
+                "{{\"kind\":{},\"target_span\":{{\"start\":{},\"end\":{}}},\"constraint\":{}}}",
+                json_string(r.kind),
+                r.target_span.0,
+                r.target_span.1,
+                json_string(&r.constraint)
+            ),
+            None => "null".to_string(),
+        };
         format!(
-            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":null}}",
+            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":{}}}",
             json_string(self.severity),
             json_string(self.phase),
             json_string(self.code),
@@ -168,7 +194,8 @@ impl Diagnostic {
             self.span.1,
             opt(&self.expected),
             opt(&self.actual),
-            json_string(&self.message)
+            json_string(&self.message),
+            repair
         )
     }
 }
@@ -242,4 +269,107 @@ fn limit(diags: Vec<Diagnostic>, code: &'static str) -> Vec<Diagnostic> {
     d.severity = severity;
     kept.push(d);
     kept
+}
+
+// ---------------------------------------------------------------- 修復ヒント
+
+/// 型・引数数・構文・entry の診断に修復ヒントを付ける（source API 用。AST API では付けない）。
+/// どれも診断が既に持つ span と expected から機械的に決まるものだけで、推測で式を作らない。
+pub fn suggest_repairs(diags: &mut [Diagnostic]) {
+    for d in diags.iter_mut() {
+        if d.repair.is_some() {
+            continue;
+        }
+        let span = d.span;
+        let exp = d.expected.clone();
+        let r: Option<(&'static str, Span, String)> = match d.code {
+            "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
+            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
+            "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
+            "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),
+            "E-NAME-SHADOW" | "E-NAME-DUPLICATE-BINDER" | "E-NAME-DUPLICATE-PARAM" => {
+                Some(("replace_identifier", span, "identifier not bound in any enclosing scope".into()))
+            }
+            "E-NAME-DUPLICATE-FUNCTION" => Some(("replace_identifier", span, "function name not used by another function".into())),
+            "E-ENTRY-MISSING" => Some(("insert_text", (span.0, span.0), "entry declaration naming a one-parameter function".into())),
+            "E-LEX-INVALID-INTEGER" => {
+                Some(("replace_expression", span, "canonical integer literal (no '+', no leading zeros, no -0)".into()))
+            }
+            "E-PARSE-EXPECTED-IDENT" => Some(("replace_identifier", span, "identifier that is not a reserved word".into())),
+            "E-PARSE-EXPECTED-TYPE" => {
+                Some(("replace_type", span, "type: Int | Bool | Unit | List<T> | Option<T> | Pair<A, B>".into()))
+            }
+            _ => None,
+        };
+        if let Some((kind, target_span, constraint)) = r {
+            d.repair = Some(Repair { kind, target_span, constraint });
+        }
+    }
+}
+
+/// 編集距離（候補名の提示用）。
+pub fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            let c = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + c);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// `name` に近い候補を距離・名前の順に最大 `max` 件（距離は名前の長さに応じて 1〜3 まで）。
+pub fn closest<'a>(name: &str, candidates: impl Iterator<Item = &'a str>, max: usize) -> Vec<&'a str> {
+    let limit = (name.chars().count() / 3).clamp(1, 3);
+    let mut v: Vec<(usize, &str)> =
+        candidates.map(|c| (edit_distance(name, c), c)).filter(|(d, c)| *d <= limit && *c != name).collect();
+    v.sort();
+    v.dedup();
+    v.into_iter().take(max).map(|(_, c)| c).collect()
+}
+
+// ---------------------------------------------------------------- 人間向けの表示
+
+/// byte offset の 1 始まりの行と列（列は文字数）。
+pub fn line_col(src: &[u8], offset: usize) -> (usize, usize) {
+    let offset = offset.min(src.len());
+    let before = &src[..offset];
+    let line = before.iter().filter(|b| **b == b'\n').count() + 1;
+    let line_start = before.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+    let col = String::from_utf8_lossy(&src[line_start..offset]).chars().count() + 1;
+    (line, col)
+}
+
+/// `file:行:列: error[CODE]: message` の形で、該当行と下線、expected／actual、修復ヒントを添える。
+/// JSON 診断（§10.1）の代わりではなく、同じ内容を読みやすくしたもの。
+pub fn render_human(d: &Diagnostic, label: &str, src: &[u8]) -> String {
+    let (line, col) = line_col(src, d.span.0);
+    let mut out = format!("{label}:{line}:{col}: {}[{}]: {}", d.severity, d.code, d.message);
+    match (&d.expected, &d.actual) {
+        (Some(e), Some(a)) => out.push_str(&format!(" (expected {e}, found {a})")),
+        (Some(e), None) => out.push_str(&format!(" (expected {e})")),
+        (None, Some(a)) => out.push_str(&format!(" (found {a})")),
+        (None, None) => {}
+    }
+    if !src.is_empty() && d.span.0 <= src.len() {
+        let start = d.span.0;
+        let line_start = src[..start].iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+        let line_end = src[start..].iter().position(|b| *b == b'\n').map_or(src.len(), |i| start + i);
+        let text = String::from_utf8_lossy(&src[line_start..line_end]);
+        let end = d.span.1.clamp(start, line_end);
+        let width = String::from_utf8_lossy(&src[start..end]).chars().count().max(1);
+        let num = line.to_string();
+        let pad = " ".repeat(num.len());
+        out.push_str(&format!("\n {num} | {text}\n {pad} | {}{}", " ".repeat(col - 1), "^".repeat(width)));
+    }
+    if let Some(r) = &d.repair {
+        out.push_str(&format!("\n = repair ({}): {}", r.kind, r.constraint));
+    }
+    out
 }
