@@ -1,0 +1,6 @@
+// 偶数の合計（設計書 §13.1）
+fn sum_even(xs: List<Int>) -> Int =
+  fold(xs, 0, |acc, x|
+    let r = mod(x, 2) in
+    if(eq(r, some(0)), add(acc, x), acc))
+entry sum_even
