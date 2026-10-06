@@ -6,6 +6,8 @@
 
 use crate::check::*;
 use crate::eval::*;
+use crate::input::*;
+use crate::input_exec::*;
 use crate::ir::*;
 use crate::json::*;
 use crate::parse_proof::*;
@@ -123,6 +125,73 @@ pub fn run_checked_json(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Output)
             }
             Output::Ran(Ok(o), steps, alloc)
         },
+    }
+}
+
+// ------------------------------------------------------------------ 入力 JSON から実行まで（§11.2 の 9、10）
+
+pub enum InputRun {
+    /// 検証済み型検査器がプログラムを受理しなかった
+    NotWellFormed,
+    /// 入力 JSON が strict JSON・値 JSON の規則に合わないか、entry の入力型の値でない
+    InputRejected,
+    /// 実行した（正準 JSON の結果または打ち切り理由、step 数、割当 node 数）
+    Ran(Result<String, Stop>, u64, u64),
+}
+
+/// entry の入力型。
+pub open spec fn in_ty(p: EProg) -> Ty {
+    view_prog(p).funcs[p.entry as int].params[0].1
+}
+
+/// 入力 JSON 文書を検証済みの復号器で読み、検証済み評価器で実行する。
+/// - 復号の拒否と実行の失敗は別の結果に分かれ、復号を拒否するのは spec の `input_val` が None のときだけ。
+/// - 実行が Fault（spec の行き詰まり）で終わることはない。
+/// - 出力 o は、復号した入力に対する spec の唯一の結果 w の正準 JSON。
+pub fn run_input_json(p: &EProg, text: &Vec<char>, d: usize, lim: Limits) -> (r: InputRun)
+    requires
+        limits_ok(lim),
+        text@.len() < 0x1000_0000,
+    ensures
+        r is InputRejected ==> wf(view_prog(*p)) && input_val(text@, d as nat, in_ty(*p)) is None,
+        r is Ran ==> wf(view_prog(*p)) && input_val(text@, d as nat, in_ty(*p)) is Some,
+        r matches InputRun::Ran(res, _, _) ==> !is_fault(res),
+        r matches InputRun::Ran(Ok(o), _, _) ==> exists|w: Val|
+            #![trigger is_entry_result(view_prog(*p), input_val(text@, d as nat, in_ty(*p))->Some_0, w)]
+            is_entry_result(view_prog(*p), input_val(text@, d as nat, in_ty(*p))->Some_0, w) && val_type(
+                w,
+                view_prog(*p).funcs[p.entry as int].ret,
+            ) && o@ == enc(w),
+{
+    if !check_prog(p) {
+        return InputRun::NotWellFormed;
+    }
+    let ghost pp = view_prog(*p);
+    let f = &p.funcs[p.entry];
+    proof {
+        assert(pp.funcs[p.entry as int] == view_func(p.funcs@[p.entry as int]));
+        assert(view_params(f.params@)[0].1 == f.params@[0].1);
+    }
+    let v = match decode_input_e(text, d, &f.params[0].1) {
+        Some(v) => v,
+        None => return InputRun::InputRejected,
+    };
+    let ghost iv = vv(v);
+    match run_checked_json(p, v, lim) {
+        Output::Ran(res, steps, alloc) => {
+            proof {
+                if res is Ok {
+                    let o = res->Ok_0;
+                    let w = choose|w: Val|
+                        #![trigger is_entry_result(pp, iv, w)]
+                        is_entry_result(pp, iv, w) && val_type(w, pp.funcs[p.entry as int].ret) && o@ == enc(w)
+                            && dec(o@, 0, pp.funcs[p.entry as int].ret) == Some((w, o@.len() as int));
+                    assert(is_entry_result(pp, input_val(text@, d as nat, in_ty(*p))->Some_0, w));
+                }
+            }
+            InputRun::Ran(res, steps, alloc)
+        },
+        _ => InputRun::NotWellFormed,
     }
 }
 
