@@ -1,0 +1,2 @@
+fn solve(p: Pair<Int, List<Int>>) -> Bool = fold(snd(p), false, |acc, x| if(acc, true, eq(x, fst(p))))
+entry solve

@@ -1,0 +1,10 @@
+{
+  "note": "v1 で書けないため予備実験の対象から外した課題（設計書 §12.4：表現できない課題は事前に分離し件数・理由を公開する）。参照解は持たない。",
+  "tasks": [
+    {"id": "x1-sum_present", "prompt": "Return the sum of the payloads of all some(_) elements of a List<Option<Int>>.", "reason": "Option の payload を取り出せない（§3.3）"},
+    {"id": "x2-sum_remainders", "prompt": "The input is pair(k, xs) with k > 0. Return the sum of x mod k over xs.", "reason": "動的な除数の mod の結果を整数計算に使えない（§3.3）"},
+    {"id": "x3-range", "prompt": "Given n >= 0, return the list 0, 1, ..., n-1.", "reason": "整数から長さ n のリストを作る反復が無い（fold はリストの上でしか回らず、再帰も無い）"},
+    {"id": "x4-average", "prompt": "Return the floor of the average of a non-empty list.", "reason": "除算が無い"},
+    {"id": "x5-gcd", "prompt": "Return the greatest common divisor of two positive integers.", "reason": "値の大きさに比例する反復が書けず、mod の結果も取り出せない"}
+  ]
+}

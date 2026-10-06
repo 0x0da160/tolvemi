@@ -1,0 +1,2 @@
+fn solve(bs: List<Bool>) -> Int = fold(bs, 0, |acc, b| if(b, add(acc, 1), acc))
+entry solve

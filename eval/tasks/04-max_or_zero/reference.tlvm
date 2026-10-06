@@ -1,0 +1,5 @@
+fn solve(xs: List<Int>) -> Int =
+  let st = fold(xs, pair(false, 0), |acc, x|
+    if(fst(acc), if(lt(snd(acc), x), pair(true, x), acc), pair(true, x))) in
+  snd(st)
+entry solve

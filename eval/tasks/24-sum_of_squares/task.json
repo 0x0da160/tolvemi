@@ -1,0 +1,13 @@
+{
+  "id": "24-sum_of_squares",
+  "title": "Sum of squares",
+  "category": "aggregate",
+  "prompt": "Return the sum of the squares of the elements.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 3], "expected": 14},
+    {"input": [], "expected": 0},
+    {"input": [-4], "expected": 16}
+  ]
+}

@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> Int = fold(xs, 1, |acc, x| mul(acc, x))
+entry solve

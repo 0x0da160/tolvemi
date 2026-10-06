@@ -1,0 +1,13 @@
+{
+  "id": "26-count_true",
+  "title": "Count true values",
+  "category": "aggregate",
+  "prompt": "Return how many elements of the boolean list are true.",
+  "input_type": "List<Bool>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [true, false, true], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [false], "expected": 0}
+  ]
+}

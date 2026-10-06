@@ -2,3 +2,6 @@ __pycache__/
 *.egg-info/
 build/
 target/
+
+# 評価の実行結果
+eval/runs/

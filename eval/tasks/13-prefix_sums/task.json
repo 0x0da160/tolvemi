@@ -1,0 +1,13 @@
+{
+  "id": "13-prefix_sums",
+  "title": "Running totals",
+  "category": "scan",
+  "prompt": "Return the list of running totals: the i-th output is the sum of the first i+1 input elements.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, 3], "expected": [1, 3, 6]},
+    {"input": [], "expected": []},
+    {"input": [5, -5], "expected": [5, 0]}
+  ]
+}

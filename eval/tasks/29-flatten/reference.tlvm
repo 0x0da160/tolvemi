@@ -1,0 +1,2 @@
+fn solve(xss: List<List<Int>>) -> List<Int> = fold(xss, list[Int](), |acc, xs| concat(acc, xs))
+entry solve

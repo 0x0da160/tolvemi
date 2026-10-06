@@ -1,0 +1,13 @@
+{
+  "id": "18-count_occurrences",
+  "title": "Count occurrences",
+  "category": "aggregate",
+  "prompt": "The input is pair(v, xs). Return how many times v occurs in xs.",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [2, [2, 1, 2]], "expected": 2},
+    {"input": [2, []], "expected": 0},
+    {"input": [0, [1]], "expected": 0}
+  ]
+}

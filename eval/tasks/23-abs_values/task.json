@@ -1,0 +1,13 @@
+{
+  "id": "23-abs_values",
+  "title": "Absolute values",
+  "category": "map",
+  "prompt": "Return the list with every element replaced by its absolute value.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [-1, 2, -3], "expected": [1, 2, 3]},
+    {"input": [], "expected": []},
+    {"input": [0], "expected": [0]}
+  ]
+}

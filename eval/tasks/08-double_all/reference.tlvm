@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> List<Int> = reverse(fold(xs, list[Int](), |acc, x| cons(mul(2, x), acc)))
+entry solve

@@ -1,0 +1,13 @@
+{
+  "id": "02-count_negatives",
+  "title": "Count negatives",
+  "category": "aggregate",
+  "prompt": "Return how many integers in the list are strictly negative.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, -2, -3], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [0, 4], "expected": 0}
+  ]
+}

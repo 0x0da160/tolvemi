@@ -1,0 +1,13 @@
+{
+  "id": "27-all_and_any",
+  "title": "All and any",
+  "category": "aggregate",
+  "prompt": "Return pair(all, any) for the boolean list: all is true when every element is true (true for an empty list), any is true when at least one element is true.",
+  "input_type": "List<Bool>",
+  "output_type": "Pair<Bool, Bool>",
+  "examples": [
+    {"input": [true, false], "expected": [false, true]},
+    {"input": [], "expected": [true, false]},
+    {"input": [true, true], "expected": [true, true]}
+  ]
+}

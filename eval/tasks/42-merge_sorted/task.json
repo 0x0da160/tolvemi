@@ -1,0 +1,13 @@
+{
+  "id": "42-merge_sorted",
+  "title": "Merge sorted lists",
+  "category": "reorder",
+  "prompt": "The input is pair(xs, ys) where both lists are sorted in non-decreasing order. Return one list containing all elements of both, sorted in non-decreasing order.",
+  "input_type": "Pair<List<Int>, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 4, 6], [2, 3, 7]], "expected": [1, 2, 3, 4, 6, 7]},
+    {"input": [[], []], "expected": []},
+    {"input": [[1, 1], [0]], "expected": [0, 1, 1]}
+  ]
+}

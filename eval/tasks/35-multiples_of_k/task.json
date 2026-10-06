@@ -1,0 +1,13 @@
+{
+  "id": "35-multiples_of_k",
+  "title": "Multiples of k",
+  "category": "filter",
+  "prompt": "The input is pair(k, xs) with k > 0. Return the elements of xs that are divisible by k, in their original order.",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [3, [1, 3, 6, 7, -9]], "expected": [3, 6, -9]},
+    {"input": [2, []], "expected": []},
+    {"input": [5, [4]], "expected": []}
+  ]
+}

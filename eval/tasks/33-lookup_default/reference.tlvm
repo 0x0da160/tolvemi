@@ -1,0 +1,4 @@
+fn solve(p: Pair<Int, List<Pair<Int, Int>>>) -> Int =
+  snd(fold(snd(p), pair(false, 0), |acc, kv|
+    if(fst(acc), acc, if(eq(fst(kv), fst(p)), pair(true, snd(kv)), acc))))
+entry solve

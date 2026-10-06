@@ -1,0 +1,13 @@
+{
+  "id": "08-double_all",
+  "title": "Double every element",
+  "category": "map",
+  "prompt": "Return the list with every element multiplied by 2, in the same order.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, 3], "expected": [2, 4, 6]},
+    {"input": [], "expected": []},
+    {"input": [-4], "expected": [-8]}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "04-max_or_zero",
+  "title": "Maximum or zero",
+  "category": "aggregate",
+  "prompt": "Return the largest integer in the list, or 0 if the list is empty. The list may contain only negative numbers.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [3, 9, 2], "expected": 9},
+    {"input": [], "expected": 0},
+    {"input": [-4, -2, -7], "expected": -2}
+  ]
+}

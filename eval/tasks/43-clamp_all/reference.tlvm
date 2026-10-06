@@ -1,0 +1,5 @@
+fn solve(p: Pair<Pair<Int, Int>, List<Int>>) -> List<Int> =
+  let lo = fst(fst(p)) in
+  let hi = snd(fst(p)) in
+  reverse(fold(snd(p), list[Int](), |acc, x| cons(if(lt(x, lo), lo, if(lt(hi, x), hi, x)), acc)))
+entry solve

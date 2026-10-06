@@ -1,0 +1,13 @@
+{
+  "id": "31-sum_pairs",
+  "title": "Sum each pair",
+  "category": "map",
+  "prompt": "Return the list of a + b for each pair(a, b) in the input, in order.",
+  "input_type": "List<Pair<Int, Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2], [3, 4]], "expected": [3, 7]},
+    {"input": [], "expected": []},
+    {"input": [[-1, 1]], "expected": [0]}
+  ]
+}

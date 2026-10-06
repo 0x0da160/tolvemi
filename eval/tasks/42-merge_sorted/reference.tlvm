@@ -1,0 +1,7 @@
+fn insert(v: Int, ys: List<Int>) -> List<Int> =
+  let st = fold(ys, pair(false, list[Int]()), |acc, y|
+    if(fst(acc), pair(true, cons(y, snd(acc))),
+      if(lt(v, y), pair(true, cons(y, cons(v, snd(acc)))), pair(false, cons(y, snd(acc)))))) in
+  reverse(if(fst(st), snd(st), cons(v, snd(st))))
+fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> = fold(snd(p), fst(p), |acc, y| insert(y, acc))
+entry solve

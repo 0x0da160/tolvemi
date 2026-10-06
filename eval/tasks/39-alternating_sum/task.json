@@ -1,0 +1,13 @@
+{
+  "id": "39-alternating_sum",
+  "title": "Alternating sum",
+  "category": "scan",
+  "prompt": "Return x0 - x1 + x2 - x3 + ... for the list x0, x1, x2, ... (0 for an empty list).",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 3], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [5, 7], "expected": -2}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "14-dedup_adjacent",
+  "title": "Collapse adjacent duplicates",
+  "category": "scan",
+  "prompt": "Remove consecutive duplicate elements, keeping the first of each run. Non-adjacent duplicates are kept.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 1, 2, 2, 2, 1], "expected": [1, 2, 1]},
+    {"input": [], "expected": []},
+    {"input": [3, 3], "expected": [3]}
+  ]
+}

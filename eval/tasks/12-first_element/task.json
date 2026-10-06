@@ -1,0 +1,13 @@
+{
+  "id": "12-first_element",
+  "title": "First element",
+  "category": "search",
+  "prompt": "Return some(x) where x is the first element of the list, or none if the list is empty.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Int>",
+  "examples": [
+    {"input": [1, 2, 3], "expected": 1},
+    {"input": [], "expected": null},
+    {"input": [9], "expected": 9}
+  ]
+}

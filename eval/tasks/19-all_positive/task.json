@@ -1,0 +1,13 @@
+{
+  "id": "19-all_positive",
+  "title": "All positive",
+  "category": "aggregate",
+  "prompt": "Return true if every element of the list is strictly positive (true for an empty list).",
+  "input_type": "List<Int>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [1, 2], "expected": true},
+    {"input": [], "expected": true},
+    {"input": [3, 0], "expected": false}
+  ]
+}

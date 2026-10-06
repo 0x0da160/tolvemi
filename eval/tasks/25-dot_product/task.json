@@ -1,0 +1,13 @@
+{
+  "id": "25-dot_product",
+  "title": "Dot product",
+  "category": "index",
+  "prompt": "The input is pair(xs, ys) where xs and ys have the same length. Return the sum of xs[i] * ys[i].",
+  "input_type": "Pair<List<Int>, List<Int>>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [[1, 2, 3], [4, 5, 6]], "expected": 32},
+    {"input": [[], []], "expected": 0},
+    {"input": [[-2], [3]], "expected": -6}
+  ]
+}

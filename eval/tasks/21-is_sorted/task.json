@@ -1,0 +1,13 @@
+{
+  "id": "21-is_sorted",
+  "title": "Is sorted",
+  "category": "scan",
+  "prompt": "Return true if the list is sorted in non-decreasing order (equal neighbours allowed), otherwise false.",
+  "input_type": "List<Int>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [1, 2, 2, 5], "expected": true},
+    {"input": [], "expected": true},
+    {"input": [3, 1], "expected": false}
+  ]
+}

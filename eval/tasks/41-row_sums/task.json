@@ -1,0 +1,13 @@
+{
+  "id": "41-row_sums",
+  "title": "Row sums",
+  "category": "nested",
+  "prompt": "The input is a list of rows. Return the list of the sums of each row, in order.",
+  "input_type": "List<List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2], [], [3, 4, 5]], "expected": [3, 0, 12]},
+    {"input": [], "expected": []},
+    {"input": [[-1, 1]], "expected": [0]}
+  ]
+}

@@ -1,0 +1,4 @@
+fn solve(xs: List<Int>) -> List<Int> =
+  reverse(snd(fold(xs, pair(none[Int], list[Int]()), |acc, x|
+    if(eq(fst(acc), some(x)), acc, pair(some(x), cons(x, snd(acc)))))))
+entry solve

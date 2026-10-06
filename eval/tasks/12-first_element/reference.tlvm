@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> Option<Int> = fold(reverse(xs), none[Int], |acc, x| some(x))
+entry solve

@@ -1,0 +1,13 @@
+{
+  "id": "05-min_max",
+  "title": "Minimum and maximum",
+  "category": "aggregate",
+  "prompt": "Return some(pair(min, max)) of the list, or none if the list is empty.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Pair<Int, Int>>",
+  "examples": [
+    {"input": [3, 9, 2], "expected": [2, 9]},
+    {"input": [], "expected": null},
+    {"input": [5], "expected": [5, 5]}
+  ]
+}

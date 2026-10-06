@@ -1,0 +1,13 @@
+{
+  "id": "36-take_n",
+  "title": "Take the first n",
+  "category": "index",
+  "prompt": "The input is pair(n, xs) with n >= 0. Return the first n elements of xs (all of xs if it is shorter).",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [2, [1, 2, 3]], "expected": [1, 2]},
+    {"input": [5, [1]], "expected": [1]},
+    {"input": [0, [4, 5]], "expected": []}
+  ]
+}

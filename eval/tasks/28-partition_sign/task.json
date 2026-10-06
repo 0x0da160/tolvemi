@@ -1,0 +1,13 @@
+{
+  "id": "28-partition_sign",
+  "title": "Partition by sign",
+  "category": "filter",
+  "prompt": "Return pair(negatives, others): the strictly negative elements and the remaining elements, each in their original order.",
+  "input_type": "List<Int>",
+  "output_type": "Pair<List<Int>, List<Int>>",
+  "examples": [
+    {"input": [1, -2, 0, -3, 4], "expected": [[-2, -3], [1, 0, 4]]},
+    {"input": [], "expected": [[], []]},
+    {"input": [5], "expected": [[], [5]]}
+  ]
+}

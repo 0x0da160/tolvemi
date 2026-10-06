@@ -1,0 +1,5 @@
+fn nth(i: Int, ys: List<Int>) -> Int =
+  snd(fold(ys, pair(0, 0), |acc, y| pair(add(fst(acc), 1), if(eq(fst(acc), i), y, snd(acc)))))
+fn solve(p: Pair<List<Int>, List<Int>>) -> Int =
+  snd(fold(fst(p), pair(0, 0), |acc, x| pair(add(fst(acc), 1), add(snd(acc), mul(x, nth(fst(acc), snd(p)))))))
+entry solve
