@@ -1,17 +1,41 @@
 # Tolvemi 処理系（Rust／Verus）について
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
-実行可能な処理系を Rust で、数学的仕様と証明を Verus で書いています。
+処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
 
 | 設計書の層 | 場所 | 検証 |
 |---|---|---|
-| `exec/` | [`crates/tlvm`](../crates/tlvm) | 通常の Rust。Verus の検証対象外で、回帰テストで確認 |
-| `spec/` | [`verus/src/spec.rs`](../verus/src/spec.rs) | 型、値、名前解決済み AST、型付け、呼出しランク、燃料付き評価 |
+| `spec/` | [`verus/src/spec.rs`](../verus/src/spec.rs)、[`bigstep.rs`](../verus/src/bigstep.rs) | 型、値、名前解決済み AST、型付け、呼出しランク、燃料付き評価と、そこから導いた大ステップ規則 |
 | `proof/` | [`verus/src/proof.rs`](../verus/src/proof.rs) | 停止性、型安全性、決定性、燃料単調性 |
+| `exec/`（検証済み） | [`verus/src/`](../verus/src) の `ir.rs`、`value.rs`、`check.rs`、`eval.rs`、`json.rs`、`pipeline.rs` | 型検査器、ランク検査、入力値の型検査、評価器、出力 JSON encoder。spec への適合を証明 |
+| `exec/`（未検証） | [`crates/tlvm`](../crates/tlvm) | 字句、構文、診断付きの検査、入力 JSON の復号、CLI。回帰テストで確認 |
 
 信頼している部品と未証明の義務は [`trust-boundary.toml`](../trust-boundary.toml) にまとめています。
-この版は V1-A（外部 BigInt を信頼仮定とする版）で、exec 層と spec 層の精緻化は未証明です。
-したがって処理系全体を「完全に形式検証済み」とは呼びません。
+この版は V1-A（外部 BigInt を信頼仮定とする版）です。parser、formatter、入力 JSON の復号などは
+未検証なので、処理系全体を「完全に形式検証済み」とは呼びません。
+
+## 実行の流れ
+
+`tlvm run` は次の順に進みます。
+
+1. 未検証の lexer・parser・検査器が source を受理し、診断を出す（crates/tlvm）。
+2. 未検証の接着部分（`crates/tlvm/src/evaluator.rs`）が、型検査済みの AST を名前解決済みの中間表現
+   `EProg` に下ろし、未検証の Tarjan 実装が作ったランク列を添える。入力値も検証済み部品の表現に移す。
+3. 検証済みの `run_checked_json`（`verus/src/pipeline.rs`）が、
+   - `check_prog` でプログラムが spec の整形式条件 `wf` を満たすことを確かめ（ランク列はここで検査されるので信頼不要）、
+   - `has_type` で入力値が entry の入力型を持つことを確かめ、
+   - 検証済み評価器で実行し、
+   - 結果を検証済み encoder で正準 JSON にする。
+
+`run_checked_json` が出力 o を返したなら、次が証明されています。
+
+- プログラムは `wf` を満たす。
+- ある値 w があり、w は spec の評価 `eval_entry` が返す唯一の結果で、entry の出力型を持つ。
+- o は w の正準 JSON `enc(w)` で、出力型に沿って復号すると w に戻る。
+
+評価器は step 上限で必ず停止すること（exec 関数の停止性）も Verus が検査しています。資源上限による
+打ち切りは spec と無関係に起こりえます。step・AllocatedNodes・整数 bit 長の数え方は旧実装と同じで、
+ランダムに生成した 2500 個の型付きプログラムで出力と計数が一致することを確かめました。
 
 ## exec 層（crates/tlvm）
 
@@ -23,8 +47,8 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `formatter.rs` | §4.3、§19.4 | 正準フォーマッタ、`ast_codec_v1` encoder |
 | `strict_json.rs` | §9.3a | 文法／深さ → string scalar → 重複キーの段階順を守る strict JSON parser |
 | `ast_codec.rs` | §19.2–19.3 | AST transport 検査と Admission 付き AST 構築 |
-| `values.rs` | §9 | 値 JSON codec（InputAdmission を含む decode 順序）。深い値も反復で解放・encode |
-| `evaluator.rs` | §7、§8.4、§18.3 | 参照 step・AllocatedNodeCount・整数 bit 長を計数する評価器（BigInt は num-bigint） |
+| `values.rs` | §9 | 値 JSON の復号（InputAdmission を含む decode 順序） |
+| `evaluator.rs` | §7、§9 | 検証済み部品への接着（中間表現への変換、結果 envelope への写像） |
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run` と結果 envelope |
 | `main.rs` | — | `tlvm check|run|fmt|ast` |
 
@@ -37,24 +61,25 @@ cargo run --release -- run examples/identity.json '{"tag":"int","value":"-42"}'
 cargo test --release
 ```
 
-診断は一行一 JSON object で stderr、結果は stdout に出ます。
+診断は一行一 JSON object で stderr、結果は stdout に出ます。verus/ は通常の cargo build では ghost コードを
+消して普通の Rust としてコンパイルされるので、build と test に Verus は要りません。
 
-## spec 層と proof 層（verus/）
+## Verus の部分（verus/）
 
-`spec.rs` は名前解決後のプログラムを対象にします。変数と binder は `nat`、関数は `Prog::funcs` の添字で、
-呼出しグラフが DAG であることは「呼出し先のランクは呼出し元より真に小さい」という型付け条件で表します。
-評価 `eval` は燃料付きで、燃料切れ（`OutOfFuel`）と型の行き詰まり（`Stuck`）を区別します。
+| ファイル | 内容 |
+|---|---|
+| `spec.rs` | 型、値、名前解決済み AST、型付け `ty_expr`、整形式 `wf`、燃料付き評価 `eval` |
+| `proof.rs` | 停止性・型安全性 `total`／`entry_total`、燃料単調性 `mono`、決定性 `entry_deterministic`、組込みの健全性 `apply_sound` |
+| `bigstep.rs` | 燃料付き評価から導いた大ステップ規則（exec 評価器の証明に使う） |
+| `bigint.rs` | 信頼する多倍長整数（num-bigint を `external_body` で包む。V1-A の信頼仮定） |
+| `ir.rs` | exec の中間表現 `EProg` と spec への写像 |
+| `value.rs` | exec の値（共有 cons セル）と spec の値への写像、環境 |
+| `check.rs` | 型検査器 `ty_of`、整形式検査 `check_prog`（ランク証明書の検査を含む）、値の型検査 `has_type` |
+| `eval.rs` | 評価器。返した値は spec でも同じ値に評価される（`evals_to`） |
+| `json.rs` | 出力の正準 JSON：encoder の正しさ、往復性 `roundtrip`、型整合性 `dec_typed` |
+| `pipeline.rs` | 中心定理つきの入口 `run_checked`／`run_checked_json` |
 
-`proof.rs` で証明している主な定理：
-
-- `entry_total`：整形式（`wf`）プログラムの entry に入力型の値を与えると、ある燃料で必ず `Done(w)` になり、`w` は出力型を持つ（停止性と型安全性）。
-- `total`：型の付いた式は、型環境に適合する実行時環境で必ず値に評価される（ランク、式の辞書式帰納法）。
-- `mono`：燃料を増やしても `OutOfFuel` 以外の結果は変わらない（§11.2 の 7）。
-- `eval_deterministic`／`entry_deterministic`：結果は燃料に依らず一意。
-- `apply_sound`：組込みの型規則と意味が整合する。`mod_bounds`：正の除数で `0 <= x mod y < y`。
-- `example_wf`：`wf` が空虚でない具体例。
-
-`assume`、`external_body`、`admit` は使っていません。
+`assume` と `admit` は使っていません。`external_body` は `bigint.rs` の多倍長整数演算だけです。
 
 ### 検証の再現
 
@@ -65,17 +90,17 @@ Verus 0.2026.10.06（Rust 1.98.1 ツールチェイン）と Z3 4.16.0 で確認
 git clone https://github.com/verus-lang/verus.git && cd verus/source
 ./tools/get-z3.sh             # または z3 4.16.0 を用意して VERUS_Z3_PATH を設定
 source ../tools/activate && vargo build --release
-# 検証（このリポジトリの root から）
-path/to/verus --crate-type=lib verus/src/lib.rs
-# => verification results:: 25 verified, 0 errors
+# 検証（このリポジトリの verus/ で。cargo-verus は Verus の build に含まれる）
+cd path/to/tolvemi/verus && cargo verus focus
+# => verification results:: 137 verified, 0 errors
 ```
 
 ### まだ証明していないこと
 
-§11.2 の 1〜5 と 8〜10（parser、formatter、resolver、exec 型検査器と DAG 検査器の正しさ、
-exec 評価器の spec 評価への適合、JSON codec、結果 envelope の分離）は未証明です。
-spec 層は資源上限（steps、AllocatedNodes、IntegerBits）を持たず、燃料は停止性のための抽象です。
-V1-B／V1-C（BigInt と算術の検証）にも未着手です。
+- §11.2 の 1〜3：parser、formatter、名前解決（表面 AST から中間表現への変換）。
+- §11.2 の 9 のうち入力側：strict JSON parser、重複キー拒否、入力値の復号。復号した値の型だけは検証済みの `has_type` で確かめています。
+- 診断を出す検査器（crates/tlvm/src/checker.rs）そのもの。受理したプログラムは検証済みの `check_prog` で必ず検査し直すので、誤って受理しても実行されませんが、誤って拒否することは防げません。
+- V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
 

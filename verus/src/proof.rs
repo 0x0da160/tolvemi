@@ -572,8 +572,8 @@ pub proof fn example_wf()
         param_ctx(p.funcs[g].params, p.funcs[g].params.len()),
         p.funcs[g].body,
     ) == Some(p.funcs[g].ret) by {}
-    reveal_with_fuel(eval, 10);
-    reveal_with_fuel(eval_args, 10);
+    reveal_with_fuel(eval, 6);
+    reveal_with_fuel(eval_args, 6);
 }
 
 } // verus!

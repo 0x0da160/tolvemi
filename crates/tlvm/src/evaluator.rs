@@ -1,15 +1,28 @@
-//! 参照評価器（設計書 §7、§8.4、§18.3）。
+//! 実行（設計書 §7、§8.4、§18.3）。
 //!
-//! 左から右の call-by-value。execution-v1 の参照 step・AllocatedNodeCount・整数 bit 長を
-//! 規範どおりに計数し、上限超過は ResourceExhausted として返す。
+//! 評価そのものは Verus で検証した `tlvm_verified::pipeline::run_checked` が行う。
+//! ここにあるのは検証されていない接着部分だけである：
+//! - 型検査済みの表面 AST を、名前を添字に置き換えた中間表現（`EExpr`）に下ろす
+//! - 復号済みの入力値を検証済み評価器の値表現に移す
+//! - 結果を `RunResult` の envelope に写す
+//!
+//! 検証済み評価器は、プログラムが整形式であることと入力値の型を自分で検査してから実行し、
+//! 返した値が spec の評価の唯一の結果であること、出力文字列がその値の正準 JSON であることを
+//! 証明済みである。
 
 use crate::checker::TypedProgram;
 use crate::profiles::{ExecutionProfile, HostPolicy};
 use crate::syntax::*;
-use crate::values::{encode_value, TypedValue, Value, V};
+use crate::values::{TypedValue, Value, V};
 use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::Signed;
+use std::collections::HashMap;
+use std::rc::Rc;
+use tlvm_verified::bigint::Int;
+use tlvm_verified::eval::{Limits, Resource, Stop};
+use tlvm_verified::ir::{EExpr, EFunc, EProg};
+use tlvm_verified::pipeline::{run_checked_json, Output};
+use tlvm_verified::spec::{Builtin, Ty as STy};
+use tlvm_verified::value::Value as EV;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunResult {
@@ -19,287 +32,181 @@ pub enum RunResult {
     InternalFault(String),
 }
 
-enum Stop {
-    Exhausted(&'static str, u64, u64),
-    Host(String),
-}
-
-type R<T> = Result<T, Stop>;
-
 fn bits(n: &BigInt) -> u64 {
     n.magnitude().bits()
 }
 
-struct Machine<'a> {
-    prog: &'a TypedProgram,
-    p: &'a ExecutionProfile,
-    host: &'a HostPolicy,
-    steps: u64,
-    alloc: u64,
-    depth: usize,
-    env: Vec<(&'a str, V)>,
+// ---------------------------------------------------------------- 中間表現への変換
+
+fn lower_ty(t: &Ty) -> STy {
+    match t.tag() {
+        TyTag::Int => STy::Int,
+        TyTag::Bool => STy::Bool,
+        TyTag::Unit => STy::Unit,
+        TyTag::List => STy::List(Box::new(lower_ty(&t.arg(0)))),
+        TyTag::Option => STy::Option(Box::new(lower_ty(&t.arg(0)))),
+        TyTag::Pair => STy::Pair(Box::new(lower_ty(&t.arg(0))), Box::new(lower_ty(&t.arg(1)))),
+        TyTag::Error => unreachable!("accepted program has no ErrorType"),
+    }
 }
 
-impl<'a> Machine<'a> {
-    fn step(&mut self) -> R<()> {
-        if self.steps + 1 > self.p.steps {
-            return Err(Stop::Exhausted("Steps", self.steps + 1, self.p.steps));
-        }
-        self.steps += 1;
-        Ok(())
+fn builtin(name: &str) -> Builtin {
+    match name {
+        "add" => Builtin::Add,
+        "sub" => Builtin::Sub,
+        "mul" => Builtin::Mul,
+        "neg" => Builtin::Neg,
+        "lt" => Builtin::Lt,
+        "le" => Builtin::Le,
+        "eq" => Builtin::Eq,
+        "mod" => Builtin::Mod,
+        "fst" => Builtin::Fst,
+        "snd" => Builtin::Snd,
+        "cons" => Builtin::Cons,
+        "concat" => Builtin::Concat,
+        "reverse" => Builtin::Reverse,
+        "length" => Builtin::Length,
+        _ => unreachable!("unknown builtin {name}"),
+    }
+}
+
+/// 名前を添字に置き換える。変数名は全体で一つの表に登録するので、同じ名前は同じ添字になる。
+struct Lower<'a> {
+    funcs: HashMap<&'a str, usize>,
+    vars: HashMap<&'a str, usize>,
+}
+
+impl<'a> Lower<'a> {
+    fn var(&mut self, name: &'a str) -> usize {
+        let n = self.vars.len();
+        *self.vars.entry(name).or_insert(n)
     }
 
-    /// 新規整数／cons／pair／some node の確保（step → bit → 割当数の順に判定）。
-    fn allocate(&mut self, int: Option<&BigInt>) -> R<()> {
-        if self.steps + 1 > self.p.steps {
-            return Err(Stop::Exhausted("Steps", self.steps + 1, self.p.steps));
-        }
-        if let Some(n) = int {
-            let b = bits(n);
-            if b > self.p.integer_bits {
-                return Err(Stop::Exhausted("IntegerBits", b, self.p.integer_bits));
-            }
-        }
-        if self.alloc + 1 > self.p.allocated_nodes {
-            return Err(Stop::Exhausted("AllocatedNodes", self.alloc + 1, self.p.allocated_nodes));
-        }
-        self.steps += 1;
-        self.alloc += 1;
-        Ok(())
+    fn exprs(&mut self, es: &'a [Expr]) -> Vec<EExpr> {
+        es.iter().map(|e| self.expr(e)).collect()
     }
 
-    fn int(&mut self, n: BigInt) -> R<V> {
-        self.allocate(Some(&n))?;
-        Ok(V::new(Value::Int(n)))
-    }
-
-    fn lookup(&self, name: &str) -> V {
-        self.env.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| v.clone()).expect("bound variable")
-    }
-
-    /// 関数本体を新しい環境で評価する（入場 step は呼出し側で数える）。
-    fn call_body(&mut self, f: &'a FnDecl, args: Vec<V>) -> R<V> {
-        let saved = std::mem::take(&mut self.env);
-        self.env = f.params.iter().map(|p| p.name.as_str()).zip(args).collect();
-        let r = self.eval(&f.body);
-        self.env = saved;
-        r
-    }
-
-    fn eval(&mut self, e: &'a Expr) -> R<V> {
-        self.step()?; // 式 node の評価開始
-        self.depth += 1;
-        if self.depth > self.host.max_eval_depth {
-            return Err(Stop::Host("eval-depth".into()));
-        }
-        let r = self.eval_inner(e);
-        self.depth -= 1;
-        r
-    }
-
-    fn eval_inner(&mut self, e: &'a Expr) -> R<V> {
+    fn expr(&mut self, e: &'a Expr) -> EExpr {
+        let b = |x: EExpr| Box::new(x);
         match &e.kind {
-            ExprKind::Var(n) => Ok(self.lookup(n)),
-            ExprKind::Int(n) => self.int(n.clone()),
-            ExprKind::Bool(b) => Ok(V::new(Value::Bool(*b))),
-            ExprKind::Unit => Ok(V::new(Value::Unit)),
-            ExprKind::None(_) => Ok(V::new(Value::None)),
-            ExprKind::Call { callee, args, builtin, .. } => {
-                let mut vs = Vec::with_capacity(args.len());
-                for a in args {
-                    vs.push(self.eval(a)?);
-                }
-                self.step()?; // 組込みの適用開始、またはユーザー関数本体への入場
-                if *builtin {
-                    self.builtin(callee, vs)
-                } else {
-                    let f = self.prog.function(callee);
-                    self.call_body(f, vs)
-                }
-            }
+            ExprKind::Int(n) => EExpr::Int(Int { n: n.clone() }),
+            ExprKind::Bool(v) => EExpr::Bool(*v),
+            ExprKind::Unit => EExpr::Unit,
+            ExprKind::Var(n) => EExpr::Var(self.var(n)),
+            ExprKind::List { element_type, items } => EExpr::List(lower_ty(&Ty::of(element_type)), self.exprs(items)),
+            ExprKind::Some(x) => EExpr::Some(b(self.expr(x))),
+            ExprKind::None(t) => EExpr::None(lower_ty(&Ty::of(t))),
+            ExprKind::Pair(x, y) => EExpr::Pair(b(self.expr(x)), b(self.expr(y))),
+            ExprKind::Call { callee, args, builtin: true, .. } => EExpr::Builtin(builtin(callee), self.exprs(args)),
+            ExprKind::Call { callee, args, .. } => EExpr::Call(self.funcs[callee.as_str()], self.exprs(args)),
             ExprKind::Let { name, value, body, .. } => {
-                let v = self.eval(value)?;
-                self.env.push((name, v));
-                let r = self.eval(body);
-                self.env.pop();
-                r
+                let x = self.var(name);
+                EExpr::Let(x, b(self.expr(value)), b(self.expr(body)))
             }
-            ExprKind::If(c, t, f) => {
-                let cv = self.eval(c)?;
-                let b = matches!(*cv, Value::Bool(true));
-                self.eval(if b { t } else { f })
-            }
+            ExprKind::If(c, t, f) => EExpr::If(b(self.expr(c)), b(self.expr(t)), b(self.expr(f))),
             ExprKind::Fold { list, init, acc, item, body, .. } => {
-                let mut cur = self.eval(list)?;
-                let mut accv = self.eval(init)?;
-                loop {
-                    self.step()?; // spine cursor の読取り
-                    let (h, t) = match &*cur {
-                        Value::Cons(h, t) => (h.clone(), t.clone()),
-                        _ => return Ok(accv),
-                    };
-                    self.env.push((acc, accv));
-                    self.env.push((item, h));
-                    let r = self.eval(body);
-                    self.env.pop();
-                    self.env.pop();
-                    accv = r?;
-                    cur = t;
-                }
-            }
-            ExprKind::List { items, .. } => {
-                let mut refs = Vec::with_capacity(items.len());
-                for i in items {
-                    refs.push(self.eval(i)?);
-                    self.step()?; // 一時要素参照の push
-                }
-                let mut out = V::new(Value::Nil);
-                while let Some(v) = refs.pop() {
-                    self.step()?; // pop
-                    self.allocate(None)?;
-                    out = V::new(Value::Cons(v, out));
-                }
-                Ok(out)
-            }
-            ExprKind::Some(v) => {
-                let x = self.eval(v)?;
-                self.allocate(None)?;
-                Ok(V::new(Value::Some(x)))
-            }
-            ExprKind::Pair(a, b) => {
-                let x = self.eval(a)?;
-                let y = self.eval(b)?;
-                self.allocate(None)?;
-                Ok(V::new(Value::Pair(x, y)))
+                let (a, i) = (self.var(acc), self.var(item));
+                EExpr::Fold(b(self.expr(list)), b(self.expr(init)), a, i, b(self.expr(body)))
             }
         }
     }
+}
 
-    fn builtin(&mut self, name: &str, a: Vec<V>) -> R<V> {
-        let int = |v: &V| match &**v {
-            Value::Int(n) => n.clone(),
-            _ => unreachable!("typed program"),
-        };
-        match name {
-            "add" => self.int(int(&a[0]) + int(&a[1])),
-            "sub" => self.int(int(&a[0]) - int(&a[1])),
-            "mul" => self.int(int(&a[0]) * int(&a[1])),
-            "neg" => self.int(-int(&a[0])),
-            "lt" => Ok(V::new(Value::Bool(int(&a[0]) < int(&a[1])))),
-            "le" => Ok(V::new(Value::Bool(int(&a[0]) <= int(&a[1])))),
-            "eq" => Ok(V::new(Value::Bool(self.equal(&a[0], &a[1])?))),
-            "fst" | "snd" => match &*a[0] {
-                Value::Pair(l, r) => Ok(if name == "fst" { l.clone() } else { r.clone() }),
-                _ => unreachable!("typed program"),
+pub fn lower(prog: &TypedProgram) -> EProg {
+    let fns: Vec<&FnDecl> = prog.program.functions().collect();
+    let mut l = Lower { funcs: fns.iter().enumerate().map(|(i, f)| (f.name.as_str(), i)).collect(), vars: HashMap::new() };
+    let funcs = fns
+        .iter()
+        .map(|f| EFunc {
+            params: f.params.iter().map(|p| (l.var(&p.name), lower_ty(&Ty::of(&p.ty)))).collect(),
+            ret: lower_ty(&Ty::of(&f.return_type)),
+            body: l.expr(&f.body),
+        })
+        .collect();
+    EProg {
+        funcs,
+        rank: fns.iter().map(|f| prog.rank.get(&f.name).copied().unwrap_or(usize::MAX)).collect(),
+        entry: l.funcs[prog.entry.as_str()],
+    }
+}
+
+// ---------------------------------------------------------------- 値の変換
+
+/// 入力値を検証済み評価器の値表現へ移す（深い値でも再帰しない）。
+fn to_ev(v: &V) -> Rc<EV> {
+    enum Job<'a> {
+        Visit(&'a V),
+        Some,
+        Pair,
+        List(usize),
+    }
+    let mut jobs = vec![Job::Visit(v)];
+    let mut out: Vec<Rc<EV>> = vec![];
+    while let Some(j) = jobs.pop() {
+        match j {
+            Job::Visit(x) => match &**x {
+                Value::Int(n) => out.push(Rc::new(EV::Int(Int { n: n.clone() }))),
+                Value::Bool(b) => out.push(Rc::new(EV::Bool(*b))),
+                Value::Unit => out.push(Rc::new(EV::Unit)),
+                Value::None => out.push(Rc::new(EV::None)),
+                Value::Some(a) => {
+                    jobs.push(Job::Some);
+                    jobs.push(Job::Visit(a));
+                }
+                Value::Pair(a, b) => {
+                    jobs.push(Job::Pair);
+                    jobs.push(Job::Visit(b));
+                    jobs.push(Job::Visit(a));
+                }
+                Value::Nil | Value::Cons(..) => {
+                    let mut cells = vec![];
+                    let mut cur = x;
+                    while let Value::Cons(h, t) = &**cur {
+                        cells.push(h);
+                        cur = t;
+                    }
+                    jobs.push(Job::List(cells.len()));
+                    for h in cells.into_iter().rev() {
+                        jobs.push(Job::Visit(h));
+                    }
+                }
             },
-            "mod" => {
-                let (x, y) = (int(&a[0]), int(&a[1]));
-                if !y.is_positive() {
-                    return Ok(V::new(Value::None));
-                }
-                let r = self.int(x.mod_floor(&y))?;
-                self.allocate(None)?;
-                Ok(V::new(Value::Some(r)))
+            Job::Some => {
+                let a = out.pop().unwrap();
+                out.push(Rc::new(EV::Some(a)));
             }
-            "cons" => {
-                self.allocate(None)?;
-                Ok(V::new(Value::Cons(a[0].clone(), a[1].clone())))
+            Job::Pair => {
+                let b = out.pop().unwrap();
+                let a = out.pop().unwrap();
+                out.push(Rc::new(EV::Pair(a, b)));
             }
-            "concat" => {
-                let mut refs = vec![];
-                let mut cur = a[0].clone();
-                loop {
-                    self.step()?; // セル読取り
-                    let next = match &*cur {
-                        Value::Cons(h, t) => {
-                            refs.push(h.clone());
-                            t.clone()
-                        }
-                        _ => break,
-                    };
-                    self.step()?; // push
-                    cur = next;
+            Job::List(n) => {
+                let items = out.split_off(out.len() - n);
+                let mut l = Rc::new(EV::Nil);
+                for h in items.into_iter().rev() {
+                    l = Rc::new(EV::Cons(h, l));
                 }
-                let mut out = a[1].clone();
-                while let Some(v) = refs.pop() {
-                    self.step()?; // pop
-                    self.allocate(None)?;
-                    out = V::new(Value::Cons(v, out));
-                }
-                Ok(out)
+                out.push(l);
             }
-            "reverse" => {
-                let mut out = V::new(Value::Nil);
-                let mut cur = a[0].clone();
-                loop {
-                    self.step()?;
-                    let next = match &*cur {
-                        Value::Cons(h, t) => {
-                            self.allocate(None)?;
-                            out = V::new(Value::Cons(h.clone(), out));
-                            t.clone()
-                        }
-                        _ => return Ok(out),
-                    };
-                    cur = next;
-                }
-            }
-            "length" => {
-                let mut n: u64 = 0;
-                let mut cur = a[0].clone();
-                loop {
-                    self.step()?;
-                    let next = match &*cur {
-                        Value::Cons(_, t) => t.clone(),
-                        _ => break,
-                    };
-                    n += 1;
-                    cur = next;
-                }
-                self.int(BigInt::from(n))
-            }
-            _ => unreachable!("unknown builtin {name}"),
         }
     }
+    out.pop().unwrap()
+}
 
-    /// 構造的等値。共有 pointer 一致による短絡はしない。
-    fn equal(&mut self, x: &V, y: &V) -> R<bool> {
-        let mut todo: Vec<(bool, V, V)> = vec![(false, x.clone(), y.clone())]; // (spine?, a, b)
-        while let Some((spine, a, b)) = todo.pop() {
-            self.step()?;
-            if spine {
-                match (&*a, &*b) {
-                    (Value::Nil, Value::Nil) => {}
-                    (Value::Cons(h1, t1), Value::Cons(h2, t2)) => {
-                        todo.push((true, t1.clone(), t2.clone()));
-                        todo.push((false, h1.clone(), h2.clone()));
-                    }
-                    _ => return Ok(false),
+/// 深い cons 列の解放で再帰しないよう、所有している尾を順に外して解放する。
+fn release(v: Rc<EV>) {
+    let mut stack = vec![v];
+    while let Some(rc) = stack.pop() {
+        if let Ok(x) = Rc::try_unwrap(rc) {
+            match x {
+                EV::Some(a) => stack.push(a),
+                EV::Pair(a, b) | EV::Cons(a, b) => {
+                    stack.push(a);
+                    stack.push(b);
                 }
-                continue;
-            }
-            match (&*a, &*b) {
-                (Value::Int(m), Value::Int(n)) => {
-                    if m != n {
-                        return Ok(false);
-                    }
-                }
-                (Value::Bool(m), Value::Bool(n)) => {
-                    if m != n {
-                        return Ok(false);
-                    }
-                }
-                (Value::Unit, Value::Unit) | (Value::None, Value::None) => {}
-                (Value::Some(p), Value::Some(q)) => todo.push((false, p.clone(), q.clone())),
-                (Value::Pair(l1, r1), Value::Pair(l2, r2)) => {
-                    todo.push((false, r1.clone(), r2.clone()));
-                    todo.push((false, l1.clone(), l2.clone()));
-                }
-                (Value::Nil | Value::Cons(..), Value::Nil | Value::Cons(..)) => todo.push((true, a.clone(), b.clone())),
-                _ => return Ok(false),
+                _ => {}
             }
         }
-        Ok(true)
     }
 }
 
@@ -324,7 +231,7 @@ fn input_bits_over(v: &V, limit: u64) -> Option<u64> {
 }
 
 /// run(typed_program, decoded_input, execution_profile, host_policy)。
-/// 入力型の不一致は API misuse なので panic せず InternalFault ではなく Err で返す。
+/// 入力型の不一致は API misuse なので InternalFault ではなく Err で返す。
 pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: &HostPolicy) -> Result<RunResult, String> {
     if input.ty != prog.input_type {
         return Err(format!("入力型 {} が entry の入力型 {} と一致しない", input.ty, prog.input_type));
@@ -332,19 +239,35 @@ pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: 
     if let Some(b) = input_bits_over(&input.value, p.integer_bits) {
         return Ok(RunResult::ResourceExhausted { kind: "IntegerBits", observed: b, limit: p.integer_bits });
     }
-    let mut m = Machine { prog, p, host, steps: 0, alloc: 0, depth: 0, env: vec![] };
-    let f = prog.function(&prog.entry);
-    let r = m.step().and_then(|_| m.call_body(f, vec![input.value.clone()]));
-    Ok(match r {
-        Err(Stop::Exhausted(kind, observed, limit)) => RunResult::ResourceExhausted { kind, observed, limit },
-        Err(Stop::Host(reason)) => RunResult::HostAborted(reason),
-        Ok(v) => {
-            let out = encode_value(&v);
+    let eprog = lower(prog);
+    let lim = Limits {
+        steps: p.steps.min(u64::MAX - 1),
+        integer_bits: p.integer_bits,
+        allocated_nodes: p.allocated_nodes.min(u64::MAX - 1),
+        max_depth: (host.max_eval_depth as u64).min(u64::MAX - 1),
+    };
+    let iv = to_ev(&input.value);
+    let r = match run_checked_json(&eprog, iv.clone(), lim) {
+        Output::NotWellFormed => RunResult::InternalFault("verified-check-rejected-program".into()),
+        Output::InputTypeMismatch => RunResult::InternalFault("verified-check-rejected-input".into()),
+        Output::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
+            let kind = match kind {
+                Resource::Steps => "Steps",
+                Resource::IntegerBits => "IntegerBits",
+                Resource::AllocatedNodes => "AllocatedNodes",
+            };
+            RunResult::ResourceExhausted { kind, observed, limit }
+        }
+        Output::Ran(Err(Stop::HostDepth), _, _) => RunResult::HostAborted("eval-depth".into()),
+        Output::Ran(Err(Stop::Fault), _, _) => RunResult::InternalFault("stuck".into()),
+        Output::Ran(Ok(out), steps, alloc) => {
             if out.len() as u64 > p.output_bytes {
                 RunResult::ResourceExhausted { kind: "OutputBytes", observed: p.output_bytes + 1, limit: p.output_bytes }
             } else {
-                RunResult::Completed { output: out, steps: m.steps, allocated_nodes: m.alloc }
+                RunResult::Completed { output: out, steps, allocated_nodes: alloc }
             }
         }
-    })
+    };
+    release(iv);
+    Ok(r)
 }

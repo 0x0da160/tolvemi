@@ -1,68 +1,83 @@
 # LPTL v1 処理系の信頼境界（設計書 §11.3）
 #
-# この版は V1-A（外部 BigInt を信頼仮定とする版）に相当する。ただし exec 層と
-# spec 層の精緻化（§11.2 の 8）は未証明なので、処理系全体を
-# 「完全に形式検証済み」とは呼ばない。
+# この版は V1-A（外部 BigInt を信頼仮定とする版）に相当する。評価・型検査・出力 encode は
+# Verus で検証した部品が行うが、parser、formatter、入力 JSON の復号などは未検証なので、
+# 処理系全体を「完全に形式検証済み」とは呼ばない。
 
 version = "V1-A"
 spec = "spec/lptl-v1/LPTL_design_v1.md"
 
 [spec_review]
-# spec 層（verus/src/spec.rs）が設計書の意味論を正しく写しているかは人手レビューに依る。
+# spec 層が設計書の意味論を正しく写しているかは人手レビューに依る。
 status = "unreviewed"
-files = ["verus/src/spec.rs"]
+files = ["verus/src/spec.rs", "verus/src/json.rs"]
 notes = [
   "名前は name phase で解決済みとし、変数と binder は nat、関数は添字で表す",
   "呼出しグラフの DAG 性はランク証明書 Prog::rank と型付け条件 rank[callee] < rank[caller] で表す",
   "資源上限（steps、AllocatedNodes、IntegerBits）は spec 層に含まない。燃料は停止性のための抽象",
+  "出力の正準 JSON は json.rs の enc で定める",
 ]
 
 [verus]
 version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
-command = "verus --crate-type=lib verus/src/lib.rs"
-result = "25 verified, 0 errors"
+command = "cd verus && cargo verus focus"
+result = "137 verified, 0 errors"
 assume = []
-external_body = []
 admit = []
-# rlimit を引き上げた関数（証明の健全性には影響しないが再現時間に影響する）
-rlimit = { "proof::total" = 100 }
+# external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
+external_body = ["verus/src/bigint.rs"]
+unsafe = []
+
+[bigint]
+# V1-A の信頼仮定：num-bigint の各演算が bigint.rs の ensures を満たす。
+file = "verus/src/bigint.rs"
+library = "num-bigint 0.4"
+trusted = [
+  "from_u64、copy、add、sub、mul、neg、lt、le、eq、is_positive の数学的意味",
+  "mod_pos：正の除数に対する床剰余（= Euclid 剰余）",
+  "to_dec：to_string が正準十進表記 int_dec を返すこと",
+  "bits：IntegerBits 上限の判定にだけ使い、証明には現れない",
+]
 
 [proved]
-# §11.2 の証明義務のうち、spec 層の上で機械証明したもの
-"6.type-safety" = "proof::total, proof::entry_total（型付き式は Stuck にならず、結果は宣言型を持つ）"
+# §11.2 の証明義務のうち機械証明したもの
+"4.typechecker" = "check::ty_of は spec の ty_expr と一致する型を返す。builtin_ty は builtin_type と一致する"
+"4.builtin-soundness" = "proof::apply_sound（組込みの型規則と意味の整合）"
+"5.dag" = "check::check_prog が真なら wf。wf は呼出し先のランクが真に小さいことを含む（ランク列は未検証の Tarjan が作るが、ここで検査する）"
+"6.type-safety" = "proof::total, proof::entry_total"
 "6.termination" = "proof::entry_total（整形式プログラムの entry はある燃料で Done になる）"
 "6.determinism" = "proof::eval_deterministic, proof::entry_deterministic"
+"6.central" = "pipeline::run_checked（返した値は spec の唯一の結果で、出力型を持つ）"
 "7.fuel-monotonicity" = "proof::mono, proof::mono_args, proof::mono_fold"
-"4.builtin-soundness" = "proof::apply_sound（組込みの型規則と意味の整合）"
+"8.refinement" = "eval::Machine::eval が値を返せば spec でも同じ値に評価される（evals_to）。exec 評価器の停止性も Verus が検査"
+"9.output" = "json::encode は spec の enc どおり。json::roundtrip で dec(enc(v)) == v、json::dec_typed で復号値は型を持つ"
+"9.input-type" = "check::has_type（復号済み入力値が entry の入力型を持つことを実行時に検査）"
 "mod" = "proof::mod_bounds（正の除数で 0 <= x mod y < y）"
 "non-vacuity" = "proof::example_wf（wf が充足可能な具体例）"
 
 [unproved]
-# §11.2 の証明義務のうち未証明のもの。これらは exec 層のテストでのみ確認している。
+# §11.2 の証明義務のうち未証明のもの（回帰テストと差分テストでのみ確認）
 "1.parser" = "parser 健全性・完全性"
 "2.formatter" = "formatter の AST 保存性と冪等性"
-"3.resolver" = "名前解決の一意性、entry 検査、scope 整合性（exec の resolver と spec の nat 表現の対応を含む）"
-"4.typechecker" = "exec 型検査器が spec の ty_expr と一致すること"
-"5.dag" = "exec の DAG 検査が返すランクが spec の rank 条件を満たすこと"
-"8.refinement" = "exec 評価器（crates/tlvm/src/evaluator.rs）が spec の eval に適合すること"
-"9.json" = "strict JSON parser・codec の型整合性、往復性、重複キー拒否"
-"10.envelopes" = "Compile / Decode / Run の失敗結果分離"
+"3.resolver" = "表面 AST から中間表現への変換（crates/tlvm/src/evaluator.rs の lower）と名前規則の検査"
+"9.input" = "strict JSON parser、重複キー拒否、入力値の復号（値の中身）"
+"10.envelopes" = "Compile / Decode / Run の失敗結果分離（Rust の型で分けているだけ）"
+"diagnostics" = "診断を出す検査器そのもの。受理したプログラムは check_prog で検査し直すので誤受理は実行されないが、誤拒否は防げない"
 
 [exec]
-# exec 層は通常の Rust で、Verus の検証対象外。
-crate = "crates/tlvm"
-verified = false
-unsafe = []          # unsafe ブロックは使っていない
-tests = "cargo test --release（回帰テスト）"
+verified = ["verus/src/check.rs", "verus/src/eval.rs", "verus/src/json.rs", "verus/src/pipeline.rs"]
+unverified = ["crates/tlvm"]
+glue = "crates/tlvm/src/evaluator.rs（AST の変換、値の変換、envelope への写像）"
+unsafe = []
+tests = "cargo test --release（回帰テスト）。旧評価器との差分テスト 2500 件で出力と計数が一致"
 
 [libraries]
-# 未検証で信頼しているライブラリ
-num-bigint = { version = "0.4", role = "BigInt（V1-A の信頼仮定：表現、比較、加減乗、mod）" }
-num-integer = { version = "0.1", role = "mod_floor（正の除数で非負剰余）" }
+num-bigint = { version = "0.4", role = "BigInt（V1-A の信頼仮定）" }
+num-integer = { version = "0.1", role = "mod_floor" }
 num-traits = { version = "0.2", role = "数値 trait" }
-vstd = { version = "Verus 同梱", role = "Seq、Map と算術補題" }
+vstd = { version = "0.0.0-2026-10-04-0306", role = "Verus の標準ライブラリ（Seq、Map、Vec と String の仕様、算術補題）" }
 
 [platform]
 trusted = ["Rust コンパイラ", "Rust 標準ライブラリ", "OS", "CPU", "アロケータ", "Verus", "Z3"]

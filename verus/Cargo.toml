@@ -1,0 +1,18 @@
+[package]
+name = "tlvm-verified"
+version = "0.1.0"
+edition = "2021"
+description = "LPTL v1 の Verus 検証済み中核（spec 層、proof 層、検証済み exec 部品）"
+
+[lib]
+name = "tlvm_verified"
+path = "src/lib.rs"
+
+[dependencies]
+vstd = "=0.0.0-2026-10-04-0306"
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"
+
+[package.metadata.verus]
+verify = true
