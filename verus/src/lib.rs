@@ -12,6 +12,8 @@ pub mod bigint;
 pub mod bigstep;
 pub mod check;
 pub mod eval;
+pub mod input;
+pub mod input_proof;
 pub mod ir;
 pub mod json;
 pub mod pipeline;

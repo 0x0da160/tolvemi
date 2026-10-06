@@ -143,8 +143,27 @@ pub proof fn env_view_lookup(s: Seq<(usize, Rc<Value>)>, i: int, x: usize)
     }
 }
 
+/// どの束縛も x でなければ、環境は x を含まない。
+pub proof fn env_view_absent(s: Seq<(usize, Rc<Value>)>, x: usize)
+    requires
+        forall|j: int| 0 <= j < s.len() ==> (#[trigger] s[j]).0 != x,
+    ensures
+        !env_view(s).contains_key(x as nat),
+    decreases s.len(),
+{
+    if s.len() > 0 {
+        let d = s.drop_last();
+        assert forall|j: int| 0 <= j < d.len() implies (#[trigger] d[j]).0 != x by {
+            assert(d[j] == s[j]);
+        }
+        env_view_absent(d, x);
+        assert(s[s.len() - 1].0 != x);
+    }
+}
+
 pub fn lookup(env: &Vec<(usize, Rc<Value>)>, x: usize) -> (r: Option<Rc<Value>>)
     ensures
+        r is None ==> !env_view(env@).contains_key(x as nat),
         r is Some ==> env_view(env@).contains_key(x as nat) && env_view(env@)[x as nat] == view_val(
             *r->Some_0,
         ),
@@ -163,6 +182,9 @@ pub fn lookup(env: &Vec<(usize, Rc<Value>)>, x: usize) -> (r: Option<Rc<Value>>)
             }
             return Some(env[i].1.clone());
         }
+    }
+    proof {
+        env_view_absent(env@, x);
     }
     None
 }

@@ -43,6 +43,7 @@ pub fn run_checked(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Checked)
         r is Ran ==> val_type(view_val(*input), view_prog(*p).funcs[p.entry as int].params[0].1),
         r matches Checked::Ran(Ok(w), _, _) ==> is_entry_result(view_prog(*p), view_val(*input), view_val(*w))
             && val_type(view_val(*w), view_prog(*p).funcs[p.entry as int].ret),
+        r matches Checked::Ran(res, _, _) ==> !is_fault(res),
 {
     if !check_prog(p) {
         return Checked::NotWellFormed;
@@ -59,6 +60,14 @@ pub fn run_checked(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Checked)
     }
     let (res, steps, alloc) = run(p, input, lim);
     proof {
+        if is_fault(res) {
+            // 整形式のプログラムに型の合う入力を与えると、ある燃料で Done になる（entry_total）。
+            entry_total(pp, iv);
+            let (n1, w1) = choose|n1: nat, w1: Val|
+                #![trigger eval_entry(pp, n1, iv), val_type(w1, pp.funcs[pp.entry as int].ret)]
+                eval_entry(pp, n1, iv) == Res::Done(w1) && val_type(w1, pp.funcs[pp.entry as int].ret);
+            assert(eval_entry(pp, n1, iv) is Done);
+        }
         if res is Ok {
             let w = vv(res->Ok_0);
             let n0 = choose|n: nat| #[trigger] eval_entry(pp, n, iv) == Res::Done(w);
@@ -95,6 +104,7 @@ pub fn run_checked_json(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Output)
                 w,
                 view_prog(*p).funcs[p.entry as int].ret,
             ) && o@ == enc(w) && dec(o@, 0, view_prog(*p).funcs[p.entry as int].ret) == Some((w, o@.len() as int)),
+        r matches Output::Ran(res, _, _) ==> !is_fault(res),
 {
     let ghost iv = vv(input);
     match run_checked(p, input, lim) {

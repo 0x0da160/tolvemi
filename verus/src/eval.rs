@@ -31,6 +31,11 @@ pub enum Stop {
     Fault,
 }
 
+/// 結果が Fault（spec の行き詰まりに当たる停止）であること。
+pub open spec fn is_fault<T>(r: Result<T, Stop>) -> bool {
+    r is Err && r->Err_0 is Fault
+}
+
 pub struct Limits {
     pub steps: u64,
     pub integer_bits: u64,
@@ -83,6 +88,7 @@ impl Machine {
             frame(*old(self), *final(self)),
             final(self).alloc == old(self).alloc,
             r is Ok ==> final(self).steps == old(self).steps + 1,
+            !is_fault(r),
     {
         if self.steps >= self.lim.steps {
             return Err(Stop::Exhausted(Resource::Steps, self.steps + 1, self.lim.steps));
@@ -98,6 +104,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> final(self).steps == old(self).steps + 1,
+            !is_fault(r),
     {
         if self.steps >= self.lim.steps {
             return Err(Stop::Exhausted(Resource::Steps, self.steps + 1, self.lim.steps));
@@ -122,6 +129,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> view_val(*r->Ok_0) == Val::Int(n@),
+            !is_fault(r),
     {
         let b = n.bits();
         self.allocate(Some(b))?;
@@ -135,6 +143,7 @@ impl Machine {
             frame(*old(self), *final(self)),
             r is Ok ==> final(self).steps > old(self).steps,
             r is Ok ==> evals_to(view_prog(*p), env_view(old(self).env@), view_expr(*e), view_val(*r->Ok_0)),
+            is_fault(r) ==> fails(view_prog(*p), env_view(old(self).env@), view_expr(*e)),
         decreases self.lim.steps - self.steps, 0nat,
     {
         self.step()?;  // 式 node の評価開始
@@ -153,6 +162,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> evals_to(view_prog(*p), env_view(old(self).env@), view_expr(*e), view_val(*r->Ok_0)),
+            is_fault(r) ==> fails(view_prog(*p), env_view(old(self).env@), view_expr(*e)),
         decreases self.lim.steps - self.steps, 2nat,
     {
         let ghost pp = view_prog(dr(p));
@@ -165,7 +175,12 @@ impl Machine {
                     }
                     Ok(v)
                 },
-                None => Err(Stop::Fault),
+                None => {
+                    proof {
+                        fl_var(pp, env, *x as nat);
+                    }
+                    Err(Stop::Fault)
+                },
             },
             EExpr::Int(n) => {
                 let r = self.int(n.copy());
@@ -193,7 +208,17 @@ impl Machine {
                 Ok(Rc::new(Value::None))
             },
             EExpr::Some(x) => {
-                let v = self.eval(p, x)?;
+                let v = match self.eval(p, x) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_some(pp, env, view_expr(*dr(x)));
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 self.allocate(None)?;
                 proof {
                     bs_some(pp, env, view_expr(*dr(x)), vv(v));
@@ -201,8 +226,28 @@ impl Machine {
                 Ok(Rc::new(Value::Some(v)))
             },
             EExpr::Pair(a, b) => {
-                let va = self.eval(p, a)?;
-                let vb = self.eval(p, b)?;
+                let va = match self.eval(p, a) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_pair(pp, env, view_expr(*dr(a)), view_expr(*dr(b)));
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
+                let vb = match self.eval(p, b) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_pair(pp, env, view_expr(*dr(a)), view_expr(*dr(b)));
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 self.allocate(None)?;
                 proof {
                     bs_pair(pp, env, view_expr(*dr(a)), view_expr(*dr(b)), vv(va), vv(vb));
@@ -210,7 +255,17 @@ impl Machine {
                 Ok(Rc::new(Value::Pair(va, vb)))
             },
             EExpr::Builtin(b, es) => {
-                let vs = self.eval_args(p, es, false)?;
+                let vs = match self.eval_args(p, es, false) {
+                    Ok(vs) => vs,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_builtin(pp, env, *b, view_exprs(dr(es)), Seq::empty());
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 self.step()?;  // 組込みの適用開始
                 let ghost vsv = view_vals(vs@);
                 let r = self.builtin(*b, vs);
@@ -218,11 +273,24 @@ impl Machine {
                     if r is Ok {
                         bs_builtin(pp, env, *b, view_exprs(dr(es)), vsv, vv(r->Ok_0));
                     }
+                    if is_fault(r) {
+                        fl_builtin(pp, env, *b, view_exprs(dr(es)), vsv);
+                    }
                 }
                 r
             },
             EExpr::Call(g, es) => {
-                let vs = self.eval_args(p, es, false)?;
+                let vs = match self.eval_args(p, es, false) {
+                    Ok(vs) => vs,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_call(pp, env, *g as nat, view_exprs(dr(es)), Seq::empty());
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 self.step()?;  // ユーザー関数本体への入場
                 let ghost vsv = view_vals(vs@);
                 let r = self.call_body(p, *g, vs);
@@ -230,11 +298,25 @@ impl Machine {
                     if r is Ok {
                         bs_call(pp, env, *g as nat, view_exprs(dr(es)), vsv, vv(r->Ok_0));
                     }
+                    if is_fault(r) {
+                        assert(vsv.len() == vs@.len());
+                        fl_call(pp, env, *g as nat, view_exprs(dr(es)), vsv);
+                    }
                 }
                 r
             },
             EExpr::Let(x, a, b) => {
-                let va = self.eval(p, a)?;
+                let va = match self.eval(p, a) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_let(pp, env, *x as nat, view_expr(*dr(a)), view_expr(*dr(b)), Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 let ghost before = self.env@;
                 self.env.push((*x, va.clone()));
                 proof {
@@ -247,11 +329,24 @@ impl Machine {
                     if r is Ok {
                         bs_let(pp, env, *x as nat, view_expr(*dr(a)), view_expr(*dr(b)), vv(va), vv(r->Ok_0));
                     }
+                    if is_fault(r) {
+                        fl_let(pp, env, *x as nat, view_expr(*dr(a)), view_expr(*dr(b)), vv(va));
+                    }
                 }
                 r
             },
             EExpr::If(c, a, b) => {
-                let cv = self.eval(p, c)?;
+                let cv = match self.eval(p, c) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_if(pp, env, view_expr(*dr(c)), view_expr(*dr(a)), view_expr(*dr(b)), Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 match &*cv {
                     Value::Bool(bv) => {
                         let r = if *bv {
@@ -263,15 +358,34 @@ impl Machine {
                             if r is Ok {
                                 bs_if(pp, env, view_expr(*dr(c)), view_expr(*dr(a)), view_expr(*dr(b)), *bv, vv(r->Ok_0));
                             }
+                            if is_fault(r) {
+                                fl_if(pp, env, view_expr(*dr(c)), view_expr(*dr(a)), view_expr(*dr(b)), vv(cv));
+                            }
                         }
                         r
                     },
-                    _ => Err(Stop::Fault),
+                    _ => {
+                        proof {
+                            assert(!(vv(cv) is Bool));
+                            fl_if(pp, env, view_expr(*dr(c)), view_expr(*dr(a)), view_expr(*dr(b)), vv(cv));
+                        }
+                        Err(Stop::Fault)
+                    },
                 }
             },
             EExpr::List(t, es) => {
                 let _ = t;
-                let mut vs = self.eval_args(p, es, true)?;
+                let mut vs = match self.eval_args(p, es, true) {
+                    Ok(vs) => vs,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_list(pp, env, dr(t), view_exprs(dr(es)));
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 let ghost all = vs@;
                 let ghost vsv = view_vals(vs@);
                 let mut out = Rc::new(Value::Nil);
@@ -311,14 +425,45 @@ impl Machine {
                 Ok(out)
             },
             EExpr::Fold(xs, init, acc, item, body) => {
-                let xv = self.eval(p, xs)?;
-                let av = self.eval(p, init)?;
+                let ghost xse = view_expr(*dr(xs));
+                let ghost ie = view_expr(*dr(init));
+                let ghost bodye = view_expr(*dr(body));
+                let xv = match self.eval(p, xs) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_fold(pp, env, xse, ie, *acc as nat, *item as nat, bodye, Val::Unit, Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
+                let av = match self.eval(p, init) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_fold(pp, env, xse, ie, *acc as nat, *item as nat, bodye, vv(xv), Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
                 if !(match &*xv {
                     Value::Nil => true,
                     Value::Cons(_, _) => true,
                     _ => false,
                 }) {
+                    proof {
+                        assert(!(vv(xv) is List));
+                        fl_fold(pp, env, xse, ie, *acc as nat, *item as nat, bodye, vv(xv), vv(av));
+                    }
                     return Err(Stop::Fault);
+                }
+                let ghost whole = view_expr(dr(e));
+                proof {
+                    assert(whole == Expr::Fold(Box::new(xse), Box::new(ie), *acc as nat, *item as nat, Box::new(bodye)));
                 }
                 let ghost items = sp(xv);
                 let ghost bodyv = view_expr(*dr(body));
@@ -336,6 +481,14 @@ impl Machine {
                         pp == view_prog(*p),
                         bodyv == view_expr(**body),
                         items == spine(*xv),
+                        vv(xv) == Val::List(items),
+                        evals_to(pp, env, xse, Val::List(items)),
+                        evals_to(pp, env, ie, accs[0]),
+                        xse == view_expr(**xs),
+                        whole == view_expr(*e),
+                        whole == Expr::Fold(Box::new(xse), Box::new(ie), *acc as nat, *item as nat, Box::new(bodye)),
+                        ie == view_expr(**init),
+                        bodye == bodyv,
                         accs.len() >= 1,
                         accs.len() - 1 <= items.len(),
                         accs.last() == view_val(*a),
@@ -381,7 +534,16 @@ impl Machine {
                     }
                     let v = match r {
                         Ok(v) => v,
-                        Err(s) => return Err(s),
+                        Err(s) => {
+                            proof {
+                                if is_fault(Err::<(), Stop>(s)) {
+                                    assert(env2 == env.insert(*acc as nat, accs[j]).insert(*item as nat, items[j]));
+                                    fl_fold_steps(pp, env, *acc as nat, *item as nat, bodyv, items, accs, j as nat);
+                                    fl_fold(pp, env, xse, ie, *acc as nat, *item as nat, bodye, vv(xv), accs[0]);
+                                }
+                            }
+                            return Err(s);
+                        },
                     };
                     proof {
                         assert(evals_to(pp, env2, bodyv, vv(v)));
@@ -417,6 +579,7 @@ impl Machine {
                 0,
                 view_vals(r->Ok_0@),
             ),
+            is_fault(r) ==> args_fail(view_prog(*p), env_view(old(self).env@), view_exprs(*es), 0),
         decreases self.lim.steps - self.steps, 1nat,
     {
         let ghost pp = view_prog(dr(p));
@@ -436,7 +599,18 @@ impl Machine {
                 forall|k: int| 0 <= k < i ==> evals_to(pp, env, #[trigger] esv[k], view_val(*vs@[k])),
             decreases es@.len() - i,
         {
-            let v = self.eval(p, &es[i])?;
+            let v = match self.eval(p, &es[i]) {
+                Ok(v) => v,
+                Err(s) => {
+                    proof {
+                        if is_fault(Err::<(), Stop>(s)) {
+                            assert(esv[i as int] == view_expr(es@[i as int]));
+                            fl_args(pp, env, esv, i as nat);
+                        }
+                    }
+                    return Err(s);
+                },
+            };
             proof {
                 assert(esv[i as int] == view_expr(es@[i as int]));
                 assert(evals_to(pp, env, esv[i as int], vv(v)));
@@ -476,6 +650,12 @@ impl Machine {
                 bind(view_prog(*p).funcs[g as int].params, view_vals(args@), args@.len()),
                 view_prog(*p).funcs[g as int].body,
                 view_val(*r->Ok_0),
+            ),
+            is_fault(r) ==> !(g < view_prog(*p).funcs.len() && args@.len() == view_prog(*p).funcs[g as int].params.len())
+                || fails(
+                view_prog(*p),
+                bind(view_prog(*p).funcs[g as int].params, view_vals(args@), args@.len()),
+                view_prog(*p).funcs[g as int].body,
             ),
         decreases self.lim.steps - self.steps, 1nat,
     {
@@ -518,6 +698,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> apply(b, view_vals(a@)) == Res::Done(view_val(*r->Ok_0)),
+            is_fault(r) ==> !(apply(b, view_vals(a@)) is Done),
     {
         if a.len() == 2 {
             match b {
@@ -595,6 +776,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> is_list(*r->Ok_0) && spine(*r->Ok_0) == spine(**a0) + spine(**a1),
+            !is_fault(r),
     {
         let mut refs: Vec<Rc<Value>> = Vec::new();
         let mut cur = a0.clone();
@@ -671,6 +853,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> view_val(*r->Ok_0) == Val::List(rev(spine(**a0))),
+            !is_fault(r),
     {
         let ghost s = sp(dr(a0));
         let ghost mut j: int = 0;
@@ -723,6 +906,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> view_val(*r->Ok_0) == Val::Int(spine(**a0).len() as int),
+            !is_fault(r),
     {
         let ghost s = sp(dr(a0));
         let ghost start = self.steps;
@@ -771,6 +955,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> r->Ok_0 == (view_val(**x) == view_val(**y)),
+            !is_fault(r),
         decreases self.lim.steps - self.steps, 0nat,
     {
         self.step()?;
@@ -800,6 +985,7 @@ impl Machine {
         ensures
             frame(*old(self), *final(self)),
             r is Ok ==> r->Ok_0 == (spine(**x) == spine(**y)),
+            !is_fault(r),
         decreases self.lim.steps - self.steps, 1nat,
     {
         let mut a = x.clone();
@@ -861,6 +1047,8 @@ pub fn run(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: (Result<Rc<Value>, S
     ensures
         r.0 is Ok ==> p.entry < p.funcs@.len() && exists|n: nat|
             #[trigger] eval_entry(view_prog(*p), n, view_val(*input)) == Res::Done(view_val(*r.0->Ok_0)),
+        is_fault(r.0) && p.entry < p.funcs@.len() && view_prog(*p).funcs[p.entry as int].params.len() == 1
+            ==> forall|n: nat| !(#[trigger] eval_entry(view_prog(*p), n, view_val(*input)) is Done),
 {
     let mut m = new_machine(lim);
     let ghost iv = vv(input);
@@ -872,7 +1060,18 @@ pub fn run(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: (Result<Rc<Value>, S
             proof {
                 assert(view_vals(args@) =~= seq![iv]);
             }
-            m.call_body(p, p.entry, args)
+            let r = m.call_body(p, p.entry, args);
+            proof {
+                let pp = view_prog(dr(p));
+                if is_fault(r) && p.entry < p.funcs@.len() && pp.funcs[p.entry as int].params.len() == 1 {
+                    let f = pp.funcs[p.entry as int];
+                    assert(fails(pp, bind(f.params, seq![iv], 1), f.body));
+                    assert forall|n: nat| !(#[trigger] eval_entry(pp, n, iv) is Done) by {
+                        assert(eval_entry(pp, n, iv) == eval(pp, n, bind(f.params, seq![iv], 1), f.body));
+                    }
+                }
+            }
+            r
         },
     };
     proof {
