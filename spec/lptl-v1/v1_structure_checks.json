@@ -1,0 +1,209 @@
+{
+  "cases": 34,
+  "passed": 34,
+  "scope": "Exact document comparisons modulo namespace changes and limited schema/model checks. Not a semantic preservation proof.",
+  "checks": [
+    {
+      "name": "文書v1",
+      "passed": true,
+      "detail": "文書タイトルと版ラベルを統一。"
+    },
+    {
+      "name": "旧版ラベル除去",
+      "passed": true,
+      "detail": "codec・契約・arm・TCB・domainを含め旧版ラベルなし。"
+    },
+    {
+      "name": "全主要節保持",
+      "passed": true,
+      "detail": "第0–20節、21節を保持。"
+    },
+    {
+      "name": "履歴見出し除去",
+      "passed": true,
+      "detail": "履歴は現行の契約・状態・検証条件へ整理。"
+    },
+    {
+      "name": "コードブロックの名前空間以外同一",
+      "passed": true,
+      "detail": "全34ブロック。codec/domain以外は完全一致。"
+    },
+    {
+      "name": "コードフェンス対応",
+      "passed": true,
+      "detail": "開閉対応。"
+    },
+    {
+      "name": "表保持 4.1",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 6.2",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 9.2",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 10.1",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 18.1",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 18.1a",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 18.2",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 18.3",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 19.2",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 19.3",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 19.6",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "表保持 20.1",
+      "passed": true,
+      "detail": "契約IDの置換以外、数値・型・キー・期待結果が完全一致。"
+    },
+    {
+      "name": "診断コード集合一致",
+      "passed": true,
+      "detail": "52種類。"
+    },
+    {
+      "name": "全契約ID v1",
+      "passed": true,
+      "detail": "10契約ID。改訂suffixは使用しない。"
+    },
+    {
+      "name": "codec文書schemaコード一致",
+      "passed": true,
+      "detail": "codec固定値と参照ファイル名を一致。"
+    },
+    {
+      "name": "schema ID title v1",
+      "passed": true,
+      "detail": "schema namespace一致。"
+    },
+    {
+      "name": "schemaの構造規則保持",
+      "passed": true,
+      "detail": "変更はID・title・codec constの3箇所のみ。"
+    },
+    {
+      "name": "v1 AST例schema適合",
+      "passed": true,
+      "detail": "identityの例でv1 codecを使用。静的受理の実装検査ではない。"
+    },
+    {
+      "name": "旧codecをschemaが拒否",
+      "passed": true,
+      "detail": "旧codecをaliasとして受理しない。"
+    },
+    {
+      "name": "ハッシュdomain v1",
+      "passed": true,
+      "detail": "4種類。文字列表記の\\0はNUL。"
+    },
+    {
+      "name": "spec_version未確定維持",
+      "passed": true,
+      "detail": "正式spec_versionをv1で捏造しない。"
+    },
+    {
+      "name": "schema実体hash一致",
+      "passed": true,
+      "detail": "新schemaのbytes／SHA-256を本文へ反映。"
+    },
+    {
+      "name": "節参照解決",
+      "passed": true,
+      "detail": "削除小節への参照なし。範囲参照12.3–12.5、20.4–20.5も存在。"
+    },
+    {
+      "name": "元fixture限定検査",
+      "passed": true,
+      "detail": "92/92。元の検査を比較基準として再実行。"
+    },
+    {
+      "name": "v1 fixture限定検査",
+      "passed": true,
+      "detail": "92/92。期待値更新はcodecを含むpreimage1件のみ。"
+    },
+    {
+      "name": "fixture計算入力保持",
+      "passed": true,
+      "detail": "全92入力は指定したcodec置換以外不変。"
+    },
+    {
+      "name": "fixture観測の計算挙動保持",
+      "passed": true,
+      "detail": "codec/domainを正規化した全92観測が一致。"
+    },
+    {
+      "name": "研究arm・TCB v1",
+      "passed": true,
+      "detail": "能力条件と段階区分は保持。"
+    }
+  ],
+  "manual_logic_review": [
+    {
+      "topic": "型・評価・停止性",
+      "sections": "3、5.4、6–8",
+      "result": "型・組込み・評価順・DAG／foldの停止性構造を保持。"
+    },
+    {
+      "topic": "entry・arity・cutoff",
+      "sections": "5.2、6.1、10、18.1a–18.1b",
+      "result": "name失敗／semantic cutoff後の停止、arity候補生成の時点、Admission順を保持。"
+    },
+    {
+      "topic": "JSON・入力・AST",
+      "sections": "9、19",
+      "result": "浅い型→Admission→内容、scalar→重複→内容、param例外、元byte span契約を保持。codec識別だけ意図的に変更。"
+    },
+    {
+      "topic": "資源・共有・ホスト境界",
+      "sections": "8.3–8.5、18",
+      "result": "全数値上限と論理計数を保持。host-policyと参照profileを区別。"
+    },
+    {
+      "topic": "評価計画",
+      "sections": "12、15",
+      "result": "episode分母、予算vector、停止と実測超過、既存Accepted候補、隠しテスト一件選択を保持。arm名だけv1へ統一。"
+    },
+    {
+      "topic": "hash・spec・出荷状態",
+      "sections": "4.3、17、19.4、20",
+      "result": "v1 domain／codecに統一。spec_versionは未確定、正式仕様結合hashは未発行。G0未達、G1–G4未判定を保持。"
+    }
+  ]
+}

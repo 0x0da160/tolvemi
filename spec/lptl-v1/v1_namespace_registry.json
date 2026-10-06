@@ -1,0 +1,38 @@
+{
+  "document_version": "v1",
+  "language_version_label": "v1",
+  "codec_id": "ast_codec_v1",
+  "schema_file": "ast_codec_v1.schema.json",
+  "schema_id": "urn:lptl:ast-codec:v1",
+  "contract_ids": {
+    "static_profile": "static-v1-reference-1",
+    "parse_admission": "parse-admission-v1",
+    "typecheck_cost": "typecheck-cost-v1",
+    "input_profile": "input-v1-reference-1",
+    "input_admission": "input-admission-v1",
+    "diagnostic_pipeline": "diagnostic-pipeline-v1",
+    "evaluation_protocol": "evaluation-protocol-v1",
+    "resource_profile": "resource-profile-v1-reference-1",
+    "ast_transport_profile": "ast-transport-v1-reference-1",
+    "execution_profile": "execution-v1-reference-1"
+  },
+  "research_arm_ids": [
+    "v1-no-let",
+    "v1-no-cons-concat-reverse"
+  ],
+  "verification_stage_ids": [
+    "V1-A",
+    "V1-B",
+    "V1-C"
+  ],
+  "hash_domains": {
+    "artifact": "LPTL-artifact-v1\u0000",
+    "structural": "LPTL-AST-v1\u0000",
+    "spec_bound_syntax": "LPTL-spec-bound-syntax-v1\u0000",
+    "reproducibility": "LPTL-reproducibility-v1\u0000"
+  },
+  "spec_version": null,
+  "spec_bound_syntax_hash": null,
+  "reproducibility_hash": null,
+  "compatibility": "The v1 namespace is required. No aliasing of codecs or contract IDs from other namespaces. Hash identity is not preserved across namespaces."
+}
