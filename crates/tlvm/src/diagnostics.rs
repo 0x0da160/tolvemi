@@ -68,6 +68,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-LIMIT-STATIC-FOLD-DEPTH" => "fold のネスト深さが上限を超えました",
         "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH" => "推論された型の深さが上限を超えました",
         "E-LIMIT-STATIC-SEMANTIC-WORK" => "型検査の仕事量が上限を超えました",
+        "E-INTERNAL-VERIFIED-MISMATCH" => "検証済み部品と診断用の検査器の判定が食い違いました（処理系の不具合）",
         "E-DIAG-LIMIT" => "error が多すぎるため以降を省略しました",
         "W-DIAG-LIMIT" => "warning が多すぎるため以降を省略しました",
         "W-UNUSED-FUNCTION" => "entry から到達しない関数です",

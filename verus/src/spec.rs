@@ -59,6 +59,7 @@ pub open spec fn list_type(s: Seq<Val>, t: Ty, i: nat) -> bool
 
 // ------------------------------------------------------------------ AST（§4.1）
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Builtin {
     Add,
     Sub,

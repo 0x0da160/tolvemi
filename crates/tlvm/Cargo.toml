@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 num-bigint = "0.4"
 num-integer = "0.1"
 num-traits = "0.2"
+tlvm-verified = { path = "../../verus" }
 
 [[bin]]
 name = "tlvm"

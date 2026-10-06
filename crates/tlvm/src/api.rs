@@ -1,7 +1,7 @@
 //! 公開 API：compile / compile_ast / decode_input / run（設計書 §9.1）。
 
 use crate::ast_codec::{self, Transport};
-use crate::checker::{check_program, CheckOutcome, TypedProgram, WorkCounter};
+use crate::checker::{check_program, CheckOutcome, TypedProgram, VerifiedProgram, WorkCounter};
 use crate::diagnostics::{finalize, Diagnostic};
 use crate::evaluator::{self, RunResult};
 use crate::lexer::lex;
@@ -9,6 +9,11 @@ use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
+use crate::formatter::format_program;
+use std::sync::Arc;
+use tlvm_verified::pipeline::{canonical_source, compile_source, Compiled};
+use tlvm_verified::resolve::resolve_e;
+use tlvm_verified::surface::parse_e;
 
 #[derive(Debug)]
 pub enum CompileResult {
@@ -91,12 +96,102 @@ pub fn parse_source(source: &[u8], profile: &StaticProfile) -> Parsed {
 
 pub fn compile(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     match parse_source(source, profile) {
+        Parsed::Failed(SourceCompile::Result(r)) => {
+            // parse_source が SourceBoundaryFailure を返さなかったので UTF-8 として妥当
+            let text = std::str::from_utf8(source).unwrap_or("");
+            SourceCompile::Result(cross_check(text, r, profile))
+        }
         Parsed::Failed(f) => f,
         Parsed::Program(p) => {
             let o = check_program(&p, source.len(), profile);
-            SourceCompile::Result(result(o.diagnostics.clone(), Some(o)))
+            let r = result(o.diagnostics.clone(), Some(o));
+            let text = std::str::from_utf8(source).unwrap_or("");
+            SourceCompile::Result(cross_check(text, r, profile))
         }
     }
+}
+
+// ---------------------------------------------------------------- 検証済み部品による確認
+
+/// 検証済み parser に渡す式・型の入れ子の深さ上限。診断用 parser の上限（structural-limits）より
+/// 大きく取り、診断用 parser が受理したものを深さの数え方の違いで拒否しないようにする。
+fn depth_bounds(p: &StaticProfile) -> (usize, usize) {
+    (p.expr_depth.saturating_mul(2).saturating_add(2), p.type_depth.saturating_mul(2).saturating_add(2))
+}
+
+/// 検証済み部品に渡せる長さ（tlvm_verified::surface::parse_e の前提）。
+const VERIFIED_MAX_CHARS: usize = 0x1000_0000;
+
+fn mismatch(why: &str) -> Diagnostic {
+    Diagnostic::error("internal", "E-INTERNAL-VERIFIED-MISMATCH", (0, 0)).act(why)
+}
+
+/// 診断用の検査器（lexer・parser・checker）の判定を、検証済み部品で確かめる。
+///
+/// - 受理したなら、検証済みの lexer・parser・名前解決・型検査（compile_source）も受理し、
+///   その結果の中間表現を実行に使う。受理しなければ E-INTERNAL-VERIFIED-MISMATCH で拒否する。
+/// - 字句・構文・名前・entry の段階で拒否したなら（資源上限による打切りを除く）、
+///   検証済み部品もその段階までに拒否することを確かめる（誤拒否の検出）。
+fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> CompileResult {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= VERIFIED_MAX_CHARS {
+        return match r {
+            CompileResult::Accepted { warnings, work, .. } => {
+                CompileResult::Rejected { errors: vec![mismatch("source-too-long-for-verified-parser")], warnings, work }
+            }
+            rejected => rejected,
+        };
+    }
+    let (d, td) = depth_bounds(profile);
+    match r {
+        CompileResult::Accepted { mut program, warnings, work } => {
+            let rank: Vec<usize> =
+                program.program.functions().map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX)).collect();
+            match compile_source(&chars, d, td, rank) {
+                Compiled::Accepted(p) => {
+                    program.verified = Some(Arc::new(VerifiedProgram(p)));
+                    CompileResult::Accepted { program, warnings, work }
+                }
+                Compiled::ParseRejected => {
+                    CompileResult::Rejected { errors: vec![mismatch("verified-parser-rejected")], warnings, work }
+                }
+                Compiled::NameRejected => {
+                    CompileResult::Rejected { errors: vec![mismatch("verified-resolver-rejected")], warnings, work }
+                }
+                Compiled::NotWellFormed => {
+                    CompileResult::Rejected { errors: vec![mismatch("verified-typechecker-rejected")], warnings, work }
+                }
+            }
+        }
+        CompileResult::Rejected { mut errors, warnings, work } => {
+            let cutoff = errors.iter().any(|e| e.is_cutoff() || e.phase == "diagnostic-limit");
+            let syntax = errors.iter().any(|e| matches!(e.phase, "lex" | "parse"));
+            let names = errors.iter().any(|e| matches!(e.phase, "name" | "entry"));
+            if !cutoff && (syntax || names) {
+                match parse_e(&chars, d, td) {
+                    Some(sp) => {
+                        if syntax {
+                            errors.push(mismatch("verified-parser-accepted"));
+                        } else if resolve_e(&sp).is_some() {
+                            errors.push(mismatch("verified-resolver-accepted"));
+                        }
+                    }
+                    None => {}
+                }
+            }
+            CompileResult::Rejected { errors, warnings, work }
+        }
+    }
+}
+
+/// 正準ソース（検証済み formatter）。受理できない source なら None。
+pub fn canonical(text: &str, profile: &StaticProfile) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= VERIFIED_MAX_CHARS {
+        return None;
+    }
+    let (d, td) = depth_bounds(profile);
+    canonical_source(&chars, d, td).map(|o| o.into_iter().collect())
 }
 
 pub enum ParsedAst {
@@ -120,7 +215,10 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
         ParsedAst::Failed(f) => f,
         ParsedAst::Program(p) => {
             let o = check_program(&p, data.len(), profile);
-            AstCompile::Result(result(o.diagnostics.clone(), Some(o)))
+            let r = result(o.diagnostics.clone(), Some(o));
+            // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）
+            let text = format_program(&p);
+            AstCompile::Result(cross_check(&text, r, profile))
         }
     }
 }

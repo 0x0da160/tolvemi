@@ -9,7 +9,12 @@ use crate::strict_json::{parse, smallest_key, JKind, JNode, JsonFailKind};
 use crate::syntax::{Ty, TyTag};
 use num_bigint::BigInt;
 use std::ops::Deref;
+use std::rc::Rc;
 use std::sync::Arc;
+use tlvm_verified::input_exec::decode_input_e;
+use tlvm_verified::json::encode as json_encode;
+use tlvm_verified::spec::Ty as VTy;
+use tlvm_verified::value::Value as EV;
 
 pub enum Value {
     Int(BigInt),
@@ -164,6 +169,10 @@ pub enum DecodeResult {
 pub struct TypedValue {
     pub value: V,
     pub ty: Ty,
+    /// 入力 JSON の文字列。実行時に検証済みの復号器がこれを読み直し、その値を評価器に渡す。
+    pub text: Arc<Vec<char>>,
+    /// 構造の入れ子の深さ上限（検証済みの復号器に渡す）。
+    pub json_depth: usize,
 }
 
 impl std::fmt::Debug for TypedValue {
@@ -206,15 +215,96 @@ pub fn is_canonical_int(s: &str) -> bool {
     !d.starts_with('0')
 }
 
+/// 検証済み部品に渡せる長さ（tlvm_verified::input_exec::decode_input_e の前提）。
+const VERIFIED_MAX_CHARS: usize = 0x1000_0000;
+
+fn mismatch(why: &str) -> Diagnostic {
+    Diagnostic::error("internal", "E-INTERNAL-VERIFIED-MISMATCH", (0, 0)).act(why)
+}
+
+/// 型を検証済み部品の表現へ移す。
+pub fn verified_ty(t: &Ty) -> Option<VTy> {
+    Some(match t.tag() {
+        TyTag::Int => VTy::Int,
+        TyTag::Bool => VTy::Bool,
+        TyTag::Unit => VTy::Unit,
+        TyTag::List => VTy::List(Box::new(verified_ty(&t.arg(0))?)),
+        TyTag::Option => VTy::Option(Box::new(verified_ty(&t.arg(0))?)),
+        TyTag::Pair => VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
+        TyTag::Error => return None,
+    })
+}
+
+/// 資源上限による拒否（検証済みの復号器は値の深さ・node 数・桁数の上限を持たない）。
+fn limit_code(code: &str) -> bool {
+    matches!(code, "E-LIMIT-INPUT-VALUE-DEPTH" | "E-LIMIT-INPUT-VALUE-NODES" | "E-LIMIT-INPUT-INTEGER-DIGITS")
+}
+
 pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
     if data.len() > profile.json_bytes {
         return DecodeResult::Invalid(vec![Diagnostic::error("input-boundary", "E-LIMIT-INPUT-JSON-BYTES", (0, 0))
             .exp(profile.json_bytes.to_string())
             .act(data.len().to_string())]);
     }
-    if std::str::from_utf8(data).is_err() {
+    let Ok(text) = std::str::from_utf8(data) else {
         return DecodeResult::InputBoundaryFailure;
+    };
+    let decoded = decode_diagnosed(t_in, data, profile);
+    cross_check(t_in, text, decoded, profile)
+}
+
+/// 診断を出す復号器の判定を、検証済みの strict JSON parser と値の復号器（decode_input_e）で確かめる。
+///
+/// - 受理したなら、検証済みの復号器も受理し、同じ値（正準 JSON が一致）を返すこと。
+/// - 資源上限以外の理由で拒否したなら、検証済みの復号器も拒否すること。
+/// 食い違えば E-INTERNAL-VERIFIED-MISMATCH で拒否する。実行時に評価器へ渡すのは検証済みの復号器の値である。
+fn cross_check(t_in: &Ty, text: &str, decoded: Result<V, Diagnostic>, profile: &InputProfile) -> DecodeResult {
+    let chars: Vec<char> = text.chars().collect();
+    let vt = verified_ty(t_in);
+    let verified = match &vt {
+        Some(vt) if chars.len() < VERIFIED_MAX_CHARS => Some(decode_input_e(&chars, profile.json_depth, vt)),
+        _ => None,
+    };
+    let r = match (decoded, &verified) {
+        (Ok(value), Some(Some(w))) => {
+            let mut o = String::new();
+            json_encode(w, &mut o);
+            if o == encode_value(&value) {
+                DecodeResult::Decoded(TypedValue { value, ty: t_in.clone(), text: Arc::new(chars), json_depth: profile.json_depth })
+            } else {
+                DecodeResult::Invalid(vec![mismatch("verified-decoder-value")])
+            }
+        }
+        (Ok(_), Some(None)) => DecodeResult::Invalid(vec![mismatch("verified-decoder-rejected")]),
+        (Ok(_), None) => DecodeResult::Invalid(vec![mismatch("input-not-decodable-by-verified-decoder")]),
+        (Err(d), Some(Some(_))) if !limit_code(d.code) => DecodeResult::Invalid(vec![d, mismatch("verified-decoder-accepted")]),
+        (Err(d), _) => DecodeResult::Invalid(vec![d]),
+    };
+    if let Some(Some(w)) = verified {
+        release(w);
     }
+    r
+}
+
+/// 深い cons 列の解放で再帰しないよう、所有している尾を順に外して解放する。
+pub fn release(v: Rc<EV>) {
+    let mut stack = vec![v];
+    while let Some(rc) = stack.pop() {
+        if let Ok(x) = Rc::try_unwrap(rc) {
+            match x {
+                EV::Some(a) => stack.push(a),
+                EV::Pair(a, b) | EV::Cons(a, b) => {
+                    stack.push(a);
+                    stack.push(b);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// UTF-8 検査済みの入力を、診断付きで復号する（段階順と診断コードは §9.3a、§9）。
+fn decode_diagnosed(t_in: &Ty, data: &[u8], profile: &InputProfile) -> Result<V, Diagnostic> {
     let root = match parse(data, profile.json_depth) {
         Ok(r) => r,
         Err(f) => {
@@ -224,14 +314,11 @@ pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeRes
                 JsonFailKind::Scalar => "E-INPUT-STRING-SCALAR",
                 JsonFailKind::Duplicate => "E-INPUT-DUPLICATE-KEY",
             };
-            return DecodeResult::Invalid(vec![Diagnostic::error("input-parse", code, f.span)]);
+            return Err(Diagnostic::error("input-parse", code, f.span));
         }
     };
     let mut dec = Decoder { p: profile, nodes: 0 };
-    match dec.value(&root, t_in, 1) {
-        Ok(value) => DecodeResult::Decoded(TypedValue { value, ty: t_in.clone() }),
-        Err(d) => DecodeResult::Invalid(vec![d]),
-    }
+    dec.value(&root, t_in, 1)
 }
 
 struct Decoder<'a> {
