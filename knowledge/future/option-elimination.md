@@ -26,7 +26,7 @@ uncons(xs) : Option<Pair<T, List<T>>>
 - `option_fold` も v1 コア外。
 - 現在 `uncons` は予約語ではなく、合法なユーザー関数名として扱われる。組込みとして導入する場合は予約語・名前互換性への影響も審査する。
 
-この拡張で、[v1 の Option の境界](/language/option-boundary.md) にある「`mod(a,b)` が `some(r)` のとき `r+1`」のような課題が書けるようになる。
+この拡張で、[v1 の Option の境界](../language/option-boundary.md) にある「`mod(a,b)` が `some(r)` のとき `r+1`」のような課題が書けるようになる。
 
 # 機能追加の条件
 
@@ -37,6 +37,6 @@ uncons(xs) : Option<Pair<T, List<T>>>
 3. TCB と資源プロファイルへの影響を公開する。
 4. 既存コアと混同しないタスク分布・消去実験で LLM 効果を測定する。
 
-G0 は v1 と後続の Option 消去候補を混在させないことを要求する（[出荷ゲート](/overview/status-and-gates.md)）。
+G0 は v1 と後続の Option 消去候補を混在させないことを要求する（[出荷ゲート](../overview/status-and-gates.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

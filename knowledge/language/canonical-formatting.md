@@ -33,7 +33,7 @@ sources:
 - 名前・型に依存する書換えをせず、AST の意味を保存する。宣言順序・名前・型注釈を保持する。
 - 各宣言を一行に出力し、宣言間は LF 一つ、末尾も LF 一つ。インデント・空行・CR は出力しない。
 
-`canonical_source(P)` は、受理済み AST を formatter が UTF-8 で出力した値で、[成果物ハッシュ](/api/hashes-and-identity.md) の入力になる。
+`canonical_source(P)` は、受理済み AST を formatter が UTF-8 で出力した値で、[成果物ハッシュ](../api/hashes-and-identity.md) の入力になる。
 
 # 往復性と有限 profile
 

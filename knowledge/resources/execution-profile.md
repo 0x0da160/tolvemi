@@ -22,7 +22,7 @@ sources:
 4. fold／length／reverse／concat の spine cursor による一つの cons または末尾 nil の読取り
 5. list 構築／concat での一時要素参照の push と pop（一要素につき各一回）
 6. 構造的 eq での一対の値根、または一対の list spine セル／nil の比較
-7. [資源モデル](/resources/resource-model.md) の新規整数／cons／pair／some node の一つの確保
+7. [資源モデル](resource-model.md) の新規整数／cons／pair／some node の一つの確保
 
 複数イベントは手続き順に発生させる。concat は引数評価 → dispatch → xs の各セル読取りと push → nil 読取り → 各 pop とセル確保。reverse は各セル読取りと確保、最後に nil 読取り。fold はセル読取り → binder 設定 → body 評価の繰返し、最後に nil 読取り。
 

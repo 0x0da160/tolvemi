@@ -14,16 +14,16 @@ sources:
 
 # 10項目の基本契約
 
-1. entry は parse 成功後に構文個数を収集する。未知 entry は name phase、欠落・重複・引数数は entry phase とし、name 失敗時は entry phase を実行しない。→ [entry と到達可能性](/language/entry-and-reachability.md)
-2. トップレベル本体の終端は、完成した一つの expr の直後の `fn`、`entry`、EOF に限定する。改行なしの宣言列も受理する。→ [文法](/language/grammar.md)
-3. DAG 検査は `call-graph` phase で行い、静的資源検査から分離する。→ [呼出しグラフ](/language/call-graph.md)
-4. 静的上限は取得できる最初の時点で検査する。上限超過は後続を停止し、未実行の検査を成功とは扱わない。→ [診断パイプライン](/diagnostics/pipeline.md)
-5. arity は typecheck phase で検査し、全ての実引数式を検査するが、arity 不一致の呼出しでは期待引数との型比較を抑制する。→ [型規則](/language/typing.md)
+1. entry は parse 成功後に構文個数を収集する。未知 entry は name phase、欠落・重複・引数数は entry phase とし、name 失敗時は entry phase を実行しない。→ [entry と到達可能性](../language/entry-and-reachability.md)
+2. トップレベル本体の終端は、完成した一つの expr の直後の `fn`、`entry`、EOF に限定する。改行なしの宣言列も受理する。→ [文法](../language/grammar.md)
+3. DAG 検査は `call-graph` phase で行い、静的資源検査から分離する。→ [呼出しグラフ](../language/call-graph.md)
+4. 静的上限は取得できる最初の時点で検査する。上限超過は後続を停止し、未実行の検査を成功とは扱わない。→ [診断パイプライン](../diagnostics/pipeline.md)
+5. arity は typecheck phase で検査し、全ての実引数式を検査するが、arity 不一致の呼出しでは期待引数との型比較を抑制する。→ [型規則](../language/typing.md)
 6. `none[Foo]` は閉じた型文法への不適合として `E-PARSE-EXPECTED-TYPE` とする。
 7. bytes API、値 codec、AST 専用 codec、repair schema、recovery 終了規則、資源計数を契約として定義する。
-8. `Pair<A, B>` の二成分は独立した型である。→ [値 JSON codec](/api/value-json-codec.md)
-9. `fold` 内の呼出しも呼出しグラフに含め、関数 rank と反復長の帰納を接続する。→ [停止性の証明構造](/guarantees/termination-proof.md)
-10. `match_option`、`option_fold`、`uncons` は本コアに含めない。→ [将来拡張](/future/option-elimination.md)[^lptl-design]
+8. `Pair<A, B>` の二成分は独立した型である。→ [値 JSON codec](../api/value-json-codec.md)
+9. `fold` 内の呼出しも呼出しグラフに含め、関数 rank と反復長の帰納を接続する。→ [停止性の証明構造](../guarantees/termination-proof.md)
+10. `match_option`、`option_fold`、`uncons` は本コアに含めない。→ [将来拡張](../future/option-elimination.md)[^lptl-design]
 
 # 契約索引
 

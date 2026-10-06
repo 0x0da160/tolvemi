@@ -19,8 +19,8 @@ sources:
 | キー | 内容 |
 |---|---|
 | `severity` | `error` または `warning` |
-| `phase` | 版付き台帳の列挙（[パイプライン](/diagnostics/pipeline.md)） |
-| `code` | 版付き台帳の列挙（[コード一覧](/diagnostics/diagnostic-codes.md)）。prefix は対象領域で phase と一対一ではない（例：`E-ENTRY-UNKNOWN` の phase は `name`） |
+| `phase` | 版付き台帳の列挙（[パイプライン](pipeline.md)） |
+| `code` | 版付き台帳の列挙（[コード一覧](diagnostic-codes.md)）。prefix は対象領域で phase と一対一ではない（例：`E-ENTRY-UNKNOWN` の phase は `name`） |
 | `span` | `{"start":非負整数,"end":非負整数}`、start<=end。UTF-8 **bytes** の半開区間。source API は source bytes、AST API は元 JSON bytes、input API は元入力 JSON bytes を対象とする（文字数ではない） |
 | `expected` | 正準型・制約の string または null |
 | `actual` | 同上 |
@@ -49,6 +49,6 @@ repair = {
 
 # 設計意図
 
-安定コード・byte 位置・期待制約・決定論的順序を返すことで、LLM などの修復器が局所的に直せるようにする（設計目標「局所修復可能性」、[設計目標](/overview/scope.md)）。RunResult と UTF-8 境界失敗は診断列ではなく結果 envelope として返す。
+安定コード・byte 位置・期待制約・決定論的順序を返すことで、LLM などの修復器が局所的に直せるようにする（設計目標「局所修復可能性」、[設計目標](../overview/scope.md)）。RunResult と UTF-8 境界失敗は診断列ではなく結果 envelope として返す。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -18,7 +18,7 @@ sources:
 
 # 位置付け
 
-- `ast_codec_v1` はプログラム AST 専用で、[値 JSON codec](/api/value-json-codec.md) と混用しない。[^lptl-design]
+- `ast_codec_v1` はプログラム AST 専用で、[値 JSON codec](value-json-codec.md) と混用しない。[^lptl-design]
 - AST は**未型検査の表面 AST**。明示注釈を source と同じ位置にだけ持ち、内部型・推論結果・rank・symbol ID・source span・実行値・暗黙 default を入力できない。型・name・DAG の検査を省略しない。
 
 # Schema
@@ -57,9 +57,9 @@ JSON Schema 単体では重複キー、bytes、深さ、UTF-8、不対 surrogate
 
 1. JSON bytes 上限 → UTF-8
 2. token stream 解析（構造深さを開始括弧で guard）
-3. [strict JSON 契約](/api/strict-json.md)（scalar → 重複キー）
+3. [strict JSON 契約](strict-json.md)（scalar → 重複キー）
 4. root を program として object 検査。declarations と配列は入力順、子 field は表の key 順に再帰。全体で最初の一件だけ返す
-5. 成功後、[parse Admission](/resources/parse-admission.md) を適用しながら表面 AST と byte span map を構築し、structural-limits 最終整合 → name → call-graph → typecheck → semantic-limits → entry → warnings
+5. 成功後、[parse Admission](../resources/parse-admission.md) を適用しながら表面 AST と byte span map を構築し、structural-limits 最終整合 → name → call-graph → typecheck → semantic-limits → entry → warnings
 
 各 object の検査順：
 

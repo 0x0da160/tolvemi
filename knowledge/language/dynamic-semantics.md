@@ -38,6 +38,6 @@ fold(list[T](x1, ..., xn), init, body)
 
 各 fold ステップでは現在累積値を `acc`、現在要素を `item` として `body` を評価する。fold は左畳み込みで、入力リストは反復中に変更されない。
 
-組込みの意味は [組込み関数](/language/builtins.md)、停止性は [停止性の証明構造](/guarantees/termination-proof.md)、参照コストは [execution profile](/resources/execution-profile.md) を参照。
+組込みの意味は [組込み関数](builtins.md)、停止性は [停止性の証明構造](../guarantees/termination-proof.md)、参照コストは [execution profile](../resources/execution-profile.md) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

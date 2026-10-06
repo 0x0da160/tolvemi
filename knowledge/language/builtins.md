@@ -43,7 +43,7 @@ b > 0 なら mod(a,b) = some(r)
 b <= 0 なら mod(a,b) = none[Int]
 ```
 
-`mod(-3,2)=some(1)`、`mod(1,0)=none[Int]`。結果の payload は一般には取り出せない（[Option の境界](/language/option-boundary.md)）。
+`mod(-3,2)=some(1)`、`mod(1,0)=none[Int]`。結果の payload は一般には取り出せない（[Option の境界](option-boundary.md)）。
 
 # リスト操作
 
@@ -57,6 +57,6 @@ length(list[T](x1, ..., xn)) = n
 
 # eq
 
-同型値に対する構造的等値。リスト・ペア・Option を左から右、浅い構造から深い構造の順に比較し、最初の不一致で `false`。等しい場合だけ全構造を走査する。実装は共有 pointer 一致による短絡・memoization をしてはならない（参照コストを変えるため。[execution profile](/resources/execution-profile.md)）。
+同型値に対する構造的等値。リスト・ペア・Option を左から右、浅い構造から深い構造の順に比較し、最初の不一致で `false`。等しい場合だけ全構造を走査する。実装は共有 pointer 一致による短絡・memoization をしてはならない（参照コストを変えるため。[execution profile](../resources/execution-profile.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

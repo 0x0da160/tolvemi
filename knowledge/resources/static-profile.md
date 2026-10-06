@@ -65,7 +65,7 @@ CompareType：完全型の比較 `Equal(A,B)` は根から走査し、Pair は l
 
 # Examples
 
-規則から導く trace の期待値（処理系の測定値ではない）。[限定検査](/conformance/limited-checks.md) の type_trace_model で照合されている。
+規則から導く trace の期待値（処理系の測定値ではない）。[限定検査](../conformance/limited-checks.md) の type_trace_model で照合されている。
 
 | 関数 | VisitExpr | BuildType | CompareType | 合計 |
 |---|---:|---:|---:|---:|

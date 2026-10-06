@@ -31,7 +31,7 @@ BLAKE3(
 )
 ```
 
-`canonical_source(P)` は [正準フォーマット](/language/canonical-formatting.md) の出力。[^lptl-design]
+`canonical_source(P)` は [正準フォーマット](../language/canonical-formatting.md) の出力。[^lptl-design]
 
 ## structural_hash（codec レベルの構文同一性）
 
@@ -62,11 +62,11 @@ reproducibility record の必須 fields（正準 key 順）：`spec_version`、`
 - コメント、入力時の空白、JSON object の入力順序、escape の差は正準化で消える。宣言順と binder 名は消えない。
 - 同 AST／codec で spec_version が異なれば、structural_hash は同じで spec_bound_syntax_hash の preimage は異なる。
 - record の一致は同じ入力や物理 host を意味せず、host 結果の機種間一致も保証しない。
-- 名前空間 v1 を要求し、別名前空間との hash 同一性を保証しない（[識別子レジストリ](/references/identifier-registry.md)）。
+- 名前空間 v1 を要求し、別名前空間との hash 同一性を保証しない（[識別子レジストリ](../references/identifier-registry.md)）。
 
 # ファイル実体の同一性
 
-文書、schema、検査入力、検査コード、検査結果は別ファイル実体として manifest に bytes と SHA-256 を記録する。ファイルの SHA-256 は BLAKE3 の言語成果物 hash や spec_version の代用ではない。文書・manifest は自己 hash を埋め込まない。BLAKE3 digest は本成果物では計算・検証していない（[検証バンドル](/conformance/verification-bundle.md)）。
+文書、schema、検査入力、検査コード、検査結果は別ファイル実体として manifest に bytes と SHA-256 を記録する。ファイルの SHA-256 は BLAKE3 の言語成果物 hash や spec_version の代用ではない。文書・manifest は自己 hash を埋め込まない。BLAKE3 digest は本成果物では計算・検証していない（[検証バンドル](../conformance/verification-bundle.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
 [^namespace-registry]: v1 namespace registry

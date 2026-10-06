@@ -27,9 +27,9 @@ sources:
 - トップレベル、各関数の引数と式を入力・前順で走査する。
 - 重複名は後続定義を診断し、曖昧名の使用に派生 unknown を出さない。
 - shadow binder は診断した上でその局所範囲に導入し、未束縛由来の派生診断を避ける。
-- 未知 call は name error だけで後続を停止する。name error がある木は受理せず、call-graph 以降を実行しない（[パイプライン](/diagnostics/pipeline.md)）。
+- 未知 call は name error だけで後続を停止する。name error がある木は受理せず、call-graph 以降を実行しない（[パイプライン](../diagnostics/pipeline.md)）。
 - 代表コード：`E-NAME-UNKNOWN-FUNCTION`（未定義の合法 callee 名）、fold の `acc` と `item` が同名なら binder 重複。
 
-entry 名の解決は [entry と到達可能性](/language/entry-and-reachability.md) を参照。
+entry 名の解決は [entry と到達可能性](entry-and-reachability.md) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

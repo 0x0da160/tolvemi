@@ -14,7 +14,7 @@ sources:
 
 # 契約
 
-AST node 数は次の規範的 Admission の累積数とする。Admission は前順に一 node ずつ発行し、イベント直前に該当する全ての次値を同時に検査する。超過時は [パイプライン](/diagnostics/pipeline.md) の優先順位で一件だけ cutoff し、当該イベントと後続イベントを発行しない。正常入力では完成 AST の node 数に一致する。[^lptl-design]
+AST node 数は次の規範的 Admission の累積数とする。Admission は前順に一 node ずつ発行し、イベント直前に該当する全ての次値を同時に検査する。超過時は [パイプライン](../diagnostics/pipeline.md) の優先順位で一件だけ cutoff し、当該イベントと後続イベントを発行しない。正常入力では完成 AST の node 数に一致する。[^lptl-design]
 
 | 構文上の対象 | Surface での Admission 時点 | 同時に検査する量 |
 |---|---|---|

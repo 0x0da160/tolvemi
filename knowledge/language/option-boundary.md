@@ -32,9 +32,9 @@ v1 の `Option<T>` は、部分性を言語エラーではなく値へ写すた�
 
 # 実務上の帰結
 
-- 定数除数なら比較で回避できる：`eq(mod(x, 2), some(0))` は偶奇判定として書ける（[例](/language/examples.md)）。
-- Skill（LLM 向け説明）は、Option に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない（[LLM 統合と Skill](/llm-evaluation/integration-and-skill.md)）。
-- Option 消去が必要な課題は v1 最終タスクに含めず、[将来の独立拡張](/future/option-elimination.md) の実験へ分離する。
+- 定数除数なら比較で回避できる：`eq(mod(x, 2), some(0))` は偶奇判定として書ける（[例](examples.md)）。
+- Skill（LLM 向け説明）は、Option に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない（[LLM 統合と Skill](../llm-evaluation/integration-and-skill.md)）。
+- Option 消去が必要な課題は v1 最終タスクに含めず、[将来の独立拡張](../future/option-elimination.md) の実験へ分離する。
 - この境界を隠さないことで、実装・Verus 証明・Skill・ベンチマーク・LLM の期待能力が同じ言語を対象にする。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

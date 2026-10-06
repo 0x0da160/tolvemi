@@ -34,7 +34,7 @@ fold(xs, init, |acc, item| body) : A
       Γ,acc:A,item:X ⊢ body : A
 ```
 
-- 組込みの型は [組込み関数](/language/builtins.md) の型規則スキームに従い、実引数型だけから推論する。
+- 組込みの型は [組込み関数](builtins.md) の型規則スキームに従い、実引数型だけから推論する。
 - 異型 `eq(1,true)`、異型 `concat(list[Int](), list[Bool]())` 等は**静的拒否**であり、実行時に `false` や空リストにはならない。
 - 最後に各関数本体型を宣言戻り型と比較する。
 
@@ -59,6 +59,6 @@ fold(xs, init, |acc, item| body) : A
 
 - 依存元が ErrorType なら fold の該当 binder も ErrorType とし、依存した診断を抑制する。
 - 型検査は全関数を宣言順、部分式を左から右に走査し、非選択枝・未到達関数も検査する。
-- 型検査の論理仕事量の計数は [static profile](/resources/static-profile.md) を参照。
+- 型検査の論理仕事量の計数は [static profile](../resources/static-profile.md) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -19,7 +19,7 @@ sources:
 
 # 整列
 
-- phase 順は [パイプライン](/diagnostics/pipeline.md) の順。
+- phase 順は [パイプライン](pipeline.md) の順。
 - parse phase は観測順（最初の error を先頭に保つ）で、recovery-limit を最後に置く。
 - それ以外の phase 内は 主 span.start → span.end → code の ASCII 辞書順 → 論理 node index で安定整列。完成 AST では前順 index、構築 guard では Admission index。
 - 同一 node・同一 code の候補は一件に統合。
@@ -40,6 +40,6 @@ sources:
 5. q が `fn`／`entry` ならその token を消費せず、q から新しい宣言試行を開始。q が EOF なら停止。
 
 - 進行条件は q > s。構造内部の予約語も同じ同期集合に含める。
-- 探索で飛ばす token には Admission を発行せず、合成・修復 node を生成しない。既に発行した Admission 分の budget はリセットしない（[parse Admission](/resources/parse-admission.md)）。
+- 探索で飛ばす token には Admission を発行せず、合成・修復 node を生成しない。既に発行した Admission 分の budget はリセットしない（[parse Admission](../resources/parse-admission.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

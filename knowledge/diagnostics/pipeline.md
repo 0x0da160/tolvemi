@@ -40,12 +40,12 @@ lexical-limits は lex と、structural-limits の guard は parse と、semanti
 - 競合時は source size → UTF-8 → 入力順の lex／parse の観測順。
 - 既に生成した通常診断は保持する。cutoff は一件だけ発行し、未実施の後続診断は追加しない。未実行の検査を成功とは扱わない。
 - 同じイベントで複数の structural 上限を超えたら、関数数 → AST 数 → 型深さ → 式深さ → let 深さ → fold 深さ の順で一つだけ選ぶ。
-- structural guard は [parse Admission](/resources/parse-admission.md) イベントの直前に検査し、安全上限を超えた木を割り当てない。
+- structural guard は [parse Admission](../resources/parse-admission.md) イベントの直前に検査し、安全上限を超えた木を割り当てない。
 - warnings は name 成功・唯一の arity=1 entry 有効・cutoff なしの場合に実行する。
 - **Accepted は全必須 phase が完了し error が0件の場合だけ。**
 
 # phase 名の対応
 
-`E-CYCLE-CALL` は `call-graph`、通常 arity は `typecheck`、静的上限は対応する `source-boundary`／`lexical-limits`／`structural-limits`／`semantic-limits`。AST transport は `ast-boundary`、`ast-parse`、`ast-schema`、入力は `input-boundary`、`input-parse`、`input-decode`（[strict JSON](/api/strict-json.md)）。
+`E-CYCLE-CALL` は `call-graph`、通常 arity は `typecheck`、静的上限は対応する `source-boundary`／`lexical-limits`／`structural-limits`／`semantic-limits`。AST transport は `ast-boundary`、`ast-parse`、`ast-schema`、入力は `input-boundary`、`input-parse`、`input-decode`（[strict JSON](../api/strict-json.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
