@@ -17,6 +17,7 @@ pub mod json;
 pub mod pipeline;
 pub mod proof;
 pub mod spec;
+pub mod surface;
 pub mod syntax;
 pub mod syntax_proof;
 pub mod parse_proof;

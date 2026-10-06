@@ -166,6 +166,15 @@ impl Int {
         self.n.to_string()
     }
 
+    /// 正準十進表記の文字列。`to_dec` と同じ信頼仮定（num-bigint の `to_string`）。
+    #[verifier::external_body]
+    pub fn to_dec_chars(&self) -> (r: Vec<char>)
+        ensures
+            r@ == int_dec(self@),
+    {
+        self.n.to_string().chars().collect()
+    }
+
     /// 絶対値の bit 長（IntegerBits 上限の判定に使うだけで、証明には現れない）。
     #[verifier::external_body]
     pub fn bits(&self) -> u64 {

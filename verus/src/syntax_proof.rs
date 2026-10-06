@@ -451,6 +451,7 @@ proof fn fe_lex_call(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
+#[verifier::rlimit(40)]
 proof fn fe_lex_let(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         e is Let,
@@ -681,6 +682,205 @@ pub proof fn fds_lex(p: Seq<Sd>, i: nat, d: nat, td: nat)
         fds_lex(p, i + 1, d, td);
         fd_lex(p[i as int], d, td, fds(p, i + 1), tds(p, i + 1));
     }
+}
+
+// ------------------------------------------------------------------ 正準ソースの継続の分離
+
+pub proof fn ft_app(t: Ty, k: Seq<char>)
+    ensures
+        ft(t, k) == ft(t, Seq::empty()) + k,
+    decreases t,
+{
+    let z = Seq::<char>::empty();
+    match t {
+        Ty::List(a) => {
+            ft_app(*a, seq!['>'] + k);
+            ft_app(*a, seq!['>'] + z);
+        },
+        Ty::Option(a) => {
+            ft_app(*a, seq!['>'] + k);
+            ft_app(*a, seq!['>'] + z);
+        },
+        Ty::Pair(a, b) => {
+            ft_app(*b, seq!['>'] + k);
+            ft_app(*b, seq!['>'] + z);
+            ft_app(*a, seq![',', ' '] + ft(*b, seq!['>'] + k));
+            ft_app(*a, seq![',', ' '] + ft(*b, seq!['>'] + z));
+        },
+        _ => {},
+    }
+    assert(ft(t, k) =~= ft(t, z) + k);
+}
+
+pub proof fn fe_app(e: Sx, k: Seq<char>)
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 1nat,
+{
+    let z = Seq::<char>::empty();
+    match e {
+        Sx::List(t, es) => {
+            fargs_app(es, 0, k);
+            fargs_app(es, 0, z);
+            ft_app(t, seq![']', '('] + fargs(es, 0, k));
+            ft_app(t, seq![']', '('] + fargs(es, 0, z));
+        },
+        Sx::Some(a) => {
+            fe_app(*a, seq![')'] + k);
+            fe_app(*a, seq![')'] + z);
+        },
+        Sx::None(t) => {
+            ft_app(t, seq![']'] + k);
+            ft_app(t, seq![']'] + z);
+        },
+        Sx::Pair(a, b) => {
+            fe_app(*b, seq![')'] + k);
+            fe_app(*b, seq![')'] + z);
+            fe_app(*a, seq![',', ' '] + fe(*b, seq![')'] + k));
+            fe_app(*a, seq![',', ' '] + fe(*b, seq![')'] + z));
+        },
+        Sx::Builtin(_, es) => {
+            fargs_app(es, 0, k);
+            fargs_app(es, 0, z);
+        },
+        Sx::Call(_, es) => {
+            fargs_app(es, 0, k);
+            fargs_app(es, 0, z);
+        },
+        Sx::Let(..) => fe_app_let(e, k),
+        Sx::If(..) => fe_app_if(e, k),
+        Sx::Fold(..) => fe_app_fold(e, k),
+        _ => {},
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+proof fn fe_app_let(e: Sx, k: Seq<char>)
+    requires
+        e is Let,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Let(x, a, b) = e {
+        fe_app(*b, k);
+        let ka = seq![' '] + (kwt(Kw::In) + (seq![' '] + fe(*b, k)));
+        let za = seq![' '] + (kwt(Kw::In) + (seq![' '] + fe(*b, z)));
+        fe_app(*a, ka);
+        fe_app(*a, za);
+        assert(ka =~= za + k);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+proof fn fe_app_if(e: Sx, k: Seq<char>)
+    requires
+        e is If,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::If(c, a, b) = e {
+        fe_app(*b, seq![')'] + k);
+        fe_app(*b, seq![')'] + z);
+        let ka = seq![',', ' '] + fe(*b, seq![')'] + k);
+        let za = seq![',', ' '] + fe(*b, seq![')'] + z);
+        fe_app(*a, ka);
+        fe_app(*a, za);
+        assert(ka =~= za + k);
+        let kc = seq![',', ' '] + fe(*a, ka);
+        let zc = seq![',', ' '] + fe(*a, za);
+        fe_app(*c, kc);
+        fe_app(*c, zc);
+        assert(kc =~= zc + k);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+proof fn fe_app_fold(e: Sx, k: Seq<char>)
+    requires
+        e is Fold,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Fold(l, i, a, x, b) = e {
+        fe_app(*b, seq![')'] + k);
+        fe_app(*b, seq![')'] + z);
+        let ki = seq![',', ' ', '|'] + (a + (seq![',', ' '] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k)))));
+        let zi = seq![',', ' ', '|'] + (a + (seq![',', ' '] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + z)))));
+        assert(ki =~= zi + k);
+        fe_app(*i, ki);
+        fe_app(*i, zi);
+        let kl = seq![',', ' '] + fe(*i, ki);
+        let zl = seq![',', ' '] + fe(*i, zi);
+        assert(kl =~= zl + k);
+        fe_app(*l, kl);
+        fe_app(*l, zl);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+pub proof fn fargs_app(es: Seq<Sx>, i: nat, k: Seq<char>)
+    ensures
+        fargs(es, i, k) == fargs(es, i, Seq::empty()) + k,
+    decreases es, es.len() - i,
+{
+    let z = Seq::<char>::empty();
+    if i >= es.len() {
+    } else if i + 1 == es.len() {
+        fe_app(es[i as int], seq![')'] + k);
+        fe_app(es[i as int], seq![')'] + z);
+    } else {
+        fargs_app(es, i + 1, k);
+        fe_app(es[i as int], seq![',', ' '] + fargs(es, i + 1, k));
+        fe_app(es[i as int], seq![',', ' '] + fargs(es, i + 1, z));
+    }
+    assert(fargs(es, i, k) =~= fargs(es, i, z) + k);
+}
+
+pub proof fn fps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
+    ensures
+        fps(ps, i, k) == fps(ps, i, Seq::empty()) + k,
+    decreases ps.len() - i,
+{
+    let z = Seq::<char>::empty();
+    if i < ps.len() {
+        if i + 1 == ps.len() {
+            ft_app(ps[i as int].1, seq![')'] + k);
+            ft_app(ps[i as int].1, seq![')'] + z);
+        } else {
+            fps_app(ps, i + 1, k);
+            ft_app(ps[i as int].1, seq![',', ' '] + fps(ps, i + 1, k));
+            ft_app(ps[i as int].1, seq![',', ' '] + fps(ps, i + 1, z));
+        }
+    }
+    assert(fps(ps, i, k) =~= fps(ps, i, z) + k);
+}
+
+pub proof fn fd_app(x: Sd, k: Seq<char>)
+    ensures
+        fd(x, k) == fd(x, Seq::empty()) + k,
+{
+    let z = Seq::<char>::empty();
+    if let Sd::Fn(f, ps, r, b) = x {
+        fe_app(b, seq!['\n'] + k);
+        fe_app(b, seq!['\n'] + z);
+        let kr = seq![' ', '=', ' '] + fe(b, seq!['\n'] + k);
+        let zr = seq![' ', '=', ' '] + fe(b, seq!['\n'] + z);
+        assert(kr =~= zr + k);
+        ft_app(r, kr);
+        ft_app(r, zr);
+        let kp = seq![' ', '-', '>', ' '] + ft(r, kr);
+        let zp = seq![' ', '-', '>', ' '] + ft(r, zr);
+        assert(kp =~= zp + k);
+        fps_app(ps, 0, kp);
+        fps_app(ps, 0, zp);
+    }
+    assert(fd(x, k) =~= fd(x, z) + k);
 }
 
 } // verus!
