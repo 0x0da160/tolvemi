@@ -513,6 +513,18 @@ pub struct TypedProgram {
     pub output_type: Ty,
     pub rank: HashMap<String, usize>,
     pub spec_version: Option<String>,
+    /// 検証済み部品（lexer・parser・名前解決・型検査）が作った実行可能プログラム。
+    /// api::compile / compile_ast が設定する。
+    pub verified: Option<std::sync::Arc<VerifiedProgram>>,
+}
+
+/// 検証済み部品の中間表現（`tlvm_verified::ir::EProg`）。
+pub struct VerifiedProgram(pub tlvm_verified::ir::EProg);
+
+impl std::fmt::Debug for VerifiedProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VerifiedProgram({} functions)", self.0.funcs.len())
+    }
 }
 
 impl TypedProgram {
@@ -604,6 +616,7 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
             output_type: Ty::of(&ef.return_type),
             rank: cg.rank.unwrap_or_default(),
             spec_version: None,
+            verified: None,
         });
     }
     out

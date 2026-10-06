@@ -6,7 +6,7 @@
 //! - `ir`     : exec 用の名前解決済み AST とその spec への写像
 //!
 //! 信頼境界は trust-boundary.toml を参照。
-#![allow(unused_imports)]
+#![allow(unused_imports, unused_variables)]
 
 pub mod bigint;
 pub mod bigstep;

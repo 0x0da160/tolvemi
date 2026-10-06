@@ -1774,7 +1774,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
             push1(out, '(');
             push_args(out, es);
         },
-        SExpr::Let(x, a, b) => push_let(out, e),
+        SExpr::Let(..) => push_let(out, e),
         SExpr::If(..) => push_if(out, e),
         SExpr::Fold(..) => push_fold(out, e),
     }

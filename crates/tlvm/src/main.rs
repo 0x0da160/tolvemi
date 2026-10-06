@@ -125,8 +125,24 @@ fn real_main() -> Result<ExitCode, String> {
         },
         ["fmt", file] => match parse_file(file, as_ast)? {
             Some(p) => {
-                print!("{}", format_program(&p));
-                Ok(ExitCode::SUCCESS)
+                // 正準ソースは検証済み formatter が出す。source なら元の source を、AST なら診断用
+                // formatter の出力を検証済み parser に通し、診断用 formatter の結果と照合する。
+                let text = format_program(&p);
+                let src = if as_ast || file.ends_with(".json") {
+                    text.clone()
+                } else {
+                    String::from_utf8(read(file)?).map_err(|e| e.to_string())?
+                };
+                match canonical(&src, &StaticProfile::default()) {
+                    Some(o) if o == text => {
+                        print!("{o}");
+                        Ok(ExitCode::SUCCESS)
+                    }
+                    _ => {
+                        envelope("InternalFault", "verified-formatter-mismatch");
+                        Ok(ExitCode::from(3))
+                    }
+                }
             }
             None => Ok(ExitCode::from(1)),
         },
