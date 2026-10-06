@@ -3,53 +3,56 @@
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
 
-| 設計書の層 | 場所 | 検証 |
+| 設計書の層 | 場所 | 内容 |
 |---|---|---|
-| `spec/` | [`verus/src/spec.rs`](../verus/src/spec.rs)、[`bigstep.rs`](../verus/src/bigstep.rs) | 型、値、名前解決済み AST、型付け、呼出しランク、燃料付き評価と、そこから導いた大ステップ規則 |
-| `proof/` | [`verus/src/proof.rs`](../verus/src/proof.rs) | 停止性、型安全性、決定性、燃料単調性 |
-| `exec/`（検証済み） | [`verus/src/`](../verus/src) の `ir.rs`、`value.rs`、`check.rs`、`eval.rs`、`json.rs`、`pipeline.rs` | 型検査器、ランク検査、入力値の型検査、評価器、出力 JSON encoder。spec への適合を証明 |
-| `exec/`（未検証） | [`crates/tlvm`](../crates/tlvm) | 字句、構文、診断付きの検査、入力 JSON の復号、CLI。回帰テストで確認 |
+| `spec/` | [`verus/src/`](../verus/src) の `spec.rs`、`bigstep.rs`、`syntax.rs`、`resolve.rs`（spec 部分）、`input.rs`、`json.rs`（`enc`） | 表面構文（字句・EBNF・正準整形）、名前解決、型、値、型付け、燃料付き評価、入力 JSON の文法と値 JSON の復号、出力の正準 JSON |
+| `proof/` | `proof.rs`、`syntax_proof.rs`、`parse_proof.rs`、`input_proof.rs`、`bigstep.rs` | 下の「証明したこと」 |
+| `exec/`（検証済み） | `surface.rs`、`resolve.rs`、`check.rs`、`eval.rs`、`input_exec.rs`、`json.rs`、`pipeline.rs`、`ir.rs`、`value.rs` | lexer、parser、formatter、名前解決、型検査、評価器、入力 JSON の parser と復号器、出力 encoder。spec との一致を証明 |
+| `exec/`（未検証） | [`crates/tlvm`](../crates/tlvm) | 診断を出す lexer・parser・検査器・入力復号器、資源上限、AST transport、CLI、検証済み部品への接着。回帰テストと差分テストで確認 |
 
 信頼している部品と未証明の義務は [`trust-boundary.toml`](../trust-boundary.toml) にまとめています。
-この版は V1-A（外部 BigInt を信頼仮定とする版）です。parser、formatter、入力 JSON の復号などは
-未検証なので、処理系全体を「完全に形式検証済み」とは呼びません。
+この版は V1-A（外部 BigInt を信頼仮定とする版）です。spec 層の人手レビューが済んでおらず、診断、資源上限、
+接着部分が未検証で、BigInt を信頼しているので、処理系全体を「完全に形式検証済み」とは呼びません。
 
 ## 実行の流れ
 
-`tlvm run` は次の順に進みます。
+受理・拒否の判定と実行に使う値は、すべて検証済み部品が決めます。crates/tlvm の診断付きの部品は、
+同じ判定に診断（コード・span・段階順）を付けるために動き、検証済み部品と判定が食い違えば
+`E-INTERNAL-VERIFIED-MISMATCH` で拒否します（資源上限による打ち切りは突き合わせない）。
 
-1. 未検証の lexer・parser・検査器が source を受理し、診断を出す（crates/tlvm）。
-2. 未検証の接着部分（`crates/tlvm/src/evaluator.rs`）が、型検査済みの AST を名前解決済みの中間表現
-   `EProg` に下ろし、未検証の Tarjan 実装が作ったランク列を添える。入力値も検証済み部品の表現に移す。
-3. 検証済みの `run_checked_json`（`verus/src/pipeline.rs`）が、
-   - `check_prog` でプログラムが spec の整形式条件 `wf` を満たすことを確かめ（ランク列はここで検査されるので信頼不要）、
-   - `has_type` で入力値が entry の入力型を持つことを確かめ、
-   - 検証済み評価器で実行し、
-   - 結果を検証済み encoder で正準 JSON にする。
+1. **compile**（`api::compile`）：検証済みの `compile_source`（`verus/src/pipeline.rs`）が source を字句解析・構文解析・
+   名前解決して中間表現 `EProg` を作り、`check_prog` で整形式条件 `wf` を検査する。呼出しランク列は未検証の
+   Tarjan 実装が作るが、`check_prog` が検査するので信頼不要。
+2. **decode**（`values::decode_input`）：診断付きの strict JSON parser と値復号器が入力を読み、検証済みの
+   `decode_input_e`（`verus/src/input_exec.rs`）の結果と突き合わせる。
+3. **run**（`evaluator::run`）：検証済みの `run_input_json` が、`check_prog` で `wf` を確かめ、入力 JSON の文字列を
+   検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。
+4. **fmt**：検証済みの `canonical_source` が整形する。
 
-`run_checked_json` が出力 o を返したなら、次が証明されています。
+次が証明されています（`assume`・`admit` は使わず、`external_body` は `bigint.rs` の多倍長整数演算だけ）。
 
-- プログラムは `wf` を満たす。
-- ある値 w があり、w は spec の評価 `eval_entry` が返す唯一の結果で、entry の出力型を持つ。
-- o は w の正準 JSON `enc(w)` で、出力型に沿って復号すると w に戻る。
-
-評価器は step 上限で必ず停止すること（exec 関数の停止性）も Verus が検査しています。資源上限による
-打ち切りは spec と無関係に起こりえます。step・AllocatedNodes・整数 bit 長の数え方は旧実装と同じで、
-ランダムに生成した 2500 個の型付きプログラムで出力と計数が一致することを確かめました。
+- `compile_source` が受理すれば、source は spec の構文 `parse` と名前解決 `resolve` を通り、その結果が `EProg` で、`wf` を満たす。
+  構文で拒否するのは spec の `parse` が None のときだけ。
+- `canonical_source` の出力は、parse すると同じ AST に戻り、字句解析すると元の source と同じ token 列になる。
+- `run_input_json` が入力を拒否するのは spec の `input_val` が None のときだけ。実行したなら入力は `input_val` の
+  唯一の値 v で、v は entry の入力型を持つ。
+- 実行が値を返したなら、それは spec の評価 `eval_entry` が v に対して返す唯一の値 w で、出力型を持ち、出力は
+  w の正準 JSON `enc(w)`。実行が Fault（spec の行き詰まり）で終わることはない。資源上限による打ち切りは
+  spec と無関係に起こりうる。
 
 ## exec 層（crates/tlvm）
 
 | モジュール | 設計書 | 内容 |
 |---|---|---|
-| `lexer.rs` | §4.2、§18.1 | ASCII 字句、符号付き INT、数値境界、lexical-limits |
-| `parser.rs` | §4.1、§10.3、§18.1b | 再帰下降 parser、parse Admission と structural guard、8回までの同期 recovery |
-| `checker.rs` | §5、§6、§10.2、§18.1a | name → call-graph（DAG・rank）→ typecheck（ErrorType 回復、SemanticWork 計数）→ entry → warnings |
-| `formatter.rs` | §4.3、§19.4 | 正準フォーマッタ、`ast_codec_v1` encoder |
-| `strict_json.rs` | §9.3a | 文法／深さ → string scalar → 重複キーの段階順を守る strict JSON parser |
+| `lexer.rs` | §4.2、§18.1 | 診断付きの字句解析。ASCII 字句、符号付き INT、数値境界、lexical-limits |
+| `parser.rs` | §4.1、§10.3、§18.1b | 診断付きの再帰下降 parser、parse Admission と structural guard、8回までの同期 recovery |
+| `checker.rs` | §5、§6、§10.2、§18.1a | 診断付きの name → call-graph（DAG・rank）→ typecheck（ErrorType 回復、SemanticWork 計数）→ entry → warnings |
+| `formatter.rs` | §4.3、§19.4 | AST 入力用の整形と `ast_codec_v1` encoder |
+| `strict_json.rs` | §9.3a | 診断付きの strict JSON parser（文法／深さ → string scalar → 重複キーの段階順） |
 | `ast_codec.rs` | §19.2–19.3 | AST transport 検査と Admission 付き AST 構築 |
-| `values.rs` | §9 | 値 JSON の復号（InputAdmission を含む decode 順序） |
-| `evaluator.rs` | §7、§9 | 検証済み部品への接着（中間表現への変換、結果 envelope への写像） |
-| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run` と結果 envelope |
+| `values.rs` | §9 | 診断付きの値 JSON の復号（InputAdmission を含む）と、検証済み復号器との突き合わせ |
+| `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
+| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `main.rs` | — | `tlvm check|run|fmt|ast` |
 
 ```sh
@@ -64,22 +67,47 @@ cargo test --release
 診断は一行一 JSON object で stderr、結果は stdout に出ます。verus/ は通常の cargo build では ghost コードを
 消して普通の Rust としてコンパイルされるので、build と test に Verus は要りません。
 
+検証済み部品に切り替える前の処理系（origin/main の版）と、ランダムに生成した型付きプログラム 400 件、
+字句・名前を壊したプログラム 2900 件、入力 JSON 4000 件（空白・escape・キー順・重複キー・surrogate・
+構文の破壊を含む）で、出力・診断・終了コードが一致することを確かめました。
+
 ## Verus の部分（verus/）
 
 | ファイル | 内容 |
 |---|---|
 | `spec.rs` | 型、値、名前解決済み AST、型付け `ty_expr`、整形式 `wf`、燃料付き評価 `eval` |
 | `proof.rs` | 停止性・型安全性 `total`／`entry_total`、燃料単調性 `mono`、決定性 `entry_deterministic`、組込みの健全性 `apply_sound` |
-| `bigstep.rs` | 燃料付き評価から導いた大ステップ規則（exec 評価器の証明に使う） |
+| `bigstep.rs` | 燃料付き評価から導いた大ステップ規則と、行き詰まりの伝播（`fails`） |
+| `syntax.rs` | 表面構文の spec：字句 `lex`、構文 `parse`（EBNF）、token 列への印字 `tds`、正準整形 `fds` |
+| `syntax_proof.rs` | 正準整形の字句解析 `lex(fds(p)) == Some(tds(p))` |
+| `parse_proof.rs` | parser の健全性 `parse_sound`・完全性 `parse_complete`・token 列の一意性、formatter の AST 保存性 `format_preserves`・冪等性 `format_idempotent` |
+| `surface.rs` | lexer `lex_e`、parser `parse_e`、formatter `format_e`。spec と一致 |
+| `resolve.rs` | 名前解決の spec `resolve`（関数名の一意性、変数の scope、shadowing と binder 重複の拒否、entry 検査）と実行コード `resolve_e` |
+| `input.rs` | 入力 JSON の spec：strict JSON の文法 `jparse`、値 JSON の復号 `jd`、`input_val` |
+| `input_proof.rs` | 型整合性 `input_typed`、重複キー拒否 `input_nodup`、往復性 `input_roundtrip` |
+| `input_exec.rs` | strict JSON parser `jparse_e` と復号器 `decode_input_e`。spec と一致 |
 | `bigint.rs` | 信頼する多倍長整数（num-bigint を `external_body` で包む。V1-A の信頼仮定） |
 | `ir.rs` | exec の中間表現 `EProg` と spec への写像 |
 | `value.rs` | exec の値（共有 cons セル）と spec の値への写像、環境 |
 | `check.rs` | 型検査器 `ty_of`、整形式検査 `check_prog`（ランク証明書の検査を含む）、値の型検査 `has_type` |
-| `eval.rs` | 評価器。返した値は spec でも同じ値に評価される（`evals_to`） |
+| `eval.rs` | 評価器。返した値は spec でも同じ値に評価され（`evals_to`）、Fault は spec の行き詰まり（`fails`）に限る |
 | `json.rs` | 出力の正準 JSON：encoder の正しさ、往復性 `roundtrip`、型整合性 `dec_typed` |
-| `pipeline.rs` | 中心定理つきの入口 `run_checked`／`run_checked_json` |
+| `pipeline.rs` | 入口 `compile_source`、`canonical_source`、`run_checked`、`run_checked_json`、`run_input_json` と中心定理 |
 
-`assume` と `admit` は使っていません。`external_body` は `bigint.rs` の多倍長整数演算だけです。
+### 証明したこと（§11.2）
+
+| 義務 | 定理 |
+|---|---|
+| 1 parser | `parse_sound`（受理した source の token 列は返した AST の印字 `tds(p)` に等しく、AST は深さ上限と名前規則を満たす）、`parse_complete`（source の token 列が深さ上限内の AST の印字なら、parser はその AST を返す）、`toks_unique`（EBNF の非曖昧性）、`surface::lex_e`／`parse_e` は spec と一致 |
+| 2 formatter | `format_preserves`（`parse(fds(p)) == Some(p)`）、`format_idempotent`（再 parse・再整形・token 列が一致）、`surface::format_e` は spec と一致 |
+| 3 名前解決 | `resolve` は関数名の一意性・entry の存在と一引数・変数の scope を検査し、`rx_scoped` で解決後の変数は scope 内。`resolve_e` は spec と一致 |
+| 4 型検査 | `check::ty_of` は `ty_expr` と一致、`apply_sound` |
+| 5 DAG | `check_prog` が真なら `wf`（呼出し先のランクが真に小さい） |
+| 6 | `total`、`entry_total`、`entry_deterministic`、`run_checked` |
+| 7 | `mono` |
+| 8 評価器 | 返した値は spec の値（`evals_to`）。Fault を返すのは spec が行き詰まるときだけで、整形式のプログラムに型の合う入力を与えれば起きない（`run_checked` の ensures） |
+| 9 JSON | 出力：`encode` は `enc` どおり、`roundtrip`、`dec_typed`。入力：`input_typed`、`input_nodup`、`input_roundtrip`、`decode_input_e` は spec と一致 |
+| 10 失敗の分離 | `compile_source` は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が失敗するときだけ。`run_input_json` は復号の拒否（spec の `input_val` が None のときだけ）と実行を分け、実行は Fault で終わらない |
 
 ### 検証の再現
 
@@ -91,15 +119,18 @@ git clone https://github.com/verus-lang/verus.git && cd verus/source
 ./tools/get-z3.sh             # または z3 4.16.0 を用意して VERUS_Z3_PATH を設定
 source ../tools/activate && vargo build --release
 # 検証（このリポジトリの verus/ で。cargo-verus は Verus の build に含まれる）
-cd path/to/tolvemi/verus && cargo verus focus
-# => verification results:: 137 verified, 0 errors
+cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
+# => verification results:: 519 verified, 0 errors
 ```
 
 ### まだ証明していないこと
 
-- §11.2 の 1〜3：parser、formatter、名前解決（表面 AST から中間表現への変換）。
-- §11.2 の 9 のうち入力側：strict JSON parser、重複キー拒否、入力値の復号。復号した値の型だけは検証済みの `has_type` で確かめています。
-- 診断を出す検査器（crates/tlvm/src/checker.rs）そのもの。受理したプログラムは検証済みの `check_prog` で必ず検査し直すので、誤って受理しても実行されませんが、誤って拒否することは防げません。
+- spec 層が設計書を正しく写しているかの人手レビュー（字句・EBNF・名前規則・値 JSON・strict JSON の文法を含む）。
+- 診断（コード、span、段階順、recovery）。診断付きの部品は検証済み部品と受理・拒否を突き合わせるだけです。
+- 資源上限（StaticProfile、InputAdmission の値の深さ・node 数・桁数、出力 bytes）の判定。評価器の step・割当・
+  bit 長の上限は検証済み評価器の中で数えますが、上限で打ち切ることの正しさは spec に含みません。
+- 完全性の向き：整形式のプログラムを `check_prog` が必ず受理すること、DAG なら Tarjan 実装が正しいランクを作ること。
+- 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像。
 - V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
@@ -130,4 +161,4 @@ registry が決まったら差し替える前提です。
 ## 未実装
 
 - BLAKE3 を使う成果物 hash／structural_hash。`spec_version` は未確定なので、仕様結合 hash と再現 hash はどのみち発行しません。
-- 上記の未証明義務、Skill、LLM 評価。
+- 上記の未証明の項目、Skill、LLM 評価。

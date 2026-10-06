@@ -3,7 +3,7 @@
 //! - `encode` は spec の `enc` どおりの文字列を出す（出力の encode に使う）。
 //! - `dec` は正準形を型に沿って読む spec の復号器で、`roundtrip` により型付き値 v について
 //!   `dec(enc(v)) == v`、`dec_typed` により復号結果が型を持つことを示す。
-//! 入力に使う strict JSON parser（空白・escape・重複キー拒否を含む）は crates/tlvm にあり未検証。
+//! 入力に使う strict JSON parser と値の復号（空白・escape・重複キー拒否を含む）は input.rs、input_exec.rs にある。
 
 use crate::bigint::*;
 use crate::proof::*;
