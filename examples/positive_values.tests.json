@@ -1,0 +1,5 @@
+[
+  {"name": "empty", "input": [], "expected": []},
+  {"name": "keeps order", "input": [3, -1, 0, 2, 5], "expected": [3, 2, 5]},
+  {"name": "all negative", "input": [-1, -2], "expected": []}
+]

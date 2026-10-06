@@ -18,6 +18,8 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 
 ```sh
 cargo run --release -- run examples/sum_even.tlvm '{"tag":"list","items":[{"tag":"int","value":"2"},{"tag":"int","value":"3"}]}'
+cargo run --release -- run examples/sum_even.tlvm '[2, 3, 4]' --plain   # 普通の JSON で入出力
+cargo run --release -- test examples/sum_even.tlvm                      # examples/sum_even.tests.json を照合
 cargo test --release
 (cd verus && cargo verus focus -- --triggers-mode silent)
 ```

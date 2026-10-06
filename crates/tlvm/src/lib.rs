@@ -13,6 +13,7 @@ pub mod evaluator;
 pub mod formatter;
 pub mod lexer;
 pub mod parser;
+pub mod plain;
 pub mod profiles;
 pub mod strict_json;
 pub mod syntax;

@@ -1,0 +1,6 @@
+[
+  {"name": "empty", "input": [], "expected": 0},
+  {"name": "mixed", "input": [2, 3, 4], "expected": 6},
+  {"name": "negative even", "input": [-4, -3, 1], "expected": -4},
+  {"name": "big integer as string", "input": ["100000000000000000000", 1], "expected": "100000000000000000000"}
+]
