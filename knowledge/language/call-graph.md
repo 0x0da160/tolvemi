@@ -32,7 +32,7 @@ DAG なら実装はトポロジカルランク `rank : F -> Nat` を構築する
 f -> g ならば rank(g) < rank(f)
 ```
 
-呼出し先のない関数を 0、その他を `1 + max(rank(callee))` とする。循環がある場合は rank を生成せず、実行可能プログラムを受理しない。rank は [停止性の証明](/guarantees/termination-proof.md) の外側の帰納に使う。
+呼出し先のない関数を 0、その他を `1 + max(rank(callee))` とする。循環がある場合は rank を生成せず、実行可能プログラムを受理しない。rank は [停止性の証明](../guarantees/termination-proof.md) の外側の帰納に使う。
 
 # 循環診断
 

@@ -76,6 +76,6 @@ arguments    ::= expr { "," expr }
 fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f
 ```
 
-parse error 時の回復規則は [診断件数と recovery](/diagnostics/limits-and-recovery.md)、正準出力は [正準フォーマット](/language/canonical-formatting.md)。
+parse error 時の回復規則は [診断件数と recovery](../diagnostics/limits-and-recovery.md)、正準出力は [正準フォーマット](canonical-formatting.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

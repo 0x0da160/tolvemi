@@ -67,6 +67,6 @@ phase はいずれも input-decode。欠落キーは正準 key 順、余分キ�
 | Int.value が number、node 数上限0 | 浅い型違反 `E-INPUT-FIELD-TYPE` が先 |
 | 重複キーと root tag 違反 | 全体重複段階が先 → `E-INPUT-DUPLICATE-KEY` |
 
-InputAdmission は入力 codec の論理イベント（識別子 `input-admission-v1`）であり、物理 allocation とは別。上限値は [input profile](/resources/input-and-transport-profiles.md)。
+InputAdmission は入力 codec の論理イベント（識別子 `input-admission-v1`）であり、物理 allocation とは別。上限値は [input profile](../resources/input-and-transport-profiles.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

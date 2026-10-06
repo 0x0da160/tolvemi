@@ -65,6 +65,6 @@ RunResult =
 | execution profile（Steps、AllocatedNodes、IntegerBits、OutputBytes） | `RunResult::ResourceExhausted` |
 | host-policy（時間、物理ヒープ、frame、参照スロット） | `RunResult::HostAborted` |
 
-評価中に起きたという理由だけで ResourceExhausted へ統合しない。OS kill などで結果を返せない場合もある。各 profile の数値は [資源](/resources/) を参照。
+評価中に起きたという理由だけで ResourceExhausted へ統合しない。OS kill などで結果を返せない場合もある。各 profile の数値は [資源](../resources/) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

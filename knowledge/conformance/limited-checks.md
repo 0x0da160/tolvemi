@@ -8,10 +8,10 @@ runtime: python
 computation: ../../spec/lptl-v1/v1_limited_checks.py
 parameters: []
 executor:
-  resource: /references/run-limited-checks.md
+  resource: ../references/run-limited-checks.md
   receipt: [computation_sha256, inputs_sha256, python, jsonschema, summary, checks_csv_sha256, checks]
 attester:
-  resource: /references/attesters/limited_checks_attester.py
+  resource: ../references/attesters/limited_checks_attester.py
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
 verified: { by: process:limited-checks-attester, at: 2026-10-06T16:00:00Z }
 sources:
@@ -61,7 +61,7 @@ sources:
 
 # 範囲
 
-これは限定 schema fixture と補助モデルの検査であり、strict JSON parser、完全な入力 codec、LPTL コンパイラ、encoder、BLAKE3 digest 検証、証明、LLM 実験ではない。byte span、message／repair、transport の bytes／深さ guard、host behavior を含まない。G0 などの [出荷ゲート](/overview/status-and-gates.md) の代用にしない。
+これは限定 schema fixture と補助モデルの検査であり、strict JSON parser、完全な入力 codec、LPTL コンパイラ、encoder、BLAKE3 digest 検証、証明、LLM 実験ではない。byte span、message／repair、transport の bytes／深さ guard、host behavior を含まない。G0 などの [出荷ゲート](../overview/status-and-gates.md) の代用にしない。
 
 [^manifest]: v1 artifact manifest
 [^verification-report]: LPTL v1 統一版：突き合わせ確認報告

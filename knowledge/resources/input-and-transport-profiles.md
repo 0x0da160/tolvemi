@@ -34,10 +34,10 @@ sources:
 
 # input のコードと検査時点
 
-`E-LIMIT-INPUT-JSON-DEPTH`、`E-LIMIT-INPUT-VALUE-DEPTH`、`E-LIMIT-INPUT-VALUE-NODES`、`E-LIMIT-INPUT-INTEGER-DIGITS`（bytes は `E-LIMIT-INPUT-JSON-BYTES`）。値 node・深さの guard は InputAdmission 直前、つまり object header・キー集合・全直接 field の浅い型検査後かつ内容再帰前。同時超過は値深さを優先。整数桁数 guard は同じ値の Admission と正規形検査の後。手順全体は [strict JSON と decode 順序](/api/strict-json.md)。
+`E-LIMIT-INPUT-JSON-DEPTH`、`E-LIMIT-INPUT-VALUE-DEPTH`、`E-LIMIT-INPUT-VALUE-NODES`、`E-LIMIT-INPUT-INTEGER-DIGITS`（bytes は `E-LIMIT-INPUT-JSON-BYTES`）。値 node・深さの guard は InputAdmission 直前、つまり object header・キー集合・全直接 field の浅い型検査後かつ内容再帰前。同時超過は値深さを優先。整数桁数 guard は同じ値の Admission と正規形検査の後。手順全体は [strict JSON と decode 順序](../api/strict-json.md)。
 
 # AST transport
 
-AST transport の上限は表記に固有で、source bytes と同じ数値にはしない。共通の AST node・型・式上限は Surface と同一（[static profile](/resources/static-profile.md)）。AST と Surface の transport byte 数は別々に記録し、表記の長さが同じだったと見なさない。
+AST transport の上限は表記に固有で、source bytes と同じ数値にはしない。共通の AST node・型・式上限は Surface と同一（[static profile](static-profile.md)）。AST と Surface の transport byte 数は別々に記録し、表記の長さが同じだったと見なさない。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

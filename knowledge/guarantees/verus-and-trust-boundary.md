@@ -47,6 +47,6 @@ exec/   lexer, parser, formatter, resolver, type checker, DAG checker, evaluator
 | **V1-B** | BigInt の表現、比較、加減を検証 |
 | **V1-C** | 乗算と `mod` を検証し、算術中核を TCB から除去 |
 
-未証明中核を「完全に形式検証済み」と呼ばない。現時点では実装・証明とも存在しない（[設計状態](/overview/status-and-gates.md)）。
+未証明中核を「完全に形式検証済み」と呼ばない。現時点では実装・証明とも存在しない（[設計状態](../overview/status-and-gates.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

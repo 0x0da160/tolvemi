@@ -44,11 +44,11 @@ entry positive_values
 // mod(a,b) が some(r) のとき r+1、none のとき 0
 ```
 
-`Option<Int>` の一般 payload `r` を束縛する `match_option` がないため書けない（[Option の境界](/language/option-boundary.md)、[将来拡張](/future/option-elimination.md)）。
+`Option<Int>` の一般 payload `r` を束縛する `match_option` がないため書けない（[Option の境界](option-boundary.md)、[将来拡張](../future/option-elimination.md)）。
 
 ## AST JSON 形式の例
 
-恒等関数を [AST codec](/api/ast-codec.md) で表したもの：
+恒等関数を [AST codec](../api/ast-codec.md) で表したもの：
 
 ```json
 {"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"identity","params":[{"name":"x","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"x"}},{"tag":"entry","name":"identity"}]}

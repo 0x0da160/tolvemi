@@ -52,7 +52,7 @@ sources:
 - 表の "reference-1" は数値設定の略記であって版識別子の代用ではない。これらは実装済み spec_version や凍結済み profile ではない。
 - 限定検査で使う `spec-test-a`／`spec-test-b` は版分離を試す架空 fixture ID で、公表版ではない。[^verification-report]
 - JSON Schema Draft 2020-12、Python、jsonschema の実際の版は外部規格・依存ソフトの識別であり、v1 へ偽装しない。
-- 公開名称が [Tolvemi](/overview/naming.md) になっても、これらの `LPTL` を含む固定識別子は一括置換しない。変更が必要なら凍結状態・成果物・互換性・移行規則への影響を確認する。
+- 公開名称が [Tolvemi](../overview/naming.md) になっても、これらの `LPTL` を含む固定識別子は一括置換しない。変更が必要なら凍結状態・成果物・互換性・移行規則への影響を確認する。
 
 [^namespace-registry]: v1 namespace registry
 [^verification-report]: LPTL v1 統一版：突き合わせ確認報告

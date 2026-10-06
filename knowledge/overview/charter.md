@@ -14,7 +14,7 @@ sources:
 
 # 定義
 
-**LPTL（LLM-Pure Total Language）** は、有限データ上の純粋な計算のための、静的型付き・決定的・全域な DSL である。[^lptl-design] 公開名称は [Tolvemi](/overview/naming.md)。
+**LPTL（LLM-Pure Total Language）** は、有限データ上の純粋な計算のための、静的型付き・決定的・全域な DSL である。[^lptl-design] 公開名称は [Tolvemi](naming.md)。
 
 # 中心定理
 
@@ -27,7 +27,7 @@ well_formed(P) ∧ i ∈ Value(T_in)
 
 - `well_formed` は名前・scope・型・DAG・唯一の arity=1 entry の成立を含む。
 - 「受理済みなら well_formed」は処理系適合の証明対象。逆に well_formed でも有限 profile により静的拒否され得る。
-- 定理の前提は固定した数学的仕様・整形式プログラム・型に属する有限入力であり、物理ホストや処理系ではない。証明構造は [停止性の証明構造](/guarantees/termination-proof.md)。
+- 定理の前提は固定した数学的仕様・整形式プログラム・型に属する有限入力であり、物理ホストや処理系ではない。証明構造は [停止性の証明構造](../guarantees/termination-proof.md)。
 
 # 数学的停止と実装上の成功の区別
 
@@ -41,12 +41,12 @@ well_formed(P) ∧ i ∈ Value(T_in)
 | タイムアウト・物理資源 | `RunResult::HostAborted` |
 | 処理系障害 | `RunResult::InternalFault` |
 
-詳細は [API 分離](/api/api-separation.md)。
+詳細は [API 分離](../api/api-separation.md)。
 
 # 用途
 
 1. **第一の用途：高保証計算カーネル。** LLM を含む外部提案器が生成した有限・純粋・決定的ロジックを、型・停止性・決定性・資源契約の下で受理・実行する。
-2. **第二の用途：研究基盤。** LLM の生成・修復に対する構文、意味論、診断、Skill、表記の寄与を分解して測定する。[評価モードと比較](/llm-evaluation/evaluation-modes.md) を参照。
+2. **第二の用途：研究基盤。** LLM の生成・修復に対する構文、意味論、診断、Skill、表記の寄与を分解して測定する。[評価モードと比較](../llm-evaluation/evaluation-modes.md) を参照。
 
 第一用途の受理・実行契約を、第二用途の成功率のために緩めない。
 

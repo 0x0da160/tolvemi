@@ -31,7 +31,7 @@ sources:
 - object member の順序に依存しない。有効なキー集合で各キーが一度だけ現れ、値が期待型に適合すれば任意の順を受理する。
 - 余分なキー、欠落キー、重複キーを拒否。重複キーは map に落とす前に token stream で検出する。
 - JSON number、JSON null、予期しない位置の配列・object、型不一致を拒否。Int の値は `INT` の正規形の文字列のみ。
-- 検査順と診断選択は [strict JSON と decode 順序](/api/strict-json.md) に従う。
+- 検査順と診断選択は [strict JSON と decode 順序](strict-json.md) に従う。
 
 # エンコード（正準出力）
 

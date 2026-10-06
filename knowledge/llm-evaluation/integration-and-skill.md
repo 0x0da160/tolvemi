@@ -20,11 +20,11 @@ LLM は候補生成・修復器であって、信頼実行主体ではない。�
 LLM（提案） → compile / compile_ast（静的受理） → decode_input（入力） → run（実行・資源） → 隠しテスト（タスク評価）
 ```
 
-各段は別の検査責務・別の結果型を持つ（[API 分離](/api/api-separation.md)）。
+各段は別の検査責務・別の結果型を持つ（[API 分離](../api/api-separation.md)）。
 
 # Skill（SKILL.md）
 
-- 仕様から生成・照合し、ハッシュとトークン数を固定する。`skill_hash` は成果物 hash と再現 record に入る（[ハッシュ](/api/hashes-and-identity.md)）。
+- 仕様から生成・照合し、ハッシュとトークン数を固定する。`skill_hash` は成果物 hash と再現 record に入る（[ハッシュ](../api/hashes-and-identity.md)）。
 - v1 Skill は Option に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない。
 - **含めるもの**：最小文法、型、組込み規則、`let`・`fold`・`Pair`・`cons`／`reverse` の例、禁止事項、出力形式、主要診断コード。
 - **含めないもの**：最終評価の解法・近傍例・手書き例外規則。

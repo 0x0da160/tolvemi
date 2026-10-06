@@ -27,7 +27,7 @@ T, A, B ::= Int | Bool | Unit
 | `Bool` | `true`、`false` | |
 | `Unit` | `unit` | 唯一の値 |
 | `List<T>` | `list[T](v, ...)` | 有限個の `T` 値からなる順序付き同種リスト |
-| `Option<T>` | `some(v)`、`none[T]` | 一般 payload の取り出しは不可（[Option の境界](/language/option-boundary.md)） |
+| `Option<T>` | `some(v)`、`none[T]` | 一般 payload の取り出しは不可（[Option の境界](option-boundary.md)） |
 | `Pair<A,B>` | `pair(v, w)` | 二成分は独立した型 |
 
 # 規則
@@ -38,6 +38,6 @@ T, A, B ::= Int | Bool | Unit
 - 循環値、参照値、関数値、未初期化値は存在しない。
 - 値の文法：`v ::= 整数 | true | false | unit | list[T](v, ...) | some(v) | none[T] | pair(v, v)`
 
-意味論上の木展開量と物理割当量の区別は [資源モデル](/resources/resource-model.md)、JSON 表現は [値 JSON codec](/api/value-json-codec.md) を参照。
+意味論上の木展開量と物理割当量の区別は [資源モデル](../resources/resource-model.md)、JSON 表現は [値 JSON codec](../api/value-json-codec.md) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

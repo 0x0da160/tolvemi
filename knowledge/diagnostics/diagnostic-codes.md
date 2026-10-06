@@ -72,7 +72,7 @@ sources:
 | `E-AST-CODEC`、`-TAG`、`-MISSING-FIELD`、`-UNKNOWN-FIELD`、`-FIELD-TYPE`、`-IDENTIFIER`、`-INTEGER` | ast-schema | AST node |
 | `E-AST-LIMIT-BYTES`、`-JSON-DEPTH`、`-INTEGER-DIGITS` | ast-boundary 等 | AST transport 上限 |
 
-各コードの出る文脈は [static profile](/resources/static-profile.md)、[strict JSON](/api/strict-json.md)、[AST codec](/api/ast-codec.md)、[回帰テスト](/conformance/regression-tests.md) を参照。
+各コードの出る文脈は [static profile](../resources/static-profile.md)、[strict JSON](../api/strict-json.md)、[AST codec](../api/ast-codec.md)、[回帰テスト](../conformance/regression-tests.md) を参照。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
 [^verification-report]: LPTL v1 統一版：突き合わせ確認報告

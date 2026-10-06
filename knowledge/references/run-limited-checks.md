@@ -9,7 +9,7 @@ generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
 
 # Steps
 
-[限定検査の合格数](/conformance/limited-checks.md) の executor。前提は Python 3.12 以上と `jsonschema` パッケージ。
+[限定検査の合格数](../conformance/limited-checks.md) の executor。前提は Python 3.12 以上と `jsonschema` パッケージ。
 
 `v1_limited_checks.py` は自分と同じディレクトリの `v1_checks.csv` を上書きするため、executor はリポジトリの `spec/lptl-v1/` を直接は実行せず、一時ディレクトリへ計算と入力をコピーして実行する。
 
