@@ -320,7 +320,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
                 // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
                 // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
-                (Some(")"), Some("," | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
+                (Some(")"), Some("," | "in" | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
                     let (l, c) = line_col(source, at);
                     ("insert_text", (span.0, span.0), format!(
                         "')' closing the '{what}(' opened at line {l}, column {c}: it already has all its arguments here, so one ')' is missing before this point (or there are too many arguments)"
