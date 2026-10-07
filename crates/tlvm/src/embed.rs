@@ -15,7 +15,7 @@
 use crate::api::{compile, decode_plain_input, run, CompileResult, SourceCompile};
 use crate::checker::TypedProgram;
 use crate::evaluator::RunResult;
-use crate::plain::encode_plain;
+use crate::plain::encode_plain_with;
 use crate::profiles::{ExecutionProfile, HostPolicy, InputProfile, StaticProfile};
 use crate::values::DecodeResult;
 use std::fmt;
@@ -122,7 +122,17 @@ impl Program {
         self.run_json_with(input_plain_json, &Limits::default())
     }
 
+    /// plain JSON での実行。2^53 を超える整数は十進文字列で出す（JavaScript などの number で精度を落とさない）。
     pub fn run_json_with(&self, input_plain_json: &str, limits: &Limits) -> Result<String, RunError> {
+        self.run_plain(input_plain_json, limits, false)
+    }
+
+    /// 整数を桁数によらず JSON number で出す（任意精度の整数を読めるホスト用。Python binding が使う）。
+    pub fn run_json_exact(&self, input_plain_json: &str) -> Result<String, RunError> {
+        self.run_plain(input_plain_json, &Limits::default(), true)
+    }
+
+    fn run_plain(&self, input_plain_json: &str, limits: &Limits, exact: bool) -> Result<String, RunError> {
         let p = &self.typed;
         let tv = match decode_plain_input(&p.input_type, input_plain_json.as_bytes(), &limits.input) {
             DecodeResult::Decoded(tv) => tv,
@@ -131,7 +141,7 @@ impl Program {
             DecodeResult::InputBoundaryFailure => return Err(RunError::Internal("input-boundary-failure".into())),
         };
         match run(p, &tv, &limits.execution, &limits.host).map_err(RunError::Internal)? {
-            RunResult::Completed { output, .. } => encode_plain(&p.output_type, &output).map_err(RunError::Internal),
+            RunResult::Completed { output, .. } => encode_plain_with(&p.output_type, &output, exact).map_err(RunError::Internal),
             RunResult::ResourceExhausted { kind, observed, limit } => Err(RunError::ResourceExhausted { kind, observed, limit }),
             RunResult::HostAborted(r) => Err(RunError::HostAborted(r)),
             RunResult::InternalFault(r) => Err(RunError::Internal(r)),

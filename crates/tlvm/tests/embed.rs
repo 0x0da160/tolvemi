@@ -12,8 +12,9 @@ fn compile_and_run() {
     assert_eq!(p.output_type(), "Int");
     assert_eq!(p.run_json("[1, 2, 3]").unwrap(), "6");
     assert_eq!(p.run_json("[]").unwrap(), "0");
-    // 2^53 を超える整数も number のまま正確に出る（入力は十進文字列も受理する）
-    assert_eq!(p.run_json(r#"[9007199254740993, "1"]"#).unwrap(), "9007199254740994");
+    // 2^53 を超える整数は十進文字列で出る（入力は十進文字列も受理する）。run_json_exact は number のまま
+    assert_eq!(p.run_json(r#"[9007199254740993, "1"]"#).unwrap(), r#""9007199254740994""#);
+    assert_eq!(p.run_json_exact(r#"[9007199254740993, "1"]"#).unwrap(), "9007199254740994");
 }
 
 #[test]

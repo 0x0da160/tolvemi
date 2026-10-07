@@ -219,7 +219,7 @@ cargo run --release -- test examples/sum_even.tlvm                              
   `input_type()`／`output_type()` は `List<Int>` の形の型、`run_json(input)` は plain JSON の入力で実行して plain JSON
   （最小空白）の出力を返します。失敗は `RunError`（`Input(診断)`、`ResourceExhausted { kind, observed, limit }`、
   `HostAborted`、`Internal`）です。診断は `diagnostic_json` で CLI と同じ一行 JSON（§10.1）になります。
-  上限を変えるときは `run_json_with(input, &Limits)` を使います。
+  上限を変えるときは `run_json_with(input, &Limits)` を使います。plain JSON の出力では 2^53 を超える整数が十進文字列になります。桁数によらず number で欲しいホスト（Python など）は `run_json_exact(input)` を使います。
 - **Python**（[`crates/tlvm-py`](../crates/tlvm-py)）：PyO3 の拡張モジュール `tlvm` です。`tlvm.compile(src)` が
   `Program` を返し、`p.run(value)` は Python の値を `json.dumps` で plain JSON にして実行し、結果を `json.loads` で
   Python の値に戻します（整数は桁数によらず int のまま往復し、`Pair` は list で返ります）。失敗は `tlvm.CompileError`・

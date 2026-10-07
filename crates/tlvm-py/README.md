@@ -28,7 +28,7 @@ p.input_type          # 'List<Int>'
 p.output_type         # 'Int'
 p.run([1, 2, 3])      # 6
 p.run([2**80, 1])     # 1208925819614629174706177（整数は桁数によらず int のまま）
-p.run_json("[1, 2]")  # '3'（plain JSON の文字列で受け渡す版）
+p.run_json("[1, 2]")  # '3'（plain JSON の文字列で受け渡す版。2^53 を超える整数は十進文字列になる）
 
 try:
     tlvm.compile("fn solve(xs: List<Int>) -> Int = add(xs, 1)\nentry solve\n")

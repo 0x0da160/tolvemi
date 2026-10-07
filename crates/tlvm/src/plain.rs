@@ -257,13 +257,18 @@ fn js_safe(dec: &str) -> bool {
 
 /// 値 JSON（処理系が出した正準出力）を型 `t` の plain JSON（最小空白）にする。
 pub fn encode_plain(t: &Ty, canonical: &str) -> Result<String, String> {
+    encode_plain_with(t, canonical, false)
+}
+
+/// `exact` なら整数を桁数によらず JSON number で出す（任意精度の整数を読めるホスト、たとえば Python 用）。
+pub fn encode_plain_with(t: &Ty, canonical: &str, exact: bool) -> Result<String, String> {
     let root = parse(canonical.as_bytes(), usize::MAX).map_err(|f| format!("値 JSON を読めません（{:?}）", f.kind))?;
     let mut out = String::new();
-    write_plain(&root, t, &mut out)?;
+    write_plain(&root, t, &mut out, exact)?;
     Ok(out)
 }
 
-fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
+fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), String> {
     if let Some(r) = t.record() {
         // v1.1：レコード型は field 名を key にした object（key は宣言順）
         out.push('{');
@@ -274,10 +279,10 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
             }
             out.push_str(&format!("\"{f}\":"));
             if i + 1 == r.fields.len() {
-                write_plain(node, &cur, out)?;
+                write_plain(node, &cur, out, exact)?;
             } else {
                 let get = |k: &str| node.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
-                write_plain(get("left")?, &cur.arg(0), out)?;
+                write_plain(get("left")?, &cur.arg(0), out, exact)?;
                 node = get("right")?;
                 cur = cur.arg(1);
             }
@@ -290,7 +295,7 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
     match (t.tag(), tag) {
         (TyTag::Int, "int") => {
             let v = &field("value")?.text;
-            if js_safe(v) {
+            if exact || js_safe(v) {
                 out.push_str(v);
             } else {
                 // JavaScript の number で正確に表せない整数は、入力でも受理する十進文字列にする
@@ -307,25 +312,25 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
                 if i > 0 {
                     out.push(',');
                 }
-                write_plain(c, &t.arg(0), out)?;
+                write_plain(c, &t.arg(0), out, exact)?;
             }
             out.push(']');
         }
         (TyTag::Pair, "pair") => {
             out.push('[');
-            write_plain(field("left")?, &t.arg(0), out)?;
+            write_plain(field("left")?, &t.arg(0), out, exact)?;
             out.push(',');
-            write_plain(field("right")?, &t.arg(1), out)?;
+            write_plain(field("right")?, &t.arg(1), out, exact)?;
             out.push(']');
         }
         (TyTag::Option, "some") => {
             let inner = t.arg(0);
             if nullable(&inner) {
                 out.push_str("{\"some\":");
-                write_plain(field("value")?, &inner, out)?;
+                write_plain(field("value")?, &inner, out, exact)?;
                 out.push('}');
             } else {
-                write_plain(field("value")?, &inner, out)?;
+                write_plain(field("value")?, &inner, out, exact)?;
             }
         }
         _ => return Err(format!("値 JSON の tag {tag} が型 {t} と一致しません")),

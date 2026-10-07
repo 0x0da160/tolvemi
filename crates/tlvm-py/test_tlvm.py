@@ -17,6 +17,19 @@ import tlvm  # noqa: E402
 SUM = "fn solve(xs: List<Int>) -> Int = fold(xs, 0, |acc, x| add(acc, x))\nentry solve\n"
 
 
+class RecordTest(unittest.TestCase):
+    def test_record_is_dict(self):
+        src = (
+            "type Stats = { count: Int, total: Int }\n"
+            "fn solve(xs: List<Int>) -> Stats =\n"
+            "  fold(xs, Stats { count: 0, total: 0 }, |s, x| Stats { count: add(s.count, 1), total: add(s.total, x) })\n"
+            "entry solve\n"
+        )
+        p = tlvm.compile(src)
+        self.assertEqual(p.output_type, "Stats")
+        self.assertEqual(p.run([1, 2**80]), {"count": 2, "total": 2**80 + 1})
+
+
 class CompileTest(unittest.TestCase):
     def test_types(self):
         p = tlvm.compile(SUM)

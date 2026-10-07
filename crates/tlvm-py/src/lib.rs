@@ -101,7 +101,10 @@ impl Program {
     fn run<'py>(&self, py: Python<'py>, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let json = py.import("json")?;
         let input: String = json.getattr("dumps")?.call1((value,))?.extract()?;
-        let out = self.run_json(py, &input)?;
+        let out = match py.detach(|| self.inner.run_json_exact(&input)) {
+            Ok(out) => out,
+            Err(e) => return Err(run_error(py, e)?),
+        };
         json.getattr("loads")?.call1((out,))
     }
 
