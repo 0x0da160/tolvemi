@@ -1,0 +1,13 @@
+{
+  "id": "29-flatten",
+  "title": "Flatten",
+  "category": "nested",
+  "prompt": "Concatenate all inner lists in order into one list.",
+  "input_type": "List<List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2], [], [3]], "expected": [1, 2, 3]},
+    {"input": [], "expected": []},
+    {"input": [[4]], "expected": [4]}
+  ]
+}

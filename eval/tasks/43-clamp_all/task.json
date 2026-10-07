@@ -1,0 +1,13 @@
+{
+  "id": "43-clamp_all",
+  "title": "Clamp to a range",
+  "category": "map",
+  "prompt": "The input is pair(pair(lo, hi), xs) with lo <= hi. Replace every element below lo by lo and every element above hi by hi.",
+  "input_type": "Pair<Pair<Int, Int>, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[0, 10], [-5, 3, 12]], "expected": [0, 3, 10]},
+    {"input": [[1, 2], []], "expected": []},
+    {"input": [[4, 4], [1, 9]], "expected": [4, 4]}
+  ]
+}

@@ -21,3 +21,7 @@ jobs:
           for f in examples/*.tlvm; do
             ./target/release/tlvm test "$f" --human
           done
+      - name: Eval set check
+        run: |
+          python3 eval/check.py
+          python3 -m unittest discover -s eval -p 'test_*.py'

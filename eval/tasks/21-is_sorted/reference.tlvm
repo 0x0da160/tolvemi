@@ -1,0 +1,4 @@
+fn solve(xs: List<Int>) -> Bool =
+  snd(snd(fold(xs, pair(false, pair(0, true)), |acc, x|
+    pair(true, pair(x, if(fst(acc), if(snd(snd(acc)), le(fst(snd(acc)), x), false), true))))))
+entry solve

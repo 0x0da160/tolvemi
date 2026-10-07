@@ -1,0 +1,3 @@
+fn solve(bs: List<Bool>) -> Pair<Bool, Bool> =
+  fold(bs, pair(true, false), |acc, b| pair(if(b, fst(acc), false), if(b, true, snd(acc))))
+entry solve

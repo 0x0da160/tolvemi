@@ -1,0 +1,13 @@
+{
+  "id": "32-swap_pairs",
+  "title": "Swap each pair",
+  "category": "map",
+  "prompt": "Return the list where every pair(a, b) is replaced by pair(b, a), in order.",
+  "input_type": "List<Pair<Int, Int>>",
+  "output_type": "List<Pair<Int, Int>>",
+  "examples": [
+    {"input": [[1, 2], [3, 4]], "expected": [[2, 1], [4, 3]]},
+    {"input": [], "expected": []},
+    {"input": [[5, 5]], "expected": [[5, 5]]}
+  ]
+}

@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> Int = fold(xs, 0, |acc, x| if(eq(mod(x, 2), some(0)), add(acc, 1), acc))
+entry solve

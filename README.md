@@ -12,9 +12,10 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 | [`crates/tlvm/`](crates/tlvm/) | Rust の処理系（`tlvm check／run／fmt／ast`）と回帰テスト。判定と実行は verus/ の検証済み部品が行う。説明は [`docs/implementation.md`](docs/implementation.md) |
 | [`verus/`](verus/) | Verus の spec 層・proof 層と、検証済みの lexer・parser・formatter・名前解決・型検査器・入力 JSON の復号器・評価器・出力 encoder |
 | [`trust-boundary.toml`](trust-boundary.toml) | 信頼境界と未証明義務の一覧（設計書 §11.3） |
-| [`examples/`](examples/) | 設計書 §13 の例 |
+| [`examples/`](examples/) | 設計書 §13 の例とテストケース |
+| [`eval/`](eval/) | LLM 予備実験の評価セット（SKILL.md、43 問のタスク、ハーネス）。説明は [`eval/README.md`](eval/README.md) |
 
-設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。LLM 実験もまだありません。
+設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。LLM 予備実験の評価セットとハーネス（`eval/`）はありますが、実行結果はまだありません。
 
 ```sh
 cargo run --release -- run examples/sum_even.tlvm '{"tag":"list","items":[{"tag":"int","value":"2"},{"tag":"int","value":"3"}]}'

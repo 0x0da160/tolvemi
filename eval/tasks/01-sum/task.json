@@ -1,0 +1,13 @@
+{
+  "id": "01-sum",
+  "title": "Sum of a list",
+  "category": "aggregate",
+  "prompt": "Return the sum of all integers in the list (0 for an empty list).",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 3], "expected": 6},
+    {"input": [], "expected": 0},
+    {"input": [-5, 5, 7], "expected": 7}
+  ]
+}

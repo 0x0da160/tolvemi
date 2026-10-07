@@ -1,0 +1,3 @@
+fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
+  reverse(fold(snd(p), list[Int](), |acc, x| if(eq(mod(x, fst(p)), some(0)), cons(x, acc), acc)))
+entry solve

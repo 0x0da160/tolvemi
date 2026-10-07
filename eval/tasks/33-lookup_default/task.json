@@ -1,0 +1,13 @@
+{
+  "id": "33-lookup_default",
+  "title": "Lookup with default",
+  "category": "search",
+  "prompt": "The input is pair(k, entries) where entries is a list of pair(key, value). Return the value of the first entry whose key equals k, or 0 if there is none.",
+  "input_type": "Pair<Int, List<Pair<Int, Int>>>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [2, [[1, 10], [2, 20], [2, 30]]], "expected": 20},
+    {"input": [5, []], "expected": 0},
+    {"input": [3, [[1, 1]]], "expected": 0}
+  ]
+}

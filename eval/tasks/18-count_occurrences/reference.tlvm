@@ -1,0 +1,2 @@
+fn solve(p: Pair<Int, List<Int>>) -> Int = fold(snd(p), 0, |acc, x| if(eq(x, fst(p)), add(acc, 1), acc))
+entry solve

@@ -1,0 +1,2 @@
+fn solve(xss: List<List<Int>>) -> List<Int> = reverse(fold(xss, list[Int](), |acc, xs| cons(length(xs), acc)))
+entry solve

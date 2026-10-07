@@ -1,0 +1,13 @@
+{
+  "id": "06-count_even",
+  "title": "Count even numbers",
+  "category": "aggregate",
+  "prompt": "Return how many integers in the list are even (negative numbers and 0 included).",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 4, 5], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [-2, -3, 0], "expected": 2}
+  ]
+}

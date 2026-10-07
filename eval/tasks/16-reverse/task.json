@@ -1,0 +1,13 @@
+{
+  "id": "16-reverse",
+  "title": "Reverse a list",
+  "category": "reorder",
+  "prompt": "Return the list in reverse order.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, 3], "expected": [3, 2, 1]},
+    {"input": [], "expected": []},
+    {"input": [7], "expected": [7]}
+  ]
+}

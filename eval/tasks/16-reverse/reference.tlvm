@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> List<Int> = reverse(xs)
+entry solve

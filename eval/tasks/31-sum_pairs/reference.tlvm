@@ -1,0 +1,2 @@
+fn solve(ps: List<Pair<Int, Int>>) -> List<Int> = reverse(fold(ps, list[Int](), |acc, q| cons(add(fst(q), snd(q)), acc)))
+entry solve

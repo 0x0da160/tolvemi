@@ -1,0 +1,13 @@
+{
+  "id": "07-filter_greater",
+  "title": "Keep values above a threshold",
+  "category": "filter",
+  "prompt": "The input is pair(t, xs). Return the elements of xs that are strictly greater than t, in their original order.",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [2, [1, 5, 2, 3]], "expected": [5, 3]},
+    {"input": [0, []], "expected": []},
+    {"input": [-1, [-3, -1, 0]], "expected": [0]}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "37-drop_n",
+  "title": "Drop the first n",
+  "category": "index",
+  "prompt": "The input is pair(n, xs) with n >= 0. Return xs without its first n elements (empty if it is shorter).",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [2, [1, 2, 3]], "expected": [3]},
+    {"input": [5, [1]], "expected": []},
+    {"input": [0, [4, 5]], "expected": [4, 5]}
+  ]
+}

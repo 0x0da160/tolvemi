@@ -1,0 +1,4 @@
+fn solve(xs: List<Int>) -> Int =
+  snd(fold(xs, pair(true, 0), |acc, x|
+    pair(if(fst(acc), false, true), if(fst(acc), add(snd(acc), x), sub(snd(acc), x)))))
+entry solve

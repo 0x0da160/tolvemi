@@ -1,0 +1,13 @@
+{
+  "id": "38-rotate_left",
+  "title": "Rotate left by one",
+  "category": "reorder",
+  "prompt": "Move the first element to the end of the list. An empty list stays empty.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, 3], "expected": [2, 3, 1]},
+    {"input": [], "expected": []},
+    {"input": [7], "expected": [7]}
+  ]
+}

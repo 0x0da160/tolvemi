@@ -1,0 +1,13 @@
+{
+  "id": "34-count_present",
+  "title": "Count present options",
+  "category": "option",
+  "prompt": "Return how many elements of the list are some(_) (not none).",
+  "input_type": "List<Option<Int>>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, null, 3], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [null], "expected": 0}
+  ]
+}

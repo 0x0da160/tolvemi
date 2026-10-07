@@ -1,0 +1,13 @@
+{
+  "id": "17-zip_sum",
+  "title": "Element-wise sum",
+  "category": "index",
+  "prompt": "The input is pair(xs, ys) where xs and ys have the same length. Return the list whose i-th element is xs[i] + ys[i].",
+  "input_type": "Pair<List<Int>, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2, 3], [10, 20, 30]], "expected": [11, 22, 33]},
+    {"input": [[], []], "expected": []},
+    {"input": [[-1], [1]], "expected": [0]}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "20-any_zero",
+  "title": "Any zero",
+  "category": "aggregate",
+  "prompt": "Return true if the list contains 0, otherwise false.",
+  "input_type": "List<Int>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [1, 0, 2], "expected": true},
+    {"input": [], "expected": false},
+    {"input": [3], "expected": false}
+  ]
+}

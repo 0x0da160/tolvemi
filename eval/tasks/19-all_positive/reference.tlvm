@@ -1,0 +1,2 @@
+fn solve(xs: List<Int>) -> Bool = fold(xs, true, |acc, x| if(acc, lt(0, x), false))
+entry solve
