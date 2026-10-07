@@ -3,8 +3,10 @@
 usage: python3 -m unittest discover -s eval -p 'test_*.py'
 """
 
+import os
 import tempfile
 import unittest
+from pathlib import Path
 
 import harness
 from tasks_lib import load_tasks
@@ -106,6 +108,39 @@ class HarnessTest(unittest.TestCase):
         self.assertEqual(s["lptl"]["success_at_3"], 1)
         md = harness.summary_markdown(s, {"run_id": "x", "backend": "oracle", "rounds": 3, "repeats": 1, "tasks": 1, "skill_sha256": "0" * 64})
         self.assertIn("| lptl | 1 |", md)
+
+
+class ClaudeCliTest(unittest.TestCase):
+    def test_cli_backend_repairs_through_transcript(self):
+        """偽の claude で、引数・作業ディレクトリ・修復の回の書き起こしを確かめる。"""
+        task = load_tasks(["sum"])[0]
+        ref = (task["dir"] / "reference.tlvm").read_text()
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "log.jsonl"
+            fake = Path(d) / "claude"
+            fake.write_text(f"""#!/usr/bin/env python3
+import json, os, sys
+prompt = sys.stdin.read()
+with open({str(log)!r}, "a") as f:
+    f.write(json.dumps({{"argv": sys.argv[1:], "cwd": os.getcwd(), "files": os.listdir("."), "prompt": prompt}}) + "\\n")
+code = {ref!r} if "<turn" in prompt else "fn sum(xs: List<Int>) -> Int = xs entry sum"
+print(json.dumps({{"is_error": False, "result": "```tlvm\\n" + code + "\\n```", "stop_reason": "end_turn",
+                  "usage": {{"input_tokens": 3, "output_tokens": 4}}, "modelUsage": {{"claude-opus-5-5": {{}}}}}}))
+""")
+            fake.chmod(0o755)
+            backend = harness.ClaudeCliBackend("claude-opus-5-5", "low", str(fake))
+            ep = harness.episode(backend, task, "lptl", rounds=3, rep=1)
+            calls = [__import__("json").loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual((ep["success_at_1"], ep["success_final"], ep["rounds_used"]), (False, True, 2))
+        self.assertEqual(ep["rounds"][0]["model"], "claude-opus-5-5")
+        argv = calls[0]["argv"]
+        self.assertEqual(argv[argv.index("--tools") + 1], "")
+        self.assertEqual(argv[argv.index("--system-prompt") + 1], harness.SKILL)
+        self.assertEqual(calls[0]["files"], [])
+        self.assertNotEqual(os.path.realpath(calls[0]["cwd"]), os.path.realpath(harness.EVAL))
+        self.assertNotIn("<turn", calls[0]["prompt"])
+        self.assertIn('<turn role="assistant">', calls[1]["prompt"])
+        self.assertIn("E-TYPE-RETURN", calls[1]["prompt"])
 
 
 if __name__ == "__main__":

@@ -37,19 +37,26 @@ Success@R（最終回）、その 95% 信頼区間（Wilson）、初回のコン
 
 ```sh
 cargo build --release
-python3 -m pip install 'anthropic>=1.11'
 
 # API を使わずに経路を確かめる（参照解をそのまま返す）
 python3 eval/harness.py --backend oracle
 
-# Claude で実行（ANTHROPIC_API_KEY などの認証が必要）
+# サブスクリプションで実行（ログイン済みの Claude Code の claude -p を使う。API キー不要）
+python3 eval/harness.py --backend claude-cli --model claude-opus-5-5 --effort high --arms lptl,python
+
+# Claude API で実行（pip install 'anthropic>=1.11' と ANTHROPIC_API_KEY などの認証が必要）
 python3 eval/harness.py --model claude-opus-5-5 --effort high --arms lptl,lptl-nodiag,python --rounds 3 --repeats 1
 ```
 
 結果は `eval/runs/<run-id>/` に `config.json`、`episodes.jsonl`（全回の候補コードと採点）、`summary.json`、
 `summary.md` として出ます（`eval/runs/` は git の管理外）。43 問 × 3 arm × 最大 3 回で、API 呼び出しは最大 387 回です。
 
-既定では、安全分類器が回答を断ったときに推奨モデルで続ける server-side fallback を有効にしています。
+`claude-cli` はツールを無効にし、設定・MCP・CLAUDE.md を読まずに空の一時ディレクトリで動かすので、
+モデルは参照解や隠しテストを見られません。CLI は 1 回の呼び出しが 1 往復なので、修復の回ではそれまでの会話を
+1 つのプロンプトに書き起こして渡します（思考は引き継がれません）。Claude Code が system prompt に短い定型文を
+足すため、API で回した結果とは条件が少し違います。比べるときは同じ backend どうしで比べてください。
+
+`anthropic` backend では、既定で、安全分類器が回答を断ったときに推奨モデルで続ける server-side fallback を有効にしています。
 別のモデルが答えた回は episode の `fallback` に記録され、`summary.md` に件数が出ます。比較を厳密にするなら
 `--no-fallback` を付けてください。
 
