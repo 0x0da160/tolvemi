@@ -258,6 +258,8 @@ def episode(backend, task: dict, arm: str, rounds: int, rep: int) -> dict:
             "model": resp["model"],
             "fallback": resp["fallback"],
             "usage": resp["usage"],
+            # 回答の本文（思考は CLI からは見えないので、出力トークンとの差が思考の量の目安になる）
+            "answer": resp["text"],
             "code": code,
             "compile_ok": vis["compile_ok"],
             "signature_ok": vis["signature_ok"],
