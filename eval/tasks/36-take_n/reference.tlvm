@@ -1,4 +1,4 @@
 fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
-  reverse(snd(fold(snd(p), pair(0, list[Int]()), |acc, x|
+  reverse(snd(fold(snd(p), pair(0, list<Int>()), |acc, x|
     pair(add(fst(acc), 1), if(lt(fst(acc), fst(p)), cons(x, snd(acc)), snd(acc))))))
 entry solve

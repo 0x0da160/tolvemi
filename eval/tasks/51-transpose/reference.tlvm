@@ -1,10 +1,10 @@
 fn nth(i: Int, ys: List<Int>) -> Int =
   snd(fold(ys, pair(0, 0), |acc, y| pair(add(fst(acc), 1), if(eq(fst(acc), i), y, snd(acc)))))
 fn first_row(rows: List<List<Int>>) -> List<Int> =
-  snd(fold(rows, pair(false, list[Int]()), |acc, r| if(fst(acc), acc, pair(true, r))))
+  snd(fold(rows, pair(false, list<Int>()), |acc, r| if(fst(acc), acc, pair(true, r))))
 fn column(j: Int, rows: List<List<Int>>) -> List<Int> =
-  reverse(fold(rows, list[Int](), |acc, r| cons(nth(j, r), acc)))
+  reverse(fold(rows, list<Int>(), |acc, r| cons(nth(j, r), acc)))
 fn solve(rows: List<List<Int>>) -> List<List<Int>> =
-  reverse(snd(fold(first_row(rows), pair(0, list[List<Int>]()), |acc, x|
+  reverse(snd(fold(first_row(rows), pair(0, list<List<Int>>()), |acc, x|
     pair(add(fst(acc), 1), cons(column(fst(acc), rows), snd(acc))))))
 entry solve

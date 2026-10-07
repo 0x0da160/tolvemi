@@ -1,5 +1,5 @@
 fn solve(xs: List<Int>) -> List<Pair<Int, Int>> =
-  let st = fold(xs, pair(list[Pair<Int, Int>](), pair(false, pair(0, 0))), |acc, x|
+  let st = fold(xs, pair(list<Pair<Int, Int>>(), pair(false, pair(0, 0))), |acc, x|
     let done = fst(acc) in
     let cur = snd(acc) in
     if(fst(cur),

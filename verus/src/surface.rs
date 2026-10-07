@@ -1030,11 +1030,11 @@ fn pe_list_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
     proof {
         assert(tv[i as int] == vtok(ts@[i as int]));
     }
-    if !sym_e(ts, i + 1, '[') {
+    if !sym_e(ts, i + 1, '<') {
         return None;
     }
     match pt_e(ts, i + 2, td) {
-        Some((t, j)) => if sym_e(ts, j, ']') && sym_e(ts, j + 1, '(') {
+        Some((t, j)) => if sym_e(ts, j, '>') && sym_e(ts, j + 1, '(') {
             match pargs_e(ts, j + 2, d - 1, td) {
                 Some((es, m)) => Some((SExpr::List(t, es), m)),
                 None => None,
@@ -1087,12 +1087,12 @@ fn pe_none_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
     proof {
         assert(tv[i as int] == vtok(ts@[i as int]));
     }
-    if !sym_e(ts, i + 1, '[') {
+    if !sym_e(ts, i + 1, '<') {
         return None;
     }
     match pt_e(ts, i + 2, td) {
-        Some((t, j)) => if sym_e(ts, j, ']') {
-            Some((SExpr::None(t), j + 1))
+        Some((t, j)) => if sym_e(ts, j, '>') && sym_e(ts, j + 1, '(') && sym_e(ts, j + 2, ')') {
+            Some((SExpr::None(t), j + 3))
         } else {
             None
         },
@@ -1798,12 +1798,12 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Var(x) => append_chars(out, x),
         SExpr::List(t, es) => {
             push_kw(out, Kw::List);
-            push1(out, '[');
+            push1(out, '<');
             push_ty(out, t);
-            push2(out, ']', '(');
+            push2(out, '>', '(');
             push_args(out, es);
             proof {
-                ft_app(*t, seq![']', '('] + fargs(vxs(*es), 0, z));
+                ft_app(*t, seq!['>', '('] + fargs(vxs(*es), 0, z));
             }
         },
         SExpr::Some(a) => {
@@ -1817,11 +1817,12 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         },
         SExpr::None(t) => {
             push_kw(out, Kw::None);
-            push1(out, '[');
+            push1(out, '<');
             push_ty(out, t);
-            push1(out, ']');
+            push1(out, '>');
+            push2(out, '(', ')');
             proof {
-                ft_app(*t, seq![']'] + z);
+                ft_app(*t, seq!['>', '(', ')'] + z);
             }
         },
         SExpr::Pair(a, b) => {

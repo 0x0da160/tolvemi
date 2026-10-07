@@ -5,7 +5,7 @@ fn solve(p: Pair<List<Int>, Int>) -> List<Int> =
   let xs = fst(p) in
   let k = snd(p) in
   let n = length(xs) in
-  reverse(snd(fold(xs, pair(0, list[Int]()), |acc, x|
+  reverse(snd(fold(xs, pair(0, list<Int>()), |acc, x|
     let i = fst(acc) in
     pair(add(i, 1), if(le(add(i, k), n), cons(range_sum(i, add(i, k), xs), snd(acc)), snd(acc))))))
 entry solve

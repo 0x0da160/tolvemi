@@ -340,9 +340,9 @@ impl Parser {
                 "list" => {
                     idx = self.adm.admit(sp, simple)?;
                     self.advance();
-                    self.expect("[")?;
+                    self.expect("<")?;
                     let ty = self.parse_type(1)?;
-                    self.expect("]")?;
+                    self.expect(">")?;
                     self.expect("(")?;
                     let items = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
@@ -359,9 +359,15 @@ impl Parser {
                 "none" => {
                     idx = self.adm.admit(sp, simple)?;
                     self.advance();
-                    self.expect("[")?;
+                    self.expect("<")?;
                     let ty = self.parse_type(1)?;
-                    self.expect("]")?;
+                    self.expect(">")?;
+                    // v1 の `none[T]` に慣れた書き手向けに、欠けているのが `()` 全体だと示す
+                    if !self.peek(0).is_punct("(") {
+                        return self.perr("E-PARSE-EXPECTED-TOKEN", "()");
+                    }
+                    self.advance();
+                    self.expect(")")?;
                     kind = ExprKind::None(ty);
                 }
                 "pair" => {

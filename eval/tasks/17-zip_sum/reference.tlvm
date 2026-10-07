@@ -1,6 +1,6 @@
 fn nth(i: Int, ys: List<Int>) -> Int =
   snd(fold(ys, pair(0, 0), |acc, y| pair(add(fst(acc), 1), if(eq(fst(acc), i), y, snd(acc)))))
 fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
-  reverse(snd(fold(fst(p), pair(0, list[Int]()), |acc, x|
+  reverse(snd(fold(fst(p), pair(0, list<Int>()), |acc, x|
     pair(add(fst(acc), 1), cons(add(x, nth(fst(acc), snd(p))), snd(acc))))))
 entry solve

@@ -34,11 +34,12 @@ entry sum_even
 | `Int` | arbitrary-precision integers: `0`, `42`, `-7` (a negative literal is one token: write `-7`, never `- 7`) |
 | `Bool` | `true`, `false` |
 | `Unit` | `unit` |
-| `List<T>` | `list[T](e1, e2, ...)`; the empty list is `list[T]()` (the element type is always written) |
-| `Option<T>` | `some(e)`, `none[T]` (the payload type is always written) |
+| `List<T>` | `list<T>(e1, e2, ...)`; the empty list is `list<T>()` (the element type is always written) |
+| `Option<T>` | `some(e)`, `none<T>()` (the payload type is always written) |
 | `Pair<A, B>` | `pair(a, b)` |
 
 There are no strings, floats, records, user-defined types, type variables or generics. Type equality is syntactic.
+Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
 ## Expressions
 
@@ -61,13 +62,13 @@ There are no strings, floats, records, user-defined types, type variables or gen
 | `neg(a)` | `Int -> Int` | -a |
 | `lt(a, b)`, `le(a, b)` | `Int, Int -> Bool` | a < b, a <= b |
 | `eq(a, b)` | `A, A -> Bool` | structural equality on any type (both sides must have the same type) |
-| `mod(a, b)` | `Int, Int -> Option<Int>` | `some(r)` with `0 <= r < b` when `b > 0`, otherwise `none[Int]`. `mod(-3, 2) = some(1)` |
+| `mod(a, b)` | `Int, Int -> Option<Int>` | `some(r)` with `0 <= r < b` when `b > 0`, otherwise `none<Int>()`. `mod(-3, 2) = some(1)` |
 | `fst(p)`, `snd(p)` | `Pair<A, B> -> A` / `B` | components of a pair |
 | `cons(x, xs)` | `A, List<A> -> List<A>` | prepend |
 | `concat(xs, ys)` | `List<A>, List<A> -> List<A>` | append |
 | `reverse(xs)` | `List<A> -> List<A>` | reverse |
 | `length(xs)` | `List<A> -> Int` | number of elements |
-| `uncons(xs)` | `List<A> -> Option<Pair<A, List<A>>>` | `none[Pair<A, List<A>>]` for the empty list, otherwise `some(pair(first, rest))` |
+| `uncons(xs)` | `List<A> -> Option<Pair<A, List<A>>>` | `none<Pair<A, List<A>>>()` for the empty list, otherwise `some(pair(first, rest))` |
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
 There is no division, `head`, `tail`, indexing, `map`, `filter`, `min`, `max`, `abs`, `not`, `and` or `or`; build
@@ -80,7 +81,7 @@ them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `ma
 - First element with a default: `match_option(uncons(xs), 0, |c| fst(c))`.
 - Use a `mod` result: `match_option(mod(x, k), 0, |r| add(r, 1))`. Divisibility still works by comparison:
   `eq(mod(x, k), some(0))`.
-- Remember a value seen during a fold: keep an `Option<T>` in the accumulator (`none[Int]` at the start, `some(x)`
+- Remember a value seen during a fold: keep an `Option<T>` in the accumulator (`none<Int>()` at the start, `some(x)`
   once found) and unwrap it with `match_option` when you need it.
 
 ## Names and scoping
@@ -100,7 +101,7 @@ Building a list in order: `cons` onto an accumulator (which builds it backwards)
 ```tlvm
 // The positive elements of a list, in their original order.
 fn positive_values(xs: List<Int>) -> List<Int> =
-  let reversed = fold(xs, list[Int](), |acc, x|
+  let reversed = fold(xs, list<Int>(), |acc, x|
     if(lt(0, x), cons(x, acc), acc)) in
   reverse(reversed)
 entry positive_values
@@ -120,7 +121,7 @@ Several inputs: the entry receives one `Pair`, and helper functions may take sev
 ```tlvm
 fn scale(k: Int, x: Int) -> Int = mul(k, x)
 fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
-  reverse(fold(snd(p), list[Int](), |acc, x| cons(scale(fst(p), x), acc)))
+  reverse(fold(snd(p), list<Int>(), |acc, x| cons(scale(fst(p), x), acc)))
 entry solve
 ```
 
@@ -130,7 +131,7 @@ head with `uncons`.
 ```tlvm
 // Element-wise sum of two lists of the same length.
 fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
-  reverse(fst(fold(fst(p), pair(list[Int](), snd(p)), |acc, x|
+  reverse(fst(fold(fst(p), pair(list<Int>(), snd(p)), |acc, x|
     match_option(uncons(snd(acc)), acc, |h|
       pair(cons(add(x, fst(h)), fst(acc)), snd(h))))))
 entry solve
@@ -147,7 +148,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-PARSE-UNEXPECTED-TOKEN` | extra tokens after a complete expression, such as `x == 1` |
 | `E-PARSE-EXPECTED-TOKEN` / `E-PARSE-EXPECTED-EXPR` | missing `,` or `)`, or a malformed special form |
 | `E-PARSE-EXPECTED-IDENT` | a reserved word used as a name |
-| `E-PARSE-EXPECTED-TYPE` | a missing or invalid type in `list[T]` / `none[T]` |
+| `E-PARSE-EXPECTED-TYPE` | a missing or invalid type in `list<T>(...)` / `none<T>()` |
 | `E-NAME-UNBOUND-VARIABLE` / `E-NAME-UNKNOWN-FUNCTION` | a typo, or a function that does not exist (e.g. `head`, `max`) |
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
 | `E-CYCLE-CALL` | recursion |

@@ -33,7 +33,7 @@ fn codes(src: &str) -> Vec<&'static str> {
 }
 
 const ZIP: &str = "fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
-  reverse(fst(fold(fst(p), pair(list[Int](), snd(p)), |acc, x|
+  reverse(fst(fold(fst(p), pair(list<Int>(), snd(p)), |acc, x|
     match_option(uncons(snd(acc)), acc, |h|
       pair(cons(add(x, fst(h)), fst(acc)), snd(h))))))
 entry solve
@@ -61,7 +61,7 @@ fn type_errors() {
     assert_eq!(codes("fn f(x: Int) -> Int = match_option(x, 0, |v| v) entry f"), ["E-TYPE-MATCH-SCRUTINEE"]);
     assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v| lt(v, 1)) entry f"), ["E-TYPE-MATCH-BRANCH"]);
     assert_eq!(codes("fn f(x: Option<Int>) -> Bool = match_option(x, 0, |v| v) entry f"), ["E-TYPE-RETURN"]);
-    assert_eq!(codes("fn f(x: Int) -> Int = length(uncons(list[Int]())) entry f"), ["E-TYPE-EXPECTED-LIST"]);
+    assert_eq!(codes("fn f(x: Int) -> Int = length(uncons(list<Int>())) entry f"), ["E-TYPE-EXPECTED-LIST"]);
     assert_eq!(codes("fn f(x: Int) -> Int = uncons(x, x) entry f"), ["E-ARITY-BUILTIN"]);
     assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v|) entry f")[0], "E-PARSE-EXPECTED-EXPR");
     assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, v) entry f")[0], "E-PARSE-EXPECTED-TOKEN");
@@ -82,4 +82,21 @@ fn fmt_and_ast_roundtrip() {
             _ => panic!("transport failure"),
         }
     });
+}
+
+fn repairs(src: &str) -> Vec<String> {
+    match compile(src.as_bytes(), &StaticProfile::default()) {
+        SourceCompile::Result(r) => r.errors().iter().filter_map(|d| d.repair.as_ref().map(|x| x.constraint.clone())).collect(),
+        _ => vec![],
+    }
+}
+
+/// v1.1 の値の型引数は山括弧。v1 の角括弧と、`none<T>` の `()` 忘れには書き換え先を示す。
+#[test]
+fn angle_brackets() {
+    assert_eq!(run("fn f(x: Int) -> Pair<List<Int>, Option<Int>> = pair(list<Int>(x), none<Int>()) entry f", "1"), "[[1],null]");
+    assert_eq!(codes("fn f(x: Int) -> Option<Int> = none[Int] entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
+    assert!(repairs("fn f(x: Int) -> List<Int> = list[Int]() entry f")[0].contains("angle brackets"));
+    assert_eq!(codes("fn f(x: Int) -> Option<Int> = none<Int> entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
+    assert!(repairs("fn f(x: Int) -> Option<Int> = none<Int> entry f")[0].contains("none<Int>()"));
 }

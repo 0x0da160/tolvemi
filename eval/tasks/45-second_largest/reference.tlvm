@@ -8,5 +8,5 @@ fn upd(st: Pair<Pair<Bool, Int>, Pair<Bool, Int>>, x: Int) -> Pair<Pair<Bool, In
     pair(pair(true, x), sec))
 fn solve(xs: List<Int>) -> Option<Int> =
   let res = fold(xs, pair(pair(false, 0), pair(false, 0)), |acc, x| upd(acc, x)) in
-  if(fst(snd(res)), some(snd(snd(res))), none[Int])
+  if(fst(snd(res)), some(snd(snd(res))), none<Int>())
 entry solve

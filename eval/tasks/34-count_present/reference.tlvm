@@ -1,2 +1,2 @@
-fn solve(os: List<Option<Int>>) -> Int = fold(os, 0, |acc, o| if(eq(o, none[Int]), acc, add(acc, 1)))
+fn solve(os: List<Option<Int>>) -> Int = fold(os, 0, |acc, o| if(eq(o, none<Int>()), acc, add(acc, 1)))
 entry solve

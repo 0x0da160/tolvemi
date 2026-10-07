@@ -68,7 +68,7 @@ class HarnessTest(unittest.TestCase):
         m = Scripted([fenced("tlvm", wrong), fenced("tlvm", self.ref)])
         ep = harness.episode(m, self.task, "lptl", 2, 1)
         self.assertTrue(ep["success_final"])
-        self.assertIn("solve(list[Int](1, 2, 3)): expected 6, got 3", m.seen[1][-1]["content"])
+        self.assertIn("solve(list<Int>(1, 2, 3)): expected 6, got 3", m.seen[1][-1]["content"])
 
     def test_wrong_signature(self):
         other = "fn main(xs: List<Int>) -> Int = 0\nentry main"
@@ -99,7 +99,7 @@ class HarnessTest(unittest.TestCase):
     def test_prompt_renders_lptl_literals(self):
         t = load_tasks(["min_max"])[0]
         p = harness.task_prompt(t, "lptl")
-        self.assertIn("solve(list[Int]()) = none[Pair<Int, Int>]", p)
+        self.assertIn("solve(list<Int>()) = none<Pair<Int, Int>>()", p)
         self.assertIn("fn solve(x: List<Int>) -> Option<Pair<Int, Int>>", p)
 
     def test_summary(self):

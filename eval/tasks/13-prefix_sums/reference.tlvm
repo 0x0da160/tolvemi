@@ -1,4 +1,4 @@
 fn solve(xs: List<Int>) -> List<Int> =
-  reverse(snd(fold(xs, pair(0, list[Int]()), |acc, x|
+  reverse(snd(fold(xs, pair(0, list<Int>()), |acc, x|
     let s = add(fst(acc), x) in pair(s, cons(s, snd(acc))))))
 entry solve

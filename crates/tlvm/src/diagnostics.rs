@@ -303,6 +303,16 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
             "E-PARSE-EXPECTED-IDENT" => d.actual.as_deref().filter(|w| crate::syntax::is_keyword(w)).map(|w| {
                 ("replace_identifier", span, format!("'{w}' is a reserved word; use another name such as {w}_ here and at every use"))
             }),
+            // 値の型引数は v1.1 から型と同じ山括弧。v1 の角括弧が来たときだけ書き換え先を示す
+            "E-PARSE-EXPECTED-TOKEN" => match (exp.as_deref(), d.actual.as_deref()) {
+                (Some("<"), Some("[")) | (Some(">"), Some("]")) => Some((
+                    "replace_expression",
+                    span,
+                    "type arguments use angle brackets: list<T>(...) and none<T>()".into(),
+                )),
+                (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
+                _ => None,
+            },
             "E-PARSE-EXPECTED-TYPE" => {
                 Some(("replace_type", span, "type: Int | Bool | Unit | List<T> | Option<T> | Pair<A, B>".into()))
             }

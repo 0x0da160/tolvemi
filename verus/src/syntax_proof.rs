@@ -318,16 +318,16 @@ proof fn fe_lex_list(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     match e {
         Sx::List(t, es) => {
         fargs_lex(es, 0, d1, td, k, u);
-        let ka = seq![']', '('] + fargs(es, 0, k);
-        let ua = seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, u);
+        let ka = seq!['>', '('] + fargs(es, 0, k);
+        let ua = seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, u);
         ls('(', fargs(es, 0, k), targs(es, 0, u));
-        ls(']', seq!['('] + fargs(es, 0, k), seq![Tok::Sym('(')] + targs(es, 0, u));
-        assert(ka =~= seq![']'] + (seq!['('] + fargs(es, 0, k)));
-        assert(ua =~= seq![Tok::Sym(']')] + (seq![Tok::Sym('(')] + targs(es, 0, u)));
+        ls('>', seq!['('] + fargs(es, 0, k), seq![Tok::Sym('(')] + targs(es, 0, u));
+        assert(ka =~= seq!['>'] + (seq!['('] + fargs(es, 0, k)));
+        assert(ua =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + targs(es, 0, u)));
         ft_lex(t, ka, ua);
-        ls('[', ft(t, ka), tt(t, ua));
-        lk(Kw::List, seq!['['] + ft(t, ka), seq![Tok::Sym('[')] + tt(t, ua));
-        assert(seq![Tok::Kw(Kw::List)] + (seq![Tok::Sym('[')] + tt(t, ua)) =~= te(e, u));
+        ls('<', ft(t, ka), tt(t, ua));
+        lk(Kw::List, seq!['<'] + ft(t, ka), seq![Tok::Sym('<')] + tt(t, ua));
+        assert(seq![Tok::Kw(Kw::List)] + (seq![Tok::Sym('<')] + tt(t, ua)) =~= te(e, u));
         },
         _ => {},
     }
@@ -370,12 +370,18 @@ proof fn fe_lex_none(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     let d1 = (d - 1) as nat;
     match e {
         Sx::None(t) => {
-        ls(']', k, u);
-        ft_lex(t, seq![']'] + k, seq![Tok::Sym(']')] + u);
-        let ua = tt(t, seq![Tok::Sym(']')] + u);
-        ls('[', ft(t, seq![']'] + k), ua);
-        lk(Kw::None, seq!['['] + ft(t, seq![']'] + k), seq![Tok::Sym('[')] + ua);
-        assert(seq![Tok::Kw(Kw::None)] + (seq![Tok::Sym('[')] + ua) =~= te(e, u));
+        let kc = seq!['>', '(', ')'] + k;
+        let uc = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + u;
+        ls(')', k, u);
+        ls('(', seq![')'] + k, seq![Tok::Sym(')')] + u);
+        ls('>', seq!['('] + (seq![')'] + k), seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u));
+        assert(kc =~= seq!['>'] + (seq!['('] + (seq![')'] + k)));
+        assert(uc =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u)));
+        ft_lex(t, kc, uc);
+        let ua = tt(t, uc);
+        ls('<', ft(t, kc), ua);
+        lk(Kw::None, seq!['<'] + ft(t, kc), seq![Tok::Sym('<')] + ua);
+        assert(seq![Tok::Kw(Kw::None)] + (seq![Tok::Sym('<')] + ua) =~= te(e, u));
         },
         _ => {},
     }
@@ -772,16 +778,16 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         Sx::List(t, es) => {
             fargs_app(es, 0, k);
             fargs_app(es, 0, z);
-            ft_app(t, seq![']', '('] + fargs(es, 0, k));
-            ft_app(t, seq![']', '('] + fargs(es, 0, z));
+            ft_app(t, seq!['>', '('] + fargs(es, 0, k));
+            ft_app(t, seq!['>', '('] + fargs(es, 0, z));
         },
         Sx::Some(a) => {
             fe_app(*a, seq![')'] + k);
             fe_app(*a, seq![')'] + z);
         },
         Sx::None(t) => {
-            ft_app(t, seq![']'] + k);
-            ft_app(t, seq![']'] + z);
+            ft_app(t, seq!['>', '(', ')'] + k);
+            ft_app(t, seq!['>', '(', ')'] + z);
         },
         Sx::Pair(a, b) => {
             fe_app(*b, seq![')'] + k);
