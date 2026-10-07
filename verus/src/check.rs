@@ -189,6 +189,44 @@ pub fn builtin_ty(b: Builtin, ts: &Vec<Ty>) -> (r: Option<Ty>)
         } else {
             None
         },
+        Builtin::Min | Builtin::Max => {
+            if n == 2 && ty_eq(&ts[0], &Ty::Int) && ty_eq(&ts[1], &Ty::Int) {
+                Some(Ty::Int)
+            } else {
+                None
+            }
+        },
+        Builtin::Range => {
+            if n == 2 && ty_eq(&ts[0], &Ty::Int) && ty_eq(&ts[1], &Ty::Int) {
+                Some(Ty::List(Box::new(Ty::Int)))
+            } else {
+                None
+            }
+        },
+        Builtin::Contains => if n == 2 {
+            match &ts[0] {
+                Ty::List(el) => if ty_eq(el, &ts[1]) {
+                    Some(Ty::Bool)
+                } else {
+                    None
+                },
+                _ => None,
+            }
+        } else {
+            None
+        },
+        Builtin::Sort => if n == 1 {
+            match &ts[0] {
+                Ty::List(el) => if ty_eq(el, &Ty::Int) {
+                    Some(ty_clone(&ts[0]))
+                } else {
+                    None
+                },
+                _ => None,
+            }
+        } else {
+            None
+        },
     }
 }
 

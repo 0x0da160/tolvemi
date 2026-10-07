@@ -11,9 +11,9 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-pub const SOFT_KEYWORDS: [&str; 19] = [
+pub const SOFT_KEYWORDS: [&str; 24] = [
     "list", "some", "none", "pair", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons",
+    "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort",
 ];
 
 pub fn is_soft_keyword(s: &str) -> bool {

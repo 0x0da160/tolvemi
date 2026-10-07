@@ -54,6 +54,11 @@ pub enum Kw {
     Length,
     Uncons,
     MatchOption,
+    Min,
+    Max,
+    Range,
+    Contains,
+    Sort,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -93,6 +98,11 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Length => seq!['l', 'e', 'n', 'g', 't', 'h'],
         Kw::Uncons => seq!['u', 'n', 'c', 'o', 'n', 's'],
         Kw::MatchOption => seq!['m', 'a', 't', 'c', 'h', '_', 'o', 'p', 't', 'i', 'o', 'n'],
+        Kw::Min => seq!['m', 'i', 'n'],
+        Kw::Max => seq!['m', 'a', 'x'],
+        Kw::Range => seq!['r', 'a', 'n', 'g', 'e'],
+        Kw::Contains => seq!['c', 'o', 'n', 't', 'a', 'i', 'n', 's'],
+        Kw::Sort => seq!['s', 'o', 'r', 't'],
     }
 }
 
@@ -153,6 +163,10 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Snd)
         } else if c3(s, 'l', 'e', 't') {
             Some(Kw::Let)
+        } else if c3(s, 'm', 'i', 'n') {
+            Some(Kw::Min)
+        } else if c3(s, 'm', 'a', 'x') {
+            Some(Kw::Max)
         } else {
             None
         }
@@ -181,6 +195,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Fold)
         } else if c4(s, 'c', 'o', 'n', 's') {
             Some(Kw::Cons)
+        } else if c4(s, 's', 'o', 'r', 't') {
+            Some(Kw::Sort)
         } else {
             None
         }
@@ -189,6 +205,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Entry)
         } else if c5(s, 'f', 'a', 'l', 's', 'e') {
             Some(Kw::False)
+        } else if c5(s, 'r', 'a', 'n', 'g', 'e') {
+            Some(Kw::Range)
         } else {
             None
         }
@@ -207,6 +225,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
     } else if s.len() == 7 {
         if c6(s, 'r', 'e', 'v', 'e', 'r', 's') && s[6] == 'e' {
             Some(Kw::Reverse)
+        } else {
+            None
+        }
+    } else if s.len() == 8 {
+        if c6(s, 'c', 'o', 'n', 't', 'a', 'i') && s[6] == 'n' && s[7] == 's' {
+            Some(Kw::Contains)
         } else {
             None
         }
@@ -239,6 +263,11 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Reverse => Kw::Reverse,
         Builtin::Length => Kw::Length,
         Builtin::Uncons => Kw::Uncons,
+        Builtin::Min => Kw::Min,
+        Builtin::Max => Kw::Max,
+        Builtin::Range => Kw::Range,
+        Builtin::Contains => Kw::Contains,
+        Builtin::Sort => Kw::Sort,
     }
 }
 
@@ -259,6 +288,11 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Reverse => Some(Builtin::Reverse),
         Kw::Length => Some(Builtin::Length),
         Kw::Uncons => Some(Builtin::Uncons),
+        Kw::Min => Some(Builtin::Min),
+        Kw::Max => Some(Builtin::Max),
+        Kw::Range => Some(Builtin::Range),
+        Kw::Contains => Some(Builtin::Contains),
+        Kw::Sort => Some(Builtin::Sort),
         _ => None,
     }
 }
