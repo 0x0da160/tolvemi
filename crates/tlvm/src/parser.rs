@@ -3,6 +3,7 @@
 use crate::diagnostics::{Diagnostic, Span};
 use crate::lexer::{TokKind, Token};
 use crate::profiles::StaticProfile;
+use crate::softnames::is_soft_keyword;
 use crate::syntax::*;
 use num_bigint::BigInt;
 
@@ -140,6 +141,20 @@ impl Parser {
         }
     }
 
+    /// 変数・引数・束縛・field の名前。組み込み関数と値の構築子の名前（文脈キーワード）も使える。
+    fn expect_binder(&mut self) -> R<Token> {
+        if self.at_binder(0) {
+            Ok(self.advance())
+        } else {
+            self.perr("E-PARSE-EXPECTED-IDENT", "identifier")
+        }
+    }
+
+    fn at_binder(&self, k: usize) -> bool {
+        let t = self.peek(k);
+        t.kind == TokKind::Ident || (t.kind == TokKind::Kw && is_soft_keyword(&t.text))
+    }
+
     fn emit(&mut self, code: &'static str, index: usize, expected: Option<&'static str>) {
         let tok = &self.toks[index];
         let mut d = Diagnostic::error("parse", code, tok.span()).act(tok.describe()).at(self.adm.index);
@@ -224,7 +239,7 @@ impl Parser {
         let mut params = vec![];
         if !self.peek(0).is_punct(")") {
             loop {
-                if self.peek(0).kind != TokKind::Ident {
+                if !self.at_binder(0) {
                     return self.perr("E-PARSE-EXPECTED-IDENT", "identifier");
                 }
                 let ptok = self.peek(0).clone();
@@ -282,7 +297,7 @@ impl Parser {
         self.expect("{")?;
         let mut fields = vec![];
         loop {
-            let f = self.expect_ident()?;
+            let f = self.expect_binder()?;
             self.expect(":")?;
             let ty = self.parse_type(1)?;
             fields.push(FieldDecl { name: f.text, name_span: Sp(f.start, f.end), ty });
@@ -353,7 +368,7 @@ impl Parser {
             let dot = self.peek(0).clone();
             let idx = self.adm.admit(dot.span(), Depths { expr: Some(d), ..Default::default() })?;
             self.advance();
-            let f = self.expect_ident()?;
+            let f = self.expect_binder()?;
             let start = e.meta.span().0;
             e = Expr {
                 kind: ExprKind::Field { expr: Box::new(e), field: f.text, field_span: Sp(f.start, f.end), target: None },
@@ -378,7 +393,7 @@ impl Parser {
                 base = Some(Box::new(self.parse_expr(d + 1, ld, fd)?));
                 break;
             }
-            let f = self.expect_ident()?;
+            let f = self.expect_binder()?;
             self.expect(":")?;
             let value = self.parse_expr(d + 1, ld, fd)?;
             fields.push(RecordField { name: f.text, name_span: Sp(f.start, f.end), value });
@@ -419,6 +434,12 @@ impl Parser {
                 } else {
                     kind = ExprKind::Var(tok.text);
                 }
+            }
+            // 文脈キーワード：呼び出しの形（直後が `(`、`<`、v1 の `[`）でなければ変数の参照
+            TokKind::Kw if is_soft_keyword(&tok.text) && !["(", "<", "["].iter().any(|p| self.peek(1).is_punct(p)) => {
+                idx = self.adm.admit(sp, simple)?;
+                self.advance();
+                kind = ExprKind::Var(tok.text);
             }
             TokKind::Kw => match tok.text.as_str() {
                 "true" | "false" | "unit" => {
@@ -476,7 +497,7 @@ impl Parser {
                 "let" => {
                     idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
                     self.advance();
-                    let name = self.expect_ident()?;
+                    let name = self.expect_binder()?;
                     self.expect("=")?;
                     let v = self.parse_expr(d + 1, ld + 1, fd)?;
                     self.expect("in")?;
@@ -509,9 +530,9 @@ impl Parser {
                     let init = self.parse_expr(d + 1, ld, fd + 1)?;
                     self.expect(",")?;
                     self.expect("|")?;
-                    let acc = self.expect_ident()?;
+                    let acc = self.expect_binder()?;
                     self.expect(",")?;
-                    let item = self.expect_ident()?;
+                    let item = self.expect_binder()?;
                     self.expect("|")?;
                     let body = self.parse_expr(d + 1, ld, fd + 1)?;
                     self.expect(")")?;
@@ -534,7 +555,7 @@ impl Parser {
                     let on_none = self.parse_expr(d + 1, ld + 1, fd)?;
                     self.expect(",")?;
                     self.expect("|")?;
-                    let binder = self.expect_ident()?;
+                    let binder = self.expect_binder()?;
                     self.expect("|")?;
                     let on_some = self.parse_expr(d + 1, ld + 1, fd)?;
                     self.expect(")")?;

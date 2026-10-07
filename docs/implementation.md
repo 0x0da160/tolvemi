@@ -2,7 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は展開後のプログラムを検査・実行します。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、組み込み関数名を使った変数名（文脈キーワード）は `softnames.rs` が付け替え、検証済み部品は書き換え後のプログラムを検査・実行します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -56,6 +56,7 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
+| `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの変数名の付け替え（α 変換。未検証の接着部分） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
 
@@ -172,6 +173,8 @@ registry が決まったら差し替える前提です。
   | `E-ENTRY-MISSING` | `insert_text`（EOF のゼロ幅） | entry 宣言 |
   | `E-LEX-INVALID-INTEGER` | `replace_expression` | 正規形の整数リテラル |
   | `E-PARSE-EXPECTED-IDENT`（予約語が来たときだけ） | `replace_identifier` | その語が予約語であることと、`語_` のような別名 |
+  | `E-PARSE-EXPECTED-TOKEN`（`)` の所に `,`、宣言の先頭、EOF） | `insert_text` | 閉じようとしている `名前(` の行と桁、`)` が一つ足りないこと |
+  | `E-PARSE-EXPECTED-TOKEN`（`,` の所に `)`） | `delete_span` | その `)` が閉じる `名前(` の行と桁、引数が足りないうちに閉じていること |
   | `E-PARSE-EXPECTED-TYPE` | `replace_type` | 型の文法 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。

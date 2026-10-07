@@ -106,10 +106,11 @@ entry solve
 
 ## Names and scoping
 
-- All names are ASCII identifiers that are not reserved words. Reserved words: `fn entry Int Bool Unit List Option
-  Pair true false unit list some none pair let in if fold match_option add sub mul neg lt le eq mod fst snd cons
-  concat reverse length uncons`. For example, `list`, `pair`, `fold`, `entry` and `length` cannot be used as
-  variable or function names.
+- All names are ASCII identifiers. Reserved words, never usable as names: `fn entry Int Bool Unit List Option
+  Pair true false unit let in if fold match_option`.
+- The builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
+  length uncons` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  Followed by `(` or `<` they are always the builtin, so they cannot be function names.
 - No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
@@ -167,7 +168,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-LEX-UNEXPECTED-CHARACTER` | an operator such as `+`, `-`, `*`, `/` (operators do not exist) |
 | `E-PARSE-UNEXPECTED-TOKEN` | extra tokens after a complete expression, such as `x == 1` |
 | `E-PARSE-EXPECTED-TOKEN` / `E-PARSE-EXPECTED-EXPR` | missing `,` or `)`, or a malformed special form |
-| `E-PARSE-EXPECTED-IDENT` | a reserved word used as a name |
+| `E-PARSE-EXPECTED-IDENT` | a reserved word used as a name, or a builtin name used as a function name |
 | `E-PARSE-EXPECTED-TYPE` | a missing or invalid type in `list<T>(...)` / `none<T>()` |
 | `E-NAME-UNBOUND-VARIABLE` / `E-NAME-UNKNOWN-FUNCTION` | a typo, or a function that does not exist (e.g. `head`, `max`) |
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
