@@ -1,0 +1,13 @@
+{
+  "id": "70-traffic_counter",
+  "title": "Traffic light queue",
+  "category": "stateful",
+  "prompt": "Simulate a traffic light that starts red with no cars waiting. Process the events in order: 0 = a car arrives: if the light is green and no car is waiting it passes immediately, otherwise it joins the waiting queue; 1 = the light turns green: if it was red, up to 3 waiting cars pass at once (all of them if fewer than 3 wait) and it becomes green; if it was already green nothing happens; 2 = the light turns red (nothing else happens; already red stays red). Events are always 0, 1 or 2. Return pair(number of cars that passed, number of cars still waiting at the end).",
+  "input_type": "List<Int>",
+  "output_type": "Pair<Int, Int>",
+  "examples": [
+    {"input": [0, 0, 0, 0, 0, 1, 0, 2, 1], "expected": [6, 0]},
+    {"input": [], "expected": [0, 0]},
+    {"input": [1, 0, 0, 2, 0], "expected": [2, 1]}
+  ]
+}

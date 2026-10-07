@@ -1,0 +1,15 @@
+// Apply one update; returns the new stock list and whether it was clamped.
+fn update(stock: List<Int>, item: Int, delta: Int) -> Pair<List<Int>, Bool> =
+  let r = fold(stock, pair(list<Int>(), pair(0, false)), |acc, v|
+    let i = fst(snd(acc)) in
+    if(eq(i, item),
+      let nv = add(v, delta) in
+      pair(cons(if(lt(nv, 0), 0, nv), fst(acc)), pair(add(i, 1), lt(nv, 0))),
+      pair(cons(v, fst(acc)), pair(add(i, 1), snd(snd(acc)))))) in
+  pair(reverse(fst(r)), snd(snd(r)))
+
+fn solve(ops: List<Pair<Int, Int>>) -> Pair<List<Int>, Int> =
+  fold(ops, pair(list<Int>(0, 0, 0, 0, 0), 0), |acc, op|
+    let u = update(fst(acc), fst(op), snd(op)) in
+    pair(fst(u), if(snd(u), add(snd(acc), 1), snd(acc))))
+entry solve

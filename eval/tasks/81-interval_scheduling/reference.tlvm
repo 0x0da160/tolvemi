@@ -1,0 +1,6 @@
+// Greedy by end: take an interval when it starts at or after the end of the last one taken.
+fn solve(xs: List<Pair<Int, Int>>) -> Int =
+  fst(fold(xs, pair(0, none<Int>()), |acc, iv|
+    let free = match_option(snd(acc), true, |e| le(e, fst(iv))) in
+    if(free, pair(add(fst(acc), 1), some(snd(iv))), acc)))
+entry solve

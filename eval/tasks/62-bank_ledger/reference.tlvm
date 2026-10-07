@@ -1,0 +1,8 @@
+fn solve(xs: List<Int>) -> Pair<Int, Int> =
+  fold(xs, pair(0, 0), |acc, x|
+    let bal = fst(acc) in
+    let next = add(bal, x) in
+    if(le(0, next),
+      pair(next, snd(acc)),
+      pair(if(le(1, bal), sub(bal, 1), bal), add(snd(acc), 1))))
+entry solve

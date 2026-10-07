@@ -1,0 +1,13 @@
+{
+  "id": "79-stock_cooldown",
+  "title": "Stock trading with cooldown",
+  "category": "stateful",
+  "prompt": "The input is a list of daily stock prices (non-negative). You may complete any number of transactions, each buying one share on one day and selling it on a later day, but you can hold at most one share at a time, and after selling on day d you cannot buy on day d+1 (one day of cooldown). Return the maximum total profit. Doing nothing gives profit 0, so the answer is never negative; for the empty list it is 0.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 3, 0, 2], "expected": 3},
+    {"input": [], "expected": 0},
+    {"input": [5, 4, 3], "expected": 0}
+  ]
+}

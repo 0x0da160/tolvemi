@@ -1,0 +1,11 @@
+type Scan = { nums: List<Int>, cur: Int, inrun: Bool }
+
+fn step(s: Scan, d: Int) -> Scan =
+  if(lt(d, 0),
+    if(s.inrun, Scan { nums: cons(s.cur, s.nums), cur: 0, inrun: false }, s),
+    Scan { cur: add(mul(s.cur, 10), d), inrun: true, ..s })
+
+fn solve(ds: List<Int>) -> List<Int> =
+  let fin = fold(ds, Scan { nums: list<Int>(), cur: 0, inrun: false }, |acc, d| step(acc, d)) in
+  reverse(if(fin.inrun, cons(fin.cur, fin.nums), fin.nums))
+entry solve

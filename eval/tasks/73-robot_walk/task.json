@@ -1,0 +1,13 @@
+{
+  "id": "73-robot_walk",
+  "title": "Robot walk",
+  "category": "stateful",
+  "prompt": "A robot starts at (0, 0) facing north and executes a list of commands: 0 = move forward one step, 1 = turn left 90 degrees, 2 = turn right 90 degrees (only these codes appear). Facing north a step adds 1 to y, east adds 1 to x, south subtracts 1 from y, west subtracts 1 from x; turning left from north faces west, turning right from north faces east. Return pair(pair(x, y), n) where (x, y) is the final position and n is the number of commands after which the robot is at (0, 0) (check after every command, including turns; the starting position before any command does not count). For the empty list return pair(pair(0, 0), 0).",
+  "input_type": "List<Int>",
+  "output_type": "Pair<Pair<Int, Int>, Int>",
+  "examples": [
+    {"input": [0, 1, 0, 1, 0, 1, 0], "expected": [[0, 0], 1]},
+    {"input": [], "expected": [[0, 0], 0]},
+    {"input": [1, 2, 0, 2, 0], "expected": [[1, 1], 2]}
+  ]
+}

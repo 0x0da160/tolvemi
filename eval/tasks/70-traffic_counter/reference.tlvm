@@ -1,0 +1,18 @@
+// State: pair(green, pair(passed, waiting)).
+fn step(s: Pair<Bool, Pair<Int, Int>>, e: Int) -> Pair<Bool, Pair<Int, Int>> =
+  let green = fst(s) in
+  let passed = fst(snd(s)) in
+  let waiting = snd(snd(s)) in
+  if(eq(e, 0),
+    if(if(green, eq(waiting, 0), false),
+      pair(green, pair(add(passed, 1), waiting)),
+      pair(green, pair(passed, add(waiting, 1)))),
+    if(eq(e, 1),
+      if(green, s,
+        let k = if(lt(waiting, 3), waiting, 3) in
+        pair(true, pair(add(passed, k), sub(waiting, k)))),
+      pair(false, snd(s))))
+
+fn solve(ev: List<Int>) -> Pair<Int, Int> =
+  snd(fold(ev, pair(false, pair(0, 0)), |acc, e| step(acc, e)))
+entry solve

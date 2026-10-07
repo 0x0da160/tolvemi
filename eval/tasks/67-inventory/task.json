@@ -1,0 +1,13 @@
+{
+  "id": "67-inventory",
+  "title": "Inventory with clamping",
+  "category": "stateful",
+  "prompt": "There are 5 items with ids 0..4, all starting with stock 0. The input is a list of updates pair(item id, delta), applied in order; ids are always in 0..4. Each update adds delta to that item's stock; if the result would be negative, the stock becomes 0 instead and the update counts as clamped. Return pair(list of the final stocks of items 0, 1, 2, 3, 4 in that order, number of clamped updates).",
+  "input_type": "List<Pair<Int, Int>>",
+  "output_type": "Pair<List<Int>, Int>",
+  "examples": [
+    {"input": [[0, 5], [2, 3], [0, -7], [2, -3], [4, 1]], "expected": [[0, 0, 0, 0, 1], 1]},
+    {"input": [], "expected": [[0, 0, 0, 0, 0], 0]},
+    {"input": [[1, -1], [1, 2], [1, -2]], "expected": [[0, 0, 0, 0, 0], 1]}
+  ]
+}

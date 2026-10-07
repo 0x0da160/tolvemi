@@ -1,0 +1,13 @@
+{
+  "id": "83-bowling_score",
+  "title": "Bowling score",
+  "category": "stateful",
+  "prompt": "The input is the list of rolls (pins knocked down by each ball) of one complete, valid game of ten-pin bowling; return its total score. A game has 10 frames. In frames 1-9, a strike (10 pins on the first ball) ends the frame and scores 10 plus the pins of the next two rolls; otherwise the frame has two rolls, and if they total 10 (a spare) it scores 10 plus the pins of the next roll, else it scores the total of its two rolls. The bonus rolls are whatever rolls follow, even if they belong to later frames. In frame 10, a strike or spare earns extra balls so that the frame has three rolls (otherwise it has two); frame 10 scores just the sum of its rolls, with no further bonus.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [10, 7, 3, 9, 0, 10, 0, 8, 8, 2, 0, 6, 10, 10, 10, 8, 1], "expected": 167},
+    {"input": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "expected": 0},
+    {"input": [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], "expected": 300}
+  ]
+}

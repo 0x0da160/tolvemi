@@ -1,0 +1,6 @@
+fn solve(ds: List<Int>) -> Bool =
+  let r = fold(reverse(ds), pair(false, 0), |acc, d|
+    let v = if(fst(acc), let dd = mul(d, 2) in if(lt(9, dd), sub(dd, 9), dd), d) in
+    pair(if(fst(acc), false, true), add(snd(acc), v))) in
+  if(eq(length(ds), 0), false, eq(mod(snd(r), 10), some(0)))
+entry solve

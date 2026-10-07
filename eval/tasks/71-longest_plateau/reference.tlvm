@@ -1,0 +1,12 @@
+type Plat = { pv: Int, plen: Int, bv: Int, blen: Int }
+
+fn step(s: Plat, x: Int) -> Plat =
+  let n = if(eq(x, s.pv), add(s.plen, 1), 1) in
+  let better = lt(s.blen, n) in
+  Plat { pv: x, plen: n, bv: if(better, x, s.bv), blen: if(better, n, s.blen) }
+
+fn solve(xs: List<Int>) -> Option<Pair<Int, Int>> =
+  match_option(uncons(xs), none<Pair<Int, Int>>(), |h|
+    let r = fold(snd(h), Plat { pv: fst(h), plen: 1, bv: fst(h), blen: 1 }, |acc, x| step(acc, x)) in
+    some(pair(r.bv, r.blen)))
+entry solve

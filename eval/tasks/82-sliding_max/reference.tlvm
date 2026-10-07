@@ -1,0 +1,18 @@
+// recent: the last (up to) k elements, most recent first.
+type Win = { recent: List<Int>, seen: Int, maxima: List<Int> }
+
+fn take(xs: List<Int>, n: Int) -> List<Int> =
+  reverse(snd(fold(xs, pair(0, list<Int>()), |acc, x|
+    if(lt(fst(acc), n), pair(add(fst(acc), 1), cons(x, snd(acc))), acc))))
+
+fn largest(xs: List<Int>, start: Int) -> Int = fold(xs, start, |acc, y| if(lt(acc, y), y, acc))
+
+fn step(w: Win, k: Int, x: Int) -> Win =
+  let r = take(cons(x, w.recent), k) in
+  let c = add(w.seen, 1) in
+  Win { recent: r, seen: c, maxima: if(le(k, c), cons(largest(r, x), w.maxima), w.maxima) }
+
+fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
+  reverse(fold(snd(p), Win { recent: list<Int>(), seen: 0, maxima: list<Int>() }, |acc, x|
+    step(acc, fst(p), x)).maxima)
+entry solve

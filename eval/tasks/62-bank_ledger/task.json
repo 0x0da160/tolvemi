@@ -1,0 +1,13 @@
+{
+  "id": "62-bank_ledger",
+  "title": "Bank ledger with fees",
+  "category": "stateful",
+  "prompt": "The input is a list of transactions applied in order to an account whose balance starts at 0. A non-negative amount is a deposit and is always added. A negative amount is a withdrawal: if the balance plus the amount is still >= 0 it is applied; otherwise it is rejected, the balance is unchanged by it, and a fee of 1 is subtracted from the balance only if the balance is >= 1 (the fee never makes the balance negative). Return pair(final balance, number of rejected withdrawals).",
+  "input_type": "List<Int>",
+  "output_type": "Pair<Int, Int>",
+  "examples": [
+    {"input": [10, -3, -8, 5, -5], "expected": [6, 1]},
+    {"input": [], "expected": [0, 0]},
+    {"input": [-1, -2, 3], "expected": [3, 2]}
+  ]
+}

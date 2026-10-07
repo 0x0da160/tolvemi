@@ -1,0 +1,17 @@
+// dir: 0 = north, 1 = west, 2 = south, 3 = east (turning left adds 1)
+type Robot = { px: Int, py: Int, dir: Int, back: Int }
+
+fn turn(d: Int, k: Int) -> Int = match_option(mod(add(d, k), 4), 0, |r| r)
+fn dx(d: Int) -> Int = if(eq(d, 1), -1, if(eq(d, 3), 1, 0))
+fn dy(d: Int) -> Int = if(eq(d, 0), 1, if(eq(d, 2), -1, 0))
+
+fn step(s: Robot, c: Int) -> Robot =
+  let moved = if(eq(c, 0),
+    Robot { px: add(s.px, dx(s.dir)), py: add(s.py, dy(s.dir)), ..s },
+    Robot { dir: turn(s.dir, if(eq(c, 1), 1, 3)), ..s }) in
+  if(if(eq(moved.px, 0), eq(moved.py, 0), false), Robot { back: add(moved.back, 1), ..moved }, moved)
+
+fn solve(cs: List<Int>) -> Pair<Pair<Int, Int>, Int> =
+  let fin = fold(cs, Robot { px: 0, py: 0, dir: 0, back: 0 }, |acc, c| step(acc, c)) in
+  pair(pair(fin.px, fin.py), fin.back)
+entry solve

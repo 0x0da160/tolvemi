@@ -1,0 +1,16 @@
+// hold: best profit while holding a share; sold: having sold today; rest: not holding, free to buy.
+type Book = { hold: Option<Int>, sold: Int, rest: Int }
+
+fn bigger(a: Int, b: Int) -> Int = if(lt(a, b), b, a)
+
+fn step(s: Book, p: Int) -> Book =
+  Book {
+    hold: some(match_option(s.hold, sub(s.rest, p), |h| bigger(h, sub(s.rest, p)))),
+    sold: match_option(s.hold, 0, |g| add(g, p)),
+    rest: bigger(s.rest, s.sold)
+  }
+
+fn solve(ps: List<Int>) -> Int =
+  let fin = fold(ps, Book { hold: none<Int>(), sold: 0, rest: 0 }, |acc, p| step(acc, p)) in
+  bigger(fin.sold, fin.rest)
+entry solve

@@ -1,0 +1,13 @@
+{
+  "id": "63-elevator",
+  "title": "Elevator trip",
+  "category": "stateful",
+  "prompt": "An elevator starts at floor 0 and visits the requested floors in the given order (floors may be negative). Moving from floor a to floor b travels |a - b| floors. A request for the floor the elevator is already on does not move it. Each move goes up or down; count a direction change whenever a move goes in the opposite direction of the previous move (the first move is never a change, and requests that do not move the elevator are ignored for this). Return pair(total floors travelled, number of direction changes).",
+  "input_type": "List<Int>",
+  "output_type": "Pair<Int, Int>",
+  "examples": [
+    {"input": [3, 5, 2, 2, 4], "expected": [10, 2]},
+    {"input": [], "expected": [0, 0]},
+    {"input": [0, -2, -2, 1], "expected": [5, 1]}
+  ]
+}

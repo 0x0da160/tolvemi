@@ -1,0 +1,10 @@
+// pair(ok so far, stack of open brackets with the most recent first)
+fn solve(xs: List<Int>) -> Bool =
+  let st = fold(xs, pair(true, list<Int>()), |acc, c|
+    if(fst(acc),
+      if(lt(0, c),
+        pair(true, cons(c, snd(acc))),
+        match_option(uncons(snd(acc)), pair(false, snd(acc)), |h| pair(eq(fst(h), neg(c)), snd(h)))),
+      acc)) in
+  if(fst(st), eq(length(snd(st)), 0), false)
+entry solve

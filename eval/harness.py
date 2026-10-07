@@ -176,8 +176,8 @@ class ClaudeCliBackend:
     Claude Code が system prompt の前後に短い定型文を足すことがあり、API の arm と完全には同じ条件ではない。
     """
 
-    def __init__(self, model: str, effort: str, binary: str = "claude", timeout: float = 900):
-        self.model, self.effort, self.binary, self.timeout = model, effort, binary, timeout
+    def __init__(self, model: str, effort: str, binary: str = "claude", timeout: float = 300, retries: int = 2):
+        self.model, self.effort, self.binary, self.timeout, self.retries = model, effort, binary, timeout, retries
         self.name = f"claude-cli:{model}"
         self.workdir = tempfile.mkdtemp(prefix="lptl-eval-")
 
@@ -194,8 +194,15 @@ class ClaudeCliBackend:
                "--no-session-persistence", "--strict-mcp-config", "--setting-sources", "",
                "--model", self.model, "--effort", self.effort]
         env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_SESSION_ID", "CLAUDECODE")}
-        p = subprocess.run(cmd, input=self.render(messages), capture_output=True, text=True, cwd=self.workdir,
-                           env=env, timeout=self.timeout)
+        # 混雑で応答が止まることがあるので、時間切れは retries 回まで呼び直す
+        for attempt in range(self.retries + 1):
+            try:
+                p = subprocess.run(cmd, input=self.render(messages), capture_output=True, text=True, cwd=self.workdir,
+                                   env=env, timeout=self.timeout)
+                break
+            except subprocess.TimeoutExpired:
+                if attempt == self.retries:
+                    raise
         try:
             out = json.loads(p.stdout)
         except json.JSONDecodeError:
@@ -359,6 +366,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", choices=("anthropic", "claude-cli", "oracle"), default="anthropic")
     ap.add_argument("--claude-bin", default="claude", help="claude-cli で使う claude コマンド")
+    ap.add_argument("--timeout", type=float, default=300, help="claude-cli の 1 呼び出しの秒数の上限")
+    ap.add_argument("--retries", type=int, default=2, help="claude-cli が時間切れのとき呼び直す回数")
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
     ap.add_argument("--max-tokens", type=int, default=32000)
@@ -383,7 +392,7 @@ def main() -> int:
     if args.backend == "oracle":
         backend = OracleBackend()
     elif args.backend == "claude-cli":
-        backend = ClaudeCliBackend(args.model, args.effort, args.claude_bin)
+        backend = ClaudeCliBackend(args.model, args.effort, args.claude_bin, args.timeout, args.retries)
     else:
         backend = AnthropicBackend(args.model, args.effort, args.max_tokens, not args.no_fallback)
 

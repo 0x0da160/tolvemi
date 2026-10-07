@@ -1,0 +1,21 @@
+// bonus1 / bonus2: how many extra times the next roll / the roll after it are counted.
+type Game = { score: Int, frame: Int, first: Bool, pins: Int, bonus1: Int, bonus2: Int }
+
+fn step(g: Game, r: Int) -> Game =
+  let base = Game { score: add(g.score, mul(r, add(1, g.bonus1))), bonus1: g.bonus2, bonus2: 0, ..g } in
+  if(eq(g.frame, 10),
+    base,
+    if(g.first,
+      if(eq(r, 10),
+        Game { frame: add(g.frame, 1), bonus1: add(base.bonus1, 1), bonus2: 1, ..base },
+        Game { first: false, pins: r, ..base }),
+      Game {
+        frame: add(g.frame, 1),
+        first: true,
+        bonus1: if(eq(add(g.pins, r), 10), add(base.bonus1, 1), base.bonus1),
+        ..base
+      }))
+
+fn solve(rolls: List<Int>) -> Int =
+  fold(rolls, Game { score: 0, frame: 1, first: true, pins: 0, bonus1: 0, bonus2: 0 }, |acc, r| step(acc, r)).score
+entry solve

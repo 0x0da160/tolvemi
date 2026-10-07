@@ -1,0 +1,13 @@
+{
+  "id": "71-longest_plateau",
+  "title": "Longest plateau",
+  "category": "stateful",
+  "prompt": "A plateau is a maximal run of equal adjacent elements. Return some(pair(value, length)) of the longest plateau; if several are equally long, take the earliest one. Return none for the empty list.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Pair<Int, Int>>",
+  "examples": [
+    {"input": [1, 2, 2, 3, 3, 3, 2, 2, 2], "expected": [3, 3]},
+    {"input": [], "expected": null},
+    {"input": [5, 6, 6, 5, 5], "expected": [6, 2]}
+  ]
+}

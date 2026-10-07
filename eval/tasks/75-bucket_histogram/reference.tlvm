@@ -1,0 +1,14 @@
+// There is no division: try every possible bucket index (values are at most 49, so at most 50 buckets).
+fn count_in(xs: List<Int>, lo: Int, hi: Int) -> Int =
+  fold(xs, 0, |acc, v| if(if(le(lo, v), lt(v, hi), false), add(acc, 1), acc))
+
+fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
+  let w = fst(p) in
+  let xs = snd(p) in
+  let top = fold(xs, -1, |acc, v| if(lt(acc, v), v, acc)) in
+  let ks = list<Int>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49) in
+  reverse(fold(ks, list<Int>(), |acc, k|
+    let lo = mul(k, w) in
+    if(le(lo, top), cons(count_in(xs, lo, add(lo, w)), acc), acc)))
+entry solve

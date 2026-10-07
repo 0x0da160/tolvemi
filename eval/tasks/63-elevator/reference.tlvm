@@ -1,0 +1,16 @@
+type Car = { floor: Int, dist: Int, dir: Int, turns: Int }
+
+fn step(s: Car, f: Int) -> Car =
+  let d = if(lt(s.floor, f), 1, if(lt(f, s.floor), -1, 0)) in
+  if(eq(d, 0), s,
+    Car {
+      floor: f,
+      dist: add(s.dist, if(eq(d, 1), sub(f, s.floor), sub(s.floor, f))),
+      dir: d,
+      turns: if(if(eq(s.dir, 0), false, if(eq(s.dir, d), false, true)), add(s.turns, 1), s.turns)
+    })
+
+fn solve(fs: List<Int>) -> Pair<Int, Int> =
+  let e = fold(fs, Car { floor: 0, dist: 0, dir: 0, turns: 0 }, |acc, x| step(acc, x)) in
+  pair(e.dist, e.turns)
+entry solve

@@ -1,0 +1,12 @@
+// Two stacks: new values are pushed on inbox; dequeues pop from outbox, refilled from inbox when empty.
+type Q = { inbox: List<Int>, outbox: List<Int>, served: List<Int> }
+
+fn step(q: Q, op: Int) -> Q =
+  if(le(0, op),
+    Q { inbox: cons(op, q.inbox), ..q },
+    let ready = if(eq(length(q.outbox), 0), Q { inbox: list<Int>(), outbox: reverse(q.inbox), ..q }, q) in
+    match_option(uncons(ready.outbox), ready, |h| Q { outbox: snd(h), served: cons(fst(h), ready.served), ..ready }))
+
+fn solve(ops: List<Int>) -> List<Int> =
+  reverse(fold(ops, Q { inbox: list<Int>(), outbox: list<Int>(), served: list<Int>() }, |acc, op| step(acc, op)).served)
+entry solve
