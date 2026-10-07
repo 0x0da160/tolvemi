@@ -1,0 +1,13 @@
+{
+  "id": "59-merge_intervals",
+  "title": "Merge intervals",
+  "category": "hard",
+  "prompt": "The input is a list of intervals pair(start, end) with start <= end, sorted by start. Merge every group of intervals that overlap or touch (the next start is <= the current end) and return the merged intervals in order.",
+  "input_type": "List<Pair<Int, Int>>",
+  "output_type": "List<Pair<Int, Int>>",
+  "examples": [
+    {"input": [[1, 3], [2, 6], [8, 10], [10, 12], [15, 18]], "expected": [[1, 6], [8, 12], [15, 18]]},
+    {"input": [], "expected": []},
+    {"input": [[1, 10], [2, 3]], "expected": [[1, 10]]}
+  ]
+}

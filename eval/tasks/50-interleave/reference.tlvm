@@ -1,0 +1,15 @@
+fn nth(i: Int, ys: List<Int>) -> Int =
+  snd(fold(ys, pair(0, 0), |acc, y| pair(add(fst(acc), 1), if(eq(fst(acc), i), y, snd(acc)))))
+fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
+  let xs = fst(p) in
+  let ys = snd(p) in
+  let nx = length(xs) in
+  let ny = length(ys) in
+  let front = fold(xs, pair(0, list[Int]()), |acc, x|
+    let k = fst(acc) in
+    let withx = cons(x, snd(acc)) in
+    pair(add(k, 1), if(lt(k, ny), cons(nth(k, ys), withx), withx))) in
+  let back = fold(ys, pair(0, snd(front)), |acc2, y|
+    pair(add(fst(acc2), 1), if(le(nx, fst(acc2)), cons(y, snd(acc2)), snd(acc2)))) in
+  reverse(snd(back))
+entry solve

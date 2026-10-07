@@ -365,6 +365,7 @@ def main() -> int:
     ap.add_argument("--no-fallback", action="store_true", help="安全分類器による拒否時のフォールバックを使わない")
     ap.add_argument("--arms", default="lptl,python", help=f"カンマ区切り（{', '.join(ARMS)}）")
     ap.add_argument("--tasks", default="", help="カンマ区切りのタスク ID または名前（既定は全件）")
+    ap.add_argument("--category", default="", help="カンマ区切りのカテゴリ（例: hard）で絞る")
     ap.add_argument("--rounds", type=int, default=3, help="初回を含む最大の回数（1 なら修復なし）")
     ap.add_argument("--repeats", type=int, default=1)
     ap.add_argument("--workers", type=int, default=4)
@@ -375,6 +376,8 @@ def main() -> int:
     if bad := [a for a in arms if a not in ARMS]:
         ap.error(f"unknown arm: {bad}")
     tasks = load_tasks([t for t in args.tasks.split(",") if t])
+    if cats := [c for c in args.category.split(",") if c]:
+        tasks = [t for t in tasks if t["category"] in cats]
     if not tasks:
         ap.error("no tasks selected")
     if args.backend == "oracle":

@@ -1,0 +1,11 @@
+fn solve(xs: List<Pair<Int, Int>>) -> List<Pair<Int, Int>> =
+  let st = fold(xs, pair(list[Pair<Int, Int>](), pair(false, pair(0, 0))), |acc, iv|
+    let cur = snd(snd(acc)) in
+    if(fst(snd(acc)),
+      if(le(fst(iv), snd(cur)),
+        pair(fst(acc), pair(true, pair(fst(cur), if(lt(snd(cur), snd(iv)), snd(iv), snd(cur))))),
+        pair(cons(cur, fst(acc)), pair(true, iv))),
+      pair(fst(acc), pair(true, iv)))) in
+  let open = snd(st) in
+  reverse(if(fst(open), cons(snd(open), fst(st)), fst(st)))
+entry solve

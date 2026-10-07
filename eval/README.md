@@ -10,7 +10,7 @@ LPTL v1 を LLM が実際に書けるか、どこで失敗するかを測るた�
 | パス | 内容 |
 |---|---|
 | [`SKILL.md`](SKILL.md) | モデルに渡す LPTL の説明（§12.2 の Skill）。最小文法、型、組込み、禁止事項、定石、主要診断、出力形式。コード例は全て `tlvm check` を通る |
-| [`tasks/`](tasks/) | 43 問。各ディレクトリに `task.json`（問題文・型・公開例 3 件）、`hidden.json`（隠しテスト 30 件）、`reference.tlvm`、`reference.py` |
+| [`tasks/`](tasks/) | 60 問（うち 44〜60 は `category: hard`：2 つのリストの同時走査、整列、区間の併合など）。各ディレクトリに `task.json`（問題文・型・公開例 3 件）、`hidden.json`（隠しテスト 30 件）、`reference.tlvm`、`reference.py` |
 | [`out_of_scope.json`](out_of_scope.json) | v1 で書けないため対象から外した 5 問と理由（Option の中身の取り出し、除算、整数からの反復） |
 | [`manifest.json`](manifest.json) | SKILL.md と全タスクのファイルの SHA-256。実行結果の `config.json` に記録する |
 | [`harness.py`](harness.py) | 実験の実行と集計 |
@@ -49,7 +49,7 @@ python3 eval/harness.py --model claude-opus-5-5 --effort high --arms lptl,lptl-n
 ```
 
 結果は `eval/runs/<run-id>/` に `config.json`、`episodes.jsonl`（全回の候補コードと採点）、`summary.json`、
-`summary.md` として出ます（`eval/runs/` は git の管理外）。43 問 × 3 arm × 最大 3 回で、API 呼び出しは最大 387 回です。
+`summary.md` として出ます（`eval/runs/` は git の管理外）。60 問 × 3 arm × 最大 3 回で、呼び出しは最大 540 回です。`--category hard` で難しい問題だけに絞れます。
 
 `claude-cli` はツールを無効にし、設定・MCP・CLAUDE.md を読まずに空の一時ディレクトリで動かすので、
 モデルは参照解や隠しテストを見られません。CLI は 1 回の呼び出しが 1 往復なので、修復の回ではそれまでの会話を

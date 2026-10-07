@@ -296,7 +296,10 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
             "E-LEX-INVALID-INTEGER" => {
                 Some(("replace_expression", span, "canonical integer literal (no '+', no leading zeros, no -0)".into()))
             }
-            "E-PARSE-EXPECTED-IDENT" => Some(("replace_identifier", span, "identifier that is not a reserved word".into())),
+            // 予約語を名前に使ったときだけ書き換え先を示す。それ以外（回復後の連鎖など）は位置が当てにならない
+            "E-PARSE-EXPECTED-IDENT" => d.actual.as_deref().filter(|w| crate::syntax::is_keyword(w)).map(|w| {
+                ("replace_identifier", span, format!("'{w}' is a reserved word; use another name such as {w}_ here and at every use"))
+            }),
             "E-PARSE-EXPECTED-TYPE" => {
                 Some(("replace_type", span, "type: Int | Bool | Unit | List<T> | Option<T> | Pair<A, B>".into()))
             }

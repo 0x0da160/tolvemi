@@ -1,0 +1,13 @@
+{
+  "id": "52-sort",
+  "title": "Sort ascending",
+  "category": "hard",
+  "prompt": "Return the elements sorted in ascending order (duplicates kept).",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [3, 1, 2, 1], "expected": [1, 1, 2, 3]},
+    {"input": [], "expected": []},
+    {"input": [-5, 10, 0], "expected": [-5, 0, 10]}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "49-max_subarray",
+  "title": "Maximum subarray sum",
+  "category": "hard",
+  "prompt": "Return the largest sum of a contiguous (possibly empty) sublist. The empty sublist has sum 0, so the answer is never negative.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [-2, 1, -3, 4, -1, 2, 1, -5, 4], "expected": 6},
+    {"input": [], "expected": 0},
+    {"input": [-3, -1], "expected": 0}
+  ]
+}

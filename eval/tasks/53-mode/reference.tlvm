@@ -1,0 +1,11 @@
+fn count(v: Int, ys: List<Int>) -> Int = fold(ys, 0, |acc, y| if(eq(y, v), add(acc, 1), acc))
+fn solve(xs: List<Int>) -> Option<Int> =
+  let best = fold(xs, pair(false, pair(0, 0)), |acc, x|
+    let c = count(x, xs) in
+    let cur = snd(acc) in
+    if(fst(acc),
+      if(lt(fst(cur), c), pair(true, pair(c, x)),
+        if(eq(fst(cur), c), if(lt(x, snd(cur)), pair(true, pair(c, x)), acc), acc)),
+      pair(true, pair(c, x)))) in
+  if(fst(best), some(snd(snd(best))), none[Int])
+entry solve

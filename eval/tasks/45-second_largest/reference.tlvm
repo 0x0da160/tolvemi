@@ -1,0 +1,12 @@
+fn upd(st: Pair<Pair<Bool, Int>, Pair<Bool, Int>>, x: Int) -> Pair<Pair<Bool, Int>, Pair<Bool, Int>> =
+  let top = fst(st) in
+  let sec = snd(st) in
+  if(fst(top),
+    if(lt(snd(top), x), pair(pair(true, x), pair(true, snd(top))),
+      if(eq(snd(top), x), st,
+        if(fst(sec), if(lt(snd(sec), x), pair(top, pair(true, x)), st), pair(top, pair(true, x))))),
+    pair(pair(true, x), sec))
+fn solve(xs: List<Int>) -> Option<Int> =
+  let res = fold(xs, pair(pair(false, 0), pair(false, 0)), |acc, x| upd(acc, x)) in
+  if(fst(snd(res)), some(snd(snd(res))), none[Int])
+entry solve

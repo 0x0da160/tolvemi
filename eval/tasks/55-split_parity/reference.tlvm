@@ -1,0 +1,5 @@
+fn solve(xs: List<Int>) -> Pair<List<Int>, List<Int>> =
+  let st = fold(xs, pair(list[Int](), list[Int]()), |acc, x|
+    if(eq(mod(x, 2), some(0)), pair(cons(x, fst(acc)), snd(acc)), pair(fst(acc), cons(x, snd(acc))))) in
+  pair(reverse(fst(st)), reverse(snd(st)))
+entry solve

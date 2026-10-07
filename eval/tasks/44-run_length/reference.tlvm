@@ -1,0 +1,12 @@
+fn solve(xs: List<Int>) -> List<Pair<Int, Int>> =
+  let st = fold(xs, pair(list[Pair<Int, Int>](), pair(false, pair(0, 0))), |acc, x|
+    let done = fst(acc) in
+    let cur = snd(acc) in
+    if(fst(cur),
+      if(eq(fst(snd(cur)), x),
+        pair(done, pair(true, pair(x, add(snd(snd(cur)), 1)))),
+        pair(cons(snd(cur), done), pair(true, pair(x, 1)))),
+      pair(done, pair(true, pair(x, 1))))) in
+  let last = snd(st) in
+  reverse(if(fst(last), cons(snd(last), fst(st)), fst(st)))
+entry solve

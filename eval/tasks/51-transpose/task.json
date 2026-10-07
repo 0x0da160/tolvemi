@@ -1,0 +1,13 @@
+{
+  "id": "51-transpose",
+  "title": "Matrix transpose",
+  "category": "hard",
+  "prompt": "The input is a rectangular matrix given as a list of rows (all rows have the same length). Return its transpose as a list of rows. If there are no rows, or the rows are empty, return the empty list.",
+  "input_type": "List<List<Int>>",
+  "output_type": "List<List<Int>>",
+  "examples": [
+    {"input": [[1, 2, 3], [4, 5, 6]], "expected": [[1, 4], [2, 5], [3, 6]]},
+    {"input": [], "expected": []},
+    {"input": [[7]], "expected": [[7]]}
+  ]
+}
