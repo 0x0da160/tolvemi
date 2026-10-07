@@ -38,6 +38,11 @@ fn plain_json_roundtrip() {
     roundtrip(&oo, r#"{"some":null}"#, r#"{"tag":"some","value":{"tag":"none"}}"#);
     roundtrip(&oo, r#"{"some":3}"#, r#"{"tag":"some","value":{"tag":"some","value":{"tag":"int","value":"3"}}}"#);
     roundtrip(&oo, "null", r#"{"tag":"none"}"#);
+    // JavaScript の安全な整数（|n| <= 2^53 - 1）を超えると十進文字列で出す
+    roundtrip(&int(), "9007199254740991", r#"{"tag":"int","value":"9007199254740991"}"#);
+    roundtrip(&int(), "-9007199254740991", r#"{"tag":"int","value":"-9007199254740991"}"#);
+    roundtrip(&int(), r#""9007199254740992""#, r#"{"tag":"int","value":"9007199254740992"}"#);
+    roundtrip(&int(), r#""-123456789012345678901""#, r#"{"tag":"int","value":"-123456789012345678901"}"#);
 }
 
 #[test]

@@ -100,16 +100,16 @@ pub proof fn te_app(e: Sx, k: Seq<Tok>)
         Sx::List(t, es) => {
             targs_app(es, 0, k);
             targs_app(es, 0, z);
-            tt_app(t, seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, k));
-            tt_app(t, seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, z));
+            tt_app(t, seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, k));
+            tt_app(t, seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, z));
         },
         Sx::Some(a) => {
             te_app(*a, seq![Tok::Sym(')')] + k);
             te_app(*a, seq![Tok::Sym(')')] + z);
         },
         Sx::None(t) => {
-            tt_app(t, seq![Tok::Sym(']')] + k);
-            tt_app(t, seq![Tok::Sym(']')] + z);
+            tt_app(t, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k);
+            tt_app(t, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + z);
         },
         Sx::Pair(a, b) => {
             te_app(*b, seq![Tok::Sym(')')] + k);
@@ -379,13 +379,13 @@ proof fn pe_complete_list(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
 {
     if let Sx::List(t, es) = e {
         let z = Seq::<Tok>::empty();
-        let ka = seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, k);
-        hd(ts, i, seq![Tok::Kw(Kw::List), Tok::Sym('[')], tt(t, ka));
+        let ka = seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, k);
+        hd(ts, i, seq![Tok::Kw(Kw::List), Tok::Sym('<')], tt(t, ka));
         pt_complete(ts, i + 2, td, t, ka);
         tt_app(t, ka);
         at_end(ts, i + 2, tt(t, z), ka);
         let j = (ts.len() - ka.len()) as nat;
-        hd(ts, j, seq![Tok::Sym(']'), Tok::Sym('(')], targs(es, 0, k));
+        hd(ts, j, seq![Tok::Sym('>'), Tok::Sym('(')], targs(es, 0, k));
         pargs_complete(ts, j + 2, (d - 1) as nat, td, es, k);
     }
 }
@@ -419,12 +419,16 @@ proof fn pe_complete_none(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
 {
     if let Sx::None(t) = e {
         let z = Seq::<Tok>::empty();
-        let ka = seq![Tok::Sym(']')] + k;
-        hd(ts, i, seq![Tok::Kw(Kw::None), Tok::Sym('[')], tt(t, ka));
+        let ka = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k;
+        hd(ts, i, seq![Tok::Kw(Kw::None), Tok::Sym('<')], tt(t, ka));
         pt_complete(ts, i + 2, td, t, ka);
         tt_app(t, ka);
         at_end(ts, i + 2, tt(t, z), ka);
-        hd(ts, (ts.len() - ka.len()) as nat, seq![Tok::Sym(']')], k);
+        let j = (ts.len() - ka.len()) as nat;
+        hd(ts, j, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')], k);
+        assert(ts[j + 0 as int] == Tok::Sym('>'));
+        assert(ts[j + 1 as int] == Tok::Sym('('));
+        assert(ts[j + 2 as int] == Tok::Sym(')'));
     }
 }
 
@@ -1063,10 +1067,10 @@ proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
-    if sym(ts, i + 1, '[') {
+    if sym(ts, i + 1, '<') {
         pt_sound(ts, i + 2, td);
         if let Some((t, j)) = pt(ts, i + 2, td) {
-            if sym(ts, j, ']') && sym(ts, j + 1, '(') {
+            if sym(ts, j, '>') && sym(ts, j + 1, '(') {
                 pargs_sound(ts, j + 2, d1, td);
                 if let Some((es, m)) = pargs(ts, j + 2, d1, td) {
                     pfx1(ts, i);
@@ -1074,7 +1078,7 @@ proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     pfx1(ts, j);
                     pfx1(ts, j + 1);
                     let e = pe(ts, i, d, td)->Some_0.0;
-                    assert(suf(ts, j) =~= seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, suf(ts, m)));
+                    assert(suf(ts, j) =~= seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, suf(ts, m)));
                     assert(suf(ts, i) =~= te(e, suf(ts, m)));
                 }
             }
@@ -1115,15 +1119,18 @@ proof fn pe_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
-    if sym(ts, i + 1, '[') {
+    if sym(ts, i + 1, '<') {
         pt_sound(ts, i + 2, td);
         if let Some((t, j)) = pt(ts, i + 2, td) {
-            if sym(ts, j, ']') {
+            if sym(ts, j, '>') && sym(ts, j + 1, '(') && sym(ts, j + 2, ')') {
                 pfx1(ts, i);
                 pfx1(ts, i + 1);
                 pfx1(ts, j);
+                pfx1(ts, j + 1);
+                pfx1(ts, j + 2);
                 let e = pe(ts, i, d, td)->Some_0.0;
-                assert(suf(ts, i) =~= te(e, suf(ts, j + 1)));
+                assert(suf(ts, j) =~= seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + suf(ts, j + 3));
+                assert(suf(ts, i) =~= te(e, suf(ts, j + 3)));
             }
         }
     }

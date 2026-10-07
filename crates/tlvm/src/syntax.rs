@@ -116,6 +116,33 @@ pub struct TypeNode {
     pub tag: TyTag,
     pub args: Vec<TypeNode>,
     pub meta: Meta,
+    /// v1.1：レコード型の名前（`records::expand` が展開する前だけ。tag は Error）
+    pub name: Option<String>,
+    /// 展開後のレコード型に付く名前と field 名（表示と plain JSON 用。比較対象外）
+    pub label: Label,
+}
+
+impl TypeNode {
+    pub fn new(tag: TyTag, args: Vec<TypeNode>, meta: Meta) -> TypeNode {
+        TypeNode { tag, args, meta, name: None, label: Label::default() }
+    }
+}
+
+/// レコード型の名前と field 名（宣言順）。
+#[derive(Debug, PartialEq, Eq)]
+pub struct RecordInfo {
+    pub name: String,
+    pub fields: Vec<String>,
+}
+
+/// 型に付くレコードの名前。型の等価性には含めない（レコード型は field の型の並びで決まる構造的な型）。
+#[derive(Clone, Debug, Default)]
+pub struct Label(pub Option<Arc<RecordInfo>>);
+
+impl PartialEq for Label {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -134,6 +161,17 @@ pub enum ExprKind {
     Fold { list: Box<Expr>, init: Box<Expr>, acc: String, acc_span: Sp, item: String, item_span: Sp, body: Box<Expr> },
     /// v1.1：match_option(scrutinee, on_none, |binder| on_some)
     Match { scrutinee: Box<Expr>, on_none: Box<Expr>, binder: String, binder_span: Sp, on_some: Box<Expr> },
+    /// v1.1：レコードの構築 `Name { f: e, ..., ..base }`（`records::expand` が pair の入れ子にする）
+    Record { name: String, name_span: Sp, fields: Vec<RecordField>, base: Option<Box<Expr>> },
+    /// v1.1：field の参照 `e.f`。`target` は展開後に付く（レコード型、field の位置、field の数）
+    Field { expr: Box<Expr>, field: String, field_span: Sp, target: Option<(TypeNode, usize, usize)> },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordField {
+    pub name: String,
+    pub name_span: Sp,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,6 +192,8 @@ impl Expr {
             ExprKind::If(c, t, e) => vec![c, t, e],
             ExprKind::Fold { list, init, body, .. } => vec![list, init, body],
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
+            ExprKind::Record { fields, base, .. } => fields.iter().map(|f| &f.value).chain(base.as_deref()).collect(),
+            ExprKind::Field { expr, .. } => vec![expr],
             _ => vec![],
         }
     }
@@ -188,6 +228,23 @@ pub struct EntryDecl {
 pub enum Decl {
     Fn(FnDecl),
     Entry(EntryDecl),
+    /// v1.1：`type Name = { f: T, ... }`
+    Type(TypeDecl),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeDecl {
+    pub name: String,
+    pub name_span: Sp,
+    pub fields: Vec<FieldDecl>,
+    pub meta: Meta,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldDecl {
+    pub name: String,
+    pub name_span: Sp,
+    pub ty: TypeNode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -217,6 +274,7 @@ struct TyNode {
     tag: TyTag,
     args: Vec<Ty>,
     depth: usize,
+    label: Label,
 }
 
 /// 単相型。共有 DAG で表し、深さはキャッシュする。ErrorType は深さ0。
@@ -226,7 +284,18 @@ pub struct Ty(Arc<TyNode>);
 impl Ty {
     pub fn new(tag: TyTag, args: Vec<Ty>) -> Ty {
         let depth = if tag == TyTag::Error { 0 } else { 1 + args.iter().map(|a| a.depth()).max().unwrap_or(0) };
-        Ty(Arc::new(TyNode { tag, args, depth }))
+        Ty(Arc::new(TyNode { tag, args, depth, label: Label::default() }))
+    }
+    /// レコード名を付けた型（等価性は変わらない）。
+    pub fn labeled(&self, label: Label) -> Ty {
+        Ty(Arc::new(TyNode { tag: self.0.tag, args: self.0.args.clone(), depth: self.0.depth, label }))
+    }
+    /// レコード名を外した型。
+    pub fn unlabeled(&self) -> Ty {
+        self.labeled(Label::default())
+    }
+    pub fn record(&self) -> Option<&Arc<RecordInfo>> {
+        self.0.label.0.as_ref()
     }
     pub fn int() -> Ty {
         Ty::new(TyTag::Int, vec![])
@@ -265,11 +334,26 @@ impl Ty {
         self.0.tag == TyTag::Error
     }
     pub fn of(node: &TypeNode) -> Ty {
-        Ty::new(node.tag, node.args.iter().map(Ty::of).collect())
+        let t = Ty::new(node.tag, node.args.iter().map(Ty::of).collect());
+        if node.label.0.is_some() {
+            t.labeled(node.label.clone())
+        } else {
+            t
+        }
     }
 
     fn write_limited(&self, out: &mut String, budget: &mut usize) {
         if *budget == 0 {
+            return;
+        }
+        if let Some(r) = &self.0.label.0 {
+            if r.name.len() <= *budget {
+                out.push_str(&r.name);
+                *budget -= r.name.len();
+            } else {
+                out.push('…');
+                *budget = 0;
+            }
             return;
         }
         let name = self.0.tag.name();

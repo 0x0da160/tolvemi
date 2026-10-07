@@ -7,5 +7,5 @@ fn solve(xs: List<Int>) -> Option<Int> =
       if(lt(fst(cur), c), pair(true, pair(c, x)),
         if(eq(fst(cur), c), if(lt(x, snd(cur)), pair(true, pair(c, x)), acc), acc)),
       pair(true, pair(c, x)))) in
-  if(fst(best), some(snd(snd(best))), none[Int])
+  if(fst(best), some(snd(snd(best))), none<Int>())
 entry solve

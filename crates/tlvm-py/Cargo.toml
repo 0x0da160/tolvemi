@@ -1,0 +1,19 @@
+[package]
+name = "tlvm-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python binding of Tolvemi (tlvm)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# ルートの workspace から外し、独自の Cargo.lock を持つ（PyO3 の依存をルートに持ち込まない）
+[workspace]
+
+[lib]
+name = "tlvm"
+crate-type = ["cdylib"]
+
+[dependencies]
+# 拡張モジュール自身の名前（tlvm）と区別するため tlvm_core として参照する
+tlvm_core = { package = "tlvm", path = "../tlvm" }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py38"] }

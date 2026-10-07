@@ -1,12 +1,12 @@
 fn insert(v: Int, ys: List<Int>) -> List<Int> =
-  let st = fold(ys, pair(false, list[Int]()), |acc, y|
+  let st = fold(ys, pair(false, list<Int>()), |acc, y|
     if(fst(acc), pair(true, cons(y, snd(acc))),
       if(le(v, y), pair(true, cons(y, cons(v, snd(acc)))), pair(false, cons(y, snd(acc)))))) in
   reverse(if(fst(st), snd(st), cons(v, snd(st))))
 fn solve(p: Pair<List<Int>, Int>) -> Option<Int> =
   let k = snd(p) in
-  let sorted = fold(fst(p), list[Int](), |acc, x| insert(x, acc)) in
+  let sorted = fold(fst(p), list<Int>(), |acc, x| insert(x, acc)) in
   let res = fold(sorted, pair(0, pair(false, 0)), |acc2, y|
     pair(add(fst(acc2), 1), if(eq(fst(acc2), k), pair(true, y), snd(acc2)))) in
-  if(fst(snd(res)), some(snd(snd(res))), none[Int])
+  if(fst(snd(res)), some(snd(snd(res))), none<Int>())
 entry solve

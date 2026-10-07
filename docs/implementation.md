@@ -2,7 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`）を加えたもので、spec 層と証明も v1.1 の言語に対するものです。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は展開後のプログラムを検査・実行します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -55,6 +55,8 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
+| `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
+| `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
 
 ```sh
@@ -186,10 +188,11 @@ registry が決まったら差し替える前提です。
 
   | 型 | plain JSON |
   |---|---|
-  | `Int` | 整数の number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理。出力は number |
+  | `Int` | 整数の number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理。出力は \|n\| ≤ 2^53 − 1 なら number、それを超えると十進文字列（JavaScript の number で精度が落ちないように） |
   | `Bool`／`Unit` | `true`・`false`／`null` |
   | `List<T>`／`Pair<A, B>` | 配列／二要素の配列 |
   | `Option<T>` | `none` は `null`、`some(v)` は v。T が `Unit` か `Option` のときだけ `{"some": v}` |
+  | レコード型 | field 名を key にした object |
 
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。
@@ -204,6 +207,30 @@ registry が決まったら差し替える前提です。
 cargo run --release -- run examples/positive_values.tlvm '[3, -1, 2]' --plain     # => [3,2]
 cargo run --release -- check examples/sum_even.tlvm --human
 cargo run --release -- test examples/sum_even.tlvm                                # examples/sum_even.tests.json
+```
+
+## 組み込み（Rust の embed API、Python binding）
+
+ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `decode_plain_input` → run →
+`encode_plain` を既定の資源プロファイル（CLI と同じ reference-1）でつないだもので、判定と実行は CLI と同じく
+検証済み部品が行います。API 自体は検証されていない接着部分です。
+
+- **Rust**（`tlvm::embed`）：`Program::compile(source)` は受理なら `Program`、拒否なら error の診断（`Vec<Diagnostic>`）を返します。
+  `input_type()`／`output_type()` は `List<Int>` の形の型、`run_json(input)` は plain JSON の入力で実行して plain JSON
+  （最小空白）の出力を返します。失敗は `RunError`（`Input(診断)`、`ResourceExhausted { kind, observed, limit }`、
+  `HostAborted`、`Internal`）です。診断は `diagnostic_json` で CLI と同じ一行 JSON（§10.1）になります。
+  上限を変えるときは `run_json_with(input, &Limits)` を使います。plain JSON の出力では 2^53 を超える整数が十進文字列になります。桁数によらず number で欲しいホスト（Python など）は `run_json_exact(input)` を使います。
+- **Python**（[`crates/tlvm-py`](../crates/tlvm-py)）：PyO3 の拡張モジュール `tlvm` です。`tlvm.compile(src)` が
+  `Program` を返し、`p.run(value)` は Python の値を `json.dumps` で plain JSON にして実行し、結果を `json.loads` で
+  Python の値に戻します（整数は桁数によらず int のまま往復し、`Pair` は list で返ります）。失敗は `tlvm.CompileError`・
+  `tlvm.InputError`（属性 `diagnostics` は診断 JSON を dict にした list）、`tlvm.ResourceExhausted`（`kind`、
+  `observed`、`limit`）、`tlvm.HostAborted`、`tlvm.InternalError` で、どれも `tlvm.TlvmError` の派生です。
+  PyO3 の依存をルートに持ち込まないよう、この crate はルートの workspace から外し、独自の `Cargo.lock` を持ちます。
+  build の手順は [`crates/tlvm-py/README.md`](../crates/tlvm-py/README.md) にあります。
+
+```rust
+let p = tlvm::embed::Program::compile("fn solve(xs: List<Int>) -> Int = fold(xs, 0, |acc, x| add(acc, x))\nentry solve\n")?;
+assert_eq!(p.run_json("[1, 2, 3]")?, "6");
 ```
 
 ## 未実装

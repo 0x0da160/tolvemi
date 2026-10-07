@@ -319,6 +319,11 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["fmt", file] => match parse_file(file, as_ast)? {
+            // v1.1：レコードを含むプログラムは検証済み formatter の対象外。診断用 formatter で整形する
+            Some(p) if tlvm::records::has_records(&p) => {
+                print!("{}", format_program(&p));
+                Ok(ExitCode::SUCCESS)
+            }
             Some(p) => {
                 // 正準ソースは検証済み formatter が出す。source なら元の source を、AST なら診断用
                 // formatter の出力を検証済み parser に通し、診断用 formatter の結果と照合する。
@@ -342,6 +347,17 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["ast", file] => match parse_file(file, as_ast)? {
+            // v1.1：AST transport にレコードの形はないので、展開して fst／snd に書き換えたものを出す
+            Some(p) if tlvm::records::has_records(&p) => match tlvm::records::expand(&p) {
+                Ok(px) => {
+                    println!("{}", encode_ast(&tlvm::records::lower(&px)));
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(d) => {
+                    emit_in(&d, file, &read(file)?);
+                    Ok(ExitCode::from(1))
+                }
+            },
             Some(p) => {
                 println!("{}", encode_ast(&p));
                 Ok(ExitCode::SUCCESS)

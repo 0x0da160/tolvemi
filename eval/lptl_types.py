@@ -69,10 +69,10 @@ def lptl_literal(v: Any, t: Type) -> str:
     if k == "Unit":
         return "unit"
     if k == "List":
-        return f"list[{show_type(t[1])}]({', '.join(lptl_literal(x, t[1]) for x in v)})"
+        return f"list<{show_type(t[1])}>({', '.join(lptl_literal(x, t[1]) for x in v)})"
     if k == "Option":
         _check_nullable(t)
-        return f"none[{show_type(t[1])}]" if v is None else f"some({lptl_literal(v, t[1])})"
+        return f"none<{show_type(t[1])}>()" if v is None else f"some({lptl_literal(v, t[1])})"
     if k == "Pair":
         return f"pair({lptl_literal(v[0], t[1])}, {lptl_literal(v[1], t[2])})"
     raise ValueError(t)

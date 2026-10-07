@@ -1,2 +1,2 @@
-fn solve(xs: List<Int>) -> Option<Int> = fold(xs, none[Int], |acc, x| some(x))
+fn solve(xs: List<Int>) -> Option<Int> = fold(xs, none<Int>(), |acc, x| some(x))
 entry solve

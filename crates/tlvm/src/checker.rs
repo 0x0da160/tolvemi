@@ -116,6 +116,7 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 }
                 walk(&f.body, &mut env, &known, &mut diags);
             }
+            Decl::Type(_) => {}
             Decl::Entry(e) => {
                 if !known.contains(e.name.as_str()) {
                     let near = closest(&e.name, known.iter().copied(), 3);
@@ -447,6 +448,33 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { it } else { Ty::error() })
             }
+            ExprKind::Field { expr, target: Some((rt, i, n)), .. } => {
+                // v1.1：e.f。e の型は field を持つレコード型（展開後の pair の入れ子）と等しい
+                let t = self.expr(expr)?;
+                let want = Ty::of(rt);
+                // 型注釈から来た型はレコード名を持つ。名前が違えば、形が同じでも別のレコードの field とみなす
+                let other = matches!((t.record(), want.record()), (Some(a), Some(b)) if a.name != b.name);
+                let same = if other { Some(false) } else { self.equal(&t, &want, &expr.meta)? };
+                match same {
+                    Some(true) => {
+                        let mut ft = want;
+                        for _ in 0..*i {
+                            ft = ft.arg(1);
+                        }
+                        if i + 1 < *n {
+                            ft = ft.arg(0);
+                        }
+                        Ok(ft)
+                    }
+                    Some(false) => {
+                        self.report("E-TYPE-FIELD-ACCESS", &expr.meta, &want, &t);
+                        Ok(Ty::error())
+                    }
+                    None => Ok(Ty::error()),
+                }
+            }
+            // records::expand の後には現れない
+            ExprKind::Record { .. } | ExprKind::Field { .. } => Ok(Ty::error()),
             ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
                 let st = self.expr(scrutinee)?;
                 let nt = self.expr(on_none)?;

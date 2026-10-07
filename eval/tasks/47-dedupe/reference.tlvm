@@ -1,4 +1,4 @@
 fn member(v: Int, ys: List<Int>) -> Bool = fold(ys, false, |found, y| if(found, true, eq(y, v)))
 fn solve(xs: List<Int>) -> List<Int> =
-  reverse(fold(xs, list[Int](), |acc, x| if(member(x, acc), acc, cons(x, acc))))
+  reverse(fold(xs, list<Int>(), |acc, x| if(member(x, acc), acc, cons(x, acc))))
 entry solve

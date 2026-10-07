@@ -1,5 +1,5 @@
 fn solve(p: Pair<Int, List<Int>>) -> Option<Int> =
-  snd(fold(snd(p), pair(0, none[Int]), |acc, x|
+  snd(fold(snd(p), pair(0, none<Int>()), |acc, x|
     pair(add(fst(acc), 1),
-      if(eq(snd(acc), none[Int]), if(eq(x, fst(p)), some(fst(acc)), none[Int]), snd(acc)))))
+      if(eq(snd(acc), none<Int>()), if(eq(x, fst(p)), some(fst(acc)), none<Int>()), snd(acc)))))
 entry solve

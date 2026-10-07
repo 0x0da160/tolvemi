@@ -1,6 +1,6 @@
 // 正の値だけを順序保存で抽出（設計書 §13.2）
 fn positive_values(xs: List<Int>) -> List<Int> =
-  let reversed = fold(xs, list[Int](), |acc, x|
+  let reversed = fold(xs, list<Int>(), |acc, x|
     if(lt(0, x), cons(x, acc), acc)) in
   reverse(reversed)
 entry positive_values

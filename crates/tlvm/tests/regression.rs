@@ -91,7 +91,7 @@ fn unused_function_warning() {
 #[test]
 fn parse_errors() {
     assert_eq!(ccodes("fn f(x: Int) -> Int = x 1 entry f"), ["E-PARSE-UNEXPECTED-TOKEN"]);
-    assert_eq!(ccodes("fn f(x: Int) -> Option<Int> = none[Foo] entry f"), ["E-PARSE-EXPECTED-TYPE"]);
+    assert_eq!(ccodes("fn f(x: Int) -> Option<Int> = none<Foo>() entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
     assert_eq!(ccodes("fn if(x: Int) -> Int = x entry if"), ["E-PARSE-EXPECTED-IDENT"; 2]);
     assert_eq!(ccodes("fn f(x: Int) -> Int = if(true, 1) entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
     assert_eq!(ccodes("fn f(x: Int) -> Int = add(1,"), ["E-PARSE-EXPECTED-EXPR"]);
@@ -154,12 +154,12 @@ fn types_arity_dag() {
     assert_eq!(ccodes("fn f(xs: List<Int>) -> Int = fold(xs, 0, |a, x| f(xs)) entry f"), ["E-CYCLE-CALL"]);
     assert_eq!(ccodes("fn f(x: Int) -> Int = g(x) fn g(x: Int) -> Int = f(x) entry f"), ["E-CYCLE-CALL"]);
     assert_eq!(ccodes("fn g(u: Option<Pair<Int, List<Int>>>) -> Int = fst(fst(u)) entry g"), ["E-TYPE-FST-ARG"]);
-    let r = c("fn g(u: Unit) -> Int = if(true, 1, none[Int]) entry g");
+    let r = c("fn g(u: Unit) -> Int = if(true, 1, none<Int>()) entry g");
     assert_eq!(codes(&r), ["E-TYPE-IF-BRANCH"]);
     assert_eq!(r.errors()[0].expected.as_deref(), Some("Int"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("Option<Int>"));
     assert_eq!(ccodes("fn g(u: Unit) -> Bool = eq(1, true) entry g"), ["E-TYPE-EQ-OPERANDS"]);
-    assert_eq!(ccodes("fn g(u: Unit) -> List<Int> = concat(list[Int](), list[Bool]()) entry g"), ["E-TYPE-ARG"]);
+    assert_eq!(ccodes("fn g(u: Unit) -> List<Int> = concat(list<Int>(), list<Bool>()) entry g"), ["E-TYPE-ARG"]);
 }
 
 #[test]
@@ -187,8 +187,8 @@ fn semantic_work_trace_fixtures() {
         ("fn f(x: Unit) -> Int = 0", (1, 1, 1)),
         ("fn f(x: Unit) -> Int = add(1, 2)", (3, 3, 3)),
         ("fn f(x: Unit) -> Option<Int> = some(0)", (2, 2, 2)),
-        ("fn f(x: Unit) -> List<Int> = list[Int](1, 2)", (3, 3, 4)),
-        ("fn f(x: Unit) -> Option<Int> = none[Int]", (1, 1, 2)),
+        ("fn f(x: Unit) -> List<Int> = list<Int>(1, 2)", (3, 3, 4)),
+        ("fn f(x: Unit) -> Option<Int> = none<Int>()", (1, 1, 2)),
     ];
     for (src, (v, b, cmp)) in cases {
         let r = c(&format!("{src} entry f"));
@@ -232,7 +232,7 @@ fn structural_limits() {
 #[test]
 fn error_limit() {
     let body = vec!["fst(unit)"; 40].join(", ");
-    let r = c(&format!("fn f(x: Unit) -> List<Int> = list[Int]({body}) entry f"));
+    let r = c(&format!("fn f(x: Unit) -> List<Int> = list<Int>({body}) entry f"));
     assert_eq!(r.errors().len(), 32);
     assert_eq!(r.errors()[31].code, "E-DIAG-LIMIT");
 }
@@ -374,7 +374,7 @@ fn builtins_and_sharing() {
     let (out, _, alloc) = output(run_src(src, &inp));
     assert_eq!(alloc, 3);
     assert_eq!(out, ilist(&[1, 2, 3, 4, 5]));
-    let (_, _, alloc) = output(run_src("fn f(u: Unit) -> List<Option<Int>> = list[Option<Int>](none[Int], none[Int]) entry f", r#"{"tag":"unit"}"#));
+    let (_, _, alloc) = output(run_src("fn f(u: Unit) -> List<Option<Int>> = list<Option<Int>>(none<Int>(), none<Int>()) entry f", r#"{"tag":"unit"}"#));
     assert_eq!(alloc, 2);
     let (_, _, alloc) = output(run_src("fn f(u: Unit) -> Pair<Int, Int> = let x = 7 in pair(x, x) entry f", r#"{"tag":"unit"}"#));
     assert_eq!(alloc, 2);

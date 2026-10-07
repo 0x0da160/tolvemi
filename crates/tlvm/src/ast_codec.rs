@@ -298,7 +298,7 @@ impl Builder {
         for (k, _) in type_fields(tag) {
             args.push(self.ty(n.get(k).unwrap(), depth + 1)?);
         }
-        Ok(TypeNode { tag: type_tag(tag), args, meta: Meta::new(n.span(), i) })
+        Ok(TypeNode::new(type_tag(tag), args, Meta::new(n.span(), i)))
     }
 
     fn expr(&mut self, n: &JNode, d: usize, ld: usize, fd: usize) -> Result<Expr, Diagnostic> {

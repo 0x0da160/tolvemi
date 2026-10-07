@@ -36,6 +36,9 @@ fn nullable(t: &Ty) -> bool {
 
 /// plain JSON での型の説明（診断の expected）。
 pub fn plain_shape(t: &Ty) -> String {
+    if let Some(r) = t.record() {
+        return format!("object with keys {}", r.fields.join(", "));
+    }
     match t.tag() {
         TyTag::Int => "integer".into(),
         TyTag::Bool => "boolean".into(),
@@ -114,7 +117,41 @@ impl Conv<'_> {
         Ok(())
     }
 
+    /// v1.1：レコード型は field 名を key にした object。値 JSON では pair の入れ子になる。
+    fn record(&mut self, n: &JNode, t: &Ty, fields: &[String], depth: usize) -> Result<(), Diagnostic> {
+        if n.kind != JKind::Object {
+            return Err(self.shape_err(n, t));
+        }
+        if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| !fields.iter().any(|f| f == k))) {
+            return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+        }
+        if let Some(f) = fields.iter().find(|f| n.get(f).is_none()) {
+            return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp(f.as_str()));
+        }
+        let mut cur = t.unlabeled();
+        for (i, f) in fields.iter().enumerate() {
+            let v = n.get(f).unwrap();
+            if i + 1 == fields.len() {
+                self.value(v, &cur, depth + i)?;
+            } else {
+                self.admit(n, depth + i)?;
+                self.out.push_str("{\"tag\":\"pair\",\"left\":");
+                self.value(v, &cur.arg(0), depth + i + 1)?;
+                self.out.push_str(",\"right\":");
+                cur = cur.arg(1);
+            }
+        }
+        for _ in 1..fields.len() {
+            self.out.push('}');
+        }
+        Ok(())
+    }
+
     fn value(&mut self, n: &JNode, t: &Ty, depth: usize) -> Result<(), Diagnostic> {
+        if let Some(r) = t.record() {
+            let fields = r.fields.clone();
+            return self.record(n, t, &fields, depth);
+        }
         match t.tag() {
             TyTag::Int => {
                 if n.kind != JKind::Number && n.kind != JKind::String {
@@ -211,19 +248,62 @@ impl Conv<'_> {
     }
 }
 
+/// 正準十進表記の整数が |n| <= 2^53 - 1（JavaScript の安全な整数）か。
+fn js_safe(dec: &str) -> bool {
+    const MAX: &str = "9007199254740991";
+    let digits = dec.strip_prefix('-').unwrap_or(dec);
+    digits.len() < MAX.len() || (digits.len() == MAX.len() && digits <= MAX)
+}
+
 /// 値 JSON（処理系が出した正準出力）を型 `t` の plain JSON（最小空白）にする。
 pub fn encode_plain(t: &Ty, canonical: &str) -> Result<String, String> {
+    encode_plain_with(t, canonical, false)
+}
+
+/// `exact` なら整数を桁数によらず JSON number で出す（任意精度の整数を読めるホスト、たとえば Python 用）。
+pub fn encode_plain_with(t: &Ty, canonical: &str, exact: bool) -> Result<String, String> {
     let root = parse(canonical.as_bytes(), usize::MAX).map_err(|f| format!("値 JSON を読めません（{:?}）", f.kind))?;
     let mut out = String::new();
-    write_plain(&root, t, &mut out)?;
+    write_plain(&root, t, &mut out, exact)?;
     Ok(out)
 }
 
-fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
+fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), String> {
+    if let Some(r) = t.record() {
+        // v1.1：レコード型は field 名を key にした object（key は宣言順）
+        out.push('{');
+        let (mut node, mut cur) = (n, t.unlabeled());
+        for (i, f) in r.fields.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!("\"{f}\":"));
+            if i + 1 == r.fields.len() {
+                write_plain(node, &cur, out, exact)?;
+            } else {
+                let get = |k: &str| node.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
+                write_plain(get("left")?, &cur.arg(0), out, exact)?;
+                node = get("right")?;
+                cur = cur.arg(1);
+            }
+        }
+        out.push('}');
+        return Ok(());
+    }
     let field = |k: &str| n.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
     let tag = field("tag")?.text.as_str();
     match (t.tag(), tag) {
-        (TyTag::Int, "int") => out.push_str(&field("value")?.text),
+        (TyTag::Int, "int") => {
+            let v = &field("value")?.text;
+            if exact || js_safe(v) {
+                out.push_str(v);
+            } else {
+                // JavaScript の number で正確に表せない整数は、入力でも受理する十進文字列にする
+                out.push('"');
+                out.push_str(v);
+                out.push('"');
+            }
+        }
         (TyTag::Bool, "bool") => out.push_str(if field("value")?.boolean { "true" } else { "false" }),
         (TyTag::Unit, "unit") | (TyTag::Option, "none") => out.push_str("null"),
         (TyTag::List, "list") => {
@@ -232,25 +312,25 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
                 if i > 0 {
                     out.push(',');
                 }
-                write_plain(c, &t.arg(0), out)?;
+                write_plain(c, &t.arg(0), out, exact)?;
             }
             out.push(']');
         }
         (TyTag::Pair, "pair") => {
             out.push('[');
-            write_plain(field("left")?, &t.arg(0), out)?;
+            write_plain(field("left")?, &t.arg(0), out, exact)?;
             out.push(',');
-            write_plain(field("right")?, &t.arg(1), out)?;
+            write_plain(field("right")?, &t.arg(1), out, exact)?;
             out.push(']');
         }
         (TyTag::Option, "some") => {
             let inner = t.arg(0);
             if nullable(&inner) {
                 out.push_str("{\"some\":");
-                write_plain(field("value")?, &inner, out)?;
+                write_plain(field("value")?, &inner, out, exact)?;
                 out.push('}');
             } else {
-                write_plain(field("value")?, &inner, out)?;
+                write_plain(field("value")?, &inner, out, exact)?;
             }
         }
         _ => return Err(format!("値 JSON の tag {tag} が型 {t} と一致しません")),

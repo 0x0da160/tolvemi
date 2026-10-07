@@ -357,12 +357,12 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         Sx::Bool(b) => seq![Tok::Kw(if b { Kw::True } else { Kw::False })] + k,
         Sx::Unit => seq![Tok::Kw(Kw::Unit)] + k,
         Sx::Var(x) => seq![Tok::Id(x)] + k,
-        Sx::List(t, es) => seq![Tok::Kw(Kw::List), Tok::Sym('[')] + tt(
+        Sx::List(t, es) => seq![Tok::Kw(Kw::List), Tok::Sym('<')] + tt(
             t,
-            seq![Tok::Sym(']'), Tok::Sym('(')] + targs(es, 0, k),
+            seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, k),
         ),
         Sx::Some(a) => seq![Tok::Kw(Kw::Some), Tok::Sym('(')] + te(*a, seq![Tok::Sym(')')] + k),
-        Sx::None(t) => seq![Tok::Kw(Kw::None), Tok::Sym('[')] + tt(t, seq![Tok::Sym(']')] + k),
+        Sx::None(t) => seq![Tok::Kw(Kw::None), Tok::Sym('<')] + tt(t, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k),
         Sx::Pair(a, b) => seq![Tok::Kw(Kw::Pair), Tok::Sym('(')] + te(
             *a,
             seq![Tok::Sym(',')] + te(*b, seq![Tok::Sym(')')] + k),
@@ -471,9 +471,9 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
         Sx::Bool(b) => kwt(if b { Kw::True } else { Kw::False }) + k,
         Sx::Unit => kwt(Kw::Unit) + k,
         Sx::Var(x) => x + k,
-        Sx::List(t, es) => kwt(Kw::List) + (seq!['['] + ft(t, seq![']', '('] + fargs(es, 0, k))),
+        Sx::List(t, es) => kwt(Kw::List) + (seq!['<'] + ft(t, seq!['>', '('] + fargs(es, 0, k))),
         Sx::Some(a) => kwt(Kw::Some) + (seq!['('] + fe(*a, seq![')'] + k)),
-        Sx::None(t) => kwt(Kw::None) + (seq!['['] + ft(t, seq![']'] + k)),
+        Sx::None(t) => kwt(Kw::None) + (seq!['<'] + ft(t, seq!['>', '(', ')'] + k)),
         Sx::Pair(a, b) => kwt(Kw::Pair) + (seq!['('] + fe(*a, seq![',', ' '] + fe(*b, seq![')'] + k))),
         Sx::Builtin(b, es) => kwt(bkw(b)) + (seq!['('] + fargs(es, 0, k)),
         Sx::Call(f, es) => f + (seq!['('] + fargs(es, 0, k)),
@@ -758,9 +758,9 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                 } else if k == Kw::Unit {
                     Some((Sx::Unit, i + 1))
                 } else if k == Kw::List {
-                    if sym(ts, i + 1, '[') {
+                    if sym(ts, i + 1, '<') {
                         match pt(ts, i + 2, td) {
-                            Some((t, j)) => if sym(ts, j, ']') && sym(ts, j + 1, '(') {
+                            Some((t, j)) => if sym(ts, j, '>') && sym(ts, j + 1, '(') {
                                 match pargs(ts, j + 2, d1, td) {
                                     Some((es, m)) => Some((Sx::List(t, es), m)),
                                     None => None,
@@ -787,10 +787,10 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                         None
                     }
                 } else if k == Kw::None {
-                    if sym(ts, i + 1, '[') {
+                    if sym(ts, i + 1, '<') {
                         match pt(ts, i + 2, td) {
-                            Some((t, j)) => if sym(ts, j, ']') {
-                                Some((Sx::None(t), j + 1))
+                            Some((t, j)) => if sym(ts, j, '>') && sym(ts, j + 1, '(') && sym(ts, j + 2, ')') {
+                                Some((Sx::None(t), j + 3))
                             } else {
                                 None
                             },
