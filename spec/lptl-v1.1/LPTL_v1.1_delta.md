@@ -61,6 +61,22 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
 `E-PARSE-EXPECTED-IDENT`（AST API では `E-AST-IDENTIFIER`）で拒否される。v1 §19 の「AST の `callee:"uncons"` は
 利用者関数名として解決する」という規則は廃止し、`uncons` は組込みとして扱う。v1.1 は v1 の上位互換ではない。
 
+## 2a. 文脈キーワード
+
+組み込み関数と値の構築子の名前 `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
+length uncons`（19 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
+
+- 式の位置では、直後が `(` か `<`（v1 の `[` も含む）ならキーワード（組み込み関数・構築子）、それ以外なら変数の参照。
+  変数は呼び出せないので、`length(length)` は「組み込みの length を変数 length に適用する」と一意に読める。
+- 関数名と `entry` の名前には使えない（呼び出しの名前なので）。`fn entry Int Bool Unit List Option Pair true
+  false unit let in if fold match_option` は従来どおり予約語。
+- AST API（ast_codec_v1）の識別子は v1 のまま（35 語すべてを拒否）。
+- 実装：検証済み部品の字句規則はこれらを常に予約語として扱う。source の検査では、診断用の parser が受理した
+  プログラムの該当する名前を、プログラム中に現れない名前（`length_kw` など）に一斉に付け替えてから検証済み部品に
+  渡す（α 変換。接着部分 `crates/tlvm/src/softnames.rs`）。`tlvm ast` は付け替えた AST を出す。
+
+動機：状態の多い 24 問（§9）で、Haiku の初回失敗 5 件のうち 2 件が `length` と `pair` を名前に使ったものだった。
+
 ## 3. 文法（v1 §4.1 の変更）
 
 ```ebnf

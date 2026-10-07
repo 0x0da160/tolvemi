@@ -8,7 +8,7 @@ use crate::evaluator::{self, RunResult};
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
-use crate::records;
+use crate::{records, softnames};
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use crate::formatter::format_program;
@@ -98,16 +98,16 @@ pub fn parse_source(source: &[u8], profile: &StaticProfile) -> Parsed {
 
 pub fn compile(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     match compile_unrepaired(source, profile) {
-        SourceCompile::Result(r) => SourceCompile::Result(with_repairs(r)),
+        SourceCompile::Result(r) => SourceCompile::Result(with_repairs(r, source)),
         f => f,
     }
 }
 
 /// source API の診断に修復ヒントを付ける（§10.1。AST API では付けない）。
-fn with_repairs(r: CompileResult) -> CompileResult {
+fn with_repairs(r: CompileResult, source: &[u8]) -> CompileResult {
     match r {
         CompileResult::Rejected { mut errors, warnings, work } => {
-            suggest_repairs(&mut errors);
+            suggest_repairs(&mut errors, source);
             CompileResult::Rejected { errors, warnings, work }
         }
         accepted => accepted,
@@ -122,14 +122,16 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
-        Parsed::Program(p) if records::has_records(&p) => {
-            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す
-            match records::expand(&p) {
+        Parsed::Program(p) if records::has_records(&p) || softnames::has_soft_names(&p) => {
+            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換え、予約語の変数名を付け替えた
+            // プログラムの整形ソースを渡す
+            let px = if records::has_records(&p) { records::expand(&p) } else { Ok(p) };
+            match px {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
                     let o = check_program(&px, source.len(), profile);
                     let r = result(o.diagnostics.clone(), Some(o));
-                    let text = format_program(&records::lower(&px));
+                    let text = format_program(&softnames::rename(&records::lower(&px)));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
             }

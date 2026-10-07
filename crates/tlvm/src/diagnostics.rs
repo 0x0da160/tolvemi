@@ -284,7 +284,7 @@ fn limit(diags: Vec<Diagnostic>, code: &'static str) -> Vec<Diagnostic> {
 
 /// 型・引数数・構文・entry の診断に修復ヒントを付ける（source API 用。AST API では付けない）。
 /// どれも診断が既に持つ span と expected から機械的に決まるものだけで、推測で式を作らない。
-pub fn suggest_repairs(diags: &mut [Diagnostic]) {
+pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
     for d in diags.iter_mut() {
         if d.repair.is_some() {
             continue;
@@ -318,6 +318,20 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
                     "type arguments use angle brackets: list<T>(...) and none<T>()".into(),
                 )),
                 (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
+                // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
+                // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
+                (Some(")"), Some("," | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
+                    let (l, c) = line_col(source, at);
+                    ("insert_text", (span.0, span.0), format!(
+                        "')' closing the '{what}(' opened at line {l}, column {c}: it already has all its arguments here, so one ')' is missing before this point (or there are too many arguments)"
+                    ))
+                }),
+                (Some(","), Some(")")) => open_paren(source, span.0).map(|(at, what)| {
+                    let (l, c) = line_col(source, at);
+                    ("delete_span", span, format!(
+                        "this ')' closes the '{what}(' opened at line {l}, column {c} before all its arguments are given: delete it if it is one too many, or else an earlier ')' closed something too soon"
+                    ))
+                }),
                 _ => None,
             },
             "E-PARSE-EXPECTED-TYPE" => {
@@ -329,6 +343,56 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
             d.repair = Some(Repair { kind, target_span, constraint });
         }
     }
+}
+
+/// source[..upto] で閉じられていない最も内側の `(` について、その直前の名前（`if`、`list<...>` など）の位置と名前。
+fn open_paren(source: &[u8], upto: usize) -> Option<(usize, String)> {
+    let mut stack = vec![];
+    let mut i = 0;
+    while i < upto.min(source.len()) {
+        match source[i] {
+            b'/' if source.get(i + 1) == Some(&b'/') => {
+                while i < source.len() && source[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'(' => stack.push(i),
+            b')' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let at = *stack.last()?;
+    // `list<Int>(` なら山括弧の対応をたどって名前まで戻る
+    let mut j = at;
+    if j > 0 && source[j - 1] == b'>' {
+        let mut depth = 0;
+        while j > 0 {
+            j -= 1;
+            match source[j] {
+                b'>' => depth += 1,
+                b'<' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let end = j;
+    while j > 0 && (source[j - 1].is_ascii_alphanumeric() || source[j - 1] == b'_') {
+        j -= 1;
+    }
+    let mut what = String::from_utf8_lossy(&source[j..end]).into_owned();
+    if end < at {
+        what.push_str("<...>");
+    }
+    Some((j, what))
 }
 
 /// 編集距離（候補名の提示用）。

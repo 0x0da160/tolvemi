@@ -17,6 +17,7 @@ pub mod parser;
 pub mod plain;
 pub mod profiles;
 pub mod records;
+pub mod softnames;
 pub mod strict_json;
 pub mod syntax;
 pub mod values;

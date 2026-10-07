@@ -1,8 +1,8 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "36b86f7bb68129830a6599a82ebebb293840bad02f65b96b6c6e8b345b18c535",
-    "bytes": 8932
+    "sha256": "a3c5c52331453d17181e620ade80d241a8ae8ff35c55e6cbd7cf9b3917d21fae",
+    "bytes": 9086
   },
   "task_set_sha256": "38ea12753efb3f390441a4f6a0fd7a18d252bac8adc0028f8f469bb6f1c0f0c2",
   "tasks": 84,

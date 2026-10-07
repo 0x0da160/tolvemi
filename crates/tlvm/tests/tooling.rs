@@ -127,6 +127,15 @@ fn repairs_on_source_diagnostics() {
     let d = &errors("fn f(x: Int) -> Int = add(x 1) entry f")[0];
     assert_eq!(d.code, "E-PARSE-EXPECTED-TOKEN");
     assert!(d.repair.is_none());
+    // 括弧の過不足には、閉じようとしている開き括弧の位置を示す
+    let d = &errors("fn f(x: Int) -> Int =\n  if(lt(x, 0), neg(x)), x)\nentry f")[0];
+    let r = d.repair.as_ref().unwrap();
+    assert_eq!((r.kind, r.target_span), ("delete_span", (43, 44)));
+    assert!(r.constraint.contains("'if(' opened at line 2, column 3"), "{}", r.constraint);
+    let d = &errors("fn f(x: Int) -> Pair<Int, Int> =\n  pair(add(x, 1), x, x)\nentry f")[0];
+    assert!(d.repair.as_ref().unwrap().constraint.contains("'pair(' opened at line 2, column 3"));
+    let d = &errors("fn f(x: Int) -> List<Int> = list<Int>(1, x\nentry f")[0];
+    assert!(d.repair.as_ref().unwrap().constraint.contains("'list<...>(' opened at line 1, column 29"));
 }
 
 #[test]
