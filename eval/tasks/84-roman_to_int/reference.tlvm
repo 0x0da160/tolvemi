@@ -1,0 +1,6 @@
+// pair(total, previous symbol): adding x after a smaller previous symbol p turns +p into -p.
+fn solve(xs: List<Int>) -> Int =
+  fst(fold(xs, pair(0, 0), |acc, x|
+    let prev = snd(acc) in
+    pair(if(lt(prev, x), sub(add(fst(acc), x), mul(2, prev)), add(fst(acc), x)), x)))
+entry solve

@@ -1,0 +1,13 @@
+{
+  "id": "77-two_sum_indices",
+  "title": "Two-sum indices",
+  "category": "stateful",
+  "prompt": "The input is pair(t, xs). Find indices i < j (0-based) with xs[i] + xs[j] = t. Among all such pairs choose the one with the smallest j, and among those the smallest i; return some(pair(i, j)). Return none if no such pair exists (in particular for lists with fewer than two elements).",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "Option<Pair<Int, Int>>",
+  "examples": [
+    {"input": [9, [2, 7, 11, 15]], "expected": [0, 1]},
+    {"input": [6, [3, 1, 5, 3, 3]], "expected": [1, 2]},
+    {"input": [4, [2]], "expected": null}
+  ]
+}

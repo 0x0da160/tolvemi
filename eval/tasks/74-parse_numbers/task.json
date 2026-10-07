@@ -1,0 +1,13 @@
+{
+  "id": "74-parse_numbers",
+  "title": "Parse numbers from digit codes",
+  "category": "stateful",
+  "prompt": "The input is a list whose elements are decimal digits 0..9 or the separator -1 (no other values appear). Every maximal run of consecutive digits spells one non-negative decimal number, most significant digit first (leading zeros are allowed and ignored, so 0, 0, 7 spells 7). Return the numbers in the order they appear. Separators at the start or end, or several separators in a row, produce no numbers; the empty list gives the empty list.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, -1, -1, 0, 7, -1, 5], "expected": [12, 7, 5]},
+    {"input": [], "expected": []},
+    {"input": [-1, 0, -1], "expected": [0]}
+  ]
+}

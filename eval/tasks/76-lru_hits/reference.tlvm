@@ -1,0 +1,16 @@
+// The cache is kept most recently used first.
+fn member(xs: List<Int>, p: Int) -> Bool = fold(xs, false, |acc, x| if(acc, true, eq(x, p)))
+
+fn without(xs: List<Int>, p: Int) -> List<Int> =
+  reverse(fold(xs, list<Int>(), |acc, x| if(eq(x, p), acc, cons(x, acc))))
+
+fn take(xs: List<Int>, n: Int) -> List<Int> =
+  reverse(snd(fold(xs, pair(0, list<Int>()), |acc, x|
+    if(lt(fst(acc), n), pair(add(fst(acc), 1), cons(x, snd(acc))), acc))))
+
+fn solve(p: Pair<Int, List<Int>>) -> Int =
+  let cap = fst(p) in
+  fst(fold(snd(p), pair(0, list<Int>()), |acc, r|
+    let cache = snd(acc) in
+    pair(if(member(cache, r), add(fst(acc), 1), fst(acc)), take(cons(r, without(cache, r)), cap))))
+entry solve

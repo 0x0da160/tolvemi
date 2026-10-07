@@ -1,0 +1,13 @@
+{
+  "id": "80-two_stack_queue",
+  "title": "Queue simulation",
+  "category": "stateful",
+  "prompt": "The input is a list of queue operations: a value x >= 0 means enqueue x, and -1 means dequeue (no other negative values appear). The queue starts empty and is first-in first-out. Return the list of values removed by the dequeue operations, in the order they were removed. A dequeue on an empty queue removes nothing and adds nothing to the output.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [1, 2, -1, 3, -1, -1, -1], "expected": [1, 2, 3]},
+    {"input": [-1, 5], "expected": []},
+    {"input": [], "expected": []}
+  ]
+}

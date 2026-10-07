@@ -1,0 +1,13 @@
+{
+  "id": "78-multi_brackets",
+  "title": "Balanced brackets of three kinds",
+  "category": "stateful",
+  "prompt": "The input encodes a bracket string: 1, 2, 3 are the openers '(', '[', '{' and -1, -2, -3 are the matching closers ')', ']', '}' (no other values appear). Return true if the string is balanced: every closer matches the most recent still-unmatched opener of the same kind, and no opener is left unmatched at the end. The empty list is balanced.",
+  "input_type": "List<Int>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [1, 2, -2, 3, -3, -1], "expected": true},
+    {"input": [1, 2, -1, -2], "expected": false},
+    {"input": [], "expected": true}
+  ]
+}

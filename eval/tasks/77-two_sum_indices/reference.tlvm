@@ -1,0 +1,17 @@
+// prev holds pair(index, value) of the earlier elements, most recent first.
+type Seen = { idx: Int, prev: List<Pair<Int, Int>>, found: Option<Pair<Int, Int>> }
+
+// The smallest index whose value is need (the last match in a most-recent-first list).
+fn partner(prev: List<Pair<Int, Int>>, need: Int) -> Option<Int> =
+  fold(prev, none<Int>(), |acc, e| if(eq(snd(e), need), some(fst(e)), acc))
+
+fn step(s: Seen, t: Int, x: Int) -> Seen =
+  match_option(s.found,
+    let nxt = Seen { idx: add(s.idx, 1), prev: cons(pair(s.idx, x), s.prev), ..s } in
+    match_option(partner(s.prev, sub(t, x)), nxt, |i| Seen { found: some(pair(i, s.idx)), ..nxt }),
+    |hit| s)
+
+fn solve(p: Pair<Int, List<Int>>) -> Option<Pair<Int, Int>> =
+  fold(snd(p), Seen { idx: 0, prev: list<Pair<Int, Int>>(), found: none<Pair<Int, Int>>() }, |acc, x|
+    step(acc, fst(p), x)).found
+entry solve

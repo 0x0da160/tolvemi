@@ -1,0 +1,13 @@
+{
+  "id": "84-roman_to_int",
+  "title": "Roman numeral value",
+  "category": "stateful",
+  "prompt": "Each element of the input is the value of one Roman numeral symbol (I = 1, V = 5, X = 10, L = 50, C = 100, D = 500, M = 1000), and the list spells a valid standard Roman numeral from left to right (a number from 1 to 3999, using the subtractive forms IV, IX, XL, XC, CD and CM). Return the number it denotes: a symbol is subtracted when the symbol immediately after it is larger, and added otherwise. The empty list denotes 0.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1000, 100, 1000, 10, 100, 1, 5], "expected": 1994},
+    {"input": [1, 1, 1], "expected": 3},
+    {"input": [], "expected": 0}
+  ]
+}
