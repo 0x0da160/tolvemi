@@ -2,7 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、組み込み関数名を使った変数名（文脈キーワード）は `softnames.rs` が付け替え、検証済み部品は書き換え後のプログラムを検査・実行します。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、組み込み関数 `min`・`max`・`range`・`contains`・`sort`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、組み込み関数名を使った変数名（文脈キーワード）は `softnames.rs` が付け替え、検証済み部品は書き換え後のプログラムを検査・実行します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|

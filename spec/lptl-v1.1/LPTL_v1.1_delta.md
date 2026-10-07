@@ -53,6 +53,22 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
   プログラムについて成り立つ。`tlvm fmt` はレコードを含むプログラムを診断用 formatter で整形する。AST API には
   レコードの形がない（`tlvm ast` は展開後の AST を出す）。
 
+## 1c. 組み込み関数の追加
+
+| 組み込み | 型 | 意味 |
+|---|---|---|
+| `min(a, b)`、`max(a, b)` | `Int, Int -> Int` | 小さい方、大きい方 |
+| `range(a, b)` | `Int, Int -> List<Int>` | `[a, a+1, ..., b-1]`。`b <= a` なら空 |
+| `contains(xs, x)` | `List<T>, T -> Bool` | `eq` と同じ構造的等値で一致する要素があるか |
+| `sort(xs)` | `List<Int> -> List<Int>` | 昇順（重複は残す） |
+
+- spec（verus/src/spec.rs）：`range_seq`、挿入整列 `isort`（`ins` で定義）、`contains` は `Seq::contains`。
+- 資源：`range` は要素ごとに整数と cons セルを、`sort` は出力の cons セルを allocated nodes として数える。
+  `sort` の steps は比較と挿入時のずらしを数え、要素数 n に対して O(n²)。`contains` は `eq` と同じく比較を数える。
+- 証明：型安全性（`apply_sound`。`isort` が整数だけの列を保つ）と、exec 評価器が spec の `apply` と同じ値を返すこと
+  （`range`、`contains`、`sort`。`sort` は配列への挿入位置が `ins` と一致すること `ins_split`）。
+- 5 語は予約語に加わるが、§2a の文脈キーワードなので変数名などに使える。
+
 ## 2. 字句と予約語（v1 §4.2 の変更）
 
 予約語に `uncons` と `match_option` を加える（計 35 語）。`match_option` は `_` を含む一つの予約語トークンである。
@@ -64,7 +80,7 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
 ## 2a. 文脈キーワード
 
 組み込み関数と値の構築子の名前 `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
-length uncons`（19 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
+length uncons min max range contains sort`（24 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
 
 - 式の位置では、直後が `(` か `<`（v1 の `[` も含む）ならキーワード（組み込み関数・構築子）、それ以外なら変数の参照。
   変数は呼び出せないので、`length(length)` は「組み込みの length を変数 length に適用する」と一意に読める。
