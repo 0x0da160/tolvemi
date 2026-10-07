@@ -1,0 +1,19 @@
+fn apply_op(tag: Int, a: Int, b: Int) -> Int =
+  if(eq(tag, 1), add(a, b), if(eq(tag, 2), sub(a, b), mul(a, b)))
+
+// State: pair(failed, stack) with the top of the stack first.
+fn step(st: Pair<Bool, List<Int>>, ins: Pair<Int, Int>) -> Pair<Bool, List<Int>> =
+  if(fst(st), st,
+    if(eq(fst(ins), 0),
+      pair(false, cons(snd(ins), snd(st))),
+      match_option(uncons(snd(st)), pair(true, list<Int>()), |top|
+        match_option(uncons(snd(top)), pair(true, list<Int>()), |next|
+          pair(false, cons(apply_op(fst(ins), fst(next), fst(top)), snd(next)))))))
+
+fn solve(prog: List<Pair<Int, Int>>) -> Option<Int> =
+  let final = fold(prog, pair(false, list<Int>()), |acc, ins| step(acc, ins)) in
+  if(fst(final), none<Int>(),
+    if(eq(length(snd(final)), 1),
+      match_option(uncons(snd(final)), none<Int>(), |h| some(fst(h))),
+      none<Int>()))
+entry solve

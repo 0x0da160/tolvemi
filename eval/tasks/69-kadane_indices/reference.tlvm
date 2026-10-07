@@ -1,0 +1,23 @@
+// cur/cstart: best sum ending at the previous position and its earliest start.
+type Kad = { cur: Int, cstart: Int, best: Int, bstart: Int, bend: Int, pos: Int }
+
+fn step(k: Kad, x: Int) -> Kad =
+  let ext = le(0, k.cur) in
+  let nc = if(ext, add(k.cur, x), x) in
+  let ns = if(ext, k.cstart, k.pos) in
+  let better = lt(k.best, nc) in
+  Kad {
+    cur: nc,
+    cstart: ns,
+    best: if(better, nc, k.best),
+    bstart: if(better, ns, k.bstart),
+    bend: if(better, k.pos, k.bend),
+    pos: add(k.pos, 1)
+  }
+
+fn solve(xs: List<Int>) -> Option<Pair<Int, Pair<Int, Int>>> =
+  match_option(uncons(xs), none<Pair<Int, Pair<Int, Int>>>(), |h|
+    let init = Kad { cur: fst(h), cstart: 0, best: fst(h), bstart: 0, bend: 0, pos: 1 } in
+    let r = fold(snd(h), init, |acc, x| step(acc, x)) in
+    some(pair(r.best, pair(r.bstart, r.bend))))
+entry solve

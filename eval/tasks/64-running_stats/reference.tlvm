@@ -1,0 +1,7 @@
+fn solve(xs: List<Int>) -> Option<Pair<Int, Pair<Int, Int>>> =
+  fold(xs, none<Pair<Int, Pair<Int, Int>>>(), |acc, x|
+    match_option(acc, some(pair(x, pair(x, x))), |s|
+      let lo = fst(s) in
+      let hi = fst(snd(s)) in
+      some(pair(if(lt(x, lo), x, lo), pair(if(lt(hi, x), x, hi), add(snd(snd(s)), x))))))
+entry solve

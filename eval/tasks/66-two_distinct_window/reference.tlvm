@@ -1,0 +1,19 @@
+// last: the newest value; other: the second distinct value of the current window (if any);
+// len: length of the best window ending here; run: length of the trailing run of `last`.
+type Win = { last: Option<Int>, other: Option<Int>, len: Int, run: Int, best: Int }
+
+fn step(s: Win, x: Int) -> Win =
+  let same = eq(s.last, some(x)) in
+  let fits = if(eq(s.other, some(x)), true, eq(s.other, none<Int>())) in
+  let nlen = if(same, add(s.len, 1), if(fits, add(s.len, 1), add(s.run, 1))) in
+  Win {
+    last: some(x),
+    other: if(same, s.other, s.last),
+    len: nlen,
+    run: if(same, add(s.run, 1), 1),
+    best: if(lt(s.best, nlen), nlen, s.best)
+  }
+
+fn solve(xs: List<Int>) -> Int =
+  fold(xs, Win { last: none<Int>(), other: none<Int>(), len: 0, run: 0, best: 0 }, |acc, x| step(acc, x)).best
+entry solve

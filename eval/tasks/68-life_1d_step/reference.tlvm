@@ -1,0 +1,14 @@
+fn xor(a: Bool, b: Bool) -> Bool = if(a, if(b, false, true), b)
+
+// out: finished cells (reversed); left/cur: the previous cell and the cell waiting for its right neighbour.
+type Row = { out: List<Bool>, seen: Bool, left: Bool, cur: Bool }
+
+fn step(s: Row, x: Bool) -> Row =
+  if(s.seen,
+    Row { out: cons(xor(s.left, x), s.out), seen: true, left: s.cur, cur: x },
+    Row { out: s.out, seen: true, left: false, cur: x })
+
+fn solve(xs: List<Bool>) -> List<Bool> =
+  let r = fold(xs, Row { out: list<Bool>(), seen: false, left: false, cur: false }, |acc, x| step(acc, x)) in
+  if(r.seen, reverse(cons(r.left, r.out)), list<Bool>())
+entry solve

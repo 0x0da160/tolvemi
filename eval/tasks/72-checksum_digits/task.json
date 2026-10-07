@@ -1,0 +1,13 @@
+{
+  "id": "72-checksum_digits",
+  "title": "Luhn checksum",
+  "category": "stateful",
+  "prompt": "The input is a list of decimal digits (each 0..9), most significant first; the last digit is the check digit. Apply the Luhn check: going from the rightmost digit to the left, keep the 1st, 3rd, 5th, ... digit as is and double the 2nd, 4th, 6th, ... digit, subtracting 9 from a doubled value greater than 9; sum all these values. Return true if the sum is divisible by 10. The empty list returns false.",
+  "input_type": "List<Int>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [7, 9, 9, 2, 7, 3, 9, 8, 7, 1, 3], "expected": true},
+    {"input": [], "expected": false},
+    {"input": [1, 2, 3, 4], "expected": false}
+  ]
+}

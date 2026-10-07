@@ -1,0 +1,13 @@
+{
+  "id": "64-running_stats",
+  "title": "Min, max and sum",
+  "category": "stateful",
+  "prompt": "Return some(pair(minimum, pair(maximum, sum))) of the list, or none if the list is empty.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Pair<Int, Pair<Int, Int>>>",
+  "examples": [
+    {"input": [3, -1, 4, 1, 5], "expected": [-1, [5, 12]]},
+    {"input": [], "expected": null},
+    {"input": [7], "expected": [7, [7, 7]]}
+  ]
+}

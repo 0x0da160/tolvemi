@@ -1,0 +1,15 @@
+type Scan = { depth: Int, best: Int, idx: Int, first: Int }
+
+fn step(s: Scan, x: Int) -> Scan =
+  let d = add(s.depth, x) in
+  Scan {
+    depth: d,
+    best: if(lt(s.best, d), d, s.best),
+    idx: add(s.idx, 1),
+    first: if(if(lt(d, 0), eq(s.first, -1), false), s.idx, s.first)
+  }
+
+fn solve(xs: List<Int>) -> Pair<Int, Int> =
+  let r = fold(xs, Scan { depth: 0, best: 0, idx: 0, first: -1 }, |acc, x| step(acc, x)) in
+  pair(r.best, r.first)
+entry solve

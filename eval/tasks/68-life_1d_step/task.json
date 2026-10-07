@@ -1,0 +1,13 @@
+{
+  "id": "68-life_1d_step",
+  "title": "One-dimensional automaton step",
+  "category": "stateful",
+  "prompt": "The list is a row of cells (true = alive). Return the row after one step of this rule, applied to every cell at once: a cell is alive in the next step if and only if exactly one of its two neighbours (the cells immediately to its left and right) is alive now; the cell's own state does not matter. Cells outside the row count as dead. The result has the same length as the input; the empty row stays empty.",
+  "input_type": "List<Bool>",
+  "output_type": "List<Bool>",
+  "examples": [
+    {"input": [false, true, true, false, true], "expected": [true, true, true, false, false]},
+    {"input": [], "expected": []},
+    {"input": [true], "expected": [false]}
+  ]
+}

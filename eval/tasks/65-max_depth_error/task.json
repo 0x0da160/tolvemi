@@ -1,0 +1,13 @@
+{
+  "id": "65-max_depth_error",
+  "title": "Bracket depth and first error",
+  "category": "stateful",
+  "prompt": "The input is a list of bracket steps, each +1 (open) or -1 (close). The depth starts at 0 and each step adds its value; keep tracking the depth even after it goes negative. Return pair(maximum depth, error index), where the maximum depth is the largest depth reached after any step (0 if it is never positive, including for the empty list), and the error index is the 0-based index of the first step after which the depth is negative, or -1 if that never happens.",
+  "input_type": "List<Int>",
+  "output_type": "Pair<Int, Int>",
+  "examples": [
+    {"input": [1, 1, -1, 1, 1, -1, -1, -1], "expected": [3, -1]},
+    {"input": [], "expected": [0, -1]},
+    {"input": [1, -1, -1, 1, 1, 1], "expected": [2, 2]}
+  ]
+}
