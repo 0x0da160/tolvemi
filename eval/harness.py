@@ -10,11 +10,13 @@ arm:
 
 backend:
   anthropic    Claude API（ANTHROPIC_API_KEY などの認証が必要）
+  claude-cli   Claude Code の CLI（claude -p）。サブスクリプションでログインした claude があれば API キーは不要
   oracle       参照解をそのまま返す（API を使わずにハーネスを空回しして検査する）
 
 usage:
   python3 eval/harness.py --backend oracle
   python3 eval/harness.py --model claude-opus-5-5 --arms lptl,python --repeats 1 --rounds 3
+  python3 eval/harness.py --backend claude-cli --arms lptl,python
 
 これは事前登録した正式実験（§12.5、G4）ではない。LPTL が LLM に有利かどうかを主張する材料にはせず、
 どこで失敗するかを知るための予備実験として使う。
@@ -27,8 +29,11 @@ import datetime as dt
 import hashlib
 import json
 import math
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -159,6 +164,59 @@ class AnthropicBackend:
             },
             "model": msg.model,
             "fallback": fallback_ran,
+        }
+
+
+class ClaudeCliBackend:
+    """Claude Code の CLI を非対話（claude -p）で呼ぶ。サブスクリプションのログインで動き、API キーは要らない。
+
+    ツールをすべて無効にし、設定・MCP・CLAUDE.md を読まず、空の一時ディレクトリで動かすので、モデルは
+    リポジトリ（参照解や隠しテスト）を見られない。CLI は呼び出しごとに 1 往復なので、修復の回では
+    それまでの会話を 1 つのプロンプトに書き起こして渡す（思考ブロックは引き継がれない）。
+    Claude Code が system prompt の前後に短い定型文を足すことがあり、API の arm と完全には同じ条件ではない。
+    """
+
+    def __init__(self, model: str, effort: str, binary: str = "claude", timeout: float = 900):
+        self.model, self.effort, self.binary, self.timeout = model, effort, binary, timeout
+        self.name = f"claude-cli:{model}"
+        self.workdir = tempfile.mkdtemp(prefix="lptl-eval-")
+
+    @staticmethod
+    def render(messages: list[dict]) -> str:
+        if len(messages) == 1:
+            return messages[0]["content"]
+        turns = "\n\n".join(f'<turn role="{m["role"]}">\n{m["content"]}\n</turn>' for m in messages)
+        return ("This is a continuing conversation. The earlier turns are reproduced below; your own earlier answers "
+                "are the assistant turns. Reply to the last user turn.\n\n" + turns)
+
+    def complete(self, system: str, messages: list[dict], task: dict, arm: str) -> dict:
+        cmd = [self.binary, "-p", "--system-prompt", system, "--tools", "", "--output-format", "json",
+               "--no-session-persistence", "--strict-mcp-config", "--setting-sources", "",
+               "--model", self.model, "--effort", self.effort]
+        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_SESSION_ID", "CLAUDECODE")}
+        p = subprocess.run(cmd, input=self.render(messages), capture_output=True, text=True, cwd=self.workdir,
+                           env=env, timeout=self.timeout)
+        try:
+            out = json.loads(p.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"claude exited {p.returncode}: {(p.stderr or p.stdout).strip()[:500]}") from None
+        if out.get("is_error"):
+            raise RuntimeError(f"claude error ({out.get('subtype')}): {str(out.get('result'))[:500]}")
+        u = out.get("usage") or {}
+        models = [m for m in (out.get("modelUsage") or {}) if not m.startswith("claude-haiku")] or [self.model]
+        text = out.get("result") or ""
+        return {
+            "text": text,
+            "content": text,
+            "stop_reason": out.get("stop_reason") or "end_turn",
+            "usage": {
+                "input_tokens": u.get("input_tokens", 0),
+                "output_tokens": u.get("output_tokens", 0),
+                "cache_read_input_tokens": u.get("cache_read_input_tokens", 0),
+                "cache_creation_input_tokens": u.get("cache_creation_input_tokens", 0),
+            },
+            "model": ",".join(models),
+            "fallback": any(e.get("type") == "fallback_message" for e in (u.get("iterations") or [])),
         }
 
 
@@ -299,7 +357,8 @@ def summary_markdown(summary: dict, config: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--backend", choices=("anthropic", "oracle"), default="anthropic")
+    ap.add_argument("--backend", choices=("anthropic", "claude-cli", "oracle"), default="anthropic")
+    ap.add_argument("--claude-bin", default="claude", help="claude-cli で使う claude コマンド")
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
     ap.add_argument("--max-tokens", type=int, default=32000)
@@ -318,7 +377,12 @@ def main() -> int:
     tasks = load_tasks([t for t in args.tasks.split(",") if t])
     if not tasks:
         ap.error("no tasks selected")
-    backend = OracleBackend() if args.backend == "oracle" else AnthropicBackend(args.model, args.effort, args.max_tokens, not args.no_fallback)
+    if args.backend == "oracle":
+        backend = OracleBackend()
+    elif args.backend == "claude-cli":
+        backend = ClaudeCliBackend(args.model, args.effort, args.claude_bin)
+    else:
+        backend = AnthropicBackend(args.model, args.effort, args.max_tokens, not args.no_fallback)
 
     run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{args.backend}"
     out = Path(args.out) / run_id
@@ -326,7 +390,7 @@ def main() -> int:
     config = {
         "run_id": run_id,
         "backend": backend.name,
-        "effort": args.effort if args.backend == "anthropic" else None,
+        "effort": args.effort if args.backend != "oracle" else None,
         "fallback": args.backend == "anthropic" and not args.no_fallback,
         "arms": arms,
         "rounds": args.rounds,
