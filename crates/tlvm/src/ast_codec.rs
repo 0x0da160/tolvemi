@@ -13,7 +13,8 @@ const PROGRAM_FIELDS: &[(&str, JKind)] = &[("codec", S), ("declarations", A)];
 const PARAM_FIELDS: &[(&str, JKind)] = &[("name", S), ("type", O)];
 const DECL_TAGS: &[&str] = &["fn", "entry"];
 const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "list", "option", "pair"];
-const EXPR_TAGS: &[&str] = &["int", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold"];
+const EXPR_TAGS: &[&str] =
+    &["int", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option"];
 
 fn decl_fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
@@ -43,6 +44,7 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "let" => &[("name", S), ("value", O), ("body", O)],
         "if" => &[("condition", O), ("then", O), ("else", O)],
         "fold" => &[("list", O), ("init", O), ("acc", S), ("item", S), ("body", O)],
+        "match_option" => &[("scrutinee", O), ("on_none", O), ("binder", S), ("on_some", O)],
         _ => &[],
     }
 }
@@ -227,7 +229,7 @@ impl Schema<'_> {
                         self.ident(c)?;
                     }
                 }
-                (_, "name" | "acc" | "item") => self.ident(c)?,
+                (_, "name" | "acc" | "item" | "binder") => self.ident(c)?,
                 (_, "element_type") => self.ty(c)?,
                 (_, "items" | "args") => {
                     for x in &c.items {
@@ -304,6 +306,9 @@ impl Builder {
         let (i, ld, fd) = match tag {
             "let" => (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd),
             "fold" => (self.adm.admit(n.span(), Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?, ld, fd + 1),
+            "match_option" => {
+                (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd)
+            }
             _ => (self.adm.admit(n.span(), expr_depths(d))?, ld, fd),
         };
         let g = |k: &str| n.get(k).unwrap();
@@ -345,6 +350,18 @@ impl Builder {
                 let t = self.expr(g("then"), d + 1, ld, fd)?;
                 let e = self.expr(g("else"), d + 1, ld, fd)?;
                 ExprKind::If(Box::new(c), Box::new(t), Box::new(e))
+            }
+            "match_option" => {
+                let s = self.expr(g("scrutinee"), d + 1, ld, fd)?;
+                let none = self.expr(g("on_none"), d + 1, ld, fd)?;
+                let some = self.expr(g("on_some"), d + 1, ld, fd)?;
+                ExprKind::Match {
+                    scrutinee: Box::new(s),
+                    on_none: Box::new(none),
+                    binder: g("binder").text.clone(),
+                    binder_span: sp_of(g("binder")),
+                    on_some: Box::new(some),
+                }
             }
             _ => {
                 let xs = self.expr(g("list"), d + 1, ld, fd)?;

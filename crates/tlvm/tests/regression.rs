@@ -167,7 +167,12 @@ fn names() {
     assert_eq!(ccodes("fn g(x: Int) -> Int = let x = 1 in x entry g"), ["E-NAME-SHADOW"]);
     assert_eq!(ccodes("fn g(xs: List<Int>) -> Int = fold(xs, 0, |a, a| a) entry g"), ["E-NAME-DUPLICATE-BINDER"]);
     assert_eq!(ccodes("fn g(x: Int) -> Int = let y = y in y entry g"), ["E-NAME-UNBOUND-VARIABLE"]);
-    assert_eq!(ccodes("fn g(x: Int) -> Int = uncons(x) entry g"), ["E-NAME-UNKNOWN-FUNCTION"]);
+    // v1.1：uncons は組込み、match_option の binder にも束縛規則が掛かる
+    assert_eq!(ccodes("fn g(x: Int) -> Int = uncons(x) entry g"), ["E-TYPE-EXPECTED-LIST"]);
+    assert_eq!(ccodes("fn uncons(x: Int) -> Int = x entry uncons"), ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]);
+    assert_eq!(ccodes("fn g(x: Option<Int>) -> Int = match_option(x, 0, |x| x) entry g"), ["E-NAME-SHADOW"]);
+    assert_eq!(ccodes("fn g(x: Option<Int>) -> Int = match_option(x, 0, |v| y) entry g"), ["E-NAME-UNBOUND-VARIABLE"]);
+    assert_eq!(ccodes("fn g(x: Option<Int>) -> Int = add(match_option(x, 0, |v| v), v) entry g"), ["E-NAME-UNBOUND-VARIABLE"]);
     let p = accepted("fn g(x: Int) -> Int = h(x) fn h(x: Int) -> Int = x entry g");
     assert_eq!(p.rank["h"], 0);
     assert_eq!(p.rank["g"], 1);
@@ -284,9 +289,10 @@ fn ast_transport() {
     assert_eq!(acodes(&int_body.replace("%s", "1")), ["E-AST-FIELD-TYPE"]);
     assert_eq!(acodes(r#"{"codec":"ast_codec_v1","declarations":[]}"#), ["E-ENTRY-MISSING"]);
     let call = IDENT.replace(r#"{"tag":"var","name":"%s"}"#, r#"{"tag":"call","callee":"uncons","args":[{"tag":"var","name":"x"}]}"#);
-    assert_eq!(acodes(&call), ["E-NAME-UNKNOWN-FUNCTION"]);
+    // v1.1：uncons は組込みなので、同名の利用者関数は定義できない
+    assert_eq!(acodes(&call), ["E-TYPE-EXPECTED-LIST"]);
     let decl = r#"{"tag":"fn","name":"uncons","params":[{"name":"y","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"y"}},"#;
-    assert_eq!(acodes(&call.replace(r#""declarations":["#, &format!(r#""declarations":[{decl}"#))), Vec::<&str>::new());
+    assert_eq!(acodes(&call.replace(r#""declarations":["#, &format!(r#""declarations":[{decl}"#))), ["E-AST-IDENTIFIER"]);
     assert_eq!(acodes(&IDENT.replace(r#"{"tag":"var","name":"%s"}"#, r#"{"tag":"some"}"#)), ["E-AST-MISSING-FIELD"]);
     assert_eq!(acodes(&ident("x").replace(r#"{"name":"x","type""#, r#"{"tag":"param","name":"x","type""#)), ["E-AST-UNKNOWN-FIELD"]);
     let s = ident("x").replace(r#""name":"identity","params""#, r#""name":"if","params""#).replace(r#""body":{"tag":"var","name":"x"}"#, r#""body":1"#);

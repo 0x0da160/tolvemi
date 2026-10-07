@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.1), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1)
+# Tolvemi (LPTL v1.1)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 terminates and returns exactly one value of its declared type. There is no I/O, no mutation, no general
@@ -47,10 +47,11 @@ There are no strings, floats, records, user-defined types, type variables or gen
 | `let x = e1 in e2` | bind `x` to the value of `e1` inside `e2` |
 | `if(c, e_then, e_else)` | `c` must be `Bool`; both branches must have the same type |
 | `fold(xs, init, \|acc, x\| body)` | left fold over list `xs`: `acc` starts as `init`; for each element `x`, the new `acc` is `body`. The result is the final `acc`. `body` must have the same type as `init` |
+| `match_option(o, e_none, \|v\| e_some)` | `o` must be an `Option<T>`. If `o` is `none`, the result is `e_none`; if it is `some(x)`, the result is `e_some` with `v` bound to `x`. Only the chosen branch is evaluated; both branches must have the same type |
 | `f(e1, ..., en)` | call a builtin or a user function (all arguments are evaluated first) |
 
-`|acc, x| body` is only allowed as the third argument of `fold`. There are no lambdas, closures or
-first-class functions anywhere else.
+`|acc, x| body` is only allowed as the third argument of `fold`, and `|v| e` only as the third argument of
+`match_option`. There are no lambdas, closures or first-class functions anywhere else.
 
 ## Builtins (the complete list)
 
@@ -66,29 +67,30 @@ first-class functions anywhere else.
 | `concat(xs, ys)` | `List<A>, List<A> -> List<A>` | append |
 | `reverse(xs)` | `List<A> -> List<A>` | reverse |
 | `length(xs)` | `List<A> -> Int` | number of elements |
+| `uncons(xs)` | `List<A> -> Option<Pair<A, List<A>>>` | `none[Pair<A, List<A>>]` for the empty list, otherwise `some(pair(first, rest))` |
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
 There is no division, `head`, `tail`, indexing, `map`, `filter`, `min`, `max`, `abs`, `not`, `and` or `or`; build
-them from `fold`, `if` and the builtins above.
+them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `match_option` gives head and tail).
 
-## Option: you can build and compare it, but not unwrap it
+## Option: unwrap it with match_option
 
-There is no `match`, `match_option`, `uncons` or `unwrap`. You can create `some(e)` / `none[T]`, pass them around,
-return them, and compare them with `eq` against `none[T]` or a known value such as `some(0)`. You can never get
-the unknown payload out of a `some`. Consequences:
+`match_option` is the only way to get the payload out of a `some`. A few patterns:
 
-- Divisibility and parity work by comparison: `eq(mod(x, k), some(0))`.
-- To remember an element seen during a fold and use it later, keep it as a plain `Int` next to a `Bool` flag in a
-  `Pair` (for example `pair(true, x)`), not inside an `Option`. Build the `Option` only at the end, if the result type
-  needs one: `if(fst(st), some(snd(st)), none[Int])`.
+- First element with a default: `match_option(uncons(xs), 0, |c| fst(c))`.
+- Use a `mod` result: `match_option(mod(x, k), 0, |r| add(r, 1))`. Divisibility still works by comparison:
+  `eq(mod(x, k), some(0))`.
+- Remember a value seen during a fold: keep an `Option<T>` in the accumulator (`none[Int]` at the start, `some(x)`
+  once found) and unwrap it with `match_option` when you need it.
 
 ## Names and scoping
 
 - All names are ASCII identifiers that are not reserved words. Reserved words: `fn entry Int Bool Unit List Option
-  Pair true false unit list some none pair let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse
-  length`. For example, `list`, `pair`, `fold` and `length` cannot be used as variable or function names.
-- No shadowing: a `let` name or a `fold` binder must not reuse any name that is already in scope (including function
-  parameters and outer binders). The two `fold` binders must differ from each other.
+  Pair true false unit list some none pair let in if fold match_option add sub mul neg lt le eq mod fst snd cons
+  concat reverse length uncons`. For example, `list`, `pair`, `fold`, `entry` and `length` cannot be used as
+  variable or function names.
+- No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
+  scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
 
 ## Idioms
@@ -122,6 +124,18 @@ fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
 entry solve
 ```
 
+Walking two lists together: fold over one list and carry the rest of the other in the accumulator, taking its
+head with `uncons`.
+
+```tlvm
+// Element-wise sum of two lists of the same length.
+fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
+  reverse(fst(fold(fst(p), pair(list[Int](), snd(p)), |acc, x|
+    match_option(uncons(snd(acc)), acc, |h|
+      pair(cons(add(x, fst(h)), fst(acc)), snd(h))))))
+entry solve
+```
+
 ## Diagnostics
 
 The checker reports errors as `file:line:col: error[CODE]: message (expected ..., found ...)`, often followed by a
@@ -138,6 +152,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
 | `E-CYCLE-CALL` | recursion |
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |
+| `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option, or branches of different types |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-ENTRY-MISSING` / `E-ENTRY-ARITY` | no `entry` line, or the entry function does not take exactly one parameter |
 

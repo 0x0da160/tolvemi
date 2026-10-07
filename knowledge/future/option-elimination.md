@@ -3,14 +3,24 @@ type: Extension Proposal
 title: Option 消去と安全リスト分解
 description: match_option（局所 binder 特殊形式）と uncons を v1 コアに含めず、型規則・停止性・診断・codec・LLM 評価・証明義務を揃えた別バージョンとして一体で審査する拡張候補。
 tags: [lptl, future, option, match-option, uncons]
-status: draft
+status: implemented-v1.1-draft
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
 sources:
+  - id: lptl-v11
+    resource: ../../spec/lptl-v1.1/LPTL_v1.1_delta.md
+    title: LPTL v1.1 差分仕様（草案）
+    last_modified: 2026-10-07T00:00:00Z
   - id: lptl-design
     resource: ../../spec/lptl-v1/LPTL_design_v1.md
     title: LLM向け純粋・全域言語：設計方針 v1（§14、§19.6）
     last_modified: 2026-10-01T00:00:00Z
 ---
+
+# 状態（2026-10-07）
+
+この候補は [v1.1 差分仕様](../../spec/lptl-v1.1/LPTL_v1.1_delta.md)（草案）として具体化され、処理系と Verus の証明が v1.1 の言語に更新された。
+`uncons` と `match_option` は予約語になり、v1.1 は v1 の上位互換ではない。LLM 予備実験の結果は差分仕様の §9 にある。[^lptl-v11]
+以下は v1 の時点での記述である。
 
 # 候補
 
@@ -40,3 +50,5 @@ uncons(xs) : Option<Pair<T, List<T>>>
 G0 は v1 と後続の Option 消去候補を混在させないことを要求する（[出荷ゲート](../overview/status-and-gates.md)）。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
+
+[^lptl-v11]: LPTL v1.1 差分仕様（草案）

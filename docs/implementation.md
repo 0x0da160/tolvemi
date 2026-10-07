@@ -2,6 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`）を加えたもので、spec 層と証明も v1.1 の言語に対するものです。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -121,7 +122,7 @@ git clone https://github.com/verus-lang/verus.git && cd verus/source
 source ../tools/activate && vargo build --release
 # 検証（このリポジトリの verus/ で。cargo-verus は Verus の build に含まれる）
 cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
-# => verification results:: 519 verified, 0 errors
+# => verification results:: 529 verified, 0 errors
 ```
 
 ### まだ証明していないこと

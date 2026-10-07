@@ -56,6 +56,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-IF-BRANCH" => "if の両分岐は同じ型でなければなりません",
         "E-TYPE-FOLD-LIST" => "fold の第1引数は List でなければなりません",
         "E-TYPE-FOLD-BODY" => "fold 本体の型は初期値の型と一致しなければなりません",
+        "E-TYPE-MATCH-SCRUTINEE" => "match_option の第1引数は Option でなければなりません",
+        "E-TYPE-MATCH-BRANCH" => "match_option の両分岐は同じ型でなければなりません",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
         "E-LIMIT-STATIC-SOURCE-BYTES" => "source bytes が上限を超えました",
         "E-LIMIT-STATIC-TOKENS" => "token 数が上限を超えました",
@@ -284,7 +286,8 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
         let exp = d.expected.clone();
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
-            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, "expression of type Option<...>".into())),
             "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
             "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),

@@ -179,6 +179,16 @@ pub fn builtin_ty(b: Builtin, ts: &Vec<Ty>) -> (r: Option<Ty>)
         } else {
             None
         },
+        Builtin::Uncons => if n == 1 {
+            match &ts[0] {
+                Ty::List(el) => Some(
+                    Ty::Option(Box::new(Ty::Pair(Box::new(ty_clone(el)), Box::new(ty_clone(&ts[0]))))),
+                ),
+                _ => None,
+            }
+        } else {
+            None
+        },
     }
 }
 
@@ -303,6 +313,32 @@ pub fn ty_of(p: &EProg, r: usize, ctx: &mut Vec<(usize, Ty)>, e: &EExpr) -> (res
             match tb {
                 Some(tb) => if ty_eq(&tb, &ta) {
                     Some(ta)
+                } else {
+                    None
+                },
+                None => None,
+            }
+        },
+        EExpr::Match(m, n, x, sm) => {
+            let tm = ty_of(p, r, ctx, m)?;
+            let tn = ty_of(p, r, ctx, n)?;
+            let el = match &tm {
+                Ty::Option(el) => ty_clone(el),
+                _ => return None,
+            };
+            let ghost before = ctx@;
+            ctx.push((*x, el));
+            proof {
+                ctx_view_push(before, *x, el);
+            }
+            let ts = ty_of(p, r, ctx, sm);
+            ctx.pop();
+            proof {
+                assert(ctx@ =~= before);
+            }
+            match ts {
+                Some(ts) => if ty_eq(&ts, &tn) {
+                    Some(tn)
                 } else {
                     None
                 },
