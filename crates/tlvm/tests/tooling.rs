@@ -113,6 +113,11 @@ fn repairs_on_source_diagnostics() {
     let d = &errors("fn f(x: Int) -> Int = x")[0];
     let r = d.repair.as_ref().unwrap();
     assert_eq!((r.kind, r.target_span), ("insert_text", (23, 23)));
+    // 予約語を名前に使ったときは、その語と別名を示す。回復後に続くエラーには付けない
+    let ds = errors("fn f(xs: List<Int>) -> Int = fold(xs, 0, |acc, entry| add(acc, entry)) entry f");
+    assert_eq!(ds[0].code, "E-PARSE-EXPECTED-IDENT");
+    assert_eq!(ds[0].repair.as_ref().unwrap().constraint, "'entry' is a reserved word; use another name such as entry_ here and at every use");
+    assert!(ds[1..].iter().all(|d| d.repair.is_none()));
     // 欠けた区切り記号の位置は一意に決まらないので出さない
     let d = &errors("fn f(x: Int) -> Int = add(x 1) entry f")[0];
     assert_eq!(d.code, "E-PARSE-EXPECTED-TOKEN");

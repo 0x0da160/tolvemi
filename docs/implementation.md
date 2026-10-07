@@ -168,7 +168,8 @@ registry が決まったら差し替える前提です。
   | `E-NAME-SHADOW`、`-DUPLICATE-BINDER`、`-DUPLICATE-PARAM`、`-DUPLICATE-FUNCTION` | `replace_identifier` | 未使用の名前 |
   | `E-ENTRY-MISSING` | `insert_text`（EOF のゼロ幅） | entry 宣言 |
   | `E-LEX-INVALID-INTEGER` | `replace_expression` | 正規形の整数リテラル |
-  | `E-PARSE-EXPECTED-IDENT`／`-EXPECTED-TYPE` | `replace_identifier`／`replace_type` | 予約語でない識別子／型の文法 |
+  | `E-PARSE-EXPECTED-IDENT`（予約語が来たときだけ） | `replace_identifier` | その語が予約語であることと、`語_` のような別名 |
+  | `E-PARSE-EXPECTED-TYPE` | `replace_type` | 型の文法 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
