@@ -1,0 +1,13 @@
+{
+  "id": "58-kth_smallest",
+  "title": "k-th smallest",
+  "category": "hard",
+  "prompt": "The input is pair(xs, k). Return some(v) where v is the element at index k (0-based) of xs sorted in ascending order (duplicates kept), or none if k is out of range.",
+  "input_type": "Pair<List<Int>, Int>",
+  "output_type": "Option<Int>",
+  "examples": [
+    {"input": [[5, 1, 4, 1], 2], "expected": 4},
+    {"input": [[3], 1], "expected": null},
+    {"input": [[3], -1], "expected": null}
+  ]
+}

@@ -1,0 +1,4 @@
+fn solve(p: Pair<List<Int>, Int>) -> Int =
+  let at = snd(p) in
+  fold(fst(p), 0, |acc, c| add(mul(acc, at), c))
+entry solve

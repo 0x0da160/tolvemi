@@ -1,0 +1,13 @@
+{
+  "id": "50-interleave",
+  "title": "Interleave two lists",
+  "category": "hard",
+  "prompt": "The input is pair(xs, ys). Return xs[0], ys[0], xs[1], ys[1], ... alternating; when one list runs out, append the rest of the other.",
+  "input_type": "Pair<List<Int>, List<Int>>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2, 3], [10, 20]], "expected": [1, 10, 2, 20, 3]},
+    {"input": [[], [4, 5]], "expected": [4, 5]},
+    {"input": [[7], []], "expected": [7]}
+  ]
+}

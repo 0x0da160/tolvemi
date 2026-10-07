@@ -1,0 +1,4 @@
+fn count_greater(v: Int, ys: List<Int>) -> Int = fold(ys, 0, |acc, y| if(lt(v, y), add(acc, 1), acc))
+fn solve(xs: List<Int>) -> Int =
+  snd(fold(xs, pair(list[Int](), 0), |acc, x| pair(cons(x, fst(acc)), add(snd(acc), count_greater(x, fst(acc))))))
+entry solve

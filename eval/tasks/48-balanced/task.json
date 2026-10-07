@@ -1,0 +1,13 @@
+{
+  "id": "48-balanced",
+  "title": "Balanced brackets",
+  "category": "hard",
+  "prompt": "The list encodes brackets: true is an opening bracket and false is a closing one. Return whether the brackets are balanced (every prefix has at least as many openings as closings, and the totals are equal).",
+  "input_type": "List<Bool>",
+  "output_type": "Bool",
+  "examples": [
+    {"input": [true, true, false, false], "expected": true},
+    {"input": [true, false, false, true], "expected": false},
+    {"input": [], "expected": true}
+  ]
+}

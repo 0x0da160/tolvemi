@@ -1,0 +1,11 @@
+fn range_sum(lo: Int, hi: Int, ys: List<Int>) -> Int =
+  snd(fold(ys, pair(0, 0), |acc, y|
+    pair(add(fst(acc), 1), if(if(le(lo, fst(acc)), lt(fst(acc), hi), false), add(snd(acc), y), snd(acc)))))
+fn solve(p: Pair<List<Int>, Int>) -> List<Int> =
+  let xs = fst(p) in
+  let k = snd(p) in
+  let n = length(xs) in
+  reverse(snd(fold(xs, pair(0, list[Int]()), |acc, x|
+    let i = fst(acc) in
+    pair(add(i, 1), if(le(add(i, k), n), cons(range_sum(i, add(i, k), xs), snd(acc)), snd(acc))))))
+entry solve

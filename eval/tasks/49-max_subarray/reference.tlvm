@@ -1,0 +1,6 @@
+fn max2(a: Int, b: Int) -> Int = if(lt(a, b), b, a)
+fn solve(xs: List<Int>) -> Int =
+  snd(fold(xs, pair(0, 0), |acc, x|
+    let cur = max2(0, add(fst(acc), x)) in
+    pair(cur, max2(snd(acc), cur))))
+entry solve

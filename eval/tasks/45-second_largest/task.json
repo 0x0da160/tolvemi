@@ -1,0 +1,13 @@
+{
+  "id": "45-second_largest",
+  "title": "Second largest distinct value",
+  "category": "hard",
+  "prompt": "Return some(v) where v is the second largest distinct value in the list, or none if the list has fewer than two distinct values.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Int>",
+  "examples": [
+    {"input": [3, 7, 7, 5], "expected": 5},
+    {"input": [], "expected": null},
+    {"input": [4, 4], "expected": null}
+  ]
+}

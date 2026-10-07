@@ -1,0 +1,13 @@
+{
+  "id": "60-window_sums",
+  "title": "Sliding window sums",
+  "category": "hard",
+  "prompt": "The input is pair(xs, k) with k >= 1. Return the sums of every contiguous window of k elements, from left to right (the empty list if xs has fewer than k elements).",
+  "input_type": "Pair<List<Int>, Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [[1, 2, 3, 4, 5], 2], "expected": [3, 5, 7, 9]},
+    {"input": [[1, 2], 3], "expected": []},
+    {"input": [[4, -4, 4], 3], "expected": [4]}
+  ]
+}

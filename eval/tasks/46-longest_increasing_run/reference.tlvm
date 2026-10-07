@@ -1,0 +1,6 @@
+fn solve(xs: List<Int>) -> Int =
+  fst(fold(xs, pair(0, pair(0, pair(false, 0))), |acc, x|
+    let cur = snd(acc) in
+    let run = if(fst(snd(cur)), if(lt(snd(snd(cur)), x), add(fst(cur), 1), 1), 1) in
+    pair(if(lt(fst(acc), run), run, fst(acc)), pair(run, pair(true, x)))))
+entry solve

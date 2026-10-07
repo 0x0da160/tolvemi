@@ -1,0 +1,13 @@
+{
+  "id": "57-count_inversions",
+  "title": "Count inversions",
+  "category": "hard",
+  "prompt": "Return the number of index pairs i < j with xs[i] > xs[j].",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [3, 1, 2], "expected": 2},
+    {"input": [], "expected": 0},
+    {"input": [1, 1, 1], "expected": 0}
+  ]
+}

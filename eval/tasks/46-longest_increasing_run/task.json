@@ -1,0 +1,13 @@
+{
+  "id": "46-longest_increasing_run",
+  "title": "Longest increasing run",
+  "category": "hard",
+  "prompt": "Return the length of the longest contiguous run of strictly increasing elements (0 for the empty list).",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [1, 2, 2, 3, 4, 5, 0], "expected": 4},
+    {"input": [], "expected": 0},
+    {"input": [5, 4, 3], "expected": 1}
+  ]
+}

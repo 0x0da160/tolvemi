@@ -1,0 +1,13 @@
+{
+  "id": "53-mode",
+  "title": "Most frequent value",
+  "category": "hard",
+  "prompt": "Return some(v) where v is the most frequent value in the list; if several values are equally frequent, choose the smallest. Return none for the empty list.",
+  "input_type": "List<Int>",
+  "output_type": "Option<Int>",
+  "examples": [
+    {"input": [3, 1, 3, 1, 2], "expected": 1},
+    {"input": [], "expected": null},
+    {"input": [4, 4, 5], "expected": 4}
+  ]
+}

@@ -1,0 +1,6 @@
+fn solve(xs: List<Bool>) -> Bool =
+  let st = fold(xs, pair(true, 0), |acc, x|
+    let depth = if(x, add(snd(acc), 1), sub(snd(acc), 1)) in
+    pair(if(fst(acc), le(0, depth), false), depth)) in
+  if(fst(st), eq(snd(st), 0), false)
+entry solve

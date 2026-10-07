@@ -1,0 +1,13 @@
+{
+  "id": "44-run_length",
+  "title": "Run-length encoding",
+  "category": "hard",
+  "prompt": "Return the run-length encoding of the list: one pair(value, count) per maximal run of equal adjacent elements, in order.",
+  "input_type": "List<Int>",
+  "output_type": "List<Pair<Int, Int>>",
+  "examples": [
+    {"input": [1, 1, 2, 2, 2, 1], "expected": [[1, 2], [2, 3], [1, 1]]},
+    {"input": [], "expected": []},
+    {"input": [5], "expected": [[5, 1]]}
+  ]
+}

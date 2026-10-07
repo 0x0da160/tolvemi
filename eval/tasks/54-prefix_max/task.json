@@ -1,0 +1,13 @@
+{
+  "id": "54-prefix_max",
+  "title": "Running maximum",
+  "category": "hard",
+  "prompt": "Return the list whose i-th element is the maximum of the first i+1 elements of the input.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [2, 1, 5, 3, 7], "expected": [2, 2, 5, 5, 7]},
+    {"input": [], "expected": []},
+    {"input": [-4], "expected": [-4]}
+  ]
+}
