@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 // ======================================================================= name
 
-const BUILTINS: [&str; 14] =
-    ["add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length"];
+const BUILTINS: [&str; 15] =
+    ["add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons"];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
     let mut diags = vec![];

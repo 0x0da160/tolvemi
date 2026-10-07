@@ -817,21 +817,45 @@ impl Machine {
                 (Builtin::Snd, Value::Pair(_, r)) => Ok(r.clone()),
                 (Builtin::Reverse, Value::Nil) | (Builtin::Reverse, Value::Cons(_, _)) => self.reverse(&a[0]),
                 (Builtin::Length, Value::Nil) | (Builtin::Length, Value::Cons(_, _)) => self.length(&a[0]),
-                (Builtin::Uncons, Value::Nil) => Ok(Rc::new(Value::None)),
+                (Builtin::Uncons, Value::Nil) => {
+                    proof {
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                        assert(sp(a@[0]) =~= Seq::<Val>::empty());
+                        assert(view_vals(a@)[0] == Val::List(Seq::<Val>::empty()));
+                    }
+                    Ok(Rc::new(Value::None))
+                },
                 (Builtin::Uncons, Value::Cons(h, t)) => {
                     // 型付きプログラムでは尾は常にリスト。そうでなければ spine と同じく空リストとして扱う
                     let tail = match &**t {
                         Value::Nil | Value::Cons(_, _) => t.clone(),
-                        _ => Rc::new(Value::Nil),
+                        _ => {
+                            proof { spine_end(dr(t)); }
+                            let n = Rc::new(Value::Nil);
+                            assert(spine(Value::Nil) =~= Seq::<Val>::empty());
+                            n
+                        },
                     };
+                    assert(vv(tail) == Val::List(sp(dr(t))));
                     self.allocate(None)?;  // pair
                     self.allocate(None)?;  // some
                     proof {
                         spine_cons(dr(h), dr(t));
                         assert(sp(a@[0]).drop_first() =~= sp(dr(t)));
-                        assert(vv(tail) == Val::List(sp(dr(t))));
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                        assert(view_vals(a@)[0] == Val::List(sp(a@[0])));
+                        assert(sp(a@[0]).len() > 0);
+                        assert(sp(a@[0])[0] == vv(dr(h)));
+                        assert(apply(b, view_vals(a@)) == Res::Done(Val::Some(Box::new(Val::Pair(
+                            Box::new(vv(dr(h))), Box::new(Val::List(sp(dr(t)))))))));
                     }
-                    Ok(Rc::new(Value::Some(Rc::new(Value::Pair(h.clone(), tail)))))
+                    let pr = Rc::new(Value::Pair(h.clone(), tail));
+                    let r = Rc::new(Value::Some(pr));
+                    proof {
+                        assert(vv(pr) == Val::Pair(Box::new(vv(dr(h))), Box::new(Val::List(sp(dr(t))))));
+                        assert(vv(r) == Val::Some(Box::new(vv(pr))));
+                    }
+                    Ok(r)
                 },
                 _ => Err(Stop::Fault),
             }

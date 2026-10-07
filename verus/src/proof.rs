@@ -305,10 +305,13 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                 assert(vs[0] is List);
             },
             Builtin::Uncons => {
+                assert(vs[0] is List);
                 let s = vs[0]->List_0;
                 let te = *ts[0]->List_0;
                 assert(ts[0] == Ty::List(Box::new(te)));
                 val_type_list(s, te);
+                let pt = Ty::Pair(Box::new(te), Box::new(ts[0]));
+                assert(builtin_type(b, ts) == Some(Ty::Option(Box::new(pt))));
                 if s.len() > 0 {
                     let u = s.drop_first();
                     val_type_list(u, te);
@@ -317,6 +320,11 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                     }
                     assert(val_type(s[0], te));
                     assert(val_type(Val::List(u), ts[0]));
+                    let pv = Val::Pair(Box::new(s[0]), Box::new(Val::List(u)));
+                    assert(val_type(pv, pt));
+                    assert(apply(b, vs) == Res::Done(Val::Some(Box::new(pv))));
+                } else {
+                    assert(apply(b, vs) == Res::Done(Val::None));
                 }
             },
             Builtin::Reverse => {
