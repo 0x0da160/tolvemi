@@ -60,6 +60,14 @@ pub proof fn mono(p: Prog, n: nat, m: nat, env: Map<nat, Val>, e: Expr)
                     _ => {},
                 }
             },
+            Expr::Match(m, nb, x, sm) => {
+                mono(p, f, g, env, *m);
+                mono(p, f, g, env, *nb);
+                match eval(p, f, env, *m) {
+                    Res::Done(Val::Some(v)) => mono(p, f, g, env.insert(x, *v), *sm),
+                    _ => {},
+                }
+            },
             _ => {},
         }
     }
@@ -296,6 +304,21 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
             Builtin::Length => {
                 assert(vs[0] is List);
             },
+            Builtin::Uncons => {
+                let s = vs[0]->List_0;
+                let te = *ts[0]->List_0;
+                assert(ts[0] == Ty::List(Box::new(te)));
+                val_type_list(s, te);
+                if s.len() > 0 {
+                    let u = s.drop_first();
+                    val_type_list(u, te);
+                    assert forall|i: int| 0 <= i < u.len() implies #[trigger] val_type(u[i], te) by {
+                        assert(u[i] == s[i + 1]);
+                    }
+                    assert(val_type(s[0], te));
+                    assert(val_type(Val::List(u), ts[0]));
+                }
+            },
             Builtin::Reverse => {
                 let s = vs[0]->List_0;
                 let r = rev(s);
@@ -418,6 +441,30 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
             mono(p, n2, n, env, *init);
             mono_fold(p, n3, n, env, acc, item, *body, s, 0, v0);
             (n + 1, w)
+        },
+        Expr::Match(m, nb, x, sm) => {
+            let (n1, vm) = total(p, r, ctx, env, *m);
+            let tm = ty_expr(p, r, ctx, *m)->Some_0;
+            let te = *tm->Option_0;
+            assert(tm == Ty::Option(Box::new(te)));
+            match vm {
+                Val::Some(v) => {
+                    env_ok_insert(env, ctx, x, *v, te);
+                    let (n2, w) = total(p, r, ctx.insert(x, te), env.insert(x, *v), *sm);
+                    let n = max(n1, n2);
+                    mono(p, n1, n, env, *m);
+                    mono(p, n2, n, env.insert(x, *v), *sm);
+                    (n + 1, w)
+                },
+                _ => {
+                    assert(vm is None);
+                    let (n2, w) = total(p, r, ctx, env, *nb);
+                    let n = max(n1, n2);
+                    mono(p, n1, n, env, *m);
+                    mono(p, n2, n, env, *nb);
+                    (n + 1, w)
+                },
+            }
         },
     }
 }

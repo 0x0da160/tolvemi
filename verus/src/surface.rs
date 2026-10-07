@@ -52,6 +52,7 @@ pub enum SExpr {
     Let(Vec<char>, Box<SExpr>, Box<SExpr>),
     If(Box<SExpr>, Box<SExpr>, Box<SExpr>),
     Fold(Box<SExpr>, Box<SExpr>, Vec<char>, Vec<char>, Box<SExpr>),
+    Match(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
 }
 
 pub enum SDecl {
@@ -76,6 +77,7 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::Let(x, a, b) => Sx::Let(x@, Box::new(vx(*a)), Box::new(vx(*b))),
         SExpr::If(c, a, b) => Sx::If(Box::new(vx(*c)), Box::new(vx(*a)), Box::new(vx(*b))),
         SExpr::Fold(l, i, a, x, b) => Sx::Fold(Box::new(vx(*l)), Box::new(vx(*i)), a@, x@, Box::new(vx(*b))),
+        SExpr::Match(m, n, x, b) => Sx::Match(Box::new(vx(*m)), Box::new(vx(*n)), x@, Box::new(vx(*b))),
     }
 }
 
@@ -359,12 +361,21 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Concat)
         } else if c6e(w, 'l', 'e', 'n', 'g', 't', 'h') {
             Some(Kw::Length)
+        } else if c6e(w, 'u', 'n', 'c', 'o', 'n', 's') {
+            Some(Kw::Uncons)
         } else {
             None
         }
     } else if n == 7 {
         if c6e(w, 'r', 'e', 'v', 'e', 'r', 's') && w[6] == 'e' {
             Some(Kw::Reverse)
+        } else {
+            None
+        }
+    } else if n == 12 {
+        if c6e(w, 'm', 'a', 't', 'c', 'h', '_') && w[6] == 'o' && w[7] == 'p' && w[8] == 't' && w[9] == 'i'
+            && w[10] == 'o' && w[11] == 'n' {
+            Some(Kw::MatchOption)
         } else {
             None
         }
@@ -938,6 +949,7 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::Let => pe_let_e(ts, i, d, td),
             Kw::If => pe_if_e(ts, i, d, td),
             Kw::Fold => pe_fold_e(ts, i, d, td),
+            Kw::MatchOption => pe_match_e(ts, i, d, td),
             _ => pe_builtin_e(ts, i, d, td),
         },
         _ => None,
@@ -963,6 +975,7 @@ fn builtin_of(k: Kw) -> (r: Option<Builtin>)
         Kw::Concat => Some(Builtin::Concat),
         Kw::Reverse => Some(Builtin::Reverse),
         Kw::Length => Some(Builtin::Length),
+        Kw::Uncons => Some(Builtin::Uncons),
         _ => None,
     }
 }
@@ -976,7 +989,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
         ({
             let k = ts@[i as int]->Kw_0;
             k != Kw::True && k != Kw::False && k != Kw::Unit && k != Kw::List && k != Kw::Some && k != Kw::None
-                && k != Kw::Pair && k != Kw::Let && k != Kw::If && k != Kw::Fold
+                && k != Kw::Pair && k != Kw::Let && k != Kw::If && k != Kw::Fold && k != Kw::MatchOption
         }),
     ensures
         pe_ok(ts@, i, d, td, r),
@@ -1249,6 +1262,57 @@ fn pe_fold_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         return None;
     }
     Some((SExpr::Fold(Box::new(l), Box::new(n), a, x, Box::new(b)), q + 1))
+}
+
+fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(Kw::MatchOption),
+    ensures
+        pe_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+    }
+    if !sym_e(ts, i + 1, '(') {
+        return None;
+    }
+    let (m, j) = match pe_e(ts, i + 2, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, j, ',') {
+        return None;
+    }
+    let (n, q) = match pe_e(ts, j + 1, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if q >= ts.len() || !(sym_e(ts, q, ',') && sym_e(ts, q + 1, '|')) {
+        return None;
+    }
+    let x = match idt_e(ts, q + 2) {
+        Some(x) => x,
+        None => return None,
+    };
+    if !sym_e(ts, q + 3, '|') {
+        return None;
+    }
+    if q + 4 > ts.len() {
+        return None;
+    }
+    let (b, u) = match pe_e(ts, q + 4, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, u, ')') {
+        return None;
+    }
+    Some((SExpr::Match(Box::new(m), Box::new(n), x, Box::new(b)), u + 1))
 }
 
 proof fn vxs_push(a: Vec<SExpr>, b: Vec<SExpr>, e: SExpr)
@@ -1659,6 +1723,14 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
         Kw::Concat => push6(out, 'c', 'o', 'n', 'c', 'a', 't'),
         Kw::Reverse => push7(out, 'r', 'e', 'v', 'e', 'r', 's', 'e'),
         Kw::Length => push6(out, 'l', 'e', 'n', 'g', 't', 'h'),
+        Kw::Uncons => push6(out, 'u', 'n', 'c', 'o', 'n', 's'),
+        Kw::MatchOption => {
+            push6(out, 'm', 'a', 't', 'c', 'h', '_');
+            push6(out, 'o', 'p', 't', 'i', 'o', 'n');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
     }
 }
 
@@ -1777,6 +1849,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Let(..) => push_let(out, e),
         SExpr::If(..) => push_if(out, e),
         SExpr::Fold(..) => push_fold(out, e),
+        SExpr::Match(..) => push_match(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -1874,6 +1947,36 @@ fn push_fold(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
+fn push_match(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Match,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Match(m, n, x, b) = e {
+        push_kw(out, Kw::MatchOption);
+        push1(out, '(');
+        push_e(out, m);
+        push2(out, ',', ' ');
+        push_e(out, n);
+        push3(out, ',', ' ', '|');
+        append_chars(out, x);
+        push2(out, '|', ' ');
+        push_e(out, b);
+        push1(out, ')');
+        proof {
+            fe_app(vx(**b), seq![')'] + z);
+            let kn = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
+            fe_app(vx(**n), kn);
+            fe_app(vx(**m), seq![',', ' '] + fe(vx(**n), kn));
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
 fn builtin_kw(b: Builtin) -> (k: Kw)
     ensures
         k == bkw(b),
@@ -1893,6 +1996,7 @@ fn builtin_kw(b: Builtin) -> (k: Kw)
         Builtin::Concat => Kw::Concat,
         Builtin::Reverse => Kw::Reverse,
         Builtin::Length => Kw::Length,
+        Builtin::Uncons => Kw::Uncons,
     }
 }
 

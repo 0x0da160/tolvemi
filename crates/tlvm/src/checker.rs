@@ -85,6 +85,16 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 env.pop();
                 env.pop();
             }
+            ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
+                walk(scrutinee, env, known, diags);
+                walk(on_none, env, known, diags);
+                if env.contains(&binder.as_str()) {
+                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                }
+                env.push(binder);
+                walk(on_some, env, known, diags);
+                env.pop();
+            }
             _ => {
                 for c in e.children() {
                     walk(c, env, known, diags);
@@ -437,6 +447,30 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { it } else { Ty::error() })
             }
+            ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
+                let st = self.expr(scrutinee)?;
+                let nt = self.expr(on_none)?;
+                let mut ok = !(st.is_error() || nt.is_error());
+                let payload = match self.head(&st, TyTag::Option, &scrutinee.meta)? {
+                    Some(true) => st.arg(0),
+                    Some(false) => {
+                        self.report("E-TYPE-MATCH-SCRUTINEE", &scrutinee.meta, "Option", &st);
+                        ok = false;
+                        Ty::error()
+                    }
+                    None => Ty::error(),
+                };
+                self.env.push((binder, payload));
+                let bt = self.expr(on_some);
+                self.env.pop();
+                let bt = bt?;
+                ok &= !bt.is_error();
+                if self.equal(&bt, &nt, &on_some.meta)? == Some(false) {
+                    self.report("E-TYPE-MATCH-BRANCH", &on_some.meta, &nt, &bt);
+                    ok = false;
+                }
+                Ok(if ok { nt } else { Ty::error() })
+            }
             ExprKind::Call { callee, args, builtin, .. } => self.call(e, callee, args, *builtin),
         }
     }
@@ -521,6 +555,14 @@ impl<'a> TypeChecker<'a> {
                     need!(self.equal(&a, &b, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &ts[0], &ts[1]);
                 }
                 Ok(if ok { ts[0].clone() } else { Ty::error() })
+            }
+            "uncons" => {
+                need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
+                if !ok {
+                    return Ok(Ty::error());
+                }
+                let p = self.build(Ty::pair(ts[0].arg(0), ts[0].clone()), m)?;
+                self.build(Ty::option(p), m)
             }
             "reverse" | "length" => {
                 need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);

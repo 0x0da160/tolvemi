@@ -32,6 +32,9 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Fold { list, init, acc, item, body, .. } => {
             format!("fold({}, {}, |{}, {}| {})", format_expr(list), format_expr(init), acc, item, format_expr(body))
         }
+        ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
+            format!("match_option({}, {}, |{}| {})", format_expr(scrutinee), format_expr(on_none), binder, format_expr(on_some))
+        }
     }
 }
 
@@ -146,6 +149,15 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(init, out);
             out.push_str(&format!(",\"acc\":\"{acc}\",\"item\":\"{item}\",\"body\":"));
             expr_json(body, out);
+            out.push('}');
+        }
+        ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
+            out.push_str("{\"tag\":\"match_option\",\"scrutinee\":");
+            expr_json(scrutinee, out);
+            out.push_str(",\"on_none\":");
+            expr_json(on_none, out);
+            out.push_str(&format!(",\"binder\":\"{binder}\",\"on_some\":"));
+            expr_json(on_some, out);
             out.push('}');
         }
     }

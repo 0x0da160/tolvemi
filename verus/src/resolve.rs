@@ -90,6 +90,14 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
                 _ => None,
             }
         },
+        Sx::Match(m, n, x, b) => if idx(sc, x, 0) is Some {
+            None
+        } else {
+            match (rx(fs, sc, *m), rx(fs, sc, *n), rx(fs, sc.push(x), *b)) {
+                (Some(rm), Some(rn), Some(rb)) => Some(Expr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb))),
+                _ => None,
+            }
+        },
     }
 }
 
@@ -245,6 +253,7 @@ pub open spec fn scoped(e: Expr, n: nat) -> bool
         Expr::Let(x, a, b) => x == n && scoped(*a, n) && scoped(*b, n + 1),
         Expr::If(c, a, b) => scoped(*c, n) && scoped(*a, n) && scoped(*b, n),
         Expr::Fold(l, i, a, x, b) => a == n && x == n + 1 && scoped(*l, n) && scoped(*i, n) && scoped(*b, n + 2),
+        Expr::Match(m, nb, x, b) => x == n && scoped(*m, n) && scoped(*nb, n) && scoped(*b, n + 1),
         _ => true,
     }
 }
@@ -305,6 +314,20 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         }
                     } else if q == sc.len() {
                         assert(sc[p] != a);
+                    }
+                }
+                rx_scoped(fs, s2, *b);
+            }
+        },
+        Sx::Match(m, n, x, b) => {
+            idx_props(sc, x, 0);
+            rx_scoped(fs, sc, *m);
+            rx_scoped(fs, sc, *n);
+            if idx(sc, x, 0) is None {
+                let s2 = sc.push(x);
+                assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
+                    if j == sc.len() {
+                        assert(sc[i] != x);
                     }
                 }
                 rx_scoped(fs, s2, *b);
@@ -500,6 +523,47 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
             }
         },
         SExpr::Fold(..) => rx_fold_e(fs, sc, e),
+        SExpr::Match(..) => rx_match_e(fs, sc, e),
+    }
+}
+
+fn rx_match_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+    requires
+        e is Match,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+        },
+    decreases e, 0nat,
+{
+    let ghost s0 = sc@;
+    if let SExpr::Match(m, n, x, b) = e {
+        if idx_e(sc, x).is_some() {
+            return None;
+        }
+        let rm = rx_e(fs, sc, m);
+        let rn = rx_e(fs, sc, n);
+        if rm.is_none() || rn.is_none() {
+            return None;
+        }
+        sc.push(clone_chars(x));
+        let k = sc.len() - 1;
+        proof {
+            vnames_push(s0, sc@[k as int]);
+        }
+        let rb = rx_e(fs, sc, b);
+        sc.pop();
+        proof {
+            assert(sc@ =~= s0);
+        }
+        match (rm, rn, rb) {
+            (Some(rm), Some(rn), Some(rb)) => Some(EExpr::Match(Box::new(rm), Box::new(rn), k, Box::new(rb))),
+            _ => None,
+        }
+    } else {
+        None
     }
 }
 

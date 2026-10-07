@@ -426,6 +426,27 @@ impl Parser {
                         body: Box::new(body),
                     };
                 }
+                "match_option" => {
+                    idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                    self.advance();
+                    self.expect("(")?;
+                    let scrutinee = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(",")?;
+                    let on_none = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(",")?;
+                    self.expect("|")?;
+                    let binder = self.expect_ident()?;
+                    self.expect("|")?;
+                    let on_some = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(")")?;
+                    kind = ExprKind::Match {
+                        scrutinee: Box::new(scrutinee),
+                        on_none: Box::new(on_none),
+                        binder: binder.text,
+                        binder_span: Sp(binder.start, binder.end),
+                        on_some: Box::new(on_some),
+                    };
+                }
                 name if is_builtin(name) => {
                     idx = self.adm.admit(sp, simple)?;
                     self.advance();

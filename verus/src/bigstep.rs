@@ -167,6 +167,32 @@ pub proof fn bs_if(p: Prog, env: Map<nat, Val>, c: Expr, a: Expr, b: Expr, cv: b
     assert(eval(p, n + 1, env, Expr::If(Box::new(c), Box::new(a), Box::new(b))) == Res::Done(w));
 }
 
+pub proof fn bs_match(p: Prog, env: Map<nat, Val>, m: Expr, nb: Expr, x: nat, sm: Expr, mv: Val, w: Val)
+    requires
+        evals_to(p, env, m, mv),
+        mv is None ==> evals_to(p, env, nb, w),
+        mv is Some ==> evals_to(p, env.insert(x, *mv->Some_0), sm, w),
+        mv is None || mv is Some,
+    ensures
+        evals_to(p, env, Expr::Match(Box::new(m), Box::new(nb), x, Box::new(sm)), w),
+{
+    let n1 = choose|n: nat| #[trigger] eval(p, n, env, m) == Res::Done(mv);
+    if mv is None {
+        let n2 = choose|n: nat| #[trigger] eval(p, n, env, nb) == Res::Done(w);
+        let n = max(n1, n2);
+        lift(p, n1, n, env, m);
+        lift(p, n2, n, env, nb);
+        assert(eval(p, n + 1, env, Expr::Match(Box::new(m), Box::new(nb), x, Box::new(sm))) == Res::Done(w));
+    } else {
+        let env2 = env.insert(x, *mv->Some_0);
+        let n2 = choose|n: nat| #[trigger] eval(p, n, env2, sm) == Res::Done(w);
+        let n = max(n1, n2);
+        lift(p, n1, n, env, m);
+        lift(p, n2, n, env2, sm);
+        assert(eval(p, n + 1, env, Expr::Match(Box::new(m), Box::new(nb), x, Box::new(sm))) == Res::Done(w));
+    }
+}
+
 pub proof fn bs_fold(
     p: Prog,
     env: Map<nat, Val>,
@@ -475,6 +501,31 @@ pub proof fn fl_if(p: Prog, env: Map<nat, Val>, c: Expr, a: Expr, b: Expr, cv: V
                 same(p, f, env, c, cv);
                 assert(!(eval(p, f, env, a) is Done) || !(cv == Val::Bool(true)));
                 assert(!(eval(p, f, env, b) is Done) || !(cv == Val::Bool(false)));
+            }
+        }
+    }
+}
+
+pub proof fn fl_match(p: Prog, env: Map<nat, Val>, m: Expr, nb: Expr, x: nat, sm: Expr, mv: Val)
+    requires
+        fails(p, env, m) || (evals_to(p, env, m, mv) && (!(mv is None || mv is Some) || (mv is None && fails(
+            p,
+            env,
+            nb,
+        )) || (mv is Some && fails(p, env.insert(x, *mv->Some_0), sm)))),
+    ensures
+        fails(p, env, Expr::Match(Box::new(m), Box::new(nb), x, Box::new(sm))),
+{
+    assert forall|n: nat| !(#[trigger] eval(p, n, env, Expr::Match(Box::new(m), Box::new(nb), x, Box::new(sm))) is Done) by {
+        if n > 0 {
+            let f = (n - 1) as nat;
+            if eval(p, f, env, m) is Done {
+                same(p, f, env, m, mv);
+                if mv is Some {
+                    assert(!(eval(p, f, env.insert(x, *mv->Some_0), sm) is Done));
+                } else if mv is None {
+                    assert(!(eval(p, f, env, nb) is Done));
+                }
             }
         }
     }

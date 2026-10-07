@@ -7,10 +7,10 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 33] = [
+pub const KEYWORDS: [&str; 35] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length",
+    "concat", "reverse", "length", "uncons", "match_option",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -20,7 +20,7 @@ pub fn is_keyword(s: &str) -> bool {
 pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
         "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "cons" | "concat" => 2,
-        "neg" | "fst" | "snd" | "reverse" | "length" => 1,
+        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" => 1,
         _ => return None,
     })
 }
@@ -132,6 +132,8 @@ pub enum ExprKind {
     Let { name: String, name_span: Sp, value: Box<Expr>, body: Box<Expr> },
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Fold { list: Box<Expr>, init: Box<Expr>, acc: String, acc_span: Sp, item: String, item_span: Sp, body: Box<Expr> },
+    /// v1.1：match_option(scrutinee, on_none, |binder| on_some)
+    Match { scrutinee: Box<Expr>, on_none: Box<Expr>, binder: String, binder_span: Sp, on_some: Box<Expr> },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -151,6 +153,7 @@ impl Expr {
             ExprKind::Let { value, body, .. } => vec![value, body],
             ExprKind::If(c, t, e) => vec![c, t, e],
             ExprKind::Fold { list, init, body, .. } => vec![list, init, body],
+            ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
             _ => vec![],
         }
     }

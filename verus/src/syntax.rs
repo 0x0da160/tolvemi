@@ -52,6 +52,8 @@ pub enum Kw {
     Concat,
     Reverse,
     Length,
+    Uncons,
+    MatchOption,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -89,6 +91,8 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Concat => seq!['c', 'o', 'n', 'c', 'a', 't'],
         Kw::Reverse => seq!['r', 'e', 'v', 'e', 'r', 's', 'e'],
         Kw::Length => seq!['l', 'e', 'n', 'g', 't', 'h'],
+        Kw::Uncons => seq!['u', 'n', 'c', 'o', 'n', 's'],
+        Kw::MatchOption => seq!['m', 'a', 't', 'c', 'h', '_', 'o', 'p', 't', 'i', 'o', 'n'],
     }
 }
 
@@ -195,12 +199,21 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Concat)
         } else if c6(s, 'l', 'e', 'n', 'g', 't', 'h') {
             Some(Kw::Length)
+        } else if c6(s, 'u', 'n', 'c', 'o', 'n', 's') {
+            Some(Kw::Uncons)
         } else {
             None
         }
     } else if s.len() == 7 {
         if c6(s, 'r', 'e', 'v', 'e', 'r', 's') && s[6] == 'e' {
             Some(Kw::Reverse)
+        } else {
+            None
+        }
+    } else if s.len() == 12 {
+        if c6(s, 'm', 'a', 't', 'c', 'h', '_') && s[6] == 'o' && s[7] == 'p' && s[8] == 't' && s[9] == 'i'
+            && s[10] == 'o' && s[11] == 'n' {
+            Some(Kw::MatchOption)
         } else {
             None
         }
@@ -225,6 +238,7 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Concat => Kw::Concat,
         Builtin::Reverse => Kw::Reverse,
         Builtin::Length => Kw::Length,
+        Builtin::Uncons => Kw::Uncons,
     }
 }
 
@@ -244,6 +258,7 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Concat => Some(Builtin::Concat),
         Kw::Reverse => Some(Builtin::Reverse),
         Kw::Length => Some(Builtin::Length),
+        Kw::Uncons => Some(Builtin::Uncons),
         _ => None,
     }
 }
@@ -307,6 +322,8 @@ pub enum Sx {
     Let(Seq<char>, Box<Sx>, Box<Sx>),
     If(Box<Sx>, Box<Sx>, Box<Sx>),
     Fold(Box<Sx>, Box<Sx>, Seq<char>, Seq<char>, Box<Sx>),
+    /// match_option(m, n, |x| s)
+    Match(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
 }
 
 pub enum Sd {
@@ -366,6 +383,13 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
                 *i,
                 seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')]
                     + te(*b, seq![Tok::Sym(')')] + k),
+            ),
+        ),
+        Sx::Match(m, n, x, b) => seq![Tok::Kw(Kw::MatchOption), Tok::Sym('(')] + te(
+            *m,
+            seq![Tok::Sym(',')] + te(
+                *n,
+                seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
     }
@@ -467,6 +491,10 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
                 *i,
                 seq![',', ' ', '|'] + (a + (seq![',', ' '] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))))),
             ),
+        )),
+        Sx::Match(m, n, x, b) => kwt(Kw::MatchOption) + (seq!['('] + fe(
+            *m,
+            seq![',', ' '] + fe(*n, seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k)))),
         )),
     }
 }
@@ -871,6 +899,40 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                     } else {
                         None
                     }
+                } else if k == Kw::MatchOption {
+                    if sym(ts, i + 1, '(') {
+                        match pe(ts, i + 2, d1, td) {
+                            Some((m, j)) => if sym(ts, j, ',') {
+                                match pe(ts, j + 1, d1, td) {
+                                    Some((n, q)) => if sym(ts, q, ',') && sym(ts, q + 1, '|') {
+                                        match idt(ts, q + 2) {
+                                            Some(x) => if sym(ts, q + 3, '|') {
+                                                match pe(ts, q + 4, d1, td) {
+                                                    Some((b, u)) => if sym(ts, u, ')') {
+                                                        Some((Sx::Match(Box::new(m), Box::new(n), x, Box::new(b)), u + 1))
+                                                    } else {
+                                                        None
+                                                    },
+                                                    None => None,
+                                                }
+                                            } else {
+                                                None
+                                            },
+                                            None => None,
+                                        }
+                                    } else {
+                                        None
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     match kw_b(k) {
                         Some(b) => if sym(ts, i + 1, '(') {
@@ -1055,6 +1117,7 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
                 d1,
                 td,
             ),
+            Sx::Match(m, n, x, b) => ident_ok(x) && bx(*m, d1, td) && bx(*n, d1, td) && bx(*b, d1, td),
             _ => true,
         }
     }

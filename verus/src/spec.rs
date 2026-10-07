@@ -75,6 +75,8 @@ pub enum Builtin {
     Concat,
     Reverse,
     Length,
+    /// v1.1：安全なリスト分解
+    Uncons,
 }
 
 pub enum Expr {
@@ -93,6 +95,8 @@ pub enum Expr {
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     /// fold(list, init, |acc, item| body)
     Fold(Box<Expr>, Box<Expr>, nat, nat, Box<Expr>),
+    /// v1.1：match_option(scrutinee, on_none, |x| on_some)
+    Match(Box<Expr>, Box<Expr>, nat, Box<Expr>),
 }
 
 pub struct Func {
@@ -137,6 +141,11 @@ pub open spec fn builtin_type(b: Builtin, ts: Seq<Ty>) -> Option<Ty> {
         },
         Builtin::Reverse => if ts.len() == 1 && ts[0] is List { Some(ts[0]) } else { None },
         Builtin::Length => if ts.len() == 1 && ts[0] is List { Some(Ty::Int) } else { None },
+        Builtin::Uncons => if ts.len() == 1 && ts[0] is List {
+            Some(Ty::Option(Box::new(Ty::Pair(Box::new(*ts[0]->List_0), Box::new(ts[0])))))
+        } else {
+            None
+        },
     }
 }
 
@@ -218,6 +227,14 @@ pub open spec fn ty_expr(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr) -> Option<
             },
             _ => None,
         },
+        Expr::Match(m, n, x, sm) => match (ty_expr(p, r, ctx, *m), ty_expr(p, r, ctx, *n)) {
+            (Some(tm), Some(tn)) => if tm is Option && ty_expr(p, r, ctx.insert(x, *tm->Option_0), *sm) == Some(tn) {
+                Some(tn)
+            } else {
+                None
+            },
+            _ => None,
+        },
     }
 }
 
@@ -288,6 +305,11 @@ pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
             (Builtin::Snd, Val::Pair(_, c)) => Res::Done(*c),
             (Builtin::Reverse, Val::List(s)) => Res::Done(Val::List(rev(s))),
             (Builtin::Length, Val::List(s)) => Res::Done(Val::Int(s.len() as int)),
+            (Builtin::Uncons, Val::List(s)) => if s.len() == 0 {
+                Res::Done(Val::None)
+            } else {
+                Res::Done(Val::Some(Box::new(Val::Pair(Box::new(s[0]), Box::new(Val::List(s.drop_first()))))))
+            },
             _ => Res::Stuck,
         }
     } else {
@@ -358,6 +380,12 @@ pub open spec fn eval(p: Prog, fuel: nat, env: Map<nat, Val>, e: Expr) -> Res
                     Res::Done(v0) => eval_fold(p, f, env, acc, item, *body, s, 0, v0),
                     r => r,
                 },
+                Res::Done(_) => Res::Stuck,
+                r => r,
+            },
+            Expr::Match(m, n, x, sm) => match eval(p, f, env, *m) {
+                Res::Done(Val::None) => eval(p, f, env, *n),
+                Res::Done(Val::Some(v)) => eval(p, f, env.insert(x, *v), *sm),
                 Res::Done(_) => Res::Stuck,
                 r => r,
             },

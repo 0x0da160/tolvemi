@@ -375,6 +375,59 @@ impl Machine {
                     },
                 }
             },
+            EExpr::Match(m, nb, x, sm) => {
+                let mv = match self.eval(p, m) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
+                match &*mv {
+                    Value::None => {
+                        let r = self.eval(p, nb);
+                        proof {
+                            if r is Ok {
+                                bs_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), vv(mv), vv(r->Ok_0));
+                            }
+                            if is_fault(r) {
+                                fl_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), vv(mv));
+                            }
+                        }
+                        r
+                    },
+                    Value::Some(v) => {
+                        let ghost before = self.env@;
+                        self.env.push((*x, v.clone()));
+                        proof {
+                            env_view_push(before, *x, dr(v));
+                        }
+                        let r = self.eval(p, sm);
+                        self.env.pop();
+                        proof {
+                            assert(self.env@ =~= before);
+                            if r is Ok {
+                                bs_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), vv(mv), vv(r->Ok_0));
+                            }
+                            if is_fault(r) {
+                                fl_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), vv(mv));
+                            }
+                        }
+                        r
+                    },
+                    _ => {
+                        proof {
+                            assert(!(vv(mv) is None || vv(mv) is Some));
+                            fl_match(pp, env, view_expr(*dr(m)), view_expr(*dr(nb)), *x as nat, view_expr(*dr(sm)), vv(mv));
+                        }
+                        Err(Stop::Fault)
+                    },
+                }
+            },
             EExpr::List(t, es) => {
                 let _ = t;
                 let mut vs = match self.eval_args(p, es, true) {
@@ -764,6 +817,22 @@ impl Machine {
                 (Builtin::Snd, Value::Pair(_, r)) => Ok(r.clone()),
                 (Builtin::Reverse, Value::Nil) | (Builtin::Reverse, Value::Cons(_, _)) => self.reverse(&a[0]),
                 (Builtin::Length, Value::Nil) | (Builtin::Length, Value::Cons(_, _)) => self.length(&a[0]),
+                (Builtin::Uncons, Value::Nil) => Ok(Rc::new(Value::None)),
+                (Builtin::Uncons, Value::Cons(h, t)) => {
+                    // 型付きプログラムでは尾は常にリスト。そうでなければ spine と同じく空リストとして扱う
+                    let tail = match &**t {
+                        Value::Nil | Value::Cons(_, _) => t.clone(),
+                        _ => Rc::new(Value::Nil),
+                    };
+                    self.allocate(None)?;  // pair
+                    self.allocate(None)?;  // some
+                    proof {
+                        spine_cons(dr(h), dr(t));
+                        assert(sp(a@[0]).drop_first() =~= sp(dr(t)));
+                        assert(vv(tail) == Val::List(sp(dr(t))));
+                    }
+                    Ok(Rc::new(Value::Some(Rc::new(Value::Pair(h.clone(), tail)))))
+                },
                 _ => Err(Stop::Fault),
             }
         } else {

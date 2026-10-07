@@ -23,6 +23,7 @@ pub enum EExpr {
     Let(usize, Box<EExpr>, Box<EExpr>),
     If(Box<EExpr>, Box<EExpr>, Box<EExpr>),
     Fold(Box<EExpr>, Box<EExpr>, usize, usize, Box<EExpr>),
+    Match(Box<EExpr>, Box<EExpr>, usize, Box<EExpr>),
 }
 
 pub open spec fn view_expr(e: EExpr) -> Expr
@@ -51,6 +52,12 @@ pub open spec fn view_expr(e: EExpr) -> Expr
             acc as nat,
             item as nat,
             Box::new(view_expr(*body)),
+        ),
+        EExpr::Match(m, n, x, sm) => Expr::Match(
+            Box::new(view_expr(*m)),
+            Box::new(view_expr(*n)),
+            x as nat,
+            Box::new(view_expr(*sm)),
         ),
     }
 }
