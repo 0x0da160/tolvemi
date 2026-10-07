@@ -38,7 +38,7 @@ entry sum_even
 | `Option<T>` | `some(e)`, `none<T>()` (the payload type is always written) |
 | `Pair<A, B>` | `pair(a, b)` |
 
-There are no strings, floats, records, user-defined types, type variables or generics. Type equality is syntactic.
+There are no strings, floats, type variables or generics. Records (below) are the only user-defined types.
 Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
 ## Expressions
@@ -83,6 +83,26 @@ them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `ma
   `eq(mod(x, k), some(0))`.
 - Remember a value seen during a fold: keep an `Option<T>` in the accumulator (`none<Int>()` at the start, `some(x)`
   once found) and unwrap it with `match_option` when you need it.
+
+## Records: name the parts of a tuple
+
+Declare a record type at the top level, before its first use, and use it instead of nested `pair`s:
+
+```tlvm
+type Stats = { count: Int, total: Int, best: Option<Int> }
+
+fn step(s: Stats, x: Int) -> Stats =
+  Stats { count: add(s.count, 1), total: add(s.total, x), ..s }
+
+fn solve(xs: List<Int>) -> Int =
+  fold(xs, Stats { count: 0, total: 0, best: none<Int>() }, |acc, x| step(acc, x)).total
+entry solve
+```
+
+- Build with `Name { field: e, ... }`, giving every field; or give some fields and copy the rest with `..e` at the end.
+- Read a field with `e.field`. Field names must be unique across all record types in the program.
+- A record type may use record types declared above it (no recursive types).
+- Record inputs and outputs are JSON objects keyed by field name.
 
 ## Names and scoping
 

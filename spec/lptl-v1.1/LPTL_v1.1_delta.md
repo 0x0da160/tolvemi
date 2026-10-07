@@ -29,6 +29,30 @@ none[T]                none<T>()
 書き換え先を示す修復ヒントを返す）。`none<T>` の後の `()` が欠けたときは expected を `()` とする。
 予備実験で LLM の初回失敗の大半が、型の `<>` と値の `[]` の混同と `none[T]()` の余計な括弧だったことによる。
 
+## 1b. レコード型
+
+```text
+decl     ::= ... | "type" IDENT "=" "{" field_decl ("," field_decl)* ","? "}"
+field_decl ::= IDENT ":" type
+type     ::= ... | IDENT                                   レコード型の名前
+expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." expr | ".." expr)? "}"
+           | expr "." IDENT                              後置、左結合
+```
+
+- **意味**：`type R = { f1: T1, ..., fn: Tn }` は `Pair<T1, Pair<T2, ... Tn>>`（n = 1 なら `T1`）の名前である。
+  構築 `R { ... }` はその pair の入れ子、`e.fi` は `fst`／`snd` の並びに等しい。型の等価性は展開後の構造で決まる
+  （ただし型注釈から来たレコード名が field の持ち主と違えば `E-TYPE-FIELD-ACCESS`）。
+- **名前**：`type` は宣言の先頭でだけキーワード（予約語ではない）。型名は使う前に宣言する（再帰型を作らない）。
+  field 名はプログラム全体で一意で、`e.f` の持ち主は field 名で決まる。構築ではすべての field を一度ずつ書くか、
+  `..base` で残りを base から写す。
+- **診断**（phase は name）：`E-RECORD-UNKNOWN-TYPE`、`E-RECORD-UNKNOWN-FIELD`、`E-RECORD-MISSING-FIELD`、
+  `E-RECORD-DUPLICATE-FIELD`、`E-RECORD-DUPLICATE-TYPE`、`E-RECORD-FIELD-CONFLICT`。typecheck に `E-TYPE-FIELD-ACCESS`。
+- **入出力**：値 JSON（§9.2）では pair の入れ子のまま。plain JSON では field 名を key にした object。
+- **検証との関係**：展開は検証されていない接着部分（`crates/tlvm/src/records.rs`）。検証済み部品には、展開して
+  `fst`／`snd` に書き換えたプログラムの整形ソースを渡し、それを検査・実行する。したがって §11.2 の保証は書き換え後の
+  プログラムについて成り立つ。`tlvm fmt` はレコードを含むプログラムを診断用 formatter で整形する。AST API には
+  レコードの形がない（`tlvm ast` は展開後の AST を出す）。
+
 ## 2. 字句と予約語（v1 §4.2 の変更）
 
 予約語に `uncons` と `match_option` を加える（計 35 語）。`match_option` は `_` を含む一つの予約語トークンである。

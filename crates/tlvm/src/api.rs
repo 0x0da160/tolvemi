@@ -8,6 +8,7 @@ use crate::evaluator::{self, RunResult};
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
+use crate::records;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use crate::formatter::format_program;
@@ -121,6 +122,18 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
+        Parsed::Program(p) if records::has_records(&p) => {
+            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す
+            match records::expand(&p) {
+                Err(d) => SourceCompile::Result(result(d, None)),
+                Ok(px) => {
+                    let o = check_program(&px, source.len(), profile);
+                    let r = result(o.diagnostics.clone(), Some(o));
+                    let text = format_program(&records::lower(&px));
+                    SourceCompile::Result(cross_check(&text, r, profile))
+                }
+            }
+        }
         Parsed::Program(p) => {
             let o = check_program(&p, source.len(), profile);
             let r = result(o.diagnostics.clone(), Some(o));

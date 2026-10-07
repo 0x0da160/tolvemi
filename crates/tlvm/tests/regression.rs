@@ -91,7 +91,7 @@ fn unused_function_warning() {
 #[test]
 fn parse_errors() {
     assert_eq!(ccodes("fn f(x: Int) -> Int = x 1 entry f"), ["E-PARSE-UNEXPECTED-TOKEN"]);
-    assert_eq!(ccodes("fn f(x: Int) -> Option<Int> = none<Foo>() entry f"), ["E-PARSE-EXPECTED-TYPE"]);
+    assert_eq!(ccodes("fn f(x: Int) -> Option<Int> = none<Foo>() entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
     assert_eq!(ccodes("fn if(x: Int) -> Int = x entry if"), ["E-PARSE-EXPECTED-IDENT"; 2]);
     assert_eq!(ccodes("fn f(x: Int) -> Int = if(true, 1) entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
     assert_eq!(ccodes("fn f(x: Int) -> Int = add(1,"), ["E-PARSE-EXPECTED-EXPR"]);

@@ -5,6 +5,9 @@ use crate::syntax::*;
 pub const FORMATTER_VERSION: &str = "tlvm-format-v1";
 
 pub fn format_type(t: &TypeNode) -> String {
+    if let Some(n) = &t.name {
+        return n.clone();
+    }
     if t.args.is_empty() {
         return t.tag.name().to_string();
     }
@@ -35,6 +38,14 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
             format!("match_option({}, {}, |{}| {})", format_expr(scrutinee), format_expr(on_none), binder, format_expr(on_some))
         }
+        ExprKind::Record { name, fields, base, .. } => {
+            let mut parts: Vec<String> = fields.iter().map(|f| format!("{}: {}", f.name, format_expr(&f.value))).collect();
+            if let Some(b) = base {
+                parts.push(format!("..{}", format_expr(b)));
+            }
+            format!("{} {{ {} }}", name, parts.join(", "))
+        }
+        ExprKind::Field { expr, field, .. } => format!("{}.{}", format_expr(expr), field),
     }
 }
 
@@ -53,6 +64,10 @@ pub fn format_program(p: &Program) -> String {
                 ));
             }
             Decl::Entry(e) => out.push_str(&format!("entry {}", e.name)),
+            Decl::Type(t) => {
+                let fs: Vec<String> = t.fields.iter().map(|f| format!("{}: {}", f.name, format_type(&f.ty))).collect();
+                out.push_str(&format!("type {} = {{ {} }}", t.name, fs.join(", ")));
+            }
         }
         out.push('\n');
     }
@@ -160,6 +175,8 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(on_some, out);
             out.push('}');
         }
+        // AST transport にレコードの形はない。呼び出し側が records::expand と lower を済ませてから渡す
+        ExprKind::Record { .. } | ExprKind::Field { .. } => out.push_str("{\"tag\":\"unit\"}"),
     }
 }
 
@@ -188,6 +205,7 @@ pub fn encode_ast(p: &Program) -> String {
                 out.push('}');
             }
             Decl::Entry(e) => out.push_str(&format!("{{\"tag\":\"entry\",\"name\":\"{}\"}}", e.name)),
+            Decl::Type(_) => {}
         }
     }
     out.push_str("]}");

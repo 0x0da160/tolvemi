@@ -36,6 +36,9 @@ fn nullable(t: &Ty) -> bool {
 
 /// plain JSON での型の説明（診断の expected）。
 pub fn plain_shape(t: &Ty) -> String {
+    if let Some(r) = t.record() {
+        return format!("object with keys {}", r.fields.join(", "));
+    }
     match t.tag() {
         TyTag::Int => "integer".into(),
         TyTag::Bool => "boolean".into(),
@@ -114,7 +117,41 @@ impl Conv<'_> {
         Ok(())
     }
 
+    /// v1.1：レコード型は field 名を key にした object。値 JSON では pair の入れ子になる。
+    fn record(&mut self, n: &JNode, t: &Ty, fields: &[String], depth: usize) -> Result<(), Diagnostic> {
+        if n.kind != JKind::Object {
+            return Err(self.shape_err(n, t));
+        }
+        if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| !fields.iter().any(|f| f == k))) {
+            return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+        }
+        if let Some(f) = fields.iter().find(|f| n.get(f).is_none()) {
+            return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp(f.as_str()));
+        }
+        let mut cur = t.unlabeled();
+        for (i, f) in fields.iter().enumerate() {
+            let v = n.get(f).unwrap();
+            if i + 1 == fields.len() {
+                self.value(v, &cur, depth + i)?;
+            } else {
+                self.admit(n, depth + i)?;
+                self.out.push_str("{\"tag\":\"pair\",\"left\":");
+                self.value(v, &cur.arg(0), depth + i + 1)?;
+                self.out.push_str(",\"right\":");
+                cur = cur.arg(1);
+            }
+        }
+        for _ in 1..fields.len() {
+            self.out.push('}');
+        }
+        Ok(())
+    }
+
     fn value(&mut self, n: &JNode, t: &Ty, depth: usize) -> Result<(), Diagnostic> {
+        if let Some(r) = t.record() {
+            let fields = r.fields.clone();
+            return self.record(n, t, &fields, depth);
+        }
         match t.tag() {
             TyTag::Int => {
                 if n.kind != JKind::Number && n.kind != JKind::String {
@@ -227,6 +264,27 @@ pub fn encode_plain(t: &Ty, canonical: &str) -> Result<String, String> {
 }
 
 fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
+    if let Some(r) = t.record() {
+        // v1.1：レコード型は field 名を key にした object（key は宣言順）
+        out.push('{');
+        let (mut node, mut cur) = (n, t.unlabeled());
+        for (i, f) in r.fields.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!("\"{f}\":"));
+            if i + 1 == r.fields.len() {
+                write_plain(node, &cur, out)?;
+            } else {
+                let get = |k: &str| node.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
+                write_plain(get("left")?, &cur.arg(0), out)?;
+                node = get("right")?;
+                cur = cur.arg(1);
+            }
+        }
+        out.push('}');
+        return Ok(());
+    }
     let field = |k: &str| n.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
     let tag = field("tag")?.text.as_str();
     match (t.tag(), tag) {

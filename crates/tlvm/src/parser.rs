@@ -63,6 +63,11 @@ impl Admission {
     }
 }
 
+/// v1.1：宣言の先頭の `type` は文脈上のキーワード（予約語ではないので、v1 の名前 `type` はそのまま使える）。
+fn is_type_kw(t: &Token) -> bool {
+    t.kind == TokKind::Ident && t.text == "type"
+}
+
 pub fn expr_depths(expr: usize) -> Depths {
     Depths { expr: Some(expr), ..Default::default() }
 }
@@ -147,12 +152,12 @@ impl Parser {
 
     fn at_decl_end(&self) -> bool {
         let t = self.peek(0);
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry")
+        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t)
     }
 
     fn is_sync(&self, i: usize) -> bool {
         let t = &self.toks[i];
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry")
+        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t)
     }
 
     pub fn parse_program(mut self) -> ParseOutcome {
@@ -171,8 +176,10 @@ impl Parser {
                 self.parse_fn().map(Decl::Fn)
             } else if self.peek(0).is_kw("entry") {
                 self.parse_entry().map(Decl::Entry)
+            } else if is_type_kw(self.peek(0)) {
+                self.parse_type_decl().map(Decl::Type)
             } else {
-                self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry")
+                self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type")
             };
             match r {
                 Ok(d) => decls.push(d),
@@ -244,7 +251,7 @@ impl Parser {
         self.expect("=")?;
         let body = self.parse_expr(1, 0, 0)?;
         if !self.at_decl_end() {
-            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | EOF");
+            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
         }
         Ok(FnDecl {
             name: name.text,
@@ -261,13 +268,50 @@ impl Parser {
         let idx = self.adm.admit(kw.span(), Depths::default())?;
         let name = self.expect_ident()?;
         if !self.at_decl_end() {
-            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | EOF");
+            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
         }
         Ok(EntryDecl { name: name.text, name_span: Sp(name.start, name.end), meta: Meta::new((kw.start, self.prev_end), idx) })
     }
 
+    /// v1.1：`type Name = { f: T, ... }`
+    fn parse_type_decl(&mut self) -> R<TypeDecl> {
+        let kw = self.advance();
+        let idx = self.adm.admit(kw.span(), Depths::default())?;
+        let name = self.expect_ident()?;
+        self.expect("=")?;
+        self.expect("{")?;
+        let mut fields = vec![];
+        loop {
+            let f = self.expect_ident()?;
+            self.expect(":")?;
+            let ty = self.parse_type(1)?;
+            fields.push(FieldDecl { name: f.text, name_span: Sp(f.start, f.end), ty });
+            if self.peek(0).is_punct(",") {
+                self.advance();
+                if self.peek(0).is_punct("}") {
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
+        self.expect("}")?;
+        if !self.at_decl_end() {
+            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
+        }
+        Ok(TypeDecl { name: name.text, name_span: Sp(name.start, name.end), fields, meta: Meta::new((kw.start, self.prev_end), idx) })
+    }
+
     fn parse_type(&mut self, depth: usize) -> R<TypeNode> {
         let tok = self.peek(0).clone();
+        if tok.kind == TokKind::Ident {
+            // v1.1：レコード型の名前
+            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            self.advance();
+            let mut t = TypeNode::new(TyTag::Error, vec![], Meta::new(tok.span(), idx));
+            t.name = Some(tok.text);
+            return Ok(t);
+        }
         let tag = match (tok.kind, TyTag::from_keyword(&tok.text)) {
             (TokKind::Kw, Some(t)) => t,
             _ => return self.perr("E-PARSE-EXPECTED-TYPE", "type"),
@@ -284,7 +328,7 @@ impl Parser {
             }
             self.expect(">")?;
         }
-        Ok(TypeNode { tag, args, meta: Meta::new((tok.start, self.prev_end), idx) })
+        Ok(TypeNode::new(tag, args, Meta::new((tok.start, self.prev_end), idx)))
     }
 
     fn parse_args(&mut self, d: usize, ld: usize, fd: usize) -> R<Vec<Expr>> {
@@ -303,6 +347,52 @@ impl Parser {
     }
 
     fn parse_expr(&mut self, d: usize, ld: usize, fd: usize) -> R<Expr> {
+        let mut e = self.parse_primary(d, ld, fd)?;
+        // v1.1：field の参照 `e.f`（後置、左結合）
+        while self.peek(0).is_punct(".") {
+            let dot = self.peek(0).clone();
+            let idx = self.adm.admit(dot.span(), Depths { expr: Some(d), ..Default::default() })?;
+            self.advance();
+            let f = self.expect_ident()?;
+            let start = e.meta.span().0;
+            e = Expr {
+                kind: ExprKind::Field { expr: Box::new(e), field: f.text, field_span: Sp(f.start, f.end), target: None },
+                meta: Meta::new((start, self.prev_end), idx),
+            };
+        }
+        Ok(e)
+    }
+
+    /// v1.1：`Name { f: e, ..., ..base }`（名前は読んだ後）
+    fn parse_record(&mut self, d: usize, ld: usize, fd: usize) -> R<(Vec<RecordField>, Option<Box<Expr>>)> {
+        self.expect("{")?;
+        let mut fields = vec![];
+        let mut base = None;
+        loop {
+            if self.peek(0).is_punct("}") {
+                break;
+            }
+            if self.peek(0).is_punct(".") && self.peek(1).is_punct(".") {
+                self.advance();
+                self.advance();
+                base = Some(Box::new(self.parse_expr(d + 1, ld, fd)?));
+                break;
+            }
+            let f = self.expect_ident()?;
+            self.expect(":")?;
+            let value = self.parse_expr(d + 1, ld, fd)?;
+            fields.push(RecordField { name: f.text, name_span: Sp(f.start, f.end), value });
+            if self.peek(0).is_punct(",") {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        self.expect("}")?;
+        Ok((fields, base))
+    }
+
+    fn parse_primary(&mut self, d: usize, ld: usize, fd: usize) -> R<Expr> {
         let tok = self.peek(0).clone();
         let start = tok.start;
         let sp = tok.span();
@@ -323,6 +413,9 @@ impl Parser {
                     let args = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
                     kind = ExprKind::Call { callee: tok.text, args, builtin: false, callee_span: Sp(sp.0, sp.1) };
+                } else if self.peek(0).is_punct("{") {
+                    let (fields, base) = self.parse_record(d, ld, fd)?;
+                    kind = ExprKind::Record { name: tok.text, name_span: Sp(sp.0, sp.1), fields, base };
                 } else {
                     kind = ExprKind::Var(tok.text);
                 }

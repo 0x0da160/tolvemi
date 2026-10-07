@@ -144,7 +144,7 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             }
             return Err(Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("-"));
         }
-        if b"()[]<>,:=|".contains(&b) {
+        if b"()[]<>,:=|.{}".contains(&b) {
             push!(TokKind::Punct, i, i + 1);
             i += 1;
             continue;

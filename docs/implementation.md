@@ -2,7 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`）を加えたもので、spec 層と証明も v1.1 の言語に対するものです。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は展開後のプログラムを検査・実行します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -55,6 +55,7 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
+| `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
 
 ```sh
@@ -190,6 +191,7 @@ registry が決まったら差し替える前提です。
   | `Bool`／`Unit` | `true`・`false`／`null` |
   | `List<T>`／`Pair<A, B>` | 配列／二要素の配列 |
   | `Option<T>` | `none` は `null`、`some(v)` は v。T が `Unit` か `Option` のときだけ `{"some": v}` |
+  | レコード型 | field 名を key にした object |
 
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。

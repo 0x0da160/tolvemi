@@ -27,7 +27,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-LEX-UNEXPECTED-CHARACTER" => "この文字はトークンを開始できません",
         "E-LEX-INVALID-INTEGER" => "整数リテラルが正規形ではありません",
         "E-LEX-INVALID-NUMERIC-BOUNDARY" => "整数の直後に識別子文字や符号が続いています",
-        "E-PARSE-UNEXPECTED-TOKEN" => "ここには fn、entry、EOF のいずれかが必要です",
+        "E-PARSE-UNEXPECTED-TOKEN" => "ここには fn、entry、type、EOF のいずれかが必要です",
         "E-PARSE-EXPECTED-TOKEN" => "必要な区切り記号がありません",
         "E-PARSE-EXPECTED-TYPE" => "型が必要です",
         "E-PARSE-EXPECTED-IDENT" => "識別子が必要です（予約語は使えません）",
@@ -58,6 +58,13 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-FOLD-BODY" => "fold 本体の型は初期値の型と一致しなければなりません",
         "E-TYPE-MATCH-SCRUTINEE" => "match_option の第1引数は Option でなければなりません",
         "E-TYPE-MATCH-BRANCH" => "match_option の両分岐は同じ型でなければなりません",
+        "E-TYPE-FIELD-ACCESS" => "field を参照する式の型が、その field を持つレコード型ではありません",
+        "E-RECORD-UNKNOWN-TYPE" => "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
+        "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
+        "E-RECORD-DUPLICATE-FIELD" => "同じ field が二度書かれています",
+        "E-RECORD-MISSING-FIELD" => "レコードの構築に書かれていない field があります",
+        "E-RECORD-DUPLICATE-TYPE" => "同じ名前のレコード型が二度宣言されています",
+        "E-RECORD-FIELD-CONFLICT" => "field 名は別のレコード型の field と重なってはいけません",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
         "E-LIMIT-STATIC-SOURCE-BYTES" => "source bytes が上限を超えました",
         "E-LIMIT-STATIC-TOKENS" => "token 数が上限を超えました",
@@ -286,7 +293,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic]) {
         let exp = d.expected.clone();
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
-            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
             "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, "expression of type Option<...>".into())),
             "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
