@@ -211,6 +211,13 @@ impl Conv<'_> {
     }
 }
 
+/// 正準十進表記の整数が |n| <= 2^53 - 1（JavaScript の安全な整数）か。
+fn js_safe(dec: &str) -> bool {
+    const MAX: &str = "9007199254740991";
+    let digits = dec.strip_prefix('-').unwrap_or(dec);
+    digits.len() < MAX.len() || (digits.len() == MAX.len() && digits <= MAX)
+}
+
 /// 値 JSON（処理系が出した正準出力）を型 `t` の plain JSON（最小空白）にする。
 pub fn encode_plain(t: &Ty, canonical: &str) -> Result<String, String> {
     let root = parse(canonical.as_bytes(), usize::MAX).map_err(|f| format!("値 JSON を読めません（{:?}）", f.kind))?;
@@ -223,7 +230,17 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String) -> Result<(), String> {
     let field = |k: &str| n.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
     let tag = field("tag")?.text.as_str();
     match (t.tag(), tag) {
-        (TyTag::Int, "int") => out.push_str(&field("value")?.text),
+        (TyTag::Int, "int") => {
+            let v = &field("value")?.text;
+            if js_safe(v) {
+                out.push_str(v);
+            } else {
+                // JavaScript の number で正確に表せない整数は、入力でも受理する十進文字列にする
+                out.push('"');
+                out.push_str(v);
+                out.push('"');
+            }
+        }
         (TyTag::Bool, "bool") => out.push_str(if field("value")?.boolean { "true" } else { "false" }),
         (TyTag::Unit, "unit") | (TyTag::Option, "none") => out.push_str("null"),
         (TyTag::List, "list") => {

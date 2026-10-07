@@ -186,7 +186,7 @@ registry が決まったら差し替える前提です。
 
   | 型 | plain JSON |
   |---|---|
-  | `Int` | 整数の number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理。出力は number |
+  | `Int` | 整数の number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理。出力は \|n\| ≤ 2^53 − 1 なら number、それを超えると十進文字列（JavaScript の number で精度が落ちないように） |
   | `Bool`／`Unit` | `true`・`false`／`null` |
   | `List<T>`／`Pair<A, B>` | 配列／二要素の配列 |
   | `Option<T>` | `none` は `null`、`some(v)` は v。T が `Unit` か `Option` のときだけ `{"some": v}` |
