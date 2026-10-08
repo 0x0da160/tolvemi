@@ -87,9 +87,11 @@ length uncons min max range contains sort`（24 語）は、変数・引数・`l
 - 関数名と `entry` の名前には使えない（呼び出しの名前なので）。`fn entry Int Bool Unit List Option Pair true
   false unit let in if fold match_option` は従来どおり予約語。
 - AST API（ast_codec_v1）の識別子は v1 のまま（35 語すべてを拒否）。
-- 実装：検証済み部品の字句規則はこれらを常に予約語として扱う。source の検査では、診断用の parser が受理した
-  プログラムの該当する名前を、プログラム中に現れない名前（`length_kw` など）に一斉に付け替えてから検証済み部品に
-  渡す（α 変換。接着部分 `crates/tlvm/src/softnames.rs`）。`tlvm ast` は付け替えた AST を出す。
+- 実装：検証済み部品の構文規則（`verus/src/syntax.rs` の `soft`・`name_ok`・`bdt`）に入っている。字句は従来どおり
+  キーワードの token を出し、式の位置で直後が `(` でも `<` でもない文脈キーワードを変数として読む。名前の位置
+  （束縛・引数）は IDENT か文脈キーワードを受け取る。parser の健全性・完全性と formatter の往復の証明はこの規則で
+  通っている。`tlvm ast` だけは AST transport の識別子が v1 のままなので、該当する名前をプログラム中に現れない名前
+  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。
 
 動機：状態の多い 24 問（§9）で、Haiku の初回失敗 5 件のうち 2 件が `length` と `pair` を名前に使ったものだった。
 
@@ -162,7 +164,7 @@ verus/ の spec 層（`spec.rs` の `Builtin::Uncons`、`Expr::Match`、`ty_expr
 | 6〜7 全域性・型安全性・決定性 | `total`、`mono`、`apply_sound` の新しい場合 |
 | 8 評価器の適合 | `bs_match`、`fl_match` と exec 評価器の `Match`・`Uncons` |
 
-上の場合をすべて加え、`cargo verus focus` は 529 verified, 0 errors（v1 では 519）。義務 9〜10 は新しい場合を持たない
+上の場合をすべて加え、`cargo verus focus` は 553 verified, 0 errors（v1 では 519。組み込み関数 5 個と文脈キーワードの構文規則を含む）。義務 9〜10 は新しい場合を持たない
 （値 JSON と入力 JSON は変わらない）。診断側（crates/tlvm）は v1 と同じく未検証で、受理・拒否を検証済み部品と突き合わせる。
 
 ## 9. LLM 評価

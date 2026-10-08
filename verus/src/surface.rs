@@ -849,6 +849,60 @@ fn idt_e(ts: &Vec<ETok>, i: usize) -> (r: Option<Vec<char>>)
     }
 }
 
+fn soft_e(k: Kw) -> (r: bool)
+    ensures
+        r == soft(k),
+{
+    match k {
+        Kw::List | Kw::Some | Kw::None | Kw::Pair => true,
+        _ => builtin_of(k).is_some(),
+    }
+}
+
+fn kwt_e(k: Kw) -> (r: Vec<char>)
+    ensures
+        r@ == kwt(k),
+{
+    let mut v = Vec::new();
+    push_kw(&mut v, k);
+    proof {
+        assert(v@ =~= kwt(k));
+    }
+    v
+}
+
+/// 位置 i の変数・引数・束縛の名前（IDENT か文脈キーワード）。
+fn bdt_e(ts: &Vec<ETok>, i: usize) -> (r: Option<Vec<char>>)
+    requires
+        small(ts@),
+    ensures
+        match r {
+            Some(x) => bdt(vtoks(ts@), i as nat) == Some(x@),
+            None => bdt(vtoks(ts@), i as nat) is None,
+        },
+{
+    if i < ts.len() {
+        proof {
+            assert(vtoks(ts@)[i as int] == vtok(ts@[i as int]));
+        }
+        match &ts[i] {
+            ETok::Id(x) => if ident_ok_e(x) {
+                Some(clone_chars(x))
+            } else {
+                None
+            },
+            ETok::Kw(k) => if soft_e(*k) {
+                Some(kwt_e(*k))
+            } else {
+                None
+            },
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
     requires
         small(ts@),
@@ -952,7 +1006,10 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
                 Some((SExpr::Var(clone_chars(x)), i + 1))
             }
         },
-        ETok::Kw(k) => match *k {
+        ETok::Kw(k) => if soft_e(*k) && !sym_e(ts, i + 1, '(') && !sym_e(ts, i + 1, '<') {
+            Some((SExpr::Var(kwt_e(*k)), i + 1))
+        } else {
+            match *k {
             Kw::True => Some((SExpr::Bool(true), i + 1)),
             Kw::False => Some((SExpr::Bool(false), i + 1)),
             Kw::Unit => Some((SExpr::Unit, i + 1)),
@@ -965,6 +1022,7 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::Fold => pe_fold_e(ts, i, d, td),
             Kw::MatchOption => pe_match_e(ts, i, d, td),
             _ => pe_builtin_e(ts, i, d, td),
+            }
         },
         _ => None,
     }
@@ -1001,6 +1059,7 @@ fn builtin_of(k: Kw) -> (r: Option<Builtin>)
 
 fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
+        nv(vtoks(ts@), i as nat),
         small(ts@),
         i < ts.len(),
         d > 0,
@@ -1037,6 +1096,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
 
 fn pe_list_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
+        nv(vtoks(ts@), i as nat),
         small(ts@),
         i < ts.len(),
         d > 0,
@@ -1067,6 +1127,7 @@ fn pe_list_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
 
 fn pe_some_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
+        nv(vtoks(ts@), i as nat),
         small(ts@),
         i < ts.len(),
         d > 0,
@@ -1094,6 +1155,7 @@ fn pe_some_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
 
 fn pe_none_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
+        nv(vtoks(ts@), i as nat),
         small(ts@),
         i < ts.len(),
         d > 0,
@@ -1121,6 +1183,7 @@ fn pe_none_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
 
 fn pe_pair_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
+        nv(vtoks(ts@), i as nat),
         small(ts@),
         i < ts.len(),
         d > 0,
@@ -1167,7 +1230,7 @@ fn pe_let_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
     proof {
         assert(tv[i as int] == vtok(ts@[i as int]));
     }
-    let x = match idt_e(ts, i + 1) {
+    let x = match bdt_e(ts, i + 1) {
         Some(x) => x,
         None => return None,
     };
@@ -1259,11 +1322,11 @@ fn pe_fold_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
     if m >= ts.len() || !(sym_e(ts, m, ',') && sym_e(ts, m + 1, '|')) {
         return None;
     }
-    let a = match idt_e(ts, m + 2) {
+    let a = match bdt_e(ts, m + 2) {
         Some(a) => a,
         None => return None,
     };
-    let x = match idt_e(ts, m + 4) {
+    let x = match bdt_e(ts, m + 4) {
         Some(x) => x,
         None => return None,
     };
@@ -1314,7 +1377,7 @@ fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExp
     if q >= ts.len() || !(sym_e(ts, q, ',') && sym_e(ts, q + 1, '|')) {
         return None;
     }
-    let x = match idt_e(ts, q + 2) {
+    let x = match bdt_e(ts, q + 2) {
         Some(x) => x,
         None => return None,
     };
@@ -1450,7 +1513,7 @@ pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<ch
         decreases ts.len() - k,
     {
         let ghost ps0 = ps@;
-        let x = match idt_e(ts, k) {
+        let x = match bdt_e(ts, k) {
             Some(x) => x,
             None => return None,
         };

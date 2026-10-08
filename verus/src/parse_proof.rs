@@ -11,9 +11,9 @@ pub open spec fn suf(ts: Seq<Tok>, i: nat) -> Seq<Tok> {
     ts.subrange(i as int, ts.len() as int)
 }
 
-/// 式の直後に来てよい token 列（変数の直後の `(` は呼出しと読まれる）。
+/// 式の直後に来てよい token 列（変数の直後の `(` は呼出し、文脈キーワードの直後の `<` は型引数と読まれる）。
 pub open spec fn nf(k: Seq<Tok>) -> bool {
-    k.len() == 0 || k[0] != Tok::Sym('(')
+    k.len() == 0 || (k[0] != Tok::Sym('(') && k[0] != Tok::Sym('<'))
 }
 
 pub open spec fn not_sym(t: Tok) -> bool {
@@ -88,6 +88,13 @@ pub proof fn tt_app(t: Ty, k: Seq<Tok>)
     assert(tt(t, k) =~= tt(t, z) + k);
 }
 
+/// 名前の token は記号でない。
+pub proof fn word_ns(x: Seq<char>)
+    ensures
+        not_sym(word_tok(x)),
+{
+}
+
 pub proof fn te_app(e: Sx, k: Seq<Tok>)
     ensures
         te(e, k) == te(e, Seq::empty()) + k,
@@ -125,7 +132,9 @@ pub proof fn te_app(e: Sx, k: Seq<Tok>)
             targs_app(es, 0, k);
             targs_app(es, 0, z);
         },
-        Sx::Let(_, a, b) => {
+        Sx::Var(x) => word_ns(x),
+        Sx::Let(x, a, b) => {
+            word_ns(x);
             te_app(*b, k);
             te_app(*a, seq![Tok::Kw(Kw::In)] + te(*b, k));
             te_app(*a, seq![Tok::Kw(Kw::In)] + te(*b, z));
@@ -174,7 +183,7 @@ proof fn te_app_fold(e: Sx, k: Seq<Tok>)
     if let Sx::Fold(l, i, a, x, b) = e {
         let kb = seq![Tok::Sym(')')] + k;
         let zb = seq![Tok::Sym(')')] + z;
-        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')];
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')];
         te_app(*b, kb);
         te_app(*b, zb);
         te_app(*i, mid + te(*b, kb));
@@ -198,7 +207,7 @@ proof fn te_app_match(e: Sx, k: Seq<Tok>)
     if let Sx::Match(m, n, x, b) = e {
         let kb = seq![Tok::Sym(')')] + k;
         let zb = seq![Tok::Sym(')')] + z;
-        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')];
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
         te_app(*b, kb);
         te_app(*b, zb);
         te_app(*n, mid + te(*b, kb));
@@ -350,7 +359,10 @@ pub proof fn pe_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
         Sx::Bool(b) => hd(ts, i, seq![Tok::Kw(if b { Kw::True } else { Kw::False })], k),
         Sx::Unit => hd(ts, i, seq![Tok::Kw(Kw::Unit)], k),
         Sx::Var(x) => {
-            hd(ts, i, seq![Tok::Id(x)], k);
+            hd(ts, i, seq![word_tok(x)], k);
+            if kw_of(x) is Some {
+                kw_inv(x);
+            }
             if k.len() > 0 {
                 assert(k =~= seq![k[0]] + k.subrange(1, k.len() as int));
                 hd(ts, i + 1, seq![k[0]], k.subrange(1, k.len() as int));
@@ -499,8 +511,8 @@ proof fn pe_complete_let(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
         let z = Seq::<Tok>::empty();
         let d1 = (d - 1) as nat;
         let ka = seq![Tok::Kw(Kw::In)] + te(*b, k);
-        hd(ts, i, seq![Tok::Kw(Kw::Let), Tok::Id(x), Tok::Sym('=')], te(*a, ka));
-        assert(idt(ts, i + 1) == Some(x));
+        hd(ts, i, seq![Tok::Kw(Kw::Let), word_tok(x), Tok::Sym('=')], te(*a, ka));
+        bdt_word(ts, i + 1, x);
         pe_complete(ts, i + 3, d1, td, *a, ka);
         te_app(*a, ka);
         at_end(ts, i + 3, te(*a, z), ka);
@@ -554,7 +566,7 @@ proof fn pe_complete_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
         let z = Seq::<Tok>::empty();
         let d1 = (d - 1) as nat;
         let kb = seq![Tok::Sym(')')] + k;
-        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')];
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')];
         let kn = mid + te(*b, kb);
         let kl = seq![Tok::Sym(',')] + te(*n, kn);
         hd(ts, i, seq![Tok::Kw(Kw::Fold), Tok::Sym('(')], te(*l, kl));
@@ -575,8 +587,8 @@ proof fn pe_complete_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
         assert(ts[m + 3 as int] == mid[3]);
         assert(ts[m + 4 as int] == mid[4]);
         assert(ts[m + 5 as int] == mid[5]);
-        assert(idt(ts, m + 2) == Some(a));
-        assert(idt(ts, m + 4) == Some(x));
+        bdt_word(ts, m + 2, a);
+        bdt_word(ts, m + 4, x);
         pe_complete(ts, m + 6, d1, td, *b, kb);
         te_app(*b, kb);
         at_end(ts, m + 6, te(*b, z), kb);
@@ -596,7 +608,7 @@ proof fn pe_complete_match(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<
         let z = Seq::<Tok>::empty();
         let d1 = (d - 1) as nat;
         let kb = seq![Tok::Sym(')')] + k;
-        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')];
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
         let kn = mid + te(*b, kb);
         let km = seq![Tok::Sym(',')] + te(*n, kn);
         hd(ts, i, seq![Tok::Kw(Kw::MatchOption), Tok::Sym('(')], te(*m, km));
@@ -615,7 +627,7 @@ proof fn pe_complete_match(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<
         assert(ts[q + 1 as int] == mid[1]);
         assert(ts[q + 2 as int] == mid[2]);
         assert(ts[q + 3 as int] == mid[3]);
-        assert(idt(ts, q + 2) == Some(x));
+        bdt_word(ts, q + 2, x);
         pe_complete(ts, q + 4, d1, td, *b, kb);
         te_app(*b, kb);
         at_end(ts, q + 4, te(*b, z), kb);
@@ -693,8 +705,8 @@ pub proof fn pparams1_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>
     } else {
         seq![Tok::Sym(',')] + tps(ps, j + 1, k)
     };
-    hd(ts, i, seq![Tok::Id(x), Tok::Sym(':')], tt(t, kt));
-    assert(idt(ts, i) == Some(x));
+    hd(ts, i, seq![word_tok(x), Tok::Sym(':')], tt(t, kt));
+    bdt_word(ts, i, x);
     pt_complete(ts, i + 2, td, t, kt);
     tt_app(t, kt);
     at_end(ts, i + 2, tt(t, z), kt);
@@ -726,7 +738,7 @@ pub proof fn pparams_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>,
         } else {
             seq![Tok::Sym(',')] + tps(ps, 1, k)
         };
-        hd(ts, i, seq![Tok::Id(ps[0].0), Tok::Sym(':')], tt(ps[0].1, kt));
+        hd(ts, i, seq![word_tok(ps[0].0), Tok::Sym(':')], tt(ps[0].1, kt));
         pparams1_complete(ts, i, td, ps, 0, k);
         assert(ps.subrange(0, ps.len() as int) =~= ps);
     }
@@ -820,6 +832,39 @@ pub proof fn pfx1(ts: Seq<Tok>, i: nat)
         suf(ts, i) == seq![ts[i as int]] + suf(ts, i + 1),
 {
     pfx(ts, i, seq![ts[i as int]]);
+}
+
+/// 名前の token：位置 i が word_tok(x) で x が名前なら、bdt は x を返す。
+pub proof fn bdt_word(ts: Seq<Tok>, i: nat, x: Seq<char>)
+    requires
+        i < ts.len(),
+        ts[i as int] == word_tok(x),
+        name_ok(x),
+    ensures
+        bdt(ts, i) == Some(x),
+{
+    if kw_of(x) is Some {
+        kw_inv(x);
+    }
+}
+
+/// bdt が返す名前は、その位置の token の綴りで、名前として正しい。
+pub proof fn bdt_sound(ts: Seq<Tok>, i: nat)
+    requires
+        bdt(ts, i) is Some,
+    ensures
+        i < ts.len(),
+        ts[i as int] == word_tok(bdt(ts, i)->Some_0),
+        name_ok(bdt(ts, i)->Some_0),
+{
+    if let Tok::Kw(k) = ts[i as int] {
+        kw_word(k);
+    }
+}
+
+/// 位置 i の文脈キーワードは変数として読まれない（直後が `(` か `<`）。
+pub open spec fn nv(ts: Seq<Tok>, i: nat) -> bool {
+    !(ts[i as int] is Kw && soft(ts[i as int]->Kw_0) && !sym(ts, i + 1, '(') && !sym(ts, i + 1, '<'))
 }
 
 pub proof fn targs_shift(e: Sx, es: Seq<Sx>, i: nat, k: Seq<Tok>)
@@ -985,7 +1030,11 @@ pub proof fn pe_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pe_sound_call(ts, i, d, td);
             },
             Tok::Kw(k) => {
-                if k == Kw::List {
+                if soft(k) && !sym(ts, i + 1, '(') && !sym(ts, i + 1, '<') {
+                    kw_word(k);
+                    let e = Sx::Var(kwt(k));
+                    assert(suf(ts, i) =~= te(e, suf(ts, i + 1)));
+                } else if k == Kw::List {
                     pe_sound_list(ts, i, d, td);
                 } else if k == Kw::Some {
                     pe_sound_some(ts, i, d, td);
@@ -1037,6 +1086,7 @@ proof fn pe_sound_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         i < ts.len(),
         ts[i as int] is Kw,
         kw_b(ts[i as int]->Kw_0) is Some,
+        nv(ts, i),
     ensures
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
@@ -1062,6 +1112,7 @@ proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::List),
+        nv(ts, i),
     ensures
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
@@ -1091,6 +1142,7 @@ proof fn pe_sound_some(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Some),
+        nv(ts, i),
     ensures
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
@@ -1115,6 +1167,7 @@ proof fn pe_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::None),
+        nv(ts, i),
     ensures
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
@@ -1141,6 +1194,7 @@ proof fn pe_sound_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Pair),
+        nv(ts, i),
     ensures
         pe_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
@@ -1176,7 +1230,8 @@ proof fn pe_sound_let(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
-    if let Some(x) = idt(ts, i + 1) {
+    if let Some(x) = bdt(ts, i + 1) {
+        bdt_sound(ts, i + 1);
         if sym(ts, i + 2, '=') {
             pe_sound(ts, i + 3, d1, td);
             if let Some((a, j)) = pe(ts, i + 3, d1, td) {
@@ -1249,7 +1304,9 @@ proof fn pe_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pe_sound(ts, j + 1, d1, td);
                 if let Some((n, m)) = pe(ts, j + 1, d1, td) {
                     if sym(ts, m, ',') && sym(ts, m + 1, '|') {
-                        if let (Some(a), Some(x)) = (idt(ts, m + 2), idt(ts, m + 4)) {
+                        if let (Some(a), Some(x)) = (bdt(ts, m + 2), bdt(ts, m + 4)) {
+                            bdt_sound(ts, m + 2);
+                            bdt_sound(ts, m + 4);
                             if sym(ts, m + 3, ',') && sym(ts, m + 5, '|') {
                                 pe_sound(ts, m + 6, d1, td);
                                 if let Some((b, q)) = pe(ts, m + 6, d1, td) {
@@ -1265,7 +1322,7 @@ proof fn pe_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         pfx1(ts, m + 5);
                                         pfx1(ts, q);
                                         let e = pe(ts, i, d, td)->Some_0.0;
-                                        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')];
+                                        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')];
                                         assert(suf(ts, m) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, q + 1)));
                                         assert(suf(ts, i) =~= te(e, suf(ts, q + 1)));
                                     }
@@ -1296,7 +1353,8 @@ proof fn pe_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pe_sound(ts, j + 1, d1, td);
                 if let Some((n, q)) = pe(ts, j + 1, d1, td) {
                     if sym(ts, q, ',') && sym(ts, q + 1, '|') {
-                        if let Some(x) = idt(ts, q + 2) {
+                        if let Some(x) = bdt(ts, q + 2) {
+                            bdt_sound(ts, q + 2);
                             if sym(ts, q + 3, '|') {
                                 pe_sound(ts, q + 4, d1, td);
                                 if let Some((b, u)) = pe(ts, q + 4, d1, td) {
@@ -1310,7 +1368,7 @@ proof fn pe_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         pfx1(ts, q + 3);
                                         pfx1(ts, u);
                                         let e = pe(ts, i, d, td)->Some_0.0;
-                                        let mid = seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')];
+                                        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
                                         assert(suf(ts, q) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, u + 1)));
                                         assert(suf(ts, i) =~= te(e, suf(ts, u + 1)));
                                     }
@@ -1382,7 +1440,8 @@ pub proof fn pparams1_sound(ts: Seq<Tok>, i: nat, td: nat)
         pparams1_post(ts, i, td),
     decreases ts.len() - i,
 {
-    if let Some(x) = idt(ts, i) {
+    if let Some(x) = bdt(ts, i) {
+        bdt_sound(ts, i);
         if sym(ts, i + 1, ':') {
             pt_sound(ts, i + 2, td);
             if let Some((t, j)) = pt(ts, i + 2, td) {
