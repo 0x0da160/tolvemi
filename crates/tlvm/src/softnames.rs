@@ -1,19 +1,19 @@
 //! v1.1 の文脈キーワード（差分仕様 §2a）。
 //!
 //! 組み込み関数と値の構築子の名前（`length`、`pair` など）は、呼び出しの位置（直後が `(` か `<`）
-//! でだけキーワードとして働き、変数・引数・束縛・field の名前には使える。検証済み部品の字句規則は
-//! これらを常に予約語として扱うので、検証済み部品に渡す前に、そうした変数名をプログラム中の
-//! どの識別子とも重ならない名前に一斉に付け替える（α 変換なので、名前の解決と評価の結果は変わらない）。
+//! でだけキーワードとして働き、変数・引数・束縛・field の名前には使える。検証済み部品の構文規則は
+//! これを直接受け付ける。AST transport（ast_codec_v1）の識別子は v1 のままなので、`tlvm ast` の出力
+//! だけは、そうした変数名をプログラム中のどの識別子とも重ならない名前に一斉に付け替える（α 変換）。
 //!
-//! 付け替えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。
+//! 付け替えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検査・実行には使わない。
 
 use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-pub const SOFT_KEYWORDS: [&str; 19] = [
+pub const SOFT_KEYWORDS: [&str; 24] = [
     "list", "some", "none", "pair", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons",
+    "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort",
 ];
 
 pub fn is_soft_keyword(s: &str) -> bool {

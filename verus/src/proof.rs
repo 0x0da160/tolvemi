@@ -237,6 +237,50 @@ pub proof fn mod_bounds(x: int, y: int)
     vstd::arithmetic::div_mod::lemma_mod_bound(x, y);
 }
 
+pub proof fn ins_ints(x: Val, t: Seq<Val>)
+    requires
+        x is Int,
+        forall|k: int| 0 <= k < t.len() ==> #[trigger] t[k] is Int,
+    ensures
+        ins(x, t).len() == t.len() + 1,
+        forall|k: int| 0 <= k < ins(x, t).len() ==> #[trigger] ins(x, t)[k] is Int,
+    decreases t.len(),
+{
+    if t.len() > 0 && !vle(x, t[0]) {
+        let u = t.drop_first();
+        assert forall|k: int| 0 <= k < u.len() implies #[trigger] u[k] is Int by {
+            assert(u[k] == t[k + 1]);
+        }
+        ins_ints(x, u);
+        let r = ins(x, t);
+        assert(r == seq![t[0]] + ins(x, u));
+        assert forall|k: int| 0 <= k < r.len() implies #[trigger] r[k] is Int by {
+            if k > 0 {
+                assert(r[k] == ins(x, u)[k - 1]);
+            }
+        }
+    }
+}
+
+pub proof fn isort_ints(s: Seq<Val>)
+    requires
+        forall|k: int| 0 <= k < s.len() ==> #[trigger] s[k] is Int,
+    ensures
+        isort(s).len() == s.len(),
+        forall|k: int| 0 <= k < isort(s).len() ==> #[trigger] isort(s)[k] is Int,
+    decreases s.len(),
+{
+    if s.len() > 0 {
+        let u = s.drop_first();
+        assert forall|k: int| 0 <= k < u.len() implies #[trigger] u[k] is Int by {
+            assert(u[k] == s[k + 1]);
+        }
+        isort_ints(u);
+        assert(s[0] is Int);
+        ins_ints(s[0], isort(u));
+    }
+}
+
 pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
     requires
         builtin_type(b, ts) is Some,
@@ -282,6 +326,18 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                 assert(vs[0] is Int && vs[1] is Int);
             },
             Builtin::Lt | Builtin::Le | Builtin::Eq => {},
+            Builtin::Min | Builtin::Max => {
+                assert(vs[0] is Int && vs[1] is Int);
+            },
+            Builtin::Range => {
+                assert(vs[0] is Int && vs[1] is Int);
+                let r = range_seq(vs[0]->Int_0, vs[1]->Int_0);
+                val_type_list(r, Ty::Int);
+                assert forall|i: int| 0 <= i < r.len() implies #[trigger] val_type(r[i], Ty::Int) by {}
+            },
+            Builtin::Contains => {
+                assert(vs[0] is List);
+            },
             Builtin::Mod => {
                 assert(vs[0] is Int && vs[1] is Int);
                 assert(val_type(Val::Int(vs[0]->Int_0 % vs[1]->Int_0), Ty::Int));
@@ -325,6 +381,20 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                     assert(apply(b, vs) == Res::Done(Val::Some(Box::new(pv))));
                 } else {
                     assert(apply(b, vs) == Res::Done(Val::None));
+                }
+            },
+            Builtin::Sort => {
+                let s = vs[0]->List_0;
+                assert(ts[0] == Ty::List(Box::new(Ty::Int)));
+                val_type_list(s, Ty::Int);
+                assert forall|i: int| 0 <= i < s.len() implies #[trigger] s[i] is Int by {
+                    assert(val_type(s[i], Ty::Int));
+                }
+                isort_ints(s);
+                let r = isort(s);
+                val_type_list(r, Ty::Int);
+                assert forall|i: int| 0 <= i < r.len() implies #[trigger] val_type(r[i], Ty::Int) by {
+                    assert(r[i] is Int);
                 }
             },
             Builtin::Reverse => {

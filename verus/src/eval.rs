@@ -73,6 +73,34 @@ pub open spec fn frame(a: Machine, b: Machine) -> bool {
     &&& b.env@ == a.env@
 }
 
+/// x 以上の最初の要素の位置 j（無ければ末尾）に挿入した列が ins(x, t)。
+pub proof fn ins_split(x: Val, t: Seq<Val>, j: int)
+    requires
+        0 <= j <= t.len(),
+        forall|i: int| 0 <= i < j ==> !vle(x, #[trigger] t[i]),
+        j == t.len() || vle(x, t[j]),
+    ensures
+        ins(x, t) == t.insert(j, x),
+    decreases t.len(),
+{
+    if t.len() == 0 {
+        assert(t.insert(j, x) =~= seq![x]);
+    } else if j == 0 {
+        assert(t.insert(0, x) =~= seq![x] + t);
+    } else {
+        let u = t.drop_first();
+        assert(!vle(x, t[0]));
+        assert forall|i: int| 0 <= i < j - 1 implies !vle(x, #[trigger] u[i]) by {
+            assert(u[i] == t[i + 1]);
+        }
+        if j < t.len() {
+            assert(u[j - 1] == t[j]);
+        }
+        ins_split(x, u, j - 1);
+        assert(seq![t[0]] + u.insert(j - 1, x) =~= t.insert(j, x));
+    }
+}
+
 pub proof fn rev_snoc(s: Seq<Val>, j: int)
     requires
         0 <= j < s.len(),
@@ -789,6 +817,17 @@ impl Machine {
                     }
                     return self.concat(&a[0], &a[1]);
                 },
+                Builtin::Contains => {
+                    if !(match &*a[0] {
+                        Value::Nil => true,
+                        Value::Cons(_, _) => true,
+                        _ => false,
+                    }) {
+                        return Err(Stop::Fault);
+                    }
+                    let r = self.contains(&a[0], &a[1])?;
+                    return Ok(Rc::new(Value::Bool(r)));
+                },
                 _ => {},
             }
             match (&*a[0], &*a[1]) {
@@ -797,6 +836,9 @@ impl Machine {
                     Builtin::Sub => self.int(x.sub(y)),
                     Builtin::Mul => self.int(x.mul(y)),
                     Builtin::Lt => Ok(Rc::new(Value::Bool(x.lt(y)))),
+                    Builtin::Min => Ok(if x.le(y) { a[0].clone() } else { a[1].clone() }),
+                    Builtin::Max => Ok(if x.le(y) { a[1].clone() } else { a[0].clone() }),
+                    Builtin::Range => self.range(x, y),
                     Builtin::Le => Ok(Rc::new(Value::Bool(x.le(y)))),
                     Builtin::Mod => {
                         if !y.is_positive() {
@@ -817,6 +859,7 @@ impl Machine {
                 (Builtin::Snd, Value::Pair(_, r)) => Ok(r.clone()),
                 (Builtin::Reverse, Value::Nil) | (Builtin::Reverse, Value::Cons(_, _)) => self.reverse(&a[0]),
                 (Builtin::Length, Value::Nil) | (Builtin::Length, Value::Cons(_, _)) => self.length(&a[0]),
+                (Builtin::Sort, Value::Nil) | (Builtin::Sort, Value::Cons(_, _)) => self.sort(&a[0]),
                 (Builtin::Uncons, Value::Nil) => {
                     proof {
                         assert(view_vals(a@)[0] == view_val(*a@[0]));
@@ -938,6 +981,279 @@ impl Machine {
         }
         proof {
             assert(sv.subrange(0, all.len() as int) =~= sv);
+        }
+        Ok(out)
+    }
+
+    /// range(a, b)：b-1 から a まで下りながら cons する。
+    fn range(&mut self, a: &Int, b: &Int) -> (r: Result<Rc<Value>, Stop>)
+        requires
+            inv(*self),
+        ensures
+            frame(*old(self), *final(self)),
+            r is Ok ==> view_val(*r->Ok_0) == Val::List(range_seq(a@, b@)),
+            !is_fault(r),
+    {
+        let mut out = Rc::new(Value::Nil);
+        if !a.lt(b) {
+            proof {
+                assert(range_seq(a@, b@) =~= Seq::<Val>::empty());
+                assert(spine(*out) =~= Seq::<Val>::empty());
+            }
+            return Ok(out);
+        }
+        let one = Int::from_u64(1);
+        let mut cur = b.copy();
+        proof {
+            assert(spine(*out) =~= Seq::new((b@ - cur@) as nat, |i: int| Val::Int(cur@ + i)));
+        }
+        loop
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                one@ == 1,
+                a@ < b@,
+                a@ <= cur@ <= b@,
+                is_list(*out),
+                spine(*out) == Seq::new((b@ - cur@) as nat, |i: int| Val::Int(cur@ + i)),
+            decreases self.lim.steps - self.steps,
+        {
+            if !a.lt(&cur) {
+                proof {
+                    assert(cur@ == a@);
+                    assert(spine(*out) =~= range_seq(a@, b@));
+                }
+                return Ok(out);
+            }
+            let next = cur.sub(&one);
+            let v = self.int(next.copy())?;
+            self.allocate(None)?;
+            let ghost old_out = out;
+            proof {
+                spine_cons(v, old_out);
+                assert(seq![vv(v)] + sp(old_out) =~= Seq::new((b@ - next@) as nat, |i: int| Val::Int(next@ + i)));
+            }
+            out = Rc::new(Value::Cons(v, out));
+            cur = next;
+        }
+    }
+
+    /// 構造的等値で要素を探す。
+    fn contains(&mut self, l: &Rc<Value>, x: &Rc<Value>) -> (r: Result<bool, Stop>)
+        requires
+            inv(*self),
+        ensures
+            frame(*old(self), *final(self)),
+            r is Ok ==> r->Ok_0 == spine(**l).contains(view_val(**x)),
+            !is_fault(r),
+    {
+        let ghost s = sp(dr(l));
+        let ghost xv = vv(dr(x));
+        let ghost mut j: int = 0;
+        let mut cur = l.clone();
+        proof {
+            assert(s.subrange(0, s.len() as int) =~= s);
+        }
+        loop
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                s == spine(**l),
+                xv == view_val(**x),
+                0 <= j <= s.len(),
+                spine(*cur) == s.subrange(j, s.len() as int),
+                forall|k: int| 0 <= k < j ==> s[k] != xv,
+            decreases self.lim.steps - self.steps,
+        {
+            self.step()?;
+            let (h, t) = match &*cur {
+                Value::Cons(h, t) => (h.clone(), t.clone()),
+                _ => {
+                    proof {
+                        spine_end(cur);
+                        assert(s.subrange(j, s.len() as int).len() == s.len() - j);
+                        assert(j == s.len());
+                        if s.contains(xv) {
+                            let k = choose|k: int| 0 <= k < s.len() && s[k] == xv;
+                            assert(s[k] != xv);
+                        }
+                    }
+                    return Ok(false);
+                },
+            };
+            proof {
+                spine_step(s, j, h, t);
+            }
+            if self.equal(&h, x)? {
+                proof {
+                    assert(s[j] == xv);
+                }
+                return Ok(true);
+            }
+            proof {
+                j = j + 1;
+            }
+            cur = t;
+        }
+    }
+
+    /// 整列の比較（spec の vle）。
+    fn vle_e(x: &Rc<Value>, y: &Rc<Value>) -> (r: bool)
+        ensures
+            r == vle(vv(*x), vv(*y)),
+    {
+        match (&**x, &**y) {
+            (Value::Int(m), Value::Int(n)) => m.le(n),
+            (Value::Int(_), _) => true,
+            _ => true,
+        }
+    }
+
+    /// 挿入整列。要素を配列に集め、後ろから順に整列済みの配列へ挿入し、最後に cons 列を作る。
+    fn sort(&mut self, l: &Rc<Value>) -> (r: Result<Rc<Value>, Stop>)
+        requires
+            inv(*self),
+        ensures
+            frame(*old(self), *final(self)),
+            r is Ok ==> view_val(*r->Ok_0) == Val::List(isort(spine(**l))),
+            !is_fault(r),
+    {
+        let ghost s = sp(dr(l));
+        // 要素を集める
+        let mut xs: Vec<Rc<Value>> = Vec::new();
+        let mut cur = l.clone();
+        proof {
+            assert(s.subrange(0, s.len() as int) =~= s);
+            assert(view_vals(xs@) =~= s.subrange(0, 0));
+        }
+        loop
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                s == spine(**l),
+                xs@.len() <= s.len(),
+                view_vals(xs@) == s.subrange(0, xs@.len() as int),
+                spine(*cur) == s.subrange(xs@.len() as int, s.len() as int),
+            ensures
+                view_vals(xs@) == s,
+            decreases self.lim.steps - self.steps,
+        {
+            self.step()?;
+            let next = match &*cur {
+                Value::Cons(h, t) => {
+                    proof {
+                        spine_step(s, xs@.len() as int, dr(h), dr(t));
+                        assert(view_vals(xs@.push(dr(h))) =~= s.subrange(0, xs@.len() as int + 1));
+                    }
+                    xs.push(h.clone());
+                    t.clone()
+                },
+                _ => {
+                    proof {
+                        spine_end(cur);
+                        assert(xs@.len() == s.len());
+                        assert(s.subrange(0, s.len() as int) =~= s);
+                    }
+                    break;
+                },
+            };
+            cur = next;
+        }
+        // 後ろから挿入する
+        let n = xs.len();
+        let mut k = n;
+        let mut t: Vec<Rc<Value>> = Vec::new();
+        proof {
+            assert(s.subrange(n as int, n as int) =~= Seq::<Val>::empty());
+            assert(view_vals(t@) =~= isort(s.subrange(n as int, n as int)));
+        }
+        while k > 0
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                n == xs@.len(),
+                view_vals(xs@) == s,
+                k <= n,
+                view_vals(t@) == isort(s.subrange(k as int, n as int)),
+            decreases k,
+        {
+            let x = xs[k - 1].clone();
+            let ghost tv = view_vals(t@);
+            let mut j: usize = 0;
+            let mut found = false;
+            while j < t.len() && !found
+                invariant
+                    inv(*self),
+                    frame(*old(self), *self),
+                    tv == view_vals(t@),
+                    j <= t@.len(),
+                    found ==> j < t@.len() && vle(vv(x), tv[j as int]),
+                    forall|i: int| 0 <= i < j ==> !vle(vv(x), #[trigger] tv[i]),
+                decreases t@.len() - j + (if found { 0int } else { 1int }),
+            {
+                self.step()?;
+                if Self::vle_e(&x, &t[j]) {
+                    found = true;
+                } else {
+                    j = j + 1;
+                }
+            }
+            // 挿入で後ろへずらす要素の数だけ steps を数える（比較と合わせて O(n^2) の実際の手間に見合わせる）
+            let mut q = j;
+            while q < t.len()
+                invariant
+                    inv(*self),
+                    frame(*old(self), *self),
+                    j <= q <= t@.len(),
+                decreases t@.len() - q,
+            {
+                self.step()?;
+                q = q + 1;
+            }
+            proof {
+                assert(j == t@.len() || vle(vv(x), tv[j as int]));
+                ins_split(vv(x), tv, j as int);
+                let u = s.subrange(k - 1, n as int);
+                assert(u.drop_first() =~= s.subrange(k as int, n as int));
+                assert(u[0] == s[k - 1]);
+                assert(vv(x) == s[k - 1]);
+                assert(view_vals(t@.insert(j as int, x)) =~= tv.insert(j as int, vv(x)));
+            }
+            t.insert(j, x);
+            k = k - 1;
+        }
+        proof {
+            assert(s.subrange(0, n as int) =~= s);
+        }
+        // cons 列にする
+        let ghost sv = view_vals(t@);
+        let mut out = Rc::new(Value::Nil);
+        let mut m = t.len();
+        proof {
+            assert(sv.subrange(m as int, m as int) =~= spine(*out));
+        }
+        while m > 0
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                sv == view_vals(t@),
+                sv == isort(s),
+                m <= t@.len(),
+                is_list(*out),
+                spine(*out) == sv.subrange(m as int, t@.len() as int),
+            decreases m,
+        {
+            self.allocate(None)?;
+            let h = t[m - 1].clone();
+            proof {
+                spine_cons(h, out);
+                assert(seq![vv(h)] + sp(out) =~= sv.subrange(m - 1, t@.len() as int));
+            }
+            out = Rc::new(Value::Cons(h, out));
+            m = m - 1;
+        }
+        proof {
+            assert(sv.subrange(0, t@.len() as int) =~= sv);
         }
         Ok(out)
     }

@@ -8,7 +8,7 @@ use crate::evaluator::{self, RunResult};
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
-use crate::{records, softnames};
+use crate::records;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use crate::formatter::format_program;
@@ -122,16 +122,14 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
-        Parsed::Program(p) if records::has_records(&p) || softnames::has_soft_names(&p) => {
-            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換え、予約語の変数名を付け替えた
-            // プログラムの整形ソースを渡す
-            let px = if records::has_records(&p) { records::expand(&p) } else { Ok(p) };
-            match px {
+        Parsed::Program(p) if records::has_records(&p) => {
+            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す
+            match records::expand(&p) {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
                     let o = check_program(&px, source.len(), profile);
                     let r = result(o.diagnostics.clone(), Some(o));
-                    let text = format_program(&softnames::rename(&records::lower(&px)));
+                    let text = format_program(&records::lower(&px));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
             }

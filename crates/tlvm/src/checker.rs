@@ -10,8 +10,10 @@ use std::collections::{HashMap, HashSet};
 
 // ======================================================================= name
 
-const BUILTINS: [&str; 15] =
-    ["add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons"];
+const BUILTINS: [&str; 20] = [
+    "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons",
+    "min", "max", "range", "contains", "sort",
+];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
     let mut diags = vec![];
@@ -539,7 +541,7 @@ impl<'a> TypeChecker<'a> {
         }
         let int = Ty::int();
         match name {
-            "add" | "sub" | "mul" | "lt" | "le" | "mod" => {
+            "add" | "sub" | "mul" | "lt" | "le" | "mod" | "min" | "max" | "range" => {
                 need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
                 need!(self.equal(&ts[1], &int, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &int, &ts[1]);
                 if !ok {
@@ -547,6 +549,10 @@ impl<'a> TypeChecker<'a> {
                 }
                 match name {
                     "lt" | "le" => self.build(Ty::bool(), m),
+                    "range" => {
+                        let inner = self.build(Ty::int(), m)?;
+                        self.build(Ty::list(inner), m)
+                    }
                     "mod" => {
                         let inner = self.build(Ty::int(), m)?;
                         self.build(Ty::option(inner), m)
@@ -582,6 +588,19 @@ impl<'a> TypeChecker<'a> {
                     let (a, b) = (ts[0].arg(0), ts[1].arg(0));
                     need!(self.equal(&a, &b, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &ts[0], &ts[1]);
                 }
+                Ok(if ok { ts[0].clone() } else { Ty::error() })
+            }
+            "contains" => {
+                let h = need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
+                if h == Some(true) {
+                    let el = ts[0].arg(0);
+                    need!(self.equal(&ts[1], &el, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &el, &ts[1]);
+                }
+                if ok { self.build(Ty::bool(), m) } else { Ok(Ty::error()) }
+            }
+            "sort" => {
+                let li = Ty::list(Ty::int());
+                need!(self.equal(&ts[0], &li, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &li, &ts[0]);
                 Ok(if ok { ts[0].clone() } else { Ty::error() })
             }
             "uncons" => {

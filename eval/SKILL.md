@@ -69,9 +69,13 @@ Type arguments are always written in angle brackets, as in types; square bracket
 | `reverse(xs)` | `List<A> -> List<A>` | reverse |
 | `length(xs)` | `List<A> -> Int` | number of elements |
 | `uncons(xs)` | `List<A> -> Option<Pair<A, List<A>>>` | `none<Pair<A, List<A>>>()` for the empty list, otherwise `some(pair(first, rest))` |
+| `min(a, b)`, `max(a, b)` | `Int, Int -> Int` | the smaller / larger of two integers |
+| `range(a, b)` | `Int, Int -> List<Int>` | `[a, a+1, ..., b-1]`; empty when `b <= a`. `range(0, length(xs))` gives the indices of `xs` |
+| `contains(xs, x)` | `List<A>, A -> Bool` | whether some element equals `x` (structural equality) |
+| `sort(xs)` | `List<Int> -> List<Int>` | ascending order, duplicates kept |
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
-There is no division, `head`, `tail`, indexing, `map`, `filter`, `min`, `max`, `abs`, `not`, `and` or `or`; build
+There is no division, `head`, `tail`, indexing, `map`, `filter`, `abs`, `not`, `and` or `or`; build
 them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `match_option` gives head and tail).
 
 ## Option: unwrap it with match_option
@@ -109,7 +113,7 @@ entry solve
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn entry Int Bool Unit List Option
   Pair true false unit let in if fold match_option`.
 - The builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
-  length uncons` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  length uncons min max range contains sort` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   Followed by `(` or `<` they are always the builtin, so they cannot be function names.
 - No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
@@ -158,6 +162,25 @@ fn solve(p: Pair<List<Int>, List<Int>>) -> List<Int> =
 entry solve
 ```
 
+A process with several pieces of state (a machine, a simulation, a scan with a "previous" value): put the state in a
+record, write one `step` function, and fold it over the input. Keep "nothing yet" as an `Option` field, not a magic
+number such as `-1`.
+
+```tlvm
+// Largest change between adjacent values (0 for fewer than two values).
+type Scan = { prev: Option<Int>, best: Int }
+
+fn step(s: Scan, x: Int) -> Scan =
+  let change = match_option(s.prev, 0, |p| max(sub(x, p), sub(p, x))) in
+  Scan { prev: some(x), best: max(s.best, change) }
+
+fn solve(xs: List<Int>) -> Int = fold(xs, Scan { prev: none<Int>(), best: 0 }, |s, x| step(s, x)).best
+entry solve
+```
+
+Before answering, check: every `(` is closed (count them in deep nesting), every `let` has its `in`, every
+`none<T>()` and `list<T>(...)` names its type, and no binder reuses a name already in scope.
+
 ## Diagnostics
 
 The checker reports errors as `file:line:col: error[CODE]: message (expected ..., found ...)`, often followed by a
@@ -170,7 +193,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-PARSE-EXPECTED-TOKEN` / `E-PARSE-EXPECTED-EXPR` | missing `,` or `)`, or a malformed special form |
 | `E-PARSE-EXPECTED-IDENT` | a reserved word used as a name, or a builtin name used as a function name |
 | `E-PARSE-EXPECTED-TYPE` | a missing or invalid type in `list<T>(...)` / `none<T>()` |
-| `E-NAME-UNBOUND-VARIABLE` / `E-NAME-UNKNOWN-FUNCTION` | a typo, or a function that does not exist (e.g. `head`, `max`) |
+| `E-NAME-UNBOUND-VARIABLE` / `E-NAME-UNKNOWN-FUNCTION` | a typo, or a function that does not exist (e.g. `head`, `abs`) |
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
 | `E-CYCLE-CALL` | recursion |
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |

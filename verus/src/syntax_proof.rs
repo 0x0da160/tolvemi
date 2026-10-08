@@ -128,6 +128,34 @@ pub proof fn li(x: Seq<char>, s: Seq<char>, u: Seq<Tok>)
     lword(x, s, u);
 }
 
+/// 予約語の綴りは予約語から一意に決まる。
+pub proof fn kw_inv(x: Seq<char>)
+    requires
+        kw_of(x) is Some,
+    ensures
+        kwt(kw_of(x)->Some_0) == x,
+{
+    assert(kwt(kw_of(x)->Some_0) =~= x);
+}
+
+/// 変数・束縛の名前（IDENT か文脈キーワード）の字句。
+pub proof fn ln(x: Seq<char>, s: Seq<char>, u: Seq<Tok>)
+    requires
+        name_ok(x),
+        s.len() == 0 || !ident_char(s[0]),
+        lex(s) == Some(u),
+    ensures
+        lex(x + s) == Some(seq![word_tok(x)] + u),
+{
+    if ident_ok(x) {
+        lword(x, s, u);
+    } else {
+        kw_inv(x);
+        kw_word(kw_of(x)->Some_0);
+        lword(x, s, u);
+    }
+}
+
 pub proof fn digit_char(c: char)
     ensures
         dval(c) >= 0 <==> is_digit(c),
@@ -290,7 +318,7 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::Int(n) => lint(n, k, u),
         Sx::Bool(b) => lk(if b { Kw::True } else { Kw::False }, k, u),
         Sx::Unit => lk(Kw::Unit, k, u),
-        Sx::Var(x) => li(x, k, u),
+        Sx::Var(x) => ln(x, k, u),
         Sx::List(t, es) => fe_lex_list(e, d, td, k, u),
         Sx::Some(a) => fe_lex_some(e, d, td, k, u),
         Sx::None(t) => fe_lex_none(e, d, td, k, u),
@@ -489,10 +517,10 @@ proof fn fe_lex_let(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         lw(' ', seq!['='] + (seq![' '] + l5), seq![Tok::Sym('=')] + v5);
         assert(seq![' ', '=', ' '] + l5 =~= seq![' '] + (seq!['='] + (seq![' '] + l5)));
         let l6 = seq![' ', '=', ' '] + l5;
-        li(x, l6, seq![Tok::Sym('=')] + v5);
-        lw(' ', x + l6, seq![Tok::Id(x)] + (seq![Tok::Sym('=')] + v5));
-        lk(Kw::Let, seq![' '] + (x + l6), seq![Tok::Id(x)] + (seq![Tok::Sym('=')] + v5));
-        assert(seq![Tok::Kw(Kw::Let)] + (seq![Tok::Id(x)] + (seq![Tok::Sym('=')] + v5)) =~= te(e, u));
+        ln(x, l6, seq![Tok::Sym('=')] + v5);
+        lw(' ', x + l6, seq![word_tok(x)] + (seq![Tok::Sym('=')] + v5));
+        lk(Kw::Let, seq![' '] + (x + l6), seq![word_tok(x)] + (seq![Tok::Sym('=')] + v5));
+        assert(seq![Tok::Kw(Kw::Let)] + (seq![word_tok(x)] + (seq![Tok::Sym('=')] + v5)) =~= te(e, u));
         },
         _ => {},
     }
@@ -553,15 +581,15 @@ proof fn fe_lex_fold(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         assert(seq!['|', ' '] + kb =~= seq!['|'] + (seq![' '] + kb));
         let k1 = seq!['|', ' '] + kb;
         let u1 = seq![Tok::Sym('|')] + ub;
-        li(x, k1, u1);
+        ln(x, k1, u1);
         let k2 = x + k1;
-        let u2 = seq![Tok::Id(x)] + u1;
+        let u2 = seq![word_tok(x)] + u1;
         lcs(k2, u2);
         let k3 = seq![',', ' '] + k2;
         let u3 = seq![Tok::Sym(',')] + u2;
-        li(a, k3, u3);
+        ln(a, k3, u3);
         let k4 = a + k3;
-        let u4 = seq![Tok::Id(a)] + u3;
+        let u4 = seq![word_tok(a)] + u3;
         ls('|', k4, u4);
         lcs(seq!['|'] + k4, seq![Tok::Sym('|')] + u4);
         assert(seq![',', ' ', '|'] + k4 =~= seq![',', ' '] + (seq!['|'] + k4));
@@ -576,7 +604,7 @@ proof fn fe_lex_fold(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         let ul = te(*l, seq![Tok::Sym(',')] + ui);
         ls('(', fe(*l, seq![',', ' '] + ki), ul);
         lk(Kw::Fold, seq!['('] + fe(*l, seq![',', ' '] + ki), seq![Tok::Sym('(')] + ul);
-        assert(u5 =~= seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')]
+        assert(u5 =~= seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')]
             + te(*b, seq![Tok::Sym(')')] + u));
         assert(seq![Tok::Kw(Kw::Fold)] + (seq![Tok::Sym('(')] + ul) =~= te(e, u));
         },
@@ -607,9 +635,9 @@ proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         assert(seq!['|', ' '] + kb =~= seq!['|'] + (seq![' '] + kb));
         let k1 = seq!['|', ' '] + kb;
         let u1 = seq![Tok::Sym('|')] + ub;
-        li(x, k1, u1);
+        ln(x, k1, u1);
         let k2 = x + k1;
-        let u2 = seq![Tok::Id(x)] + u1;
+        let u2 = seq![word_tok(x)] + u1;
         ls('|', k2, u2);
         lcs(seq!['|'] + k2, seq![Tok::Sym('|')] + u2);
         assert(seq![',', ' ', '|'] + k2 =~= seq![',', ' '] + (seq!['|'] + k2));
@@ -624,7 +652,7 @@ proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         let um = te(*m, seq![Tok::Sym(',')] + un);
         ls('(', fe(*m, seq![',', ' '] + kn), um);
         lk(Kw::MatchOption, seq!['('] + fe(*m, seq![',', ' '] + kn), seq![Tok::Sym('(')] + um);
-        assert(u5 =~= seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')]
+        assert(u5 =~= seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')]
             + te(*b, seq![Tok::Sym(')')] + u));
         assert(seq![Tok::Kw(Kw::MatchOption)] + (seq![Tok::Sym('(')] + um) =~= te(e, u));
         },
@@ -678,8 +706,8 @@ pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u:
         lw(' ', ft(t, kt), tt(t, ut));
         ls(':', seq![' '] + ft(t, kt), tt(t, ut));
         assert(seq![':', ' '] + ft(t, kt) =~= seq![':'] + (seq![' '] + ft(t, kt)));
-        li(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
-        assert(seq![Tok::Id(x)] + (seq![Tok::Sym(':')] + tt(t, ut)) =~= tps(ps, i, u));
+        ln(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
+        assert(seq![word_tok(x)] + (seq![Tok::Sym(':')] + tt(t, ut)) =~= tps(ps, i, u));
     }
 }
 

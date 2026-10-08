@@ -99,8 +99,8 @@ glue = [
   "crates/tlvm/src/plain.rs：普通の JSON と値 JSON の相互変換（設計書の外側の便宜。変換後の値 JSON は検証済みの復号器で読む）",
   "crates/tlvm/src/main.rs：tlvm test の期待値との照合（出力の正準 JSON の文字列比較）",
   "crates/tlvm/src/records.rs：v1.1 のレコード型の展開（pair の入れ子と fst／snd への書き換え。検証済み部品は書き換え後の整形ソースを検査・実行する）",
-  "crates/tlvm/src/softnames.rs：v1.1 の文脈キーワード（組み込み関数名の変数名）の付け替え（α 変換。検証済み部品は付け替え後の整形ソースを検査・実行する）",
-  "crates/tlvm/src/main.rs：レコードか予約語の変数名を含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
+  "crates/tlvm/src/softnames.rs：tlvm ast の出力で、文脈キーワードの変数名を AST transport の識別子に付け替える（α 変換。検査・実行には使わない）",
+  "crates/tlvm/src/main.rs：レコードを含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
 ]
 unsafe = []
 tests = "cargo test --release（回帰テスト）。検証済み部品に切り替える前の処理系との差分テスト（型付きプログラム 400 件、字句・名前を壊したプログラム 2900 件、入力 JSON 4000 件）で出力・診断・終了コードが一致"

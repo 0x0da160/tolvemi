@@ -7,10 +7,10 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 35] = [
+pub const KEYWORDS: [&str; 40] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons", "match_option",
+    "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -19,8 +19,8 @@ pub fn is_keyword(s: &str) -> bool {
 
 pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
-        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "cons" | "concat" => 2,
-        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" => 1,
+        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
+        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" => 1,
         _ => return None,
     })
 }

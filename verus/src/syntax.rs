@@ -54,6 +54,11 @@ pub enum Kw {
     Length,
     Uncons,
     MatchOption,
+    Min,
+    Max,
+    Range,
+    Contains,
+    Sort,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -93,6 +98,11 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Length => seq!['l', 'e', 'n', 'g', 't', 'h'],
         Kw::Uncons => seq!['u', 'n', 'c', 'o', 'n', 's'],
         Kw::MatchOption => seq!['m', 'a', 't', 'c', 'h', '_', 'o', 'p', 't', 'i', 'o', 'n'],
+        Kw::Min => seq!['m', 'i', 'n'],
+        Kw::Max => seq!['m', 'a', 'x'],
+        Kw::Range => seq!['r', 'a', 'n', 'g', 'e'],
+        Kw::Contains => seq!['c', 'o', 'n', 't', 'a', 'i', 'n', 's'],
+        Kw::Sort => seq!['s', 'o', 'r', 't'],
     }
 }
 
@@ -153,6 +163,10 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Snd)
         } else if c3(s, 'l', 'e', 't') {
             Some(Kw::Let)
+        } else if c3(s, 'm', 'i', 'n') {
+            Some(Kw::Min)
+        } else if c3(s, 'm', 'a', 'x') {
+            Some(Kw::Max)
         } else {
             None
         }
@@ -181,6 +195,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Fold)
         } else if c4(s, 'c', 'o', 'n', 's') {
             Some(Kw::Cons)
+        } else if c4(s, 's', 'o', 'r', 't') {
+            Some(Kw::Sort)
         } else {
             None
         }
@@ -189,6 +205,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Entry)
         } else if c5(s, 'f', 'a', 'l', 's', 'e') {
             Some(Kw::False)
+        } else if c5(s, 'r', 'a', 'n', 'g', 'e') {
+            Some(Kw::Range)
         } else {
             None
         }
@@ -207,6 +225,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
     } else if s.len() == 7 {
         if c6(s, 'r', 'e', 'v', 'e', 'r', 's') && s[6] == 'e' {
             Some(Kw::Reverse)
+        } else {
+            None
+        }
+    } else if s.len() == 8 {
+        if c6(s, 'c', 'o', 'n', 't', 'a', 'i') && s[6] == 'n' && s[7] == 's' {
+            Some(Kw::Contains)
         } else {
             None
         }
@@ -239,6 +263,11 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Reverse => Kw::Reverse,
         Builtin::Length => Kw::Length,
         Builtin::Uncons => Kw::Uncons,
+        Builtin::Min => Kw::Min,
+        Builtin::Max => Kw::Max,
+        Builtin::Range => Kw::Range,
+        Builtin::Contains => Kw::Contains,
+        Builtin::Sort => Kw::Sort,
     }
 }
 
@@ -259,6 +288,11 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Reverse => Some(Builtin::Reverse),
         Kw::Length => Some(Builtin::Length),
         Kw::Uncons => Some(Builtin::Uncons),
+        Kw::Min => Some(Builtin::Min),
+        Kw::Max => Some(Builtin::Max),
+        Kw::Range => Some(Builtin::Range),
+        Kw::Contains => Some(Builtin::Contains),
+        Kw::Sort => Some(Builtin::Sort),
         _ => None,
     }
 }
@@ -296,6 +330,16 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
     &&& ident_start(x[0])
     &&& forall|i: int| 0 < i < x.len() ==> ident_char(#[trigger] x[i])
     &&& kw_of(x) is None
+}
+
+/// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
+pub open spec fn soft(k: Kw) -> bool {
+    kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair
+}
+
+/// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
+pub open spec fn name_ok(x: Seq<char>) -> bool {
+    ident_ok(x) || (kw_of(x) is Some && soft(kw_of(x)->Some_0))
 }
 
 // ------------------------------------------------------------------ token と表面 AST
@@ -356,7 +400,7 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         Sx::Int(n) => seq![Tok::Int(n)] + k,
         Sx::Bool(b) => seq![Tok::Kw(if b { Kw::True } else { Kw::False })] + k,
         Sx::Unit => seq![Tok::Kw(Kw::Unit)] + k,
-        Sx::Var(x) => seq![Tok::Id(x)] + k,
+        Sx::Var(x) => seq![word_tok(x)] + k,
         Sx::List(t, es) => seq![Tok::Kw(Kw::List), Tok::Sym('<')] + tt(
             t,
             seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, k),
@@ -369,7 +413,7 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         ),
         Sx::Builtin(b, es) => seq![Tok::Kw(bkw(b)), Tok::Sym('(')] + targs(es, 0, k),
         Sx::Call(f, es) => seq![Tok::Id(f), Tok::Sym('(')] + targs(es, 0, k),
-        Sx::Let(x, a, b) => seq![Tok::Kw(Kw::Let), Tok::Id(x), Tok::Sym('=')] + te(
+        Sx::Let(x, a, b) => seq![Tok::Kw(Kw::Let), word_tok(x), Tok::Sym('=')] + te(
             *a,
             seq![Tok::Kw(Kw::In)] + te(*b, k),
         ),
@@ -381,7 +425,7 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
             *l,
             seq![Tok::Sym(',')] + te(
                 *i,
-                seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(a), Tok::Sym(','), Tok::Id(x), Tok::Sym('|')]
+                seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')]
                     + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
@@ -389,7 +433,7 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
             *m,
             seq![Tok::Sym(',')] + te(
                 *n,
-                seq![Tok::Sym(','), Tok::Sym('|'), Tok::Id(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
+                seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
     }
@@ -415,7 +459,7 @@ pub open spec fn tps(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
     if i >= ps.len() {
         seq![Tok::Sym(')')] + k
     } else {
-        seq![Tok::Id(ps[i as int].0), Tok::Sym(':')] + tt(
+        seq![word_tok(ps[i as int].0), Tok::Sym(':')] + tt(
             ps[i as int].1,
             if i + 1 == ps.len() {
                 seq![Tok::Sym(')')] + k
@@ -671,6 +715,19 @@ pub open spec fn idt(ts: Seq<Tok>, i: nat) -> Option<Seq<char>> {
     }
 }
 
+/// 位置 i の変数・引数・束縛の名前（IDENT か文脈キーワード）。
+pub open spec fn bdt(ts: Seq<Tok>, i: nat) -> Option<Seq<char>> {
+    if i < ts.len() {
+        match ts[i as int] {
+            Tok::Id(x) => if ident_ok(x) { Some(x) } else { None },
+            Tok::Kw(k) => if soft(k) { Some(kwt(k)) } else { None },
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 /// 型。深さ上限 d を超える入れ子は受理しない。
 pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
     decreases d,
@@ -751,7 +808,9 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                 Some((Sx::Var(x), i + 1))
             },
             Tok::Kw(k) => {
-                if k == Kw::True {
+                if soft(k) && !sym(ts, i + 1, '(') && !sym(ts, i + 1, '<') {
+                    Some((Sx::Var(kwt(k)), i + 1))
+                } else if k == Kw::True {
                     Some((Sx::Bool(true), i + 1))
                 } else if k == Kw::False {
                     Some((Sx::Bool(false), i + 1))
@@ -820,7 +879,7 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                         None
                     }
                 } else if k == Kw::Let {
-                    match idt(ts, i + 1) {
+                    match bdt(ts, i + 1) {
                         Some(x) => if sym(ts, i + 2, '=') {
                             match pe(ts, i + 3, d1, td) {
                                 Some((a, j)) => if kwat(ts, j, Kw::In) {
@@ -871,7 +930,7 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                             Some((l, j)) => if sym(ts, j, ',') {
                                 match pe(ts, j + 1, d1, td) {
                                     Some((n, m)) => if sym(ts, m, ',') && sym(ts, m + 1, '|') {
-                                        match (idt(ts, m + 2), idt(ts, m + 4)) {
+                                        match (bdt(ts, m + 2), bdt(ts, m + 4)) {
                                             (Some(a), Some(x)) => if sym(ts, m + 3, ',') && sym(ts, m + 5, '|') {
                                                 match pe(ts, m + 6, d1, td) {
                                                     Some((b, q)) => if sym(ts, q, ')') {
@@ -905,7 +964,7 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                             Some((m, j)) => if sym(ts, j, ',') {
                                 match pe(ts, j + 1, d1, td) {
                                     Some((n, q)) => if sym(ts, q, ',') && sym(ts, q + 1, '|') {
-                                        match idt(ts, q + 2) {
+                                        match bdt(ts, q + 2) {
                                             Some(x) => if sym(ts, q + 3, '|') {
                                                 match pe(ts, q + 4, d1, td) {
                                                     Some((b, u)) => if sym(ts, u, ')') {
@@ -994,7 +1053,7 @@ pub open spec fn pparams(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char
 pub open spec fn pparams1(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, nat)>
     decreases ts.len() - i,
 {
-    match idt(ts, i) {
+    match bdt(ts, i) {
         Some(x) => if sym(ts, i + 1, ':') {
             match pt(ts, i + 2, td) {
                 Some((t, j)) => if sym(ts, j, ')') {
@@ -1103,21 +1162,21 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
     d > 0 && {
         let d1 = (d - 1) as nat;
         match e {
-            Sx::Var(x) => ident_ok(x),
+            Sx::Var(x) => name_ok(x),
             Sx::List(t, es) => bt(t, td) && bxs(es, 0, d1, td),
             Sx::Some(a) => bx(*a, d1, td),
             Sx::None(t) => bt(t, td),
             Sx::Pair(a, b) => bx(*a, d1, td) && bx(*b, d1, td),
             Sx::Builtin(_, es) => bxs(es, 0, d1, td),
             Sx::Call(f, es) => ident_ok(f) && bxs(es, 0, d1, td),
-            Sx::Let(x, a, b) => ident_ok(x) && bx(*a, d1, td) && bx(*b, d1, td),
+            Sx::Let(x, a, b) => name_ok(x) && bx(*a, d1, td) && bx(*b, d1, td),
             Sx::If(c, a, b) => bx(*c, d1, td) && bx(*a, d1, td) && bx(*b, d1, td),
-            Sx::Fold(l, i, a, x, b) => ident_ok(a) && ident_ok(x) && bx(*l, d1, td) && bx(*i, d1, td) && bx(
+            Sx::Fold(l, i, a, x, b) => name_ok(a) && name_ok(x) && bx(*l, d1, td) && bx(*i, d1, td) && bx(
                 *b,
                 d1,
                 td,
             ),
-            Sx::Match(m, n, x, b) => ident_ok(x) && bx(*m, d1, td) && bx(*n, d1, td) && bx(*b, d1, td),
+            Sx::Match(m, n, x, b) => name_ok(x) && bx(*m, d1, td) && bx(*n, d1, td) && bx(*b, d1, td),
             _ => true,
         }
     }
@@ -1132,7 +1191,7 @@ pub open spec fn bxs(es: Seq<Sx>, i: nat, d: nat, td: nat) -> bool
 pub open spec fn bps(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
     decreases ps.len() - i,
 {
-    i >= ps.len() || (ident_ok(ps[i as int].0) && bt(ps[i as int].1, td) && bps(ps, i + 1, td))
+    i >= ps.len() || (name_ok(ps[i as int].0) && bt(ps[i as int].1, td) && bps(ps, i + 1, td))
 }
 
 pub open spec fn bd(x: Sd, d: nat, td: nat) -> bool {
