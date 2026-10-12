@@ -18,6 +18,8 @@ use tlvm_verified::value::Value as EV;
 
 pub enum Value {
     Int(BigInt),
+    /// v1.2：Unicode scalar value（code point）
+    Char(u32),
     Bool(bool),
     Unit,
     None,
@@ -121,6 +123,11 @@ pub fn encode_value(v: &V) -> String {
                 out.push_str(&n.to_string());
                 out.push_str("\"}");
             }
+            Value::Char(c) => {
+                out.push_str("{\"tag\":\"char\",\"value\":\"");
+                out.push_str(&c.to_string());
+                out.push_str("\"}");
+            }
             Value::Bool(b) => out.push_str(if *b { "{\"tag\":\"bool\",\"value\":true}" } else { "{\"tag\":\"bool\",\"value\":false}" }),
             Value::Unit => out.push_str("{\"tag\":\"unit\"}"),
             Value::None => out.push_str("{\"tag\":\"none\"}"),
@@ -183,7 +190,7 @@ impl std::fmt::Debug for TypedValue {
 
 fn fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
-        "int" => &[("value", JKind::String)],
+        "int" | "char" => &[("value", JKind::String)],
         "bool" => &[("value", JKind::Boolean)],
         "list" => &[("items", JKind::Array)],
         "some" => &[("value", JKind::Object)],
@@ -197,6 +204,7 @@ fn tags_for(t: &Ty) -> &'static [&'static str] {
         TyTag::Int => &["int"],
         TyTag::Bool => &["bool"],
         TyTag::Unit => &["unit"],
+        TyTag::Char => &["char"],
         TyTag::List => &["list"],
         TyTag::Option => &["some", "none"],
         TyTag::Pair => &["pair"],
@@ -228,6 +236,7 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
         TyTag::Int => VTy::Int,
         TyTag::Bool => VTy::Bool,
         TyTag::Unit => VTy::Unit,
+        TyTag::Char => VTy::Char,
         TyTag::List => VTy::List(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Option => VTy::Option(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Pair => VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
@@ -390,6 +399,16 @@ impl Decoder<'_> {
                         .act(digits.to_string()));
                 }
                 V::new(Value::Int(s.text.parse().unwrap()))
+            }
+            "char" => {
+                let s = n.get("value").unwrap();
+                if !is_canonical_int(&s.text) {
+                    return self.fail("E-INPUT-INTEGER", s.span());
+                }
+                match s.text.parse::<u32>().ok().and_then(char::from_u32) {
+                    Some(c) => V::new(Value::Char(c as u32)),
+                    None => return self.fail("E-INPUT-CHAR", s.span()),
+                }
             }
             "bool" => V::new(Value::Bool(n.get("value").unwrap().boolean)),
             "unit" => V::new(Value::Unit),

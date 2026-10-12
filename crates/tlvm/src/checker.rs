@@ -10,9 +10,9 @@ use std::collections::{HashMap, HashSet};
 
 // ======================================================================= name
 
-const BUILTINS: [&str; 20] = [
+const BUILTINS: [&str; 24] = [
     "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons",
-    "min", "max", "range", "contains", "sort",
+    "min", "max", "range", "contains", "sort", "code", "char", "to_string", "parse_int",
 ];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
@@ -360,6 +360,11 @@ impl<'a> TypeChecker<'a> {
         self.event(Ev::Visit, m)?;
         match &e.kind {
             ExprKind::Int(_) => self.build(Ty::int(), m),
+            ExprKind::Char(_) => self.build(Ty::char(), m),
+            ExprKind::Str(_) => {
+                let c = self.build(Ty::char(), m)?;
+                self.build(Ty::list(c), m)
+            }
             ExprKind::Bool(_) => self.build(Ty::bool(), m),
             ExprKind::Unit => self.build(Ty::unit(), m),
             ExprKind::Var(n) => Ok(self.lookup(n)),
@@ -620,6 +625,29 @@ impl<'a> TypeChecker<'a> {
                 } else {
                     self.build(Ty::int(), m)
                 }
+            }
+            // v1.2：文字と文字列
+            "code" => {
+                let c = Ty::char();
+                need!(self.equal(&ts[0], &c, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &c, &ts[0]);
+                if ok { self.build(Ty::int(), m) } else { Ok(Ty::error()) }
+            }
+            "char" | "to_string" => {
+                need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
+                if !ok {
+                    return Ok(Ty::error());
+                }
+                let c = self.build(Ty::char(), m)?;
+                if name == "char" { self.build(Ty::option(c), m) } else { self.build(Ty::list(c), m) }
+            }
+            "parse_int" => {
+                let st = Ty::string();
+                need!(self.equal(&ts[0], &st, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &st, &ts[0]);
+                if !ok {
+                    return Ok(Ty::error());
+                }
+                let i = self.build(Ty::int(), m)?;
+                self.build(Ty::option(i), m)
             }
             _ => unreachable!("unknown builtin {name}"),
         }

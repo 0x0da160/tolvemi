@@ -13,6 +13,7 @@ pub enum EExpr {
     Int(Int),
     Bool(bool),
     Unit,
+    Char(u32),
     Var(usize),
     List(Ty, Vec<EExpr>),
     Some(Box<EExpr>),
@@ -33,6 +34,7 @@ pub open spec fn view_expr(e: EExpr) -> Expr
         EExpr::Int(n) => Expr::Int(n@),
         EExpr::Bool(b) => Expr::Bool(b),
         EExpr::Unit => Expr::Unit,
+        EExpr::Char(c) => Expr::Char(c as int),
         EExpr::Var(x) => Expr::Var(x as nat),
         EExpr::List(t, es) => Expr::List(t, view_exprs(es)),
         EExpr::Some(x) => Expr::Some(Box::new(view_expr(*x))),
@@ -107,6 +109,7 @@ pub fn ty_clone(t: &Ty) -> (r: Ty)
         Ty::Int => Ty::Int,
         Ty::Bool => Ty::Bool,
         Ty::Unit => Ty::Unit,
+        Ty::Char => Ty::Char,
         Ty::List(a) => Ty::List(Box::new(ty_clone(a))),
         Ty::Option(a) => Ty::Option(Box::new(ty_clone(a))),
         Ty::Pair(a, b) => Ty::Pair(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
@@ -119,7 +122,7 @@ pub fn ty_eq(s: &Ty, t: &Ty) -> (r: bool)
     decreases s,
 {
     match (s, t) {
-        (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Unit, Ty::Unit) => true,
+        (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Unit, Ty::Unit) | (Ty::Char, Ty::Char) => true,
         (Ty::List(a), Ty::List(b)) | (Ty::Option(a), Ty::Option(b)) => ty_eq(a, b),
         (Ty::Pair(a, b), Ty::Pair(c, d)) => ty_eq(a, c) && ty_eq(b, d),
         _ => false,

@@ -27,6 +27,7 @@ notes = [
   "名前規則（関数名の一意性、変数の scope、shadowing と fold binder 重複の拒否、entry の存在と一引数）は resolve.rs の resolve で定める",
   "入力 JSON は input.rs の jparse（strict JSON、構造の入れ子の深さ上限つき）と jd（値 JSON）で定める。文字列は Unicode scalar 値の列として読み、対にならない surrogate は拒否する",
   "入力の資源上限（値の深さ・node 数・整数の桁数）は spec に含まない",
+  "v1.2：文字はスカラー値（scalar）で、Val::Char の型付けがそれを含む。String は List<Char> で、型の綴りは String だけ（pt が List<Char> を拒否）。文字列リテラルは名前解決で文字のリストの式になる（str_exprs）",
 ]
 
 [verus]
@@ -34,7 +35,7 @@ version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
 command = "cd verus && cargo verus focus -- --triggers-mode silent"
-result = "519 verified, 0 errors"
+result = "587 verified, 0 errors"
 assume = []
 admit = []
 # external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
@@ -50,6 +51,7 @@ trusted = [
   "mod_pos：正の除数に対する床剰余（= Euclid 剰余）",
   "to_dec、to_dec_chars：to_string が正準十進表記 int_dec を返すこと",
   "bits：IntegerBits 上限の判定にだけ使い、証明には現れない",
+  "to_u32：値が 0〜u32::MAX なら Some（v1.2 の char(n) と入力の文字の復号で、スカラー値の範囲判定の前に使う）",
 ]
 
 [proved]

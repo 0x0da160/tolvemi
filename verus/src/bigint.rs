@@ -175,6 +175,15 @@ impl Int {
         self.n.to_string().chars().collect()
     }
 
+    /// u32 に収まればその値。
+    #[verifier::external_body]
+    pub fn to_u32(&self) -> (r: Option<u32>)
+        ensures
+            r == (if 0 <= self@ <= u32::MAX as int { Some(self@ as u32) } else { None::<u32> }),
+    {
+        num_traits::ToPrimitive::to_u32(&self.n)
+    }
+
     /// 絶対値の bit 長（IntegerBits 上限の判定に使うだけで、証明には現れない）。
     #[verifier::external_body]
     pub fn bits(&self) -> u64 {

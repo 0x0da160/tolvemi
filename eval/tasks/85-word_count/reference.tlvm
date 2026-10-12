@@ -1,0 +1,7 @@
+// pair(count, previous character was a space)
+fn solve(s: String) -> Int =
+  fst(fold(s, pair(0, true), |acc, c|
+    if(eq(c, ' '),
+      pair(fst(acc), true),
+      pair(if(snd(acc), add(fst(acc), 1), fst(acc)), false))))
+entry solve

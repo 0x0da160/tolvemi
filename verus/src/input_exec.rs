@@ -769,6 +769,21 @@ fn t_int_e() -> (r: Vec<u32>)
     codes(&w)
 }
 
+fn t_char_e() -> (r: Vec<u32>)
+    ensures
+        r@ == t_char(),
+{
+    let mut w: Vec<char> = Vec::new();
+    w.push('c');
+    w.push('h');
+    w.push('a');
+    w.push('r');
+    proof {
+        assert(w@ =~= c_char());
+    }
+    codes(&w)
+}
+
 fn t_bool_e() -> (r: Vec<u32>)
     ensures
         r@ == t_bool(),
@@ -1168,6 +1183,28 @@ pub fn jd_e(j: &EJ, t: &Ty) -> (r: Option<Rc<Value>>)
                     match &vs[iv] {
                         EJ::Str(x) => match cint_e(x) {
                             Some(n) => Some(Rc::new(Value::Int(n))),
+                            None => None,
+                        },
+                        _ => None,
+                    }
+                },
+                Ty::Char => {
+                    if !(eq_u32s(g, &t_char_e()) && only_e(ks, &req2(k_tag_e(), k_value_e()))) || iv >= vs.len() {
+                        return None;
+                    }
+                    proof {
+                        assert(vsv[iv as int] == vj(vs@[iv as int]));
+                    }
+                    match &vs[iv] {
+                        EJ::Str(x) => match cint_e(x) {
+                            Some(n) => match n.to_u32() {
+                                Some(u) => if crate::check::scalar_u32(u) {
+                                    Some(Rc::new(Value::Char(u)))
+                                } else {
+                                    None
+                                },
+                                None => None,
+                            },
                             None => None,
                         },
                         _ => None,

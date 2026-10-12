@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.1), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.2), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.1)
+# Tolvemi (LPTL v1.2)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 terminates and returns exactly one value of its declared type. There is no I/O, no mutation, no general
@@ -25,7 +25,7 @@ entry sum_even
 - `fn name(p1: T1, p2: T2, ...) -> R = expr`. A function body is a single expression.
 - Functions may call other functions, but the call graph must be acyclic: no recursion, direct or mutual.
 - The entry function takes exactly one parameter. Several inputs arrive packed in `Pair`s.
-- Comments start with `//` and run to the end of the line. Outside comments, the source must be ASCII.
+- Comments start with `//` and run to the end of the line. Outside comments and string or char literals, the source must be ASCII.
 
 ## Types and values
 
@@ -37,8 +37,12 @@ entry sum_even
 | `List<T>` | `list<T>(e1, e2, ...)`; the empty list is `list<T>()` (the element type is always written) |
 | `Option<T>` | `some(e)`, `none<T>()` (the payload type is always written) |
 | `Pair<A, B>` | `pair(a, b)` |
+| `Char` | a Unicode character: `'a'`, `'"'`, `'\''`, `'\n'` |
+| `String` | text: `"hello"`, `""`, `"say \"hi\"\n"`. A `String` **is** a `List<Char>`, but the type is always written `String` (`List<Char>` is rejected) |
 
-There are no strings, floats, type variables or generics. Records (below) are the only user-defined types.
+Escapes in literals: `\\`, `\n`, `\t`, `\r`, and the literal's own quote (`\"` in strings, `\'` in chars). Nothing else.
+In JSON inputs and outputs, a `String` is a JSON string and a `Char` is a one-character JSON string.
+There are no floats, type variables or generics. Records (below) are the only user-defined types.
 Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
 ## Expressions
@@ -73,6 +77,13 @@ Type arguments are always written in angle brackets, as in types; square bracket
 | `range(a, b)` | `Int, Int -> List<Int>` | `[a, a+1, ..., b-1]`; empty when `b <= a`. `range(0, length(xs))` gives the indices of `xs` |
 | `contains(xs, x)` | `List<A>, A -> Bool` | whether some element equals `x` (structural equality) |
 | `sort(xs)` | `List<Int> -> List<Int>` | ascending order, duplicates kept |
+| `code(c)` | `Char -> Int` | the character's code point: `code('A') = 65` |
+| `char(n)` | `Int -> Option<Char>` | `some(c)` if `n` is a valid code point, otherwise `none<Char>()` |
+| `to_string(n)` | `Int -> String` | decimal text: `to_string(-12) = "-12"` |
+| `parse_int(s)` | `String -> Option<Int>` | `some(n)` if `s` is an optional `-` followed by one or more digits, otherwise `none<Int>()` |
+
+Strings are lists of characters, so the list builtins and `fold` work on them directly: `concat("ab", "c")`,
+`length(s)`, `reverse(s)`, `eq(s, "yes")`, `contains(s, ' ')`, `uncons(s)`, `fold(s, 0, |n, c| ...)`.
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
 There is no division, `head`, `tail`, indexing, `map`, `filter`, `abs`, `not`, `and` or `or`; build
@@ -111,9 +122,9 @@ entry solve
 ## Names and scoping
 
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
-  Pair true false unit let in if fold match_option`.
+  Pair Char String true false unit let in if fold match_option`.
 - `entry` and the builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
-  length uncons min max range contains sort` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  length uncons min max range contains sort code char to_string parse_int` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
 - No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
@@ -182,6 +193,24 @@ Before answering, check: every `(` is closed (count them in deep nesting), every
 `none<T>()` and `list<T>(...)` names its type, no binder reuses a name already in scope, and no name is a
 reserved word (`in`, `if`, `let` and `fold` are the usual slips).
 
+Text: a `String` is a list of characters, so scan it with `fold` and build text with `concat` (or `cons` then
+`reverse`). Convert numbers with `to_string` and `parse_int`.
+
+```tlvm
+// Split a line into words separated by spaces (empty words are dropped).
+type Split = { words: List<String>, cur: String }
+
+fn flush(s: Split) -> List<String> =
+  if(eq(s.cur, ""), s.words, cons(reverse(s.cur), s.words))
+
+fn step(s: Split, c: Char) -> Split =
+  if(eq(c, ' '), Split { words: flush(s), cur: "" }, Split { cur: cons(c, s.cur), ..s })
+
+fn words(line: String) -> List<String> =
+  reverse(flush(fold(line, Split { words: list<String>(), cur: "" }, |s, c| step(s, c))))
+entry words
+```
+
 ## Diagnostics
 
 The checker reports errors as `file:line:col: error[CODE]: message (expected ..., found ...)`, often followed by a
@@ -200,6 +229,8 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |
 | `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option, or branches of different types |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
+| `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |
+| `E-LEX-INVALID-ESCAPE` / `E-LEX-UNTERMINATED-STRING` / `E-LEX-INVALID-CHAR-LITERAL` | a bad escape, a string without its closing `"`, or a char literal that is not exactly one character |
 | `E-ENTRY-MISSING` / `E-ENTRY-ARITY` | no `entry` line, or the entry function does not take exactly one parameter |
 
 ## Output format

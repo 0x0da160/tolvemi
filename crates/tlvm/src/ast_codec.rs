@@ -12,9 +12,11 @@ use JKind::{Array as A, Boolean as B, Object as O, String as S};
 const PROGRAM_FIELDS: &[(&str, JKind)] = &[("codec", S), ("declarations", A)];
 const PARAM_FIELDS: &[(&str, JKind)] = &[("name", S), ("type", O)];
 const DECL_TAGS: &[&str] = &["fn", "entry"];
-const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "list", "option", "pair"];
-const EXPR_TAGS: &[&str] =
-    &["int", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option"];
+/// v1.2：`char`、`string`（`String` は一つの node。`list` の要素に `char` は書けない）
+const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair"];
+const EXPR_TAGS: &[&str] = &[
+    "int", "char", "string", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option",
+];
 
 fn decl_fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
@@ -33,7 +35,7 @@ fn type_fields(tag: &str) -> &'static [(&'static str, JKind)] {
 
 fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
-        "int" => &[("value", S)],
+        "int" | "char" | "string" => &[("value", S)],
         "bool" => &[("value", B)],
         "var" => &[("name", S)],
         "list" => &[("element_type", O), ("items", A)],
@@ -54,10 +56,24 @@ fn type_tag(tag: &str) -> TyTag {
         "int" => TyTag::Int,
         "bool" => TyTag::Bool,
         "unit" => TyTag::Unit,
+        "char" => TyTag::Char,
         "list" => TyTag::List,
         "option" => TyTag::Option,
         _ => TyTag::Pair,
     }
+}
+
+/// v1.2：リテラルに書ける文字（検証済み構文の `lit_ok`）。
+pub fn literal_char_ok(c: char) -> bool {
+    (c as u32) >= 0x20 || matches!(c, '\n' | '\t' | '\r')
+}
+
+/// v1.2：AST JSON の文字リテラル（code point の正準十進表記）。
+fn literal_char(s: &str) -> Option<char> {
+    if !is_canonical_int(s) || s.len() > 7 {
+        return None;
+    }
+    char::from_u32(s.parse().ok()?).filter(|c| literal_char_ok(*c))
 }
 
 pub fn is_identifier(s: &str) -> bool {
@@ -199,6 +215,13 @@ impl Schema<'_> {
         let tag = self.header(n, TYPE_TAGS)?;
         let fs = type_fields(tag);
         self.keys(n, fs, true)?;
+        if tag == "list" {
+            // `List<Char>` は `{"tag":"string"}` と書く
+            let el = n.get("element").unwrap();
+            if el.kind == O && el.get("tag").is_some_and(|t| t.kind == S && t.text == "char") {
+                return Err(fail("E-AST-STRING-TYPE", n.span()).exp("{\"tag\":\"string\"}").act("list of char"));
+            }
+        }
         for (k, _) in fs {
             self.ty(n.get(k).unwrap())?;
         }
@@ -221,6 +244,16 @@ impl Schema<'_> {
                         return Err(fail("E-AST-LIMIT-INTEGER-DIGITS", c.span())
                             .exp(self.sp.integer_digits.to_string())
                             .act(digits.to_string()));
+                    }
+                }
+                ("char", _) => {
+                    if literal_char(&c.text).is_none() {
+                        return Err(fail("E-AST-LITERAL", c.span()).exp("decimal code of a char (>= 32, or 9, 10, 13)"));
+                    }
+                }
+                ("string", _) => {
+                    if !c.text.chars().all(literal_char_ok) {
+                        return Err(fail("E-AST-LITERAL", c.span()).exp("string without control chars other than \\n, \\t, \\r"));
                     }
                 }
                 ("bool", _) => {}
@@ -294,6 +327,10 @@ impl Builder {
     fn ty(&mut self, n: &JNode, depth: usize) -> Result<TypeNode, Diagnostic> {
         let tag = &n.get("tag").unwrap().text;
         let i = self.adm.admit(n.span(), Depths { ty: Some(depth), ..Default::default() })?;
+        if tag == "string" {
+            let meta = Meta::new(n.span(), i);
+            return Ok(TypeNode::new(TyTag::List, vec![TypeNode::new(TyTag::Char, vec![], meta)], meta));
+        }
         let mut args = vec![];
         for (k, _) in type_fields(tag) {
             args.push(self.ty(n.get(k).unwrap(), depth + 1)?);
@@ -314,6 +351,8 @@ impl Builder {
         let g = |k: &str| n.get(k).unwrap();
         let kind = match tag {
             "int" => ExprKind::Int(g("value").text.parse().unwrap()),
+            "char" => ExprKind::Char(literal_char(&g("value").text).expect("schema checked char")),
+            "string" => ExprKind::Str(g("value").text.clone()),
             "bool" => ExprKind::Bool(g("value").boolean),
             "unit" => ExprKind::Unit,
             "var" => ExprKind::Var(g("name").text.clone()),

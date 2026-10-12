@@ -408,6 +408,41 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                     assert(r[i] == s[s.len() - 1 - i]);
                 }
             },
+            Builtin::Code => {
+                assert(vs[0] is Char);
+            },
+            Builtin::CharOf => {
+                assert(vs[0] is Int);
+                let n = vs[0]->Int_0;
+                if scalar(n) {
+                    assert(val_type(Val::Char(n), Ty::Char));
+                    assert(apply(b, vs) == Res::Done(Val::Some(Box::new(Val::Char(n)))));
+                }
+            },
+            Builtin::ToString => {
+                assert(vs[0] is Int);
+                let r = chars(crate::bigint::int_dec(vs[0]->Int_0));
+                val_type_list(r, Ty::Char);
+                let w = crate::bigint::int_dec(vs[0]->Int_0);
+                assert forall|i: int| 0 <= i < r.len() implies #[trigger] val_type(r[i], Ty::Char) by {
+                    let ch = w[i];
+                    assert(r[i] == Val::Char(ch as u32 as int));
+                    assert(scalar(ch as u32 as int));
+                }
+                assert(apply(b, vs) == Res::Done(Val::List(r)));
+                assert(val_type(Val::List(r), Ty::List(Box::new(Ty::Char))));
+            },
+            Builtin::ParseInt => {
+                assert(vs[0] is List);
+                assert(builtin_type(b, ts)->Some_0 == Ty::Option(Box::new(Ty::Int)));
+                match int_of(vs[0]->List_0) {
+                    Some(n) => {
+                        assert(val_type(Val::Int(n), Ty::Int));
+                        assert(val_type(Val::Some(Box::new(Val::Int(n))), Ty::Option(Box::new(Ty::Int))));
+                    },
+                    None => {},
+                }
+            },
             _ => {},
         }
     }
@@ -432,6 +467,7 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
         Expr::Int(n) => (1, Val::Int(n)),
         Expr::Bool(b) => (1, Val::Bool(b)),
         Expr::Unit => (1, Val::Unit),
+        Expr::Char(c) => (1, Val::Char(c)),
         Expr::None(_) => (1, Val::None),
         Expr::Var(x) => {
             assert(ctx.contains_key(x));

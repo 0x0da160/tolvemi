@@ -426,6 +426,14 @@ pub open spec fn t_int() -> Seq<u32> {
     cs(c_int())
 }
 
+pub open spec fn c_char() -> Seq<char> {
+    seq!['c', 'h', 'a', 'r']
+}
+
+pub open spec fn t_char() -> Seq<u32> {
+    cs(c_char())
+}
+
 pub open spec fn c_bool() -> Seq<char> {
     seq!['b', 'o', 'o', 'l']
 }
@@ -556,6 +564,17 @@ pub open spec fn jd(j: J, t: Ty) -> Option<Val>
                                 match vs[iv as int] {
                                     J::Str(x) => match cint(x) {
                                         Some(n) => Some(Val::Int(n)),
+                                        None => None,
+                                    },
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            },
+                            Ty::Char => if g == t_char() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                match vs[iv as int] {
+                                    J::Str(x) => match cint(x) {
+                                        Some(n) => if scalar(n) { Some(Val::Char(n)) } else { None },
                                         None => None,
                                     },
                                     _ => None,

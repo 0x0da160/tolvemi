@@ -23,15 +23,20 @@ pub const MAX_PER_SEVERITY: usize = 32;
 /// message テンプレート。正式な diagnostic registry は未作成（G0 未達）なので暫定版。
 pub fn message_for(code: &str) -> &'static str {
     match code {
-        "E-LEX-NON-ASCII" => "コメント外に非 ASCII 文字があります",
+        "E-LEX-NON-ASCII" => "コメントと文字・文字列リテラルの外に非 ASCII 文字があります",
         "E-LEX-UNEXPECTED-CHARACTER" => "この文字はトークンを開始できません",
         "E-LEX-INVALID-INTEGER" => "整数リテラルが正規形ではありません",
         "E-LEX-INVALID-NUMERIC-BOUNDARY" => "整数の直後に識別子文字や符号が続いています",
+        "E-LEX-INVALID-ESCAPE" => "使えないエスケープです（\\\\、\\n、\\t、\\r と、文字では \\'、文字列では \\\" だけ）",
+        "E-LEX-UNTERMINATED-STRING" => "文字列リテラルが行末（または EOF）までに閉じていません",
+        "E-LEX-INVALID-CHAR-LITERAL" => "文字リテラルは引用符 ' で囲んだちょうど 1 文字（またはエスケープ 1 つ）でなければなりません",
+        "E-LEX-CONTROL-CHAR-IN-LITERAL" => "リテラルの中に生の制御文字は書けません（改行・タブ・復帰はエスケープで書きます）",
         "E-PARSE-UNEXPECTED-TOKEN" => "ここには fn、entry、type、EOF のいずれかが必要です",
         "E-PARSE-EXPECTED-TOKEN" => "必要な区切り記号がありません",
         "E-PARSE-EXPECTED-TYPE" => "型が必要です",
         "E-PARSE-EXPECTED-IDENT" => "識別子が必要です（予約語は使えません）",
         "E-PARSE-EXPECTED-EXPR" => "式が必要です",
+        "E-PARSE-STRING-TYPE" => "List<Char> は String と書きます",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
@@ -89,6 +94,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-INPUT-TAG" => "入力値の tag が期待型と一致しません",
         "E-INPUT-UNKNOWN-FIELD" => "入力値に未知のキーがあります",
         "E-INPUT-INTEGER" => "入力整数が正規形ではありません",
+        "E-INPUT-CHAR" => "入力の文字が Unicode scalar value ではありません",
         "E-LIMIT-INPUT-JSON-BYTES" => "入力 JSON bytes が上限を超えました",
         "E-LIMIT-INPUT-JSON-DEPTH" => "入力 JSON の構造深さが上限を超えました",
         "E-LIMIT-INPUT-VALUE-DEPTH" => "入力値の深さが上限を超えました",
@@ -104,6 +110,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-AST-FIELD-TYPE" => "JSON 型が不正です",
         "E-AST-IDENTIFIER" => "識別子が不正です",
         "E-AST-INTEGER" => "整数が正規形ではありません",
+        "E-AST-LITERAL" => "文字・文字列リテラルに書けない文字があります",
+        "E-AST-STRING-TYPE" => "List<Char> は {\"tag\":\"string\"} と書きます",
         "E-AST-LIMIT-BYTES" => "AST JSON bytes が上限を超えました",
         "E-AST-LIMIT-JSON-DEPTH" => "AST JSON の構造深さが上限を超えました",
         "E-AST-LIMIT-INTEGER-DIGITS" => "整数の桁数が上限を超えました",
@@ -334,8 +342,29 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 }),
                 _ => None,
             },
-            "E-PARSE-EXPECTED-TYPE" => {
-                Some(("replace_type", span, "type: Int | Bool | Unit | List<T> | Option<T> | Pair<A, B>".into()))
+            "E-PARSE-EXPECTED-TYPE" => Some((
+                "replace_type",
+                span,
+                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B>".into(),
+            )),
+            "E-PARSE-STRING-TYPE" => Some(("replace_type", span, "String".into())),
+            "E-LEX-INVALID-ESCAPE" => Some((
+                "replace_expression",
+                span,
+                "escape: \\\\, \\n, \\t, \\r, and the delimiter quote (\\' in a char literal, \\\" in a string literal)".into(),
+            )),
+            "E-LEX-UNTERMINATED-STRING" => Some((
+                "insert_text",
+                (span.1, span.1),
+                "closing '\"' (a line break inside a string literal is written \\n)".into(),
+            )),
+            "E-LEX-INVALID-CHAR-LITERAL" => Some((
+                "replace_expression",
+                span,
+                "one char between single quotes, such as 'a' or '\\n'; a sequence of chars is a string literal \"...\"".into(),
+            )),
+            "E-LEX-CONTROL-CHAR-IN-LITERAL" => {
+                Some(("replace_expression", span, "escape \\n, \\t or \\r; other control chars cannot be written".into()))
             }
             _ => None,
         };
@@ -356,6 +385,13 @@ fn open_paren(source: &[u8], upto: usize) -> Option<(usize, String)> {
                     i += 1;
                 }
                 continue;
+            }
+            // v1.2：文字・文字列リテラルの中の括弧は数えない
+            q @ (b'"' | b'\'') => {
+                i += 1;
+                while i < upto.min(source.len()) && source[i] != q && source[i] != b'\n' {
+                    i += if source[i] == b'\\' { 2 } else { 1 };
+                }
             }
             b'(' => stack.push(i),
             b')' => {

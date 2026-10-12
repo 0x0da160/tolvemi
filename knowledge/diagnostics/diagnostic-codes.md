@@ -42,6 +42,8 @@ sources:
 | コード | phase | 意味 |
 |---|---|---|
 | `E-LEX-INVALID-NUMERIC-BOUNDARY` | lex | `12x` のような整数直後の識別子文字 |
+| `E-LEX-INVALID-ESCAPE`、`E-LEX-UNTERMINATED-STRING`、`E-LEX-INVALID-CHAR-LITERAL`、`E-LEX-CONTROL-CHAR-IN-LITERAL` | lex | v1.2 の文字・文字列リテラルの不正（[v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md) §6a） |
+| `E-PARSE-STRING-TYPE` | parse | 型に `List<Char>` と書いた（`String` と書く） |
 | `E-LEX-NON-ASCII` | lex | 非コメント部の非 ASCII |
 | `E-PARSE-UNEXPECTED-TOKEN` | parse | 完成した式の後に fn/entry/EOF 以外 |
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |

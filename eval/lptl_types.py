@@ -20,7 +20,7 @@ def parse_type(s: str) -> Type:
         nonlocal pos
         name = toks[pos]
         pos += 1
-        if name in ("Int", "Bool", "Unit"):
+        if name in ("Int", "Bool", "Unit", "Char", "String"):
             return (name,)
         if name in ("List", "Option"):
             expect("<")
@@ -59,9 +59,30 @@ def _check_nullable(t: Type) -> None:
         raise ValueError("Option<Unit> / Option<Option<T>> are not used in eval tasks")
 
 
+_ESC = {"\\": "\\\\", "\n": "\\n", "\t": "\\t", "\r": "\\r"}
+
+
+def _quote(s: str, q: str) -> str:
+    out = []
+    for c in s:
+        if c in _ESC:
+            out.append(_ESC[c])
+        elif c == q:
+            out.append("\\" + q)
+        elif ord(c) < 0x20:
+            raise ValueError("control characters other than \\n \\t \\r cannot be written in a literal")
+        else:
+            out.append(c)
+    return q + "".join(out) + q
+
+
 def lptl_literal(v: Any, t: Type) -> str:
     """plain JSON の値を LPTL の値リテラル（ソースに書ける式）にする。"""
     k = t[0]
+    if k == "String":
+        return _quote(v, '"')
+    if k == "Char":
+        return _quote(v, "'")
     if k == "Int":
         return str(int(v))
     if k == "Bool":
@@ -112,6 +133,14 @@ def from_python(v: Any, t: Type) -> Any:
         if v is not None:
             raise TypeError(f"expected None, got {type(v).__name__}")
         return None
+    if k == "String":
+        if not isinstance(v, str):
+            raise TypeError(f"expected str, got {type(v).__name__}")
+        return v
+    if k == "Char":
+        if not isinstance(v, str) or len(v) != 1:
+            raise TypeError("expected a one-character str")
+        return v
     if k == "List":
         if not isinstance(v, (list, tuple)):
             raise TypeError(f"expected list, got {type(v).__name__}")
@@ -143,6 +172,10 @@ class Gen:
             return rng.random() < 0.5
         if k == "Unit":
             return None
+        if k == "Char":
+            return rng.choice("abcxyz019 -,")
+        if k == "String":
+            return "".join(rng.choice("abcxyz019 -,") for _ in range(rng.randint(0, 12)))
         if k == "List":
             n = rng.choice([0, 1, 2, 3, 4, 5, 6, 8]) if depth < 2 else rng.randint(0, 3)
             return [self.value(t[1], rng, depth + 1) for _ in range(n)]

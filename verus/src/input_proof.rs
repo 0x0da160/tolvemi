@@ -174,6 +174,7 @@ pub open spec fn jt(v: Val) -> J
 {
     match v {
         Val::Int(n) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_int()), J::Str(cs(int_dec(n)))]),
+        Val::Char(n) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_char()), J::Str(cs(int_dec(n)))]),
         Val::Bool(b) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_bool()), J::Bool(b)]),
         Val::Unit => J::Obj(seq![k_tag()], seq![J::Str(t_unit())]),
         Val::None => J::Obj(seq![k_tag()], seq![J::Str(t_none())]),
@@ -357,6 +358,13 @@ proof fn plain_int()
     assert forall|k: int| 0 <= k < c_int().len() implies pc(#[trigger] c_int()[k]) by {}
 }
 
+proof fn plain_char()
+    ensures
+        plain(c_char()),
+{
+    assert forall|k: int| 0 <= k < c_char().len() implies pc(#[trigger] c_char()[k]) by {}
+}
+
 proof fn plain_bool()
     ensures
         plain(c_bool()),
@@ -407,6 +415,17 @@ proof fn lay_int()
     reveal(l_int1);
     reveal(l_int2);
     assert(l_int1() =~= pre(c_int()) + seq![','] + hdr(c_value()) + q());
+    assert(l_int2() =~= q() + seq!['}']);
+}
+
+proof fn lay_char()
+    ensures
+        l_char1() == pre(c_char()) + seq![','] + hdr(c_value()) + q(),
+        l_int2() == q() + seq!['}'],
+{
+    reveal(l_char1);
+    reveal(l_int2);
+    assert(l_char1() =~= pre(c_char()) + seq![','] + hdr(c_value()) + q());
     assert(l_int2() =~= q() + seq!['}']);
 }
 
@@ -685,6 +704,7 @@ proof fn rt_parse(s: Seq<char>, i: nat, d: nat, v: Val)
 {
     match v {
         Val::Int(_) => rt_int(s, i, d, v),
+        Val::Char(_) => rt_char(s, i, d, v),
         Val::Bool(_) => rt_bool(s, i, d, v),
         Val::Unit => rt_unit(s, i, d, v),
         Val::None => rt_none(s, i, d, v),
@@ -726,6 +746,41 @@ proof fn rt_int(s: Seq<char>, i: nat, d: nat, v: Val)
         jm_one(s, i + 13, (d - 1) as nat, c_value(), J::Str(cs(x)), i + 23 + x.len());
         assert(seq![k_tag()] + seq![k_value()] =~= seq![k_tag(), k_value()]);
         assert(seq![J::Str(t_int())] + seq![J::Str(cs(x))] =~= seq![J::Str(t_int()), J::Str(cs(x))]);
+    }
+}
+
+#[verifier::spinoff_prover]
+#[verifier::rlimit(300)]
+proof fn rt_char(s: Seq<char>, i: nat, d: nat, v: Val)
+    requires
+        has(s, i as int, enc(v)),
+        vdepth(v) <= d,
+        v matches Val::Char(n),
+    ensures
+        jv(s, i, d) == Some((jt(v), i + enc(v).len())),
+    decreases v, 0nat,
+{
+    lay_char();
+    plain_char();
+    plain_value();
+    if let Val::Char(n) = v {
+        let x = int_dec(n);
+        int_dec_plain(n);
+        has_split(s, i as int, l_char1() + x, l_int2());
+        has_split(s, i as int, l_char1(), x);
+        has_split(s, i as int, pre(c_char()) + seq![','] + hdr(c_value()), q());
+        has_split(s, i as int, pre(c_char()) + seq![','], hdr(c_value()));
+        has_split(s, i as int, pre(c_char()), seq![',']);
+        has_split(s, (i + 23 + x.len()) as int, q(), seq!['}']);
+        has_join(s, (i + 22) as int, q(), x);
+        has_join(s, (i + 22) as int, q() + x, q());
+        has_at(s, (i + 13) as int, seq![','], 0);
+        has_at(s, (i + 24 + x.len()) as int, seq!['}'], 0);
+        head(s, i, d, c_char());
+        jv_str(s, i + 22, (d - 1) as nat, x);
+        jm_one(s, i + 14, (d - 1) as nat, c_value(), J::Str(cs(x)), i + 24 + x.len());
+        assert(seq![k_tag()] + seq![k_value()] =~= seq![k_tag(), k_value()]);
+        assert(seq![J::Str(t_char())] + seq![J::Str(cs(x))] =~= seq![J::Str(t_char()), J::Str(cs(x))]);
     }
 }
 
@@ -1056,6 +1111,9 @@ proof fn rt_dec(v: Val, t: Ty)
             assert(xs.subrange(0, xs.len() as int) =~= xs);
         },
         Val::Int(n) => {
+            int_dec_plain(n);
+        },
+        Val::Char(n) => {
             int_dec_plain(n);
         },
         _ => {},

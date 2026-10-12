@@ -59,6 +59,12 @@ pub enum Kw {
     Range,
     Contains,
     Sort,
+    TChar,
+    TString,
+    Code,
+    CharOf,
+    ToString,
+    ParseInt,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -103,6 +109,12 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Range => seq!['r', 'a', 'n', 'g', 'e'],
         Kw::Contains => seq!['c', 'o', 'n', 't', 'a', 'i', 'n', 's'],
         Kw::Sort => seq!['s', 'o', 'r', 't'],
+        Kw::TChar => seq!['C', 'h', 'a', 'r'],
+        Kw::TString => seq!['S', 't', 'r', 'i', 'n', 'g'],
+        Kw::Code => seq!['c', 'o', 'd', 'e'],
+        Kw::CharOf => seq!['c', 'h', 'a', 'r'],
+        Kw::ToString => seq!['t', 'o', '_', 's', 't', 'r', 'i', 'n', 'g'],
+        Kw::ParseInt => seq!['p', 'a', 'r', 's', 'e', '_', 'i', 'n', 't'],
     }
 }
 
@@ -197,6 +209,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Cons)
         } else if c4(s, 's', 'o', 'r', 't') {
             Some(Kw::Sort)
+        } else if c4(s, 'C', 'h', 'a', 'r') {
+            Some(Kw::TChar)
+        } else if c4(s, 'c', 'o', 'd', 'e') {
+            Some(Kw::Code)
+        } else if c4(s, 'c', 'h', 'a', 'r') {
+            Some(Kw::CharOf)
         } else {
             None
         }
@@ -219,6 +237,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Length)
         } else if c6(s, 'u', 'n', 'c', 'o', 'n', 's') {
             Some(Kw::Uncons)
+        } else if c6(s, 'S', 't', 'r', 'i', 'n', 'g') {
+            Some(Kw::TString)
         } else {
             None
         }
@@ -231,6 +251,14 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
     } else if s.len() == 8 {
         if c6(s, 'c', 'o', 'n', 't', 'a', 'i') && s[6] == 'n' && s[7] == 's' {
             Some(Kw::Contains)
+        } else {
+            None
+        }
+    } else if s.len() == 9 {
+        if c6(s, 't', 'o', '_', 's', 't', 'r') && s[6] == 'i' && s[7] == 'n' && s[8] == 'g' {
+            Some(Kw::ToString)
+        } else if c6(s, 'p', 'a', 'r', 's', 'e', '_') && s[6] == 'i' && s[7] == 'n' && s[8] == 't' {
+            Some(Kw::ParseInt)
         } else {
             None
         }
@@ -268,6 +296,10 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Range => Kw::Range,
         Builtin::Contains => Kw::Contains,
         Builtin::Sort => Kw::Sort,
+        Builtin::Code => Kw::Code,
+        Builtin::CharOf => Kw::CharOf,
+        Builtin::ToString => Kw::ToString,
+        Builtin::ParseInt => Kw::ParseInt,
     }
 }
 
@@ -293,6 +325,10 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Range => Some(Builtin::Range),
         Kw::Contains => Some(Builtin::Contains),
         Kw::Sort => Some(Builtin::Sort),
+        Kw::Code => Some(Builtin::Code),
+        Kw::CharOf => Some(Builtin::CharOf),
+        Kw::ToString => Some(Builtin::ToString),
+        Kw::ParseInt => Some(Builtin::ParseInt),
         _ => None,
     }
 }
@@ -342,10 +378,99 @@ pub open spec fn name_ok(x: Seq<char>) -> bool {
     ident_ok(x) || (kw_of(x) is Some && soft(kw_of(x)->Some_0))
 }
 
+// ------------------------------------------------------------------ 文字・文字列リテラル（v1.2）
+
+/// リテラルに書ける文字。制御文字は改行・タブ・復帰だけで、エスケープで書く。
+pub open spec fn lit_ok(c: char) -> bool {
+    (c as u32) >= 0x20 || c == '\n' || c == '\t' || c == '\r'
+}
+
+pub open spec fn str_ok(w: Seq<char>) -> bool {
+    forall|i: int| 0 <= i < w.len() ==> lit_ok(#[trigger] w[i])
+}
+
+/// 正準形での 1 文字の綴り。q は区切りの引用符。
+pub open spec fn esc(c: char, q: char) -> Seq<char> {
+    if c == '\\' {
+        seq!['\\', '\\']
+    } else if c == q {
+        seq!['\\', q]
+    } else if c == '\n' {
+        seq!['\\', 'n']
+    } else if c == '\t' {
+        seq!['\\', 't']
+    } else if c == '\r' {
+        seq!['\\', 'r']
+    } else {
+        seq![c]
+    }
+}
+
+pub open spec fn escs(w: Seq<char>, q: char) -> Seq<char>
+    decreases w.len(),
+{
+    if w.len() == 0 {
+        Seq::empty()
+    } else {
+        esc(w[0], q) + escs(w.drop_first(), q)
+    }
+}
+
+/// エスケープ `\x` が表す文字。
+pub open spec fn unesc(x: char, q: char) -> Option<char> {
+    if x == '\\' {
+        Some('\\')
+    } else if x == q {
+        Some(q)
+    } else if x == 'n' {
+        Some('\n')
+    } else if x == 't' {
+        Some('\t')
+    } else if x == 'r' {
+        Some('\r')
+    } else {
+        None
+    }
+}
+
+/// 文字列リテラルの中身を位置 i から閉じ引用符まで読む。結果は（中身, 閉じ引用符の次の位置）。
+pub open spec fn slit(s: Seq<char>, i: nat) -> Option<(Seq<char>, nat)>
+    decreases s.len() - i,
+{
+    if i >= s.len() {
+        None
+    } else if s[i as int] == '"' {
+        Some((Seq::empty(), i + 1))
+    } else if s[i as int] == '\\' {
+        if i + 1 < s.len() {
+            match unesc(s[(i + 1) as int], '"') {
+                Some(c) => match slit(s, i + 2) {
+                    Some((w, j)) => Some((seq![c] + w, j)),
+                    None => None,
+                },
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else if (s[i as int] as u32) < 0x20 {
+        None
+    } else {
+        match slit(s, i + 1) {
+            Some((w, j)) => Some((seq![s[i as int]] + w, j)),
+            None => None,
+        }
+    }
+}
+
 // ------------------------------------------------------------------ token と表面 AST
 
 pub enum Tok {
     Int(int),
+    /// v1.2：文字リテラル `'c'`。
+    Chr(char),
+    /// v1.2：文字列リテラル `"..."`（中身はエスケープを戻した文字の列）。
+    Str(Seq<char>),
     Id(Seq<char>),
     Kw(Kw),
     Sym(char),
@@ -354,6 +479,8 @@ pub enum Tok {
 
 pub enum Sx {
     Int(int),
+    Chr(char),
+    Str(Seq<char>),
     Bool(bool),
     Unit,
     Var(Seq<char>),
@@ -384,7 +511,12 @@ pub open spec fn tt(t: Ty, k: Seq<Tok>) -> Seq<Tok>
         Ty::Int => seq![Tok::Kw(Kw::TInt)] + k,
         Ty::Bool => seq![Tok::Kw(Kw::TBool)] + k,
         Ty::Unit => seq![Tok::Kw(Kw::TUnit)] + k,
-        Ty::List(a) => seq![Tok::Kw(Kw::TList), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
+        Ty::Char => seq![Tok::Kw(Kw::TChar)] + k,
+        Ty::List(a) => if *a == Ty::Char {
+            seq![Tok::Kw(Kw::TString)] + k
+        } else {
+            seq![Tok::Kw(Kw::TList), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k)
+        },
         Ty::Option(a) => seq![Tok::Kw(Kw::TOption), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
         Ty::Pair(a, b) => seq![Tok::Kw(Kw::TPair), Tok::Sym('<')] + tt(
             *a,
@@ -398,6 +530,8 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
 {
     match e {
         Sx::Int(n) => seq![Tok::Int(n)] + k,
+        Sx::Chr(c) => seq![Tok::Chr(c)] + k,
+        Sx::Str(w) => seq![Tok::Str(w)] + k,
         Sx::Bool(b) => seq![Tok::Kw(if b { Kw::True } else { Kw::False })] + k,
         Sx::Unit => seq![Tok::Kw(Kw::Unit)] + k,
         Sx::Var(x) => seq![word_tok(x)] + k,
@@ -501,7 +635,12 @@ pub open spec fn ft(t: Ty, k: Seq<char>) -> Seq<char>
         Ty::Int => kwt(Kw::TInt) + k,
         Ty::Bool => kwt(Kw::TBool) + k,
         Ty::Unit => kwt(Kw::TUnit) + k,
-        Ty::List(a) => kwt(Kw::TList) + (seq!['<'] + ft(*a, seq!['>'] + k)),
+        Ty::Char => kwt(Kw::TChar) + k,
+        Ty::List(a) => if *a == Ty::Char {
+            kwt(Kw::TString) + k
+        } else {
+            kwt(Kw::TList) + (seq!['<'] + ft(*a, seq!['>'] + k))
+        },
         Ty::Option(a) => kwt(Kw::TOption) + (seq!['<'] + ft(*a, seq!['>'] + k)),
         Ty::Pair(a, b) => kwt(Kw::TPair) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
     }
@@ -512,6 +651,8 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
 {
     match e {
         Sx::Int(n) => int_dec(n) + k,
+        Sx::Chr(c) => seq!['\''] + (esc(c, '\'') + (seq!['\''] + k)),
+        Sx::Str(w) => seq!['"'] + (escs(w, '"') + (seq!['"'] + k)),
         Sx::Bool(b) => kwt(if b { Kw::True } else { Kw::False }) + k,
         Sx::Unit => kwt(Kw::Unit) + k,
         Sx::Var(x) => x + k,
@@ -690,6 +831,23 @@ pub open spec fn lex(s: Seq<char>) -> Option<Seq<Tok>>
             }
         } else if is_sym(c) {
             prepend(Tok::Sym(c), lex(s.subrange(1, s.len() as int)))
+        } else if c == '\'' {
+            if s.len() >= 3 && s[1] != '\\' && s[1] != '\'' && (s[1] as u32) >= 0x20 && s[2] == '\'' {
+                prepend(Tok::Chr(s[1]), lex(s.subrange(3, s.len() as int)))
+            } else if s.len() >= 4 && s[1] == '\\' && unesc(s[2], '\'') is Some && s[3] == '\'' {
+                prepend(Tok::Chr(unesc(s[2], '\'')->Some_0), lex(s.subrange(4, s.len() as int)))
+            } else {
+                None
+            }
+        } else if c == '"' {
+            match slit(s, 1) {
+                Some((w, j)) => if 1 <= j <= s.len() {
+                    prepend(Tok::Str(w), lex(s.subrange(j as int, s.len() as int)))
+                } else {
+                    None
+                },
+                None => None,
+            }
         } else {
             None
         }
@@ -739,9 +897,11 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
             Tok::Kw(Kw::TInt) => Some((Ty::Int, i + 1)),
             Tok::Kw(Kw::TBool) => Some((Ty::Bool, i + 1)),
             Tok::Kw(Kw::TUnit) => Some((Ty::Unit, i + 1)),
+            Tok::Kw(Kw::TChar) => Some((Ty::Char, i + 1)),
+            Tok::Kw(Kw::TString) => Some((Ty::List(Box::new(Ty::Char)), i + 1)),
             Tok::Kw(Kw::TList) => if sym(ts, i + 1, '<') {
                 match pt(ts, i + 2, (d - 1) as nat) {
-                    Some((a, j)) => if sym(ts, j, '>') {
+                    Some((a, j)) => if sym(ts, j, '>') && a != Ty::Char {
                         Some((Ty::List(Box::new(a)), j + 1))
                     } else {
                         None
@@ -797,6 +957,16 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
         let d1 = (d - 1) as nat;
         match ts[i as int] {
             Tok::Int(n) => Some((Sx::Int(n), i + 1)),
+            Tok::Chr(c) => if lit_ok(c) {
+                Some((Sx::Chr(c), i + 1))
+            } else {
+                None
+            },
+            Tok::Str(w) => if str_ok(w) {
+                Some((Sx::Str(w), i + 1))
+            } else {
+                None
+            },
             Tok::Id(x) => if !ident_ok(x) {
                 None
             } else if sym(ts, i + 1, '(') {
@@ -1148,7 +1318,7 @@ pub open spec fn bt(t: Ty, d: nat) -> bool
     decreases t,
 {
     d > 0 && match t {
-        Ty::List(a) => bt(*a, (d - 1) as nat),
+        Ty::List(a) => *a == Ty::Char || bt(*a, (d - 1) as nat),
         Ty::Option(a) => bt(*a, (d - 1) as nat),
         Ty::Pair(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
         _ => true,
@@ -1163,6 +1333,8 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
         let d1 = (d - 1) as nat;
         match e {
             Sx::Var(x) => name_ok(x),
+            Sx::Chr(c) => lit_ok(c),
+            Sx::Str(w) => str_ok(w),
             Sx::List(t, es) => bt(t, td) && bxs(es, 0, d1, td),
             Sx::Some(a) => bx(*a, d1, td),
             Sx::None(t) => bt(t, td),

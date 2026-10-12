@@ -15,6 +15,8 @@ pub enum Ty {
     Int,
     Bool,
     Unit,
+    /// v1.2：文字（Unicode のスカラー値）。文字列は `List<Char>`（表面構文では `String`）。
+    Char,
     List(Box<Ty>),
     Option(Box<Ty>),
     Pair(Box<Ty>, Box<Ty>),
@@ -25,6 +27,8 @@ pub enum Val {
     Int(int),
     Bool(bool),
     Unit,
+    /// v1.2：文字。値はスカラー値の番号。
+    Char(int),
     None,
     Some(Box<Val>),
     Pair(Box<Val>, Box<Val>),
@@ -39,6 +43,7 @@ pub open spec fn val_type(v: Val, t: Ty) -> bool
         Val::Int(_) => t == Ty::Int,
         Val::Bool(_) => t == Ty::Bool,
         Val::Unit => t == Ty::Unit,
+        Val::Char(c) => t == Ty::Char && scalar(c),
         Val::None => t is Option,
         Val::Some(x) => t is Option && val_type(*x, *t->Option_0),
         Val::Pair(a, b) => t is Pair && val_type(*a, *t->Pair_0) && val_type(*b, *t->Pair_1),
@@ -86,12 +91,22 @@ pub enum Builtin {
     Contains,
     /// v1.1：整数リストの昇順整列
     Sort,
+    /// v1.2：文字の番号
+    Code,
+    /// v1.2：番号の文字（スカラー値でなければ none）
+    CharOf,
+    /// v1.2：整数の 10 進表記
+    ToString,
+    /// v1.2：10 進表記の整数（`-` と数字だけ。それ以外は none）
+    ParseInt,
 }
 
 pub enum Expr {
     Int(int),
     Bool(bool),
     Unit,
+    /// v1.2：文字リテラル
+    Char(int),
     Var(nat),
     List(Ty, Seq<Expr>),
     Some(Box<Expr>),
@@ -167,6 +182,12 @@ pub open spec fn builtin_type(b: Builtin, ts: Seq<Ty>) -> Option<Ty> {
         Builtin::Sort => {
             if ts.len() == 1 && ts[0] == Ty::List(Box::new(Ty::Int)) { Some(ts[0]) } else { None }
         },
+        Builtin::Code => if ts.len() == 1 && ts[0] == Ty::Char { Some(Ty::Int) } else { None },
+        Builtin::CharOf => if ts.len() == 1 && ts[0] == Ty::Int { Some(Ty::Option(Box::new(Ty::Char))) } else { None },
+        Builtin::ToString => if ts.len() == 1 && ts[0] == Ty::Int { Some(Ty::List(Box::new(Ty::Char))) } else { None },
+        Builtin::ParseInt => {
+            if ts.len() == 1 && ts[0] == Ty::List(Box::new(Ty::Char)) { Some(Ty::Option(Box::new(Ty::Int))) } else { None }
+        },
     }
 }
 
@@ -199,6 +220,7 @@ pub open spec fn ty_expr(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr) -> Option<
         Expr::Int(_) => Some(Ty::Int),
         Expr::Bool(_) => Some(Ty::Bool),
         Expr::Unit => Some(Ty::Unit),
+        Expr::Char(c) => if scalar(c) { Some(Ty::Char) } else { None },
         Expr::Var(x) => if ctx.contains_key(x) { Some(ctx[x]) } else { None },
         Expr::List(t, es) => match ty_args(p, r, ctx, es, 0) {
             Some(ts) => if forall|k: int| 0 <= k < ts.len() ==> #[trigger] ts[k] == t {
@@ -336,10 +358,70 @@ pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
                 Res::Done(Val::Some(Box::new(Val::Pair(Box::new(s[0]), Box::new(Val::List(s.drop_first()))))))
             },
             (Builtin::Sort, Val::List(s)) => Res::Done(Val::List(isort(s))),
+            (Builtin::Code, Val::Char(c)) => Res::Done(Val::Int(c)),
+            (Builtin::CharOf, Val::Int(n)) => if scalar(n) {
+                Res::Done(Val::Some(Box::new(Val::Char(n))))
+            } else {
+                Res::Done(Val::None)
+            },
+            (Builtin::ToString, Val::Int(n)) => Res::Done(Val::List(chars(crate::bigint::int_dec(n)))),
+            (Builtin::ParseInt, Val::List(s)) => match int_of(s) {
+                Some(n) => Res::Done(Val::Some(Box::new(Val::Int(n)))),
+                None => Res::Done(Val::None),
+            },
             _ => Res::Stuck,
         }
     } else {
         Res::Stuck
+    }
+}
+
+/// Unicode のスカラー値（サロゲートを除く 0..=0x10FFFF）。
+pub open spec fn scalar(n: int) -> bool {
+    0 <= n <= 0x10FFFF && !(0xD800 <= n <= 0xDFFF)
+}
+
+/// 文字列の値（文字の値の列）。
+pub open spec fn chars(s: Seq<char>) -> Seq<Val> {
+    Seq::new(s.len(), |i: int| Val::Char(s[i] as u32 as int))
+}
+
+/// 数字の文字の値（数字でなければ -1）。
+pub open spec fn digitv(v: Val) -> int {
+    match v {
+        Val::Char(c) => if 48 <= c <= 57 { c - 48 } else { -1 },
+        _ => -1,
+    }
+}
+
+/// 数字だけの列の値（空か数字以外を含めば None）。
+pub open spec fn nat_of(s: Seq<Val>) -> Option<nat>
+    decreases s.len(),
+{
+    if s.len() == 0 || digitv(s.last()) < 0 {
+        None
+    } else if s.len() == 1 {
+        Some(digitv(s.last()) as nat)
+    } else {
+        match nat_of(s.drop_last()) {
+            Some(m) => Some(m * 10 + digitv(s.last()) as nat),
+            None => None,
+        }
+    }
+}
+
+/// `-` が先頭に一つあってもよい数字の列の値。
+pub open spec fn int_of(s: Seq<Val>) -> Option<int> {
+    if s.len() > 0 && s[0] == Val::Char(45) {
+        match nat_of(s.drop_first()) {
+            Some(m) => Some(-(m as int)),
+            None => None,
+        }
+    } else {
+        match nat_of(s) {
+            Some(m) => Some(m as int),
+            None => None,
+        }
     }
 }
 
@@ -396,6 +478,7 @@ pub open spec fn eval(p: Prog, fuel: nat, env: Map<nat, Val>, e: Expr) -> Res
             Expr::Int(n) => Res::Done(Val::Int(n)),
             Expr::Bool(b) => Res::Done(Val::Bool(b)),
             Expr::Unit => Res::Done(Val::Unit),
+            Expr::Char(c) => Res::Done(Val::Char(c)),
             Expr::None(_) => Res::Done(Val::None),
             Expr::Var(x) => if env.contains_key(x) { Res::Done(env[x]) } else { Res::Stuck },
             Expr::List(_, es) => match eval_args(p, f, env, es, 0) {

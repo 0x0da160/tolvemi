@@ -22,6 +22,11 @@ pub open spec fn l_int1() -> Seq<char> {
 }
 
 #[verifier::opaque]
+pub open spec fn l_char1() -> Seq<char> {
+    seq!['{', '"', 't', 'a', 'g', '"', ':', '"', 'c', 'h', 'a', 'r', '"', ',', '"', 'v', 'a', 'l', 'u', 'e', '"', ':', '"']
+}
+
+#[verifier::opaque]
 pub open spec fn l_int2() -> Seq<char> {
     seq!['"', '}']
 }
@@ -87,6 +92,7 @@ pub proof fn lits()
     ensures
         l_int1().len() == 22 && l_int1()[0] == '{',
         l_int2().len() == 2 && l_int2()[0] == '"',
+        l_char1().len() == 23 && l_char1()[0] == '{',
         l_true().len() == 27 && l_true()[0] == '{' && l_true()[22] == 't',
         l_false().len() == 28 && l_false()[0] == '{' && l_false()[22] == 'f',
         l_unit().len() == 14 && l_unit()[0] == '{',
@@ -101,6 +107,7 @@ pub proof fn lits()
 {
     reveal(l_int1);
     reveal(l_int2);
+    reveal(l_char1);
     reveal(l_true);
     reveal(l_false);
     reveal(l_unit);
@@ -121,6 +128,7 @@ pub open spec fn enc(v: Val) -> Seq<char>
 {
     match v {
         Val::Int(n) => l_int1() + int_dec(n) + l_int2(),
+        Val::Char(n) => l_char1() + int_dec(n) + l_int2(),
         Val::Bool(b) => if b {
             l_true()
         } else {
@@ -159,6 +167,18 @@ fn push_int1(out: &mut String)
         reveal(l_int1);
         reveal_strlit("{\"tag\":\"int\",\"value\":\"");
         assert("{\"tag\":\"int\",\"value\":\""@ =~= l_int1());
+    }
+}
+
+fn push_char1(out: &mut String)
+    ensures
+        final(out)@ == old(out)@ + l_char1(),
+{
+    out.push_str("{\"tag\":\"char\",\"value\":\"");
+    proof {
+        reveal(l_char1);
+        reveal_strlit("{\"tag\":\"char\",\"value\":\"");
+        assert("{\"tag\":\"char\",\"value\":\""@ =~= l_char1());
     }
 }
 
@@ -317,6 +337,15 @@ pub fn encode(v: &Rc<Value>, out: &mut String)
         Value::Int(n) => {
             push_int1(out);
             let d = n.to_dec();
+            out.push_str(d.as_str());
+            push_int2(out);
+            proof {
+                assert(out@ =~= o + enc(view_val(**v)));
+            }
+        },
+        Value::Char(c) => {
+            push_char1(out);
+            let d = Int::from_u64(*c as u64).to_dec();
             out.push_str(d.as_str());
             push_int2(out);
             proof {
@@ -490,6 +519,20 @@ pub open spec fn dec(c: Seq<char>, pos: int, t: Ty) -> Option<(Val, int)>
                 match int_val(c.subrange(p1, q)) {
                     Some(n) => if at(c, q, l_int2()) {
                         Some((Val::Int(n), q + l_int2().len()))
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            },
+            Ty::Char => if at(c, pos, l_char1()) {
+                let p1 = pos + l_char1().len();
+                let q = scan_quote(c, p1);
+                match int_val(c.subrange(p1, q)) {
+                    Some(n) => if at(c, q, l_int2()) && scalar(n) {
+                        Some((Val::Char(n), q + l_int2().len()))
                     } else {
                         None
                     },
@@ -709,6 +752,10 @@ pub proof fn enc_first(v: Val)
             assert(enc(v) == l_int1() + int_dec(n) + l_int2());
             assert((l_int1() + int_dec(n) + l_int2())[0] == l_int1()[0]);
         },
+        Val::Char(n) => {
+            assert(enc(v) == l_char1() + int_dec(n) + l_int2());
+            assert((l_char1() + int_dec(n) + l_int2())[0] == l_char1()[0]);
+        },
         Val::Bool(b) => {},
         Val::Unit => {},
         Val::None => {},
@@ -725,6 +772,7 @@ pub proof fn enc_first(v: Val)
 }
 
 /// 往復性：型 t を持つ値 v の正準形を読むと v に戻る（後ろに何が続いてもよい）。
+#[verifier::rlimit(40)]
 pub proof fn roundtrip(c: Seq<char>, pos: int, v: Val, t: Ty)
     requires
         val_type(v, t),
@@ -736,6 +784,7 @@ pub proof fn roundtrip(c: Seq<char>, pos: int, v: Val, t: Ty)
     lits();
     match v {
         Val::Int(n) => roundtrip_int(c, pos, n),
+        Val::Char(n) => roundtrip_char(c, pos, n),
         Val::Bool(b) => {
             if !b {
                 at_char(c, pos, l_false(), 22);
@@ -790,6 +839,28 @@ proof fn roundtrip_int(c: Seq<char>, pos: int, n: int)
     at_split(c, pos, l_int1() + d, l_int2());
     at_split(c, pos, l_int1(), d);
     let p1 = pos + l_int1().len();
+    let q = p1 + d.len();
+    int_dec_props(n);
+    at_char(c, q, l_int2(), 0);
+    assert forall|k: int| p1 <= k < q implies #[trigger] c[k] != '"' by {
+        at_char(c, p1, d, k - p1);
+    }
+    scan_to(c, p1, q);
+    assert(c.subrange(p1, q) =~= d);
+}
+
+proof fn roundtrip_char(c: Seq<char>, pos: int, n: int)
+    requires
+        scalar(n),
+        at(c, pos, enc(Val::Char(n))),
+    ensures
+        dec(c, pos, Ty::Char) == Some((Val::Char(n), pos + enc(Val::Char(n)).len())),
+{
+    lits();
+    let d = int_dec(n);
+    at_split(c, pos, l_char1() + d, l_int2());
+    at_split(c, pos, l_char1(), d);
+    let p1 = pos + l_char1().len();
     let q = p1 + d.len();
     int_dec_props(n);
     at_char(c, q, l_int2(), 0);

@@ -101,6 +101,38 @@ pub proof fn ins_split(x: Val, t: Seq<Val>, j: int)
     }
 }
 
+/// 数字を一つ足した列の値。
+pub proof fn nat_of_snoc(u: Seq<Val>, j: int)
+    requires
+        0 <= j < u.len(),
+        digitv(u[j]) >= 0,
+        j > 0 ==> nat_of(u.subrange(0, j)) is Some,
+    ensures
+        nat_of(u.subrange(0, j + 1)) == Some(
+            ((if j == 0 { 0 } else { nat_of(u.subrange(0, j))->Some_0 as int }) * 10 + digitv(u[j])) as nat,
+        ),
+{
+    let w = u.subrange(0, j + 1);
+    assert(w.last() == u[j]);
+    assert(w.drop_last() =~= u.subrange(0, j));
+}
+
+/// 数字でない要素があれば値はない。
+pub proof fn nat_of_bad(u: Seq<Val>, j: int)
+    requires
+        0 <= j < u.len(),
+        digitv(u[j]) < 0,
+    ensures
+        nat_of(u) is None,
+    decreases u.len(),
+{
+    if j < u.len() - 1 {
+        let w = u.drop_last();
+        assert(w[j] == u[j]);
+        nat_of_bad(w, j);
+    }
+}
+
 pub proof fn rev_snoc(s: Seq<Val>, j: int)
     requires
         0 <= j < s.len(),
@@ -230,6 +262,12 @@ impl Machine {
                     bs_leaf(pp, env, view_expr(dr(e)));
                 }
                 Ok(Rc::new(Value::Unit))
+            },
+            EExpr::Char(c) => {
+                proof {
+                    bs_leaf(pp, env, view_expr(dr(e)));
+                }
+                Ok(Rc::new(Value::Char(*c)))
             },
             EExpr::None(_) => {
                 proof {
@@ -860,6 +898,55 @@ impl Machine {
                 (Builtin::Reverse, Value::Nil) | (Builtin::Reverse, Value::Cons(_, _)) => self.reverse(&a[0]),
                 (Builtin::Length, Value::Nil) | (Builtin::Length, Value::Cons(_, _)) => self.length(&a[0]),
                 (Builtin::Sort, Value::Nil) | (Builtin::Sort, Value::Cons(_, _)) => self.sort(&a[0]),
+                (Builtin::Code, Value::Char(c)) => {
+                    proof {
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                    }
+                    self.int(Int::from_u64(*c as u64))
+                },
+                (Builtin::CharOf, Value::Int(x)) => {
+                    proof {
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                    }
+                    match x.to_u32() {
+                        Some(u) => if u <= 0x10FFFF && !(0xD800 <= u && u <= 0xDFFF) {
+                            self.allocate(None)?;
+                            let c = Rc::new(Value::Char(u));
+                            let r = Rc::new(Value::Some(c));
+                            proof {
+                                assert(u as int == x@);
+                                assert(vv(c) == Val::Char(x@));
+                                assert(vv(r) == Val::Some(Box::new(vv(c))));
+                            }
+                            Ok(r)
+                        } else {
+                            proof {
+                                assert(u as int == x@);
+                                assert(!scalar(x@));
+                            }
+                            Ok(Rc::new(Value::None))
+                        },
+                        None => {
+                            proof {
+                                assert(!scalar(x@));
+                            }
+                            Ok(Rc::new(Value::None))
+                        },
+                    }
+                },
+                (Builtin::ToString, Value::Int(x)) => {
+                    proof {
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                    }
+                    self.to_string_e(x)
+                },
+                (Builtin::ParseInt, Value::Nil) | (Builtin::ParseInt, Value::Cons(_, _)) => {
+                    proof {
+                        assert(view_vals(a@)[0] == view_val(*a@[0]));
+                        assert(view_vals(a@)[0] == Val::List(sp(a@[0])));
+                    }
+                    self.parse_int_e(&a[0])
+                },
                 (Builtin::Uncons, Value::Nil) => {
                     proof {
                         assert(view_vals(a@)[0] == view_val(*a@[0]));
@@ -1035,6 +1122,191 @@ impl Machine {
             }
             out = Rc::new(Value::Cons(v, out));
             cur = next;
+        }
+    }
+
+    /// 整数の 10 進表記を文字のリストにする。後ろから cons する。
+    fn to_string_e(&mut self, x: &Int) -> (r: Result<Rc<Value>, Stop>)
+        requires
+            inv(*self),
+        ensures
+            frame(*old(self), *final(self)),
+            r is Ok ==> view_val(*r->Ok_0) == Val::List(chars(crate::bigint::int_dec(x@))),
+            !is_fault(r),
+    {
+        let cs = x.to_dec_chars();
+        let ghost w = chars(cs@);
+        let mut out = Rc::new(Value::Nil);
+        let mut k = cs.len();
+        proof {
+            assert(spine(*out) =~= w.subrange(k as int, cs@.len() as int));
+        }
+        while k > 0
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                w == chars(cs@),
+                k <= cs@.len(),
+                is_list(*out),
+                spine(*out) == w.subrange(k as int, cs@.len() as int),
+            decreases k,
+        {
+            k = k - 1;
+            self.allocate(None)?;
+            let v = Rc::new(Value::Char(cs[k] as u32));
+            let ghost old_out = out;
+            proof {
+                spine_cons(v, old_out);
+                assert(seq![vv(v)] + sp(old_out) =~= w.subrange(k as int, cs@.len() as int));
+            }
+            out = Rc::new(Value::Cons(v, out));
+        }
+        proof {
+            assert(w.subrange(0, cs@.len() as int) =~= w);
+        }
+        Ok(out)
+    }
+
+    /// 文字のリストを整数として読む（spec の int_of）。
+    fn parse_int_e(&mut self, l: &Rc<Value>) -> (r: Result<Rc<Value>, Stop>)
+        requires
+            inv(*self),
+        ensures
+            frame(*old(self), *final(self)),
+            r is Ok ==> view_val(*r->Ok_0) == match int_of(spine(**l)) {
+                Some(n) => Val::Some(Box::new(Val::Int(n))),
+                None => Val::None,
+            },
+            !is_fault(r),
+    {
+        let ghost s = sp(dr(l));
+        let mut cur = l.clone();
+        let mut negative = false;
+        match &**l {
+            Value::Cons(h, t) => {
+                let minus = match &**h {
+                    Value::Char(c) => *c == 45,
+                    _ => false,
+                };
+                if minus {
+                    proof {
+                        spine_cons(dr(h), dr(t));
+                    }
+                    negative = true;
+                    cur = t.clone();
+                }
+            },
+            _ => {},
+        }
+        let ghost u = sp(cur);
+        proof {
+            if negative {
+                assert(s.len() > 0 && s[0] == Val::Char(45));
+                assert(u =~= s.drop_first());
+            } else {
+                if s.len() > 0 {
+                    match dr(&**l) {
+                        Value::Cons(h, t) => {
+                            spine_cons(h, t);
+                        },
+                        _ => {},
+                    }
+                    assert(s[0] != Val::Char(45));
+                }
+                assert(u == s);
+            }
+        }
+        let ghost want = int_of(s);
+        proof {
+            if negative {
+                assert(want == match nat_of(u) {
+                    Some(m) => Some(-(m as int)),
+                    None => None::<int>,
+                });
+            } else {
+                assert(want == match nat_of(u) {
+                    Some(m) => Some(m as int),
+                    None => None::<int>,
+                });
+            }
+        }
+        let ten = Int::from_u64(10);
+        let mut acc = Int::from_u64(0);
+        let mut any = false;
+        let ghost mut j: int = 0;
+        loop
+            invariant
+                inv(*self),
+                frame(*old(self), *self),
+                ten@ == 10,
+                0 <= j <= u.len(),
+                spine(*cur) == u.subrange(j, u.len() as int),
+                any == (j > 0),
+                j == 0 ==> acc@ == 0,
+                j > 0 ==> nat_of(u.subrange(0, j)) == Some(acc@ as nat),
+                acc@ >= 0,
+                want == int_of(s),
+                s == spine(**l),
+                negative ==> want == match nat_of(u) {
+                    Some(m) => Some(-(m as int)),
+                    None => None::<int>,
+                },
+                !negative ==> want == match nat_of(u) {
+                    Some(m) => Some(m as int),
+                    None => None::<int>,
+                },
+            decreases self.lim.steps - self.steps,
+        {
+            self.step()?;
+            let (h, t) = match &*cur {
+                Value::Cons(h, t) => (h.clone(), t.clone()),
+                _ => {
+                    proof {
+                        spine_end(cur);
+                        assert(j == u.len());
+                        assert(u.subrange(0, j) =~= u);
+                    }
+                    if !any {
+                        proof {
+                            assert(u.len() == 0);
+                            assert(nat_of(u) is None);
+                        }
+                        return Ok(Rc::new(Value::None));
+                    }
+                    let n = if negative { acc.neg() } else { acc };
+                    let r = self.int(n)?;
+                    self.allocate(None)?;
+                    return Ok(Rc::new(Value::Some(r)));
+                },
+            };
+            proof {
+                spine_step(u, j, h, t);
+            }
+            let d = match &*h {
+                Value::Char(c) => if 48 <= *c && *c <= 57 { Some(*c - 48) } else { None },
+                _ => None,
+            };
+            match d {
+                Some(dd) => {
+                    proof {
+                        assert(digitv(u[j]) == dd as int);
+                        nat_of_snoc(u, j);
+                    }
+                    acc = acc.mul(&ten).add(&Int::from_u64(dd as u64));
+                    any = true;
+                    proof {
+                        j = j + 1;
+                    }
+                    cur = t;
+                },
+                None => {
+                    proof {
+                        assert(digitv(u[j]) < 0);
+                        nat_of_bad(u, j);
+                    }
+                    return Ok(Rc::new(Value::None));
+                },
+            }
         }
     }
 
@@ -1374,6 +1646,7 @@ impl Machine {
             (Value::Int(m), Value::Int(n)) => Ok(m.eq(n)),
             (Value::Bool(m), Value::Bool(n)) => Ok(*m == *n),
             (Value::Unit, Value::Unit) => Ok(true),
+            (Value::Char(m), Value::Char(n)) => Ok(*m == *n),
             (Value::None, Value::None) => Ok(true),
             (Value::Some(a), Value::Some(b)) => self.equal(a, b),
             (Value::Pair(l1, r1), Value::Pair(l2, r2)) => {
