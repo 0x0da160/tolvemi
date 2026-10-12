@@ -11,9 +11,10 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-pub const SOFT_KEYWORDS: [&str; 25] = [
+pub const SOFT_KEYWORDS: [&str; 29] = [
     "entry", "list", "some", "none", "pair", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort",
+    "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort", "code", "char", "to_string",
+    "parse_int",
 ];
 
 pub fn is_soft_keyword(s: &str) -> bool {
@@ -115,7 +116,12 @@ pub fn rename(p: &Program) -> Program {
                 }
             }
             ExprKind::Field { expr, .. } => ex(expr, r),
-            ExprKind::Int(_) | ExprKind::Bool(_) | ExprKind::Unit | ExprKind::None(_) => {}
+            ExprKind::Int(_)
+            | ExprKind::Char(_)
+            | ExprKind::Str(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Unit
+            | ExprKind::None(_) => {}
         }
     }
     let mut out = p.clone();

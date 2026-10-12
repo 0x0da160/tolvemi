@@ -12,11 +12,14 @@
 //! | `Int` | 整数の JSON number（`-42`）。桁の多い整数のため正規形の十進文字列（`"-42"`）も受理する。出力は number |
 //! | `Bool` | `true`、`false` |
 //! | `Unit` | `null` |
-//! | `List<T>` | 配列 |
+//! | `Char` | 1 文字の JSON 文字列（`"a"`） |
+//! | `String`（= `List<Char>`） | JSON 文字列（`"abc"`） |
+//! | `List<T>` | 配列（T が `Char` なら上の `String`） |
 //! | `Pair<A, B>` | 二要素の配列 `[a, b]` |
 //! | `Option<T>` | `none` は `null`。`some(v)` は v の plain JSON。ただし T が `Unit` か `Option` なら `null` と区別できないので `{"some": v}` |
 
 use crate::diagnostics::Diagnostic;
+use crate::formatter::json_string;
 use crate::profiles::InputProfile;
 use crate::strict_json::{parse, smallest_key, JKind, JNode, JsonFailKind};
 use crate::syntax::{Ty, TyTag};
@@ -43,6 +46,8 @@ pub fn plain_shape(t: &Ty) -> String {
         TyTag::Int => "integer".into(),
         TyTag::Bool => "boolean".into(),
         TyTag::Unit => "null".into(),
+        TyTag::Char => "string of one char".into(),
+        TyTag::List if t.is_string() => "string".into(),
         TyTag::List => "array".into(),
         TyTag::Pair => "array of 2 elements".into(),
         TyTag::Option if nullable(&t.arg(0)) => "null | {\"some\": ...}".into(),
@@ -100,6 +105,12 @@ struct Conv<'a> {
 impl Conv<'_> {
     fn shape_err(&self, n: &JNode, t: &Ty) -> Diagnostic {
         Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(n.kind.name())
+    }
+
+    fn push_char(&mut self, c: char) {
+        self.out.push_str("{\"tag\":\"char\",\"value\":\"");
+        self.out.push_str(&(c as u32).to_string());
+        self.out.push_str("\"}");
     }
 
     fn admit(&mut self, n: &JNode, depth: usize) -> Result<(), Diagnostic> {
@@ -185,6 +196,32 @@ impl Conv<'_> {
                 self.admit(n, depth)?;
                 self.out.push_str("{\"tag\":\"unit\"}");
             }
+            TyTag::Char => {
+                let mut cs = n.text.chars();
+                let c = cs.next();
+                if n.kind != JKind::String || c.is_none() || cs.next().is_some() {
+                    let act = if n.kind == JKind::String { format!("string of {} chars", n.text.chars().count()) } else { n.kind.name().to_string() };
+                    return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(act));
+                }
+                self.admit(n, depth)?;
+                self.push_char(c.unwrap());
+            }
+            TyTag::List if t.is_string() => {
+                // v1.2：String は JSON 文字列。値 JSON では char の list（各文字が値の node）
+                if n.kind != JKind::String {
+                    return Err(self.shape_err(n, t));
+                }
+                self.admit(n, depth)?;
+                self.out.push_str("{\"tag\":\"list\",\"items\":[");
+                for (i, c) in n.text.chars().enumerate() {
+                    if i > 0 {
+                        self.out.push(',');
+                    }
+                    self.admit(n, depth + 1)?;
+                    self.push_char(c);
+                }
+                self.out.push_str("]}");
+            }
             TyTag::List => {
                 if n.kind != JKind::Array {
                     return Err(self.shape_err(n, t));
@@ -268,6 +305,11 @@ pub fn encode_plain_with(t: &Ty, canonical: &str, exact: bool) -> Result<String,
     Ok(out)
 }
 
+/// 値 JSON の char の value（code point の十進）。
+fn plain_char(v: &JNode) -> Result<char, String> {
+    v.text.parse::<u32>().ok().and_then(char::from_u32).ok_or_else(|| format!("値 JSON の char {} が不正です", v.text))
+}
+
 fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), String> {
     if let Some(r) = t.record() {
         // v1.1：レコード型は field 名を key にした object（key は宣言順）
@@ -303,6 +345,14 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
                 out.push_str(v);
                 out.push('"');
             }
+        }
+        (TyTag::Char, "char") => json_string(&plain_char(field("value")?)?.to_string(), out),
+        (TyTag::List, "list") if t.is_string() => {
+            let mut w = String::new();
+            for c in field("items")?.items.iter() {
+                w.push(plain_char(c.get("value").ok_or("値 JSON に value がありません")?)?);
+            }
+            json_string(&w, out);
         }
         (TyTag::Bool, "bool") => out.push_str(if field("value")?.boolean { "true" } else { "false" }),
         (TyTag::Unit, "unit") | (TyTag::Option, "none") => out.push_str("null"),

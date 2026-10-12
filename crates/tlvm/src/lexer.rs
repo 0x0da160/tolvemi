@@ -120,6 +120,8 @@ fn char_literal(src: &[u8], i: usize) -> Result<(char, usize), Diagnostic> {
     };
     let (c, k) = match c1 {
         '\'' => return Err(bad(j).act("''")),
+        // 行末までに閉じていない
+        '\n' | '\r' => return Err(bad(i + 1)),
         '\\' => {
             let Some((x, k)) = char_at(src, j) else {
                 return Err(bad(j));

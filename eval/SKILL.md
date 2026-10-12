@@ -229,6 +229,8 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |
 | `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option, or branches of different types |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
+| `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |
+| `E-LEX-INVALID-ESCAPE` / `E-LEX-UNTERMINATED-STRING` / `E-LEX-INVALID-CHAR-LITERAL` | a bad escape, a string without its closing `"`, or a char literal that is not exactly one character |
 | `E-ENTRY-MISSING` / `E-ENTRY-ARITY` | no `entry` line, or the entry function does not take exactly one parameter |
 
 ## Output format

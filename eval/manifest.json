@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "9feeb680a73b3a897b3045249861a5b1a3097b6bbd5eedcbdea04a44a49d47fa",
-    "bytes": 10477
+    "sha256": "45a83661f7becde638b7c38c4a1890746f788680b1dee0f76eb04896295255f4",
+    "bytes": 12536
   },
-  "task_set_sha256": "38ea12753efb3f390441a4f6a0fd7a18d252bac8adc0028f8f469bb6f1c0f0c2",
-  "tasks": 84,
-  "hidden_cases": 2520,
+  "task_set_sha256": "c8b04e029d5473ea10983651baa1df5a3550f023074f9b2a3cd5ceb5f6900da8",
+  "tasks": 87,
+  "hidden_cases": 2610,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -344,6 +344,18 @@
     "tasks/84-roman_to_int/task.json": "65c3472641fe203f0f7d29a74eee52f86b6fb14c1754a48646cad2a84df5a46e",
     "tasks/84-roman_to_int/hidden.json": "7016c8cc2ca7e63ba70038f2c92b4ae2e17d7eec60d72260238a4cce9f277044",
     "tasks/84-roman_to_int/reference.tlvm": "6fd9516f28474370b629811cc3b7f98e7a68cfdd9e6c4044c758197ffecffab2",
-    "tasks/84-roman_to_int/reference.py": "34e716d9896400b394cfd2a01ad0a5a1deaeb2aba76b70d09f1eaf5493e37a66"
+    "tasks/84-roman_to_int/reference.py": "34e716d9896400b394cfd2a01ad0a5a1deaeb2aba76b70d09f1eaf5493e37a66",
+    "tasks/85-word_count/task.json": "4e91f1fccf32c208e41cfa37094718970b028e4cb982fce0bd092809f32f5731",
+    "tasks/85-word_count/hidden.json": "9c625f023e05db15b58417b67164cecb055e8bfdd8d33ce74af1c8b2fd97c6e2",
+    "tasks/85-word_count/reference.tlvm": "b845a21264ff7ea9dfad8a1965d1ed9d61f2f2df28f19137aaf5623ebf8d7568",
+    "tasks/85-word_count/reference.py": "e9be5ad8ec13578cc4f133e33b175a78bf548f96ab3594e00d3ec0970289f451",
+    "tasks/86-csv_sum/task.json": "b95b1c7d499c734e3f06d4fff898371d87749a93e93ba2d21ce11190302d0100",
+    "tasks/86-csv_sum/hidden.json": "0e7df81cf42c71847adfd26b8bc0b097a563d4822314289b29fa0147b01e8dd6",
+    "tasks/86-csv_sum/reference.tlvm": "3d4e423fbd24c800db1f65c70112681997944b56c436796c43a38885101d0af4",
+    "tasks/86-csv_sum/reference.py": "6ea157f62444fb41e5d0509ddafb157af1a752e89a78632a264d429c6b20f226",
+    "tasks/87-join_numbers/task.json": "2b392d20fdb32f44f0cac8bf2ba21e16ff241264c07196e160b7cccd109b4f94",
+    "tasks/87-join_numbers/hidden.json": "adf79a7fb1d670ba4d61fa4f3f0f6759258b448417e70fe045aec62590a4cbdd",
+    "tasks/87-join_numbers/reference.tlvm": "1dc61bfae98547604927483b02ef2151873f94828eb70238534f811b09633875",
+    "tasks/87-join_numbers/reference.py": "0d59c3e883e6bd5cf4049a616664ab0aaebcc84df0996362b16c58ab161832f6"
   }
 }

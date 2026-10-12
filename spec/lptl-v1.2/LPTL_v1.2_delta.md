@@ -81,6 +81,20 @@ parse_int : String -> Option<Int>
 - 値 JSON：文字は `{"tag":"char","value":"<十進の番号>"}`。文字列は文字のリスト。復号はスカラー値でない番号を拒否する。
 - plain JSON（検証されていない便宜の形式）：`String` の値は JSON の文字列、`Char` の値は 1 文字の JSON 文字列で書く。
 
+## 6a. 診断
+
+| コード | phase | 意味 |
+|---|---|---|
+| `E-LEX-INVALID-ESCAPE` | lex | 許されないエスケープ（`\q`、文字列の `\'`、文字の `\"`） |
+| `E-LEX-UNTERMINATED-STRING` | lex | 閉じる `"` の前に改行か EOF（修復ヒントで `"` を挿入） |
+| `E-LEX-INVALID-CHAR-LITERAL` | lex | 空・複数文字・閉じていない文字リテラル |
+| `E-LEX-CONTROL-CHAR-IN-LITERAL` | lex | リテラル中の生の制御文字 |
+| `E-PARSE-STRING-TYPE` | parse | 型に `List<Char>` と書いた（修復ヒントで `String` に置換） |
+| `E-AST-STRING-TYPE`、`E-AST-LITERAL` | AST API | AST JSON の `list<char>` 型、ソースで書けない文字を含むリテラル |
+| `E-INPUT-CHAR` | 入力 | 値 JSON の文字の番号がスカラー値でない |
+
+AST codec：型は `{"tag":"char"}`、`{"tag":"string"}`。式は `{"tag":"char","value":"<番号>"}`、`{"tag":"string","value":"<JSON 文字列>"}`。
+
 ## 7. 証明義務（v1 §11.2 の更新）
 
 検証済み部品（`verus/`）に次を入れ、全体で 587 件の検証を通した（`assume`・`admit` なし）。
