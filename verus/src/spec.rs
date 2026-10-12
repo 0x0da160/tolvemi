@@ -20,6 +20,8 @@ pub enum Ty {
     List(Box<Ty>),
     Option(Box<Ty>),
     Pair(Box<Ty>, Box<Ty>),
+    /// v1.4：Result<T, E>（成功 ok と失敗 err の直和）
+    Result(Box<Ty>, Box<Ty>),
 }
 
 /// 有限木としての値。リストは要素の有限列。
@@ -33,6 +35,10 @@ pub enum Val {
     Some(Box<Val>),
     Pair(Box<Val>, Box<Val>),
     List(Seq<Val>),
+    /// v1.4：ok(v)
+    Ok(Box<Val>),
+    /// v1.4：err(v)
+    Err(Box<Val>),
 }
 
 /// 値 v が型 t を持つ。
@@ -48,6 +54,8 @@ pub open spec fn val_type(v: Val, t: Ty) -> bool
         Val::Some(x) => t is Option && val_type(*x, *t->Option_0),
         Val::Pair(a, b) => t is Pair && val_type(*a, *t->Pair_0) && val_type(*b, *t->Pair_1),
         Val::List(s) => t is List && list_type(s, *t->List_0, 0),
+        Val::Ok(x) => t is Result && val_type(*x, *t->Result_0),
+        Val::Err(x) => t is Result && val_type(*x, *t->Result_1),
     }
 }
 
@@ -121,6 +129,10 @@ pub enum Expr {
     Fold(Box<Expr>, Box<Expr>, nat, nat, Box<Expr>),
     /// v1.1：match_option(scrutinee, on_none, |x| on_some)
     Match(Box<Expr>, Box<Expr>, nat, Box<Expr>),
+    /// v1.4：ok<T, E>(x)（true）、err<T, E>(x)（false）
+    Inj(bool, Ty, Ty, Box<Expr>),
+    /// v1.4：match_result(scrutinee, |x| on_ok, |y| on_err)
+    MatchR(Box<Expr>, nat, Box<Expr>, nat, Box<Expr>),
 }
 
 pub struct Func {
@@ -277,6 +289,29 @@ pub open spec fn ty_expr(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr) -> Option<
                 None
             },
             _ => None,
+        },
+        Expr::Inj(ok, t, u, x) => match ty_expr(p, r, ctx, *x) {
+            Some(tx) => if tx == (if ok { t } else { u }) {
+                Some(Ty::Result(Box::new(t), Box::new(u)))
+            } else {
+                None
+            },
+            None => None,
+        },
+        Expr::MatchR(m, x, a, y, b) => match ty_expr(p, r, ctx, *m) {
+            Some(tm) => if tm is Result {
+                match ty_expr(p, r, ctx.insert(x, *tm->Result_0), *a) {
+                    Some(ta) => if ty_expr(p, r, ctx.insert(y, *tm->Result_1), *b) == Some(ta) {
+                        Some(ta)
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            },
+            None => None,
         },
     }
 }
@@ -532,6 +567,16 @@ pub open spec fn eval(p: Prog, fuel: nat, env: Map<nat, Val>, e: Expr) -> Res
             Expr::Match(m, n, x, sm) => match eval(p, f, env, *m) {
                 Res::Done(Val::None) => eval(p, f, env, *n),
                 Res::Done(Val::Some(v)) => eval(p, f, env.insert(x, *v), *sm),
+                Res::Done(_) => Res::Stuck,
+                r => r,
+            },
+            Expr::Inj(ok, _, _, x) => match eval(p, f, env, *x) {
+                Res::Done(v) => Res::Done(if ok { Val::Ok(Box::new(v)) } else { Val::Err(Box::new(v)) }),
+                r => r,
+            },
+            Expr::MatchR(m, x, a, y, b) => match eval(p, f, env, *m) {
+                Res::Done(Val::Ok(v)) => eval(p, f, env.insert(x, *v), *a),
+                Res::Done(Val::Err(v)) => eval(p, f, env.insert(y, *v), *b),
                 Res::Done(_) => Res::Stuck,
                 r => r,
             },

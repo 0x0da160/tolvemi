@@ -65,6 +65,10 @@ pub enum Kw {
     CharOf,
     ToString,
     ParseInt,
+    TResult,
+    Ok,
+    Err,
+    MatchResult,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -115,6 +119,10 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::CharOf => seq!['c', 'h', 'a', 'r'],
         Kw::ToString => seq!['t', 'o', '_', 's', 't', 'r', 'i', 'n', 'g'],
         Kw::ParseInt => seq!['p', 'a', 'r', 's', 'e', '_', 'i', 'n', 't'],
+        Kw::TResult => seq!['R', 'e', 's', 'u', 'l', 't'],
+        Kw::Ok => seq!['o', 'k'],
+        Kw::Err => seq!['e', 'r', 'r'],
+        Kw::MatchResult => seq!['m', 'a', 't', 'c', 'h', '_', 'r', 'e', 's', 'u', 'l', 't'],
     }
 }
 
@@ -153,6 +161,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Le)
         } else if c2(s, 'e', 'q') {
             Some(Kw::Eq)
+        } else if c2(s, 'o', 'k') {
+            Some(Kw::Ok)
         } else {
             None
         }
@@ -179,6 +189,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Min)
         } else if c3(s, 'm', 'a', 'x') {
             Some(Kw::Max)
+        } else if c3(s, 'e', 'r', 'r') {
+            Some(Kw::Err)
         } else {
             None
         }
@@ -239,6 +251,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Uncons)
         } else if c6(s, 'S', 't', 'r', 'i', 'n', 'g') {
             Some(Kw::TString)
+        } else if c6(s, 'R', 'e', 's', 'u', 'l', 't') {
+            Some(Kw::TResult)
         } else {
             None
         }
@@ -266,6 +280,9 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
         if c6(s, 'm', 'a', 't', 'c', 'h', '_') && s[6] == 'o' && s[7] == 'p' && s[8] == 't' && s[9] == 'i'
             && s[10] == 'o' && s[11] == 'n' {
             Some(Kw::MatchOption)
+        } else if c6(s, 'm', 'a', 't', 'c', 'h', '_') && s[6] == 'r' && s[7] == 'e' && s[8] == 's' && s[9] == 'u'
+            && s[10] == 'l' && s[11] == 't' {
+            Some(Kw::MatchResult)
         } else {
             None
         }
@@ -370,7 +387,7 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
 
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
-    kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry
+    kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry || k == Kw::Ok || k == Kw::Err
 }
 
 /// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
@@ -495,6 +512,10 @@ pub enum Sx {
     Fold(Box<Sx>, Box<Sx>, Seq<char>, Seq<char>, Box<Sx>),
     /// match_option(m, n, |x| s)
     Match(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
+    /// v1.4：ok<T, E>(x)（true）、err<T, E>(x)（false）
+    Inj(bool, Ty, Ty, Box<Sx>),
+    /// v1.4：match_result(m, |x| a, |y| b)
+    MatchR(Box<Sx>, Seq<char>, Box<Sx>, Seq<char>, Box<Sx>),
 }
 
 pub enum Sd {
@@ -519,6 +540,10 @@ pub open spec fn tt(t: Ty, k: Seq<Tok>) -> Seq<Tok>
         },
         Ty::Option(a) => seq![Tok::Kw(Kw::TOption), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
         Ty::Pair(a, b) => seq![Tok::Kw(Kw::TPair), Tok::Sym('<')] + tt(
+            *a,
+            seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k),
+        ),
+        Ty::Result(a, b) => seq![Tok::Kw(Kw::TResult), Tok::Sym('<')] + tt(
             *a,
             seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k),
         ),
@@ -568,6 +593,17 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
             seq![Tok::Sym(',')] + te(
                 *n,
                 seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
+            ),
+        ),
+        Sx::Inj(ok, t, u, x) => seq![Tok::Kw(if ok { Kw::Ok } else { Kw::Err }), Tok::Sym('<')] + tt(
+            t,
+            seq![Tok::Sym(',')] + tt(u, seq![Tok::Sym('>'), Tok::Sym('(')] + te(*x, seq![Tok::Sym(')')] + k)),
+        ),
+        Sx::MatchR(m, x, a, y, b) => seq![Tok::Kw(Kw::MatchResult), Tok::Sym('(')] + te(
+            *m,
+            seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(
+                *a,
+                seq![Tok::Sym(','), Tok::Sym('|'), word_tok(y), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
     }
@@ -643,6 +679,7 @@ pub open spec fn ft(t: Ty, k: Seq<char>) -> Seq<char>
         },
         Ty::Option(a) => kwt(Kw::TOption) + (seq!['<'] + ft(*a, seq!['>'] + k)),
         Ty::Pair(a, b) => kwt(Kw::TPair) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
+        Ty::Result(a, b) => kwt(Kw::TResult) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
     }
 }
 
@@ -680,6 +717,17 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
         Sx::Match(m, n, x, b) => kwt(Kw::MatchOption) + (seq!['('] + fe(
             *m,
             seq![',', ' '] + fe(*n, seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k)))),
+        )),
+        Sx::Inj(ok, t, u, x) => kwt(if ok { Kw::Ok } else { Kw::Err }) + (seq!['<'] + ft(
+            t,
+            seq![',', ' '] + ft(u, seq!['>', '('] + fe(*x, seq![')'] + k)),
+        )),
+        Sx::MatchR(m, x, a, y, b) => kwt(Kw::MatchResult) + (seq!['('] + fe(
+            *m,
+            seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(
+                *a,
+                seq![',', ' ', '|'] + (y + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
+            ))),
         )),
     }
 }
@@ -923,12 +971,19 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
             } else {
                 None
             },
-            Tok::Kw(Kw::TPair) => if sym(ts, i + 1, '<') {
+            Tok::Kw(Kw::TPair) | Tok::Kw(Kw::TResult) => if sym(ts, i + 1, '<') {
                 match pt(ts, i + 2, (d - 1) as nat) {
                     Some((a, j)) => if sym(ts, j, ',') {
                         match pt(ts, j + 1, (d - 1) as nat) {
                             Some((b, m)) => if sym(ts, m, '>') {
-                                Some((Ty::Pair(Box::new(a), Box::new(b)), m + 1))
+                                Some((
+                                    if ts[i as int] == Tok::Kw(Kw::TPair) {
+                                        Ty::Pair(Box::new(a), Box::new(b))
+                                    } else {
+                                        Ty::Result(Box::new(a), Box::new(b))
+                                    },
+                                    m + 1,
+                                ))
                             } else {
                                 None
                             },
@@ -1162,6 +1217,66 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                     } else {
                         None
                     }
+                } else if k == Kw::Ok || k == Kw::Err {
+                    if sym(ts, i + 1, '<') {
+                        match pt(ts, i + 2, td) {
+                            Some((t, j)) => if sym(ts, j, ',') {
+                                match pt(ts, j + 1, td) {
+                                    Some((u, m)) => if sym(ts, m, '>') && sym(ts, m + 1, '(') {
+                                        match pe(ts, m + 2, d1, td) {
+                                            Some((a, q)) => if sym(ts, q, ')') {
+                                                Some((Sx::Inj(k == Kw::Ok, t, u, Box::new(a)), q + 1))
+                                            } else {
+                                                None
+                                            },
+                                            None => None,
+                                        }
+                                    } else {
+                                        None
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else if k == Kw::MatchResult {
+                    if sym(ts, i + 1, '(') {
+                        match pe(ts, i + 2, d1, td) {
+                            Some((m, j)) => if sym(ts, j, ',') && sym(ts, j + 1, '|') && sym(ts, j + 3, '|') {
+                                match bdt(ts, j + 2) {
+                                    Some(x) => match pe(ts, j + 4, d1, td) {
+                                        Some((a, q)) => if sym(ts, q, ',') && sym(ts, q + 1, '|') && sym(ts, q + 3, '|') {
+                                            match bdt(ts, q + 2) {
+                                                Some(y) => match pe(ts, q + 4, d1, td) {
+                                                    Some((b, u)) => if sym(ts, u, ')') {
+                                                        Some((Sx::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b)), u + 1))
+                                                    } else {
+                                                        None
+                                                    },
+                                                    None => None,
+                                                },
+                                                None => None,
+                                            }
+                                        } else {
+                                            None
+                                        },
+                                        None => None,
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     match kw_b(k) {
                         Some(b) => if sym(ts, i + 1, '(') {
@@ -1320,7 +1435,7 @@ pub open spec fn bt(t: Ty, d: nat) -> bool
     d > 0 && match t {
         Ty::List(a) => *a == Ty::Char || bt(*a, (d - 1) as nat),
         Ty::Option(a) => bt(*a, (d - 1) as nat),
-        Ty::Pair(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
+        Ty::Pair(a, b) | Ty::Result(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
         _ => true,
     }
 }
@@ -1349,6 +1464,8 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
                 td,
             ),
             Sx::Match(m, n, x, b) => name_ok(x) && bx(*m, d1, td) && bx(*n, d1, td) && bx(*b, d1, td),
+            Sx::Inj(_, t, u, x) => bt(t, td) && bt(u, td) && bx(*x, d1, td),
+            Sx::MatchR(m, x, a, y, b) => name_ok(x) && name_ok(y) && bx(*m, d1, td) && bx(*a, d1, td) && bx(*b, d1, td),
             _ => true,
         }
     }

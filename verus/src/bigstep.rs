@@ -194,6 +194,38 @@ pub proof fn bs_match(p: Prog, env: Map<nat, Val>, m: Expr, nb: Expr, x: nat, sm
     }
 }
 
+pub open spec fn inj_val(ok: bool, v: Val) -> Val {
+    if ok { Val::Ok(Box::new(v)) } else { Val::Err(Box::new(v)) }
+}
+
+pub proof fn bs_inj(p: Prog, env: Map<nat, Val>, ok: bool, t: Ty, u: Ty, x: Expr, v: Val)
+    requires
+        evals_to(p, env, x, v),
+    ensures
+        evals_to(p, env, Expr::Inj(ok, t, u, Box::new(x)), inj_val(ok, v)),
+{
+    let n = choose|n: nat| #[trigger] eval(p, n, env, x) == Res::Done(v);
+    assert(eval(p, n + 1, env, Expr::Inj(ok, t, u, Box::new(x))) == Res::Done(inj_val(ok, v)));
+}
+
+pub proof fn bs_matchr(p: Prog, env: Map<nat, Val>, m: Expr, x: nat, a: Expr, y: nat, b: Expr, mv: Val, w: Val)
+    requires
+        evals_to(p, env, m, mv),
+        mv is Ok ==> evals_to(p, env.insert(x, *mv->Ok_0), a, w),
+        mv is Err ==> evals_to(p, env.insert(y, *mv->Err_0), b, w),
+        mv is Ok || mv is Err,
+    ensures
+        evals_to(p, env, Expr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b)), w),
+{
+    let n1 = choose|n: nat| #[trigger] eval(p, n, env, m) == Res::Done(mv);
+    let (env2, br) = if mv is Ok { (env.insert(x, *mv->Ok_0), a) } else { (env.insert(y, *mv->Err_0), b) };
+    let n2 = choose|n: nat| #[trigger] eval(p, n, env2, br) == Res::Done(w);
+    let n = max(n1, n2);
+    lift(p, n1, n, env, m);
+    lift(p, n2, n, env2, br);
+    assert(eval(p, n + 1, env, Expr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b))) == Res::Done(w));
+}
+
 pub proof fn bs_fold(
     p: Prog,
     env: Map<nat, Val>,
@@ -526,6 +558,44 @@ pub proof fn fl_match(p: Prog, env: Map<nat, Val>, m: Expr, nb: Expr, x: nat, sm
                     assert(!(eval(p, f, env.insert(x, *mv->Some_0), sm) is Done));
                 } else if mv is None {
                     assert(!(eval(p, f, env, nb) is Done));
+                }
+            }
+        }
+    }
+}
+
+pub proof fn fl_inj(p: Prog, env: Map<nat, Val>, ok: bool, t: Ty, u: Ty, x: Expr)
+    requires
+        fails(p, env, x),
+    ensures
+        fails(p, env, Expr::Inj(ok, t, u, Box::new(x))),
+{
+    assert forall|n: nat| !(#[trigger] eval(p, n, env, Expr::Inj(ok, t, u, Box::new(x))) is Done) by {
+        if n > 0 {
+            assert(!(eval(p, (n - 1) as nat, env, x) is Done));
+        }
+    }
+}
+
+pub proof fn fl_matchr(p: Prog, env: Map<nat, Val>, m: Expr, x: nat, a: Expr, y: nat, b: Expr, mv: Val)
+    requires
+        fails(p, env, m) || (evals_to(p, env, m, mv) && (!(mv is Ok || mv is Err) || (mv is Ok && fails(
+            p,
+            env.insert(x, *mv->Ok_0),
+            a,
+        )) || (mv is Err && fails(p, env.insert(y, *mv->Err_0), b)))),
+    ensures
+        fails(p, env, Expr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b))),
+{
+    assert forall|n: nat| !(#[trigger] eval(p, n, env, Expr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b))) is Done) by {
+        if n > 0 {
+            let f = (n - 1) as nat;
+            if eval(p, f, env, m) is Done {
+                same(p, f, env, m, mv);
+                if mv is Ok {
+                    assert(!(eval(p, f, env.insert(x, *mv->Ok_0), a) is Done));
+                } else if mv is Err {
+                    assert(!(eval(p, f, env.insert(y, *mv->Err_0), b) is Done));
                 }
             }
         }

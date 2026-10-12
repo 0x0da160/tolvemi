@@ -57,6 +57,16 @@ pub open spec fn l_some() -> Seq<char> {
 }
 
 #[verifier::opaque]
+pub open spec fn l_ok() -> Seq<char> {
+    seq!['{', '"', 't', 'a', 'g', '"', ':', '"', 'o', 'k', '"', ',', '"', 'v', 'a', 'l', 'u', 'e', '"', ':']
+}
+
+#[verifier::opaque]
+pub open spec fn l_err() -> Seq<char> {
+    seq!['{', '"', 't', 'a', 'g', '"', ':', '"', 'e', 'r', 'r', '"', ',', '"', 'v', 'a', 'l', 'u', 'e', '"', ':']
+}
+
+#[verifier::opaque]
 pub open spec fn l_close() -> Seq<char> {
     seq!['}']
 }
@@ -98,6 +108,8 @@ pub proof fn lits()
         l_unit().len() == 14 && l_unit()[0] == '{',
         l_none().len() == 14 && l_none()[0] == '{' && l_none()[8] == 'n',
         l_some().len() == 22 && l_some()[0] == '{' && l_some()[8] == 's',
+        l_ok().len() == 20 && l_ok()[0] == '{' && l_ok()[8] == 'o',
+        l_err().len() == 21 && l_err()[0] == '{' && l_err()[8] == 'e',
         l_close().len() == 1,
         l_pair1().len() == 21 && l_pair1()[0] == '{',
         l_pair2().len() == 9,
@@ -113,6 +125,8 @@ pub proof fn lits()
     reveal(l_unit);
     reveal(l_none);
     reveal(l_some);
+    reveal(l_ok);
+    reveal(l_err);
     reveal(l_close);
     reveal(l_pair1);
     reveal(l_pair2);
@@ -139,6 +153,8 @@ pub open spec fn enc(v: Val) -> Seq<char>
         Val::Some(x) => l_some() + enc(*x) + l_close(),
         Val::Pair(a, b) => l_pair1() + enc(*a) + l_pair2() + enc(*b) + l_close(),
         Val::List(s) => l_list1() + enc_items(s, 0) + l_list2(),
+        Val::Ok(x) => l_ok() + enc(*x) + l_close(),
+        Val::Err(x) => l_err() + enc(*x) + l_close(),
     }
 }
 
@@ -254,6 +270,30 @@ fn push_some(out: &mut String)
     }
 }
 
+fn push_ok(out: &mut String)
+    ensures
+        final(out)@ == old(out)@ + l_ok(),
+{
+    out.push_str("{\"tag\":\"ok\",\"value\":");
+    proof {
+        reveal(l_ok);
+        reveal_strlit("{\"tag\":\"ok\",\"value\":");
+        assert("{\"tag\":\"ok\",\"value\":"@ =~= l_ok());
+    }
+}
+
+fn push_err(out: &mut String)
+    ensures
+        final(out)@ == old(out)@ + l_err(),
+{
+    out.push_str("{\"tag\":\"err\",\"value\":");
+    proof {
+        reveal(l_err);
+        reveal_strlit("{\"tag\":\"err\",\"value\":");
+        assert("{\"tag\":\"err\",\"value\":"@ =~= l_err());
+    }
+}
+
 fn push_close(out: &mut String)
     ensures
         final(out)@ == old(out)@ + l_close(),
@@ -363,6 +403,22 @@ pub fn encode(v: &Rc<Value>, out: &mut String)
         Value::None => push_none(out),
         Value::Some(x) => {
             push_some(out);
+            encode(x, out);
+            push_close(out);
+            proof {
+                assert(out@ =~= o + enc(view_val(**v)));
+            }
+        },
+        Value::Ok(x) => {
+            push_ok(out);
+            encode(x, out);
+            push_close(out);
+            proof {
+                assert(out@ =~= o + enc(view_val(**v)));
+            }
+        },
+        Value::Err(x) => {
+            push_err(out);
             encode(x, out);
             push_close(out);
             proof {
@@ -559,6 +615,27 @@ pub open spec fn dec(c: Seq<char>, pos: int, t: Ty) -> Option<(Val, int)>
                 match dec(c, pos + l_some().len(), *el) {
                     Some((x, p2)) => if at(c, p2, l_close()) {
                         Some((Val::Some(Box::new(x)), p2 + 1))
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            },
+            Ty::Result(ta, tb) => if at(c, pos, l_ok()) {
+                match dec(c, pos + l_ok().len(), *ta) {
+                    Some((x, p2)) => if at(c, p2, l_close()) {
+                        Some((Val::Ok(Box::new(x)), p2 + 1))
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else if at(c, pos, l_err()) {
+                match dec(c, pos + l_err().len(), *tb) {
+                    Some((x, p2)) => if at(c, p2, l_close()) {
+                        Some((Val::Err(Box::new(x)), p2 + 1))
                     } else {
                         None
                     },
@@ -768,6 +845,12 @@ pub proof fn enc_first(v: Val)
         Val::List(s) => {
             assert((l_list1() + enc_items(s, 0) + l_list2())[0] == l_list1()[0]);
         },
+        Val::Ok(x) => {
+            assert((l_ok() + enc(*x) + l_close())[0] == l_ok()[0]);
+        },
+        Val::Err(x) => {
+            assert((l_err() + enc(*x) + l_close())[0] == l_err()[0]);
+        },
     }
 }
 
@@ -801,6 +884,22 @@ pub proof fn roundtrip(c: Seq<char>, pos: int, v: Val, t: Ty)
             at_split(c, pos, l_some(), enc(*x));
             roundtrip(c, pos + l_some().len(), *x, el);
             roundtrip_some(c, pos, *x, el);
+        },
+        Val::Ok(x) => {
+            let ta = *t->Result_0;
+            let tb = *t->Result_1;
+            at_split(c, pos, l_ok() + enc(*x), l_close());
+            at_split(c, pos, l_ok(), enc(*x));
+            roundtrip(c, pos + l_ok().len(), *x, ta);
+            roundtrip_ok(c, pos, *x, ta, tb);
+        },
+        Val::Err(x) => {
+            let ta = *t->Result_0;
+            let tb = *t->Result_1;
+            at_split(c, pos, l_err() + enc(*x), l_close());
+            at_split(c, pos, l_err(), enc(*x));
+            roundtrip(c, pos + l_err().len(), *x, tb);
+            roundtrip_err(c, pos, *x, ta, tb);
         },
         Val::Pair(a, b) => {
             let ta = *t->Pair_0;
@@ -886,6 +985,36 @@ proof fn roundtrip_some(c: Seq<char>, pos: int, x: Val, el: Ty)
     }
 }
 
+proof fn roundtrip_ok(c: Seq<char>, pos: int, x: Val, ta: Ty, tb: Ty)
+    requires
+        at(c, pos, l_ok()),
+        dec(c, pos + l_ok().len(), ta) == Some((x, pos + l_ok().len() + enc(x).len())),
+        at(c, pos + l_ok().len() + enc(x).len(), l_close()),
+    ensures
+        dec(c, pos, Ty::Result(Box::new(ta), Box::new(tb))) == Some(
+            (Val::Ok(Box::new(x)), pos + enc(Val::Ok(Box::new(x))).len()),
+        ),
+{
+    lits();
+}
+
+proof fn roundtrip_err(c: Seq<char>, pos: int, x: Val, ta: Ty, tb: Ty)
+    requires
+        at(c, pos, l_err()),
+        dec(c, pos + l_err().len(), tb) == Some((x, pos + l_err().len() + enc(x).len())),
+        at(c, pos + l_err().len() + enc(x).len(), l_close()),
+    ensures
+        dec(c, pos, Ty::Result(Box::new(ta), Box::new(tb))) == Some(
+            (Val::Err(Box::new(x)), pos + enc(Val::Err(Box::new(x))).len()),
+        ),
+{
+    lits();
+    at_char(c, pos, l_err(), 8);
+    if at(c, pos, l_ok()) {
+        at_char(c, pos, l_ok(), 8);
+    }
+}
+
 proof fn roundtrip_pair(c: Seq<char>, pos: int, a: Val, b: Val, ta: Ty, tb: Ty)
     requires
         at(c, pos, l_pair1()),
@@ -968,6 +1097,13 @@ pub proof fn dec_typed(c: Seq<char>, pos: int, t: Ty)
         Ty::Option(el) => {
             if !at(c, pos, l_none()) {
                 dec_typed(c, pos + l_some().len(), *el);
+            }
+        },
+        Ty::Result(ta, tb) => {
+            if at(c, pos, l_ok()) {
+                dec_typed(c, pos + l_ok().len(), *ta);
+            } else {
+                dec_typed(c, pos + l_err().len(), *tb);
             }
         },
         Ty::Pair(ta, tb) => {

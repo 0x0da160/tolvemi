@@ -20,7 +20,9 @@ pub proof fn keys()
         k_items().len() == 5,
         k_value() != k_items(),
         t_some() != t_none(),
+        t_ok() != t_err(),
 {
+    assert(t_ok().len() == 2 && t_err().len() == 3);
     assert(k_value()[0] == ('v' as u32));
     assert(k_items()[0] == ('i' as u32));
     assert(t_some()[0] == ('s' as u32));
@@ -82,6 +84,13 @@ pub proof fn jd_props(j: J, t: Ty)
                 Ty::Option(el) => {
                     if !(g == t_none() && only(ks, r1)) {
                         jd_props(vs[iv as int], *el);
+                    }
+                },
+                Ty::Result(ta, tb) => {
+                    if g == t_ok() && only(ks, r2v) {
+                        jd_props(vs[iv as int], *ta);
+                    } else {
+                        jd_props(vs[iv as int], *tb);
                     }
                 },
                 Ty::Pair(ta, tb) => {
@@ -181,6 +190,8 @@ pub open spec fn jt(v: Val) -> J
         Val::Some(x) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_some()), jt(*x)]),
         Val::Pair(a, b) => J::Obj(seq![k_tag(), k_left(), k_right()], seq![J::Str(t_pair()), jt(*a), jt(*b)]),
         Val::List(xs) => J::Obj(seq![k_tag(), k_items()], seq![J::Str(t_list()), J::Arr(jts(xs, 0))]),
+        Val::Ok(x) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_ok()), jt(*x)]),
+        Val::Err(x) => J::Obj(seq![k_tag(), k_value()], seq![J::Str(t_err()), jt(*x)]),
     }
 }
 
@@ -200,6 +211,8 @@ pub open spec fn vdepth(v: Val) -> nat
 {
     match v {
         Val::Some(x) => 1 + vdepth(*x),
+        Val::Ok(x) => 1 + vdepth(*x),
+        Val::Err(x) => 1 + vdepth(*x),
         Val::Pair(a, b) => 1 + if vdepth(*a) >= vdepth(*b) {
             vdepth(*a)
         } else {
@@ -393,6 +406,20 @@ proof fn plain_some()
     assert forall|k: int| 0 <= k < c_some().len() implies pc(#[trigger] c_some()[k]) by {}
 }
 
+proof fn plain_ok()
+    ensures
+        plain(c_ok()),
+{
+    assert forall|k: int| 0 <= k < c_ok().len() implies pc(#[trigger] c_ok()[k]) by {}
+}
+
+proof fn plain_err()
+    ensures
+        plain(c_err()),
+{
+    assert forall|k: int| 0 <= k < c_err().len() implies pc(#[trigger] c_err()[k]) by {}
+}
+
 proof fn plain_pair()
     ensures
         plain(c_pair()),
@@ -459,6 +486,20 @@ proof fn lay_some()
     reveal(l_some);
     reveal(l_close);
     assert(l_some() =~= pre(c_some()) + seq![','] + hdr(c_value()));
+    assert(l_close() =~= seq!['}']);
+}
+
+proof fn lay_ok()
+    ensures
+        l_ok() == pre(c_ok()) + seq![','] + hdr(c_value()),
+        l_err() == pre(c_err()) + seq![','] + hdr(c_value()),
+        l_close() == seq!['}'],
+{
+    reveal(l_ok);
+    reveal(l_err);
+    reveal(l_close);
+    assert(l_ok() =~= pre(c_ok()) + seq![','] + hdr(c_value()));
+    assert(l_err() =~= pre(c_err()) + seq![','] + hdr(c_value()));
     assert(l_close() =~= seq!['}']);
 }
 
@@ -711,6 +752,8 @@ proof fn rt_parse(s: Seq<char>, i: nat, d: nat, v: Val)
         Val::Some(_) => rt_some(s, i, d, v),
         Val::Pair(_, _) => rt_pair(s, i, d, v),
         Val::List(_) => rt_list(s, i, d, v),
+        Val::Ok(_) => rt_ok(s, i, d, v),
+        Val::Err(_) => rt_err(s, i, d, v),
     }
 }
 
@@ -894,6 +937,94 @@ proof fn rt_some(s: Seq<char>, i: nat, d: nat, v: Val)
 
 #[verifier::spinoff_prover]
 #[verifier::rlimit(80)]
+proof fn rt_ok(s: Seq<char>, i: nat, d: nat, v: Val)
+    requires
+        has(s, i as int, enc(v)),
+        vdepth(v) <= d,
+        v matches Val::Ok(x),
+    ensures
+        jv(s, i, d) == Some((jt(v), i + enc(v).len())),
+    decreases v, 0nat,
+{
+    if let Val::Ok(x) = v {
+        let ex = enc(*x);
+        let e = i + 20 + ex.len();
+        assert(enc(v) == l_ok() + ex + l_close());
+        assert(l_ok().len() == 20 && l_close().len() == 1 && l_close()[0] == '}') by {
+            lay_ok();
+        }
+        assert(has(s, (i + 20) as int, ex) && has(s, i as int, l_ok()) && e < s.len() && s[e as int] == '}') by {
+            has_split(s, i as int, l_ok() + ex, l_close());
+            has_split(s, i as int, l_ok(), ex);
+            has_at(s, e as int, l_close(), 0);
+        }
+        assert(vdepth(*x) <= d - 1);
+        rt_parse(s, i + 20, (d - 1) as nat, *x);
+        assert(jmembers(s, i + 12, (d - 1) as nat) == Some((seq![k_value()], seq![jt(*x)], e + 1))) by {
+            lay_ok();
+            plain_value();
+            has_split(s, i as int, pre(c_ok()) + seq![','], hdr(c_value()));
+            jm_one(s, i + 12, (d - 1) as nat, c_value(), jt(*x), e);
+        }
+        assert(jv(s, i, d) == Some((J::Obj(seq![k_tag()] + seq![k_value()], seq![J::Str(t_ok())] + seq![jt(*x)]), e + 1))) by {
+            lay_ok();
+            plain_ok();
+            has_split(s, i as int, pre(c_ok()) + seq![','], hdr(c_value()));
+            has_split(s, i as int, pre(c_ok()), seq![',']);
+            has_at(s, (i + 11) as int, seq![','], 0);
+            head(s, i, d, c_ok());
+        }
+        assert(seq![k_tag()] + seq![k_value()] =~= seq![k_tag(), k_value()]);
+        assert(seq![J::Str(t_ok())] + seq![jt(*x)] =~= seq![J::Str(t_ok()), jt(*x)]);
+    }
+}
+
+#[verifier::spinoff_prover]
+#[verifier::rlimit(80)]
+proof fn rt_err(s: Seq<char>, i: nat, d: nat, v: Val)
+    requires
+        has(s, i as int, enc(v)),
+        vdepth(v) <= d,
+        v matches Val::Err(x),
+    ensures
+        jv(s, i, d) == Some((jt(v), i + enc(v).len())),
+    decreases v, 0nat,
+{
+    if let Val::Err(x) = v {
+        let ex = enc(*x);
+        let e = i + 21 + ex.len();
+        assert(enc(v) == l_err() + ex + l_close());
+        assert(l_err().len() == 21 && l_close().len() == 1 && l_close()[0] == '}') by {
+            lay_ok();
+        }
+        assert(has(s, (i + 21) as int, ex) && has(s, i as int, l_err()) && e < s.len() && s[e as int] == '}') by {
+            has_split(s, i as int, l_err() + ex, l_close());
+            has_split(s, i as int, l_err(), ex);
+            has_at(s, e as int, l_close(), 0);
+        }
+        assert(vdepth(*x) <= d - 1);
+        rt_parse(s, i + 21, (d - 1) as nat, *x);
+        assert(jmembers(s, i + 13, (d - 1) as nat) == Some((seq![k_value()], seq![jt(*x)], e + 1))) by {
+            lay_ok();
+            plain_value();
+            has_split(s, i as int, pre(c_err()) + seq![','], hdr(c_value()));
+            jm_one(s, i + 13, (d - 1) as nat, c_value(), jt(*x), e);
+        }
+        assert(jv(s, i, d) == Some((J::Obj(seq![k_tag()] + seq![k_value()], seq![J::Str(t_err())] + seq![jt(*x)]), e + 1))) by {
+            lay_ok();
+            plain_err();
+            has_split(s, i as int, pre(c_err()) + seq![','], hdr(c_value()));
+            has_split(s, i as int, pre(c_err()), seq![',']);
+            has_at(s, (i + 12) as int, seq![','], 0);
+            head(s, i, d, c_err());
+        }
+        assert(seq![k_tag()] + seq![k_value()] =~= seq![k_tag(), k_value()]);
+        assert(seq![J::Str(t_err())] + seq![jt(*x)] =~= seq![J::Str(t_err()), jt(*x)]);
+    }
+}
+
+#[verifier::spinoff_prover]
+#[verifier::rlimit(80)]
 proof fn rt_pair(s: Seq<char>, i: nat, d: nat, v: Val)
     requires
         has(s, i as int, enc(v)),
@@ -1059,6 +1190,8 @@ proof fn rt_items(s: Seq<char>, p: nat, d: nat, xs: Seq<Val>, k: nat)
     if k + 1 >= xs.len() {
         assert(rest.len() == 0);
         ji_one(s, p, d, jt(xs[k as int]), p + x.len());
+        assert(jts(xs, k + 1) == Seq::<J>::empty());
+        assert(jts(xs, k) == seq![jt(xs[k as int])] + jts(xs, k + 1));
         assert(jts(xs, k) =~= seq![jt(xs[k as int])]);
     } else {
         let y = enc(xs[(k + 1) as int]);
@@ -1099,6 +1232,12 @@ proof fn rt_dec(v: Val, t: Ty)
     match v {
         Val::Some(x) => {
             rt_dec(*x, *t->Option_0);
+        },
+        Val::Ok(x) => {
+            rt_dec(*x, *t->Result_0);
+        },
+        Val::Err(x) => {
+            rt_dec(*x, *t->Result_1);
         },
         Val::Pair(a, b) => {
             rt_dec(*a, *t->Pair_0);

@@ -25,6 +25,8 @@ pub enum EExpr {
     If(Box<EExpr>, Box<EExpr>, Box<EExpr>),
     Fold(Box<EExpr>, Box<EExpr>, usize, usize, Box<EExpr>),
     Match(Box<EExpr>, Box<EExpr>, usize, Box<EExpr>),
+    Inj(bool, Ty, Ty, Box<EExpr>),
+    MatchR(Box<EExpr>, usize, Box<EExpr>, usize, Box<EExpr>),
 }
 
 pub open spec fn view_expr(e: EExpr) -> Expr
@@ -60,6 +62,14 @@ pub open spec fn view_expr(e: EExpr) -> Expr
             Box::new(view_expr(*n)),
             x as nat,
             Box::new(view_expr(*sm)),
+        ),
+        EExpr::Inj(ok, t, u, x) => Expr::Inj(ok, t, u, Box::new(view_expr(*x))),
+        EExpr::MatchR(m, x, a, y, b) => Expr::MatchR(
+            Box::new(view_expr(*m)),
+            x as nat,
+            Box::new(view_expr(*a)),
+            y as nat,
+            Box::new(view_expr(*b)),
         ),
     }
 }
@@ -113,6 +123,7 @@ pub fn ty_clone(t: &Ty) -> (r: Ty)
         Ty::List(a) => Ty::List(Box::new(ty_clone(a))),
         Ty::Option(a) => Ty::Option(Box::new(ty_clone(a))),
         Ty::Pair(a, b) => Ty::Pair(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
+        Ty::Result(a, b) => Ty::Result(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
     }
 }
 
@@ -124,7 +135,7 @@ pub fn ty_eq(s: &Ty, t: &Ty) -> (r: bool)
     match (s, t) {
         (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Unit, Ty::Unit) | (Ty::Char, Ty::Char) => true,
         (Ty::List(a), Ty::List(b)) | (Ty::Option(a), Ty::Option(b)) => ty_eq(a, b),
-        (Ty::Pair(a, b), Ty::Pair(c, d)) => ty_eq(a, c) && ty_eq(b, d),
+        (Ty::Pair(a, b), Ty::Pair(c, d)) | (Ty::Result(a, b), Ty::Result(c, d)) => ty_eq(a, c) && ty_eq(b, d),
         _ => false,
     }
 }

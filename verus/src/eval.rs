@@ -494,6 +494,65 @@ impl Machine {
                     },
                 }
             },
+            EExpr::Inj(ok, t, u, x) => {
+                let v = match self.eval(p, x) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_inj(pp, env, *ok, dr(t), dr(u), view_expr(*dr(x)));
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
+                self.allocate(None)?;
+                proof {
+                    bs_inj(pp, env, *ok, dr(t), dr(u), view_expr(*dr(x)), vv(v));
+                }
+                Ok(Rc::new(if *ok { Value::Ok(v) } else { Value::Err(v) }))
+            },
+            EExpr::MatchR(m, x, a, y, b) => {
+                let mv = match self.eval(p, m) {
+                    Ok(v) => v,
+                    Err(s) => {
+                        proof {
+                            if is_fault(Err::<(), Stop>(s)) {
+                                fl_matchr(pp, env, view_expr(*dr(m)), *x as nat, view_expr(*dr(a)), *y as nat, view_expr(*dr(b)), Val::Unit);
+                            }
+                        }
+                        return Err(s);
+                    },
+                };
+                let (k, v, br) = match &*mv {
+                    Value::Ok(v) => (*x, v.clone(), a),
+                    Value::Err(v) => (*y, v.clone(), b),
+                    _ => {
+                        proof {
+                            assert(!(vv(mv) is Ok || vv(mv) is Err));
+                            fl_matchr(pp, env, view_expr(*dr(m)), *x as nat, view_expr(*dr(a)), *y as nat, view_expr(*dr(b)), vv(mv));
+                        }
+                        return Err(Stop::Fault);
+                    },
+                };
+                let ghost before = self.env@;
+                self.env.push((k, v.clone()));
+                proof {
+                    env_view_push(before, k, dr(&v));
+                }
+                let r = self.eval(p, br);
+                self.env.pop();
+                proof {
+                    assert(self.env@ =~= before);
+                    if r is Ok {
+                        bs_matchr(pp, env, view_expr(*dr(m)), *x as nat, view_expr(*dr(a)), *y as nat, view_expr(*dr(b)), vv(mv), vv(r->Ok_0));
+                    }
+                    if is_fault(r) {
+                        fl_matchr(pp, env, view_expr(*dr(m)), *x as nat, view_expr(*dr(a)), *y as nat, view_expr(*dr(b)), vv(mv));
+                    }
+                }
+                r
+            },
             EExpr::List(t, es) => {
                 let _ = t;
                 let mut vs = match self.eval_args(p, es, true) {
@@ -1648,7 +1707,7 @@ impl Machine {
             (Value::Unit, Value::Unit) => Ok(true),
             (Value::Char(m), Value::Char(n)) => Ok(*m == *n),
             (Value::None, Value::None) => Ok(true),
-            (Value::Some(a), Value::Some(b)) => self.equal(a, b),
+            (Value::Some(a), Value::Some(b)) | (Value::Ok(a), Value::Ok(b)) | (Value::Err(a), Value::Err(b)) => self.equal(a, b),
             (Value::Pair(l1, r1), Value::Pair(l2, r2)) => {
                 if !self.equal(l1, l2)? {
                     return Ok(false);

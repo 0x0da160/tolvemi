@@ -844,6 +844,33 @@ fn t_some_e() -> (r: Vec<u32>)
     codes(&w)
 }
 
+fn t_ok_e() -> (r: Vec<u32>)
+    ensures
+        r@ == t_ok(),
+{
+    let mut w: Vec<char> = Vec::new();
+    w.push('o');
+    w.push('k');
+    proof {
+        assert(w@ =~= c_ok());
+    }
+    codes(&w)
+}
+
+fn t_err_e() -> (r: Vec<u32>)
+    ensures
+        r@ == t_err(),
+{
+    let mut w: Vec<char> = Vec::new();
+    w.push('e');
+    w.push('r');
+    w.push('r');
+    proof {
+        assert(w@ =~= c_err());
+    }
+    codes(&w)
+}
+
 fn t_pair_e() -> (r: Vec<u32>)
     ensures
         r@ == t_pair(),
@@ -1242,6 +1269,20 @@ pub fn jd_e(j: &EJ, t: &Ty) -> (r: Option<Rc<Value>>)
                     }
                     match jd_e(&vs[iv], el) {
                         Some(x) => Some(Rc::new(Value::Some(x))),
+                        None => None,
+                    }
+                },
+                Ty::Result(ta, tb) => {
+                    let ok = eq_u32s(g, &t_ok_e());
+                    if !((ok || eq_u32s(g, &t_err_e())) && only_e(ks, &req2(k_tag_e(), k_value_e()))) || iv >= vs.len() {
+                        return None;
+                    }
+                    proof {
+                        assert(vsv[iv as int] == vj(vs@[iv as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, iv as int);
+                    }
+                    match jd_e(&vs[iv], if ok { ta } else { tb }) {
+                        Some(x) => Some(Rc::new(if ok { Value::Ok(x) } else { Value::Err(x) })),
                         None => None,
                     }
                 },

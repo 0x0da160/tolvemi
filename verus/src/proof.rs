@@ -68,6 +68,15 @@ pub proof fn mono(p: Prog, n: nat, m: nat, env: Map<nat, Val>, e: Expr)
                     _ => {},
                 }
             },
+            Expr::Inj(_, _, _, x) => mono(p, f, g, env, *x),
+            Expr::MatchR(m, x, a, y, b) => {
+                mono(p, f, g, env, *m);
+                match eval(p, f, env, *m) {
+                    Res::Done(Val::Ok(v)) => mono(p, f, g, env.insert(x, *v), *a),
+                    Res::Done(Val::Err(v)) => mono(p, f, g, env.insert(y, *v), *b),
+                    _ => {},
+                }
+            },
             _ => {},
         }
     }
@@ -576,6 +585,37 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
                     let n = max(n1, n2);
                     mono(p, n1, n, env, *m);
                     mono(p, n2, n, env, *nb);
+                    (n + 1, w)
+                },
+            }
+        },
+        Expr::Inj(ok, t, u, x) => {
+            let (n, v) = total(p, r, ctx, env, *x);
+            (n + 1, if ok { Val::Ok(Box::new(v)) } else { Val::Err(Box::new(v)) })
+        },
+        Expr::MatchR(m, x, a, y, b) => {
+            let (n1, vm) = total(p, r, ctx, env, *m);
+            let tm = ty_expr(p, r, ctx, *m)->Some_0;
+            let tl = *tm->Result_0;
+            let tr = *tm->Result_1;
+            assert(tm == Ty::Result(Box::new(tl), Box::new(tr)));
+            match vm {
+                Val::Ok(v) => {
+                    env_ok_insert(env, ctx, x, *v, tl);
+                    let (n2, w) = total(p, r, ctx.insert(x, tl), env.insert(x, *v), *a);
+                    let n = max(n1, n2);
+                    mono(p, n1, n, env, *m);
+                    mono(p, n2, n, env.insert(x, *v), *a);
+                    (n + 1, w)
+                },
+                _ => {
+                    assert(vm is Err);
+                    let v = vm->Err_0;
+                    env_ok_insert(env, ctx, y, *v, tr);
+                    let (n2, w) = total(p, r, ctx.insert(y, tr), env.insert(y, *v), *b);
+                    let n = max(n1, n2);
+                    mono(p, n1, n, env, *m);
+                    mono(p, n2, n, env.insert(y, *v), *b);
                     (n + 1, w)
                 },
             }
