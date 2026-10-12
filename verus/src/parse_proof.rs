@@ -359,6 +359,8 @@ pub proof fn pe_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
 {
     match e {
         Sx::Int(n) => hd(ts, i, seq![Tok::Int(n)], k),
+        Sx::Chr(c) => hd(ts, i, seq![Tok::Chr(c)], k),
+        Sx::Str(w) => hd(ts, i, seq![Tok::Str(w)], k),
         Sx::Bool(b) => hd(ts, i, seq![Tok::Kw(if b { Kw::True } else { Kw::False })], k),
         Sx::Unit => hd(ts, i, seq![Tok::Kw(Kw::Unit)], k),
         Sx::Var(x) => {

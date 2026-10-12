@@ -378,10 +378,99 @@ pub open spec fn name_ok(x: Seq<char>) -> bool {
     ident_ok(x) || (kw_of(x) is Some && soft(kw_of(x)->Some_0))
 }
 
+// ------------------------------------------------------------------ 文字・文字列リテラル（v1.2）
+
+/// リテラルに書ける文字。制御文字は改行・タブ・復帰だけで、エスケープで書く。
+pub open spec fn lit_ok(c: char) -> bool {
+    (c as u32) >= 0x20 || c == '\n' || c == '\t' || c == '\r'
+}
+
+pub open spec fn str_ok(w: Seq<char>) -> bool {
+    forall|i: int| 0 <= i < w.len() ==> lit_ok(#[trigger] w[i])
+}
+
+/// 正準形での 1 文字の綴り。q は区切りの引用符。
+pub open spec fn esc(c: char, q: char) -> Seq<char> {
+    if c == '\\' {
+        seq!['\\', '\\']
+    } else if c == q {
+        seq!['\\', q]
+    } else if c == '\n' {
+        seq!['\\', 'n']
+    } else if c == '\t' {
+        seq!['\\', 't']
+    } else if c == '\r' {
+        seq!['\\', 'r']
+    } else {
+        seq![c]
+    }
+}
+
+pub open spec fn escs(w: Seq<char>, q: char) -> Seq<char>
+    decreases w.len(),
+{
+    if w.len() == 0 {
+        Seq::empty()
+    } else {
+        esc(w[0], q) + escs(w.drop_first(), q)
+    }
+}
+
+/// エスケープ `\x` が表す文字。
+pub open spec fn unesc(x: char, q: char) -> Option<char> {
+    if x == '\\' {
+        Some('\\')
+    } else if x == q {
+        Some(q)
+    } else if x == 'n' {
+        Some('\n')
+    } else if x == 't' {
+        Some('\t')
+    } else if x == 'r' {
+        Some('\r')
+    } else {
+        None
+    }
+}
+
+/// 文字列リテラルの中身を位置 i から閉じ引用符まで読む。結果は（中身, 閉じ引用符の次の位置）。
+pub open spec fn slit(s: Seq<char>, i: nat) -> Option<(Seq<char>, nat)>
+    decreases s.len() - i,
+{
+    if i >= s.len() {
+        None
+    } else if s[i as int] == '"' {
+        Some((Seq::empty(), i + 1))
+    } else if s[i as int] == '\\' {
+        if i + 1 < s.len() {
+            match unesc(s[(i + 1) as int], '"') {
+                Some(c) => match slit(s, i + 2) {
+                    Some((w, j)) => Some((seq![c] + w, j)),
+                    None => None,
+                },
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else if (s[i as int] as u32) < 0x20 {
+        None
+    } else {
+        match slit(s, i + 1) {
+            Some((w, j)) => Some((seq![s[i as int]] + w, j)),
+            None => None,
+        }
+    }
+}
+
 // ------------------------------------------------------------------ token と表面 AST
 
 pub enum Tok {
     Int(int),
+    /// v1.2：文字リテラル `'c'`。
+    Chr(char),
+    /// v1.2：文字列リテラル `"..."`（中身はエスケープを戻した文字の列）。
+    Str(Seq<char>),
     Id(Seq<char>),
     Kw(Kw),
     Sym(char),
@@ -390,6 +479,8 @@ pub enum Tok {
 
 pub enum Sx {
     Int(int),
+    Chr(char),
+    Str(Seq<char>),
     Bool(bool),
     Unit,
     Var(Seq<char>),
@@ -439,6 +530,8 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
 {
     match e {
         Sx::Int(n) => seq![Tok::Int(n)] + k,
+        Sx::Chr(c) => seq![Tok::Chr(c)] + k,
+        Sx::Str(w) => seq![Tok::Str(w)] + k,
         Sx::Bool(b) => seq![Tok::Kw(if b { Kw::True } else { Kw::False })] + k,
         Sx::Unit => seq![Tok::Kw(Kw::Unit)] + k,
         Sx::Var(x) => seq![word_tok(x)] + k,
@@ -558,6 +651,8 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
 {
     match e {
         Sx::Int(n) => int_dec(n) + k,
+        Sx::Chr(c) => seq!['\''] + (esc(c, '\'') + (seq!['\''] + k)),
+        Sx::Str(w) => seq!['"'] + (escs(w, '"') + (seq!['"'] + k)),
         Sx::Bool(b) => kwt(if b { Kw::True } else { Kw::False }) + k,
         Sx::Unit => kwt(Kw::Unit) + k,
         Sx::Var(x) => x + k,
@@ -736,6 +831,23 @@ pub open spec fn lex(s: Seq<char>) -> Option<Seq<Tok>>
             }
         } else if is_sym(c) {
             prepend(Tok::Sym(c), lex(s.subrange(1, s.len() as int)))
+        } else if c == '\'' {
+            if s.len() >= 3 && s[1] != '\\' && s[1] != '\'' && (s[1] as u32) >= 0x20 && s[2] == '\'' {
+                prepend(Tok::Chr(s[1]), lex(s.subrange(3, s.len() as int)))
+            } else if s.len() >= 4 && s[1] == '\\' && unesc(s[2], '\'') is Some && s[3] == '\'' {
+                prepend(Tok::Chr(unesc(s[2], '\'')->Some_0), lex(s.subrange(4, s.len() as int)))
+            } else {
+                None
+            }
+        } else if c == '"' {
+            match slit(s, 1) {
+                Some((w, j)) => if 1 <= j <= s.len() {
+                    prepend(Tok::Str(w), lex(s.subrange(j as int, s.len() as int)))
+                } else {
+                    None
+                },
+                None => None,
+            }
         } else {
             None
         }
@@ -845,6 +957,16 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
         let d1 = (d - 1) as nat;
         match ts[i as int] {
             Tok::Int(n) => Some((Sx::Int(n), i + 1)),
+            Tok::Chr(c) => if lit_ok(c) {
+                Some((Sx::Chr(c), i + 1))
+            } else {
+                None
+            },
+            Tok::Str(w) => if str_ok(w) {
+                Some((Sx::Str(w), i + 1))
+            } else {
+                None
+            },
             Tok::Id(x) => if !ident_ok(x) {
                 None
             } else if sym(ts, i + 1, '(') {
@@ -1211,6 +1333,8 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
         let d1 = (d - 1) as nat;
         match e {
             Sx::Var(x) => name_ok(x),
+            Sx::Chr(c) => lit_ok(c),
+            Sx::Str(w) => str_ok(w),
             Sx::List(t, es) => bt(t, td) && bxs(es, 0, d1, td),
             Sx::Some(a) => bx(*a, d1, td),
             Sx::None(t) => bt(t, td),

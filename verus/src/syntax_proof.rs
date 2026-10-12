@@ -240,6 +240,105 @@ pub proof fn lint(n: int, s: Seq<char>, u: Seq<Tok>)
     assert(t.subrange(d.len() as int, t.len() as int) =~= s);
 }
 
+/// t の位置 p から x が並ぶ。
+pub open spec fn at_(t: Seq<char>, p: int, x: Seq<char>) -> bool {
+    0 <= p && p + x.len() <= t.len() && forall|j: int| 0 <= j < x.len() ==> t[p + j] == #[trigger] x[j]
+}
+
+proof fn esc_props(c: char, q: char)
+    requires
+        lit_ok(c),
+        q == '"' || q == '\'',
+    ensures
+        esc(c, q).len() == 1 || esc(c, q).len() == 2,
+        esc(c, q).len() == 1 ==> esc(c, q)[0] == c && c != q && c != '\\' && (c as u32) >= 0x20,
+        esc(c, q).len() == 2 ==> esc(c, q)[0] == '\\' && unesc(esc(c, q)[1], q) == Some(c),
+{
+}
+
+proof fn slit_escs(t: Seq<char>, p: int, w: Seq<char>)
+    requires
+        str_ok(w),
+        at_(t, p, escs(w, '"') + seq!['"']),
+    ensures
+        slit(t, p as nat) == Some((w, (p + escs(w, '"').len() + 1) as nat)),
+    decreases w.len(),
+{
+    let x = escs(w, '"') + seq!['"'];
+    if w.len() == 0 {
+        assert(x[0] == '"');
+        assert(t[p + 0] == x[0]);
+    } else {
+        let c = w[0];
+        let r = w.drop_first();
+        let e = esc(c, '"');
+        assert(lit_ok(w[0]));
+        assert(str_ok(r)) by {
+            assert forall|i: int| 0 <= i < r.len() implies lit_ok(#[trigger] r[i]) by {
+                assert(r[i] == w[i + 1]);
+            }
+        }
+        esc_props(c, '"');
+        assert(x =~= e + (escs(r, '"') + seq!['"']));
+        let y = escs(r, '"') + seq!['"'];
+        assert(at_(t, p + e.len(), y)) by {
+            assert forall|j: int| 0 <= j < y.len() implies t[p + e.len() + j] == #[trigger] y[j] by {
+                assert(x[e.len() + j] == y[j]);
+                assert(t[p + (e.len() + j)] == x[e.len() + j]);
+            }
+        }
+        slit_escs(t, p + e.len(), r);
+        assert(t[p + 0] == x[0]);
+        assert(x[0] == e[0]);
+        if e.len() == 2 {
+            assert(t[p + 1] == x[1]);
+            assert(x[1] == e[1]);
+        }
+        assert(seq![c] + r =~= w);
+    }
+}
+
+pub proof fn lstr(w: Seq<char>, s: Seq<char>, u: Seq<Tok>)
+    requires
+        str_ok(w),
+        lex(s) == Some(u),
+    ensures
+        lex(seq!['"'] + (escs(w, '"') + (seq!['"'] + s))) == Some(seq![Tok::Str(w)] + u),
+{
+    let t = seq!['"'] + (escs(w, '"') + (seq!['"'] + s));
+    let x = escs(w, '"') + seq!['"'];
+    assert(at_(t, 1, x)) by {
+        assert forall|j: int| 0 <= j < x.len() implies t[1 + j] == #[trigger] x[j] by {}
+    }
+    slit_escs(t, 1, w);
+    let j = 1 + escs(w, '"').len() + 1;
+    assert(t[0] == '"');
+    assert(t.subrange(j as int, t.len() as int) =~= s);
+}
+
+pub proof fn lchr(c: char, s: Seq<char>, u: Seq<Tok>)
+    requires
+        lit_ok(c),
+        lex(s) == Some(u),
+    ensures
+        lex(seq!['\''] + (esc(c, '\'') + (seq!['\''] + s))) == Some(seq![Tok::Chr(c)] + u),
+{
+    let t = seq!['\''] + (esc(c, '\'') + (seq!['\''] + s));
+    let e = esc(c, '\'');
+    esc_props(c, '\'');
+    assert(t[0] == '\'');
+    if e.len() == 1 {
+        assert(t[1] == c);
+        assert(t[2] == '\'');
+        assert(t.subrange(3, t.len() as int) =~= s);
+    } else {
+        assert(t[1] == '\\');
+        assert(t[2] == e[1]);
+        assert(t[3] == '\'');
+        assert(t.subrange(4, t.len() as int) =~= s);
+    }
+}
+
 /// ", " の後に s。
 pub proof fn lcs(s: Seq<char>, u: Seq<Tok>)
     requires
@@ -319,6 +418,8 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
 {
     match e {
         Sx::Int(n) => lint(n, k, u),
+        Sx::Chr(c) => lchr(c, k, u),
+        Sx::Str(w) => lstr(w, k, u),
         Sx::Bool(b) => lk(if b { Kw::True } else { Kw::False }, k, u),
         Sx::Unit => lk(Kw::Unit, k, u),
         Sx::Var(x) => ln(x, k, u),

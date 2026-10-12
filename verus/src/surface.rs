@@ -18,6 +18,8 @@ verus! {
 
 pub enum ETok {
     Int(Int),
+    Chr(char),
+    Str(Vec<char>),
     Id(Vec<char>),
     Kw(Kw),
     Sym(char),
@@ -27,6 +29,8 @@ pub enum ETok {
 pub open spec fn vtok(t: ETok) -> Tok {
     match t {
         ETok::Int(n) => Tok::Int(n@),
+        ETok::Chr(c) => Tok::Chr(c),
+        ETok::Str(w) => Tok::Str(w@),
         ETok::Id(x) => Tok::Id(x@),
         ETok::Kw(k) => Tok::Kw(k),
         ETok::Sym(c) => Tok::Sym(c),
@@ -40,6 +44,8 @@ pub open spec fn vtoks(ts: Seq<ETok>) -> Seq<Tok> {
 
 pub enum SExpr {
     Int(Int),
+    Chr(char),
+    Str(Vec<char>),
     Bool(bool),
     Unit,
     Var(Vec<char>),
@@ -65,6 +71,8 @@ pub open spec fn vx(e: SExpr) -> Sx
 {
     match e {
         SExpr::Int(n) => Sx::Int(n@),
+        SExpr::Chr(c) => Sx::Chr(c),
+        SExpr::Str(w) => Sx::Str(w@),
         SExpr::Bool(b) => Sx::Bool(b),
         SExpr::Unit => Sx::Unit,
         SExpr::Var(x) => Sx::Var(x@),
@@ -635,6 +643,138 @@ fn digits_value(s: &Vec<char>, a: usize, b: usize) -> (r: Int)
     acc
 }
 
+pub fn unesc_e(x: char, q: char) -> (r: Option<char>)
+    ensures
+        r == unesc(x, q),
+{
+    if x == '\\' {
+        Some('\\')
+    } else if x == q {
+        Some(q)
+    } else if x == 'n' {
+        Some('\n')
+    } else if x == 't' {
+        Some('\t')
+    } else if x == 'r' {
+        Some('\r')
+    } else {
+        None
+    }
+}
+
+pub fn lit_ok_e(c: char) -> (r: bool)
+    ensures
+        r == lit_ok(c),
+{
+    (c as u32) >= 0x20 || c == '\n' || c == '\t' || c == '\r'
+}
+
+pub fn str_ok_e(w: &Vec<char>) -> (r: bool)
+    ensures
+        r == str_ok(w@),
+{
+    let mut i: usize = 0;
+    while i < w.len()
+        invariant
+            i <= w.len(),
+            forall|j: int| 0 <= j < i ==> lit_ok(#[trigger] w@[j]),
+        decreases w.len() - i,
+    {
+        if !lit_ok_e(w[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// 読み終えた中身 a の後に、残りを読んだ結果 o を続ける。
+pub open spec fn sapp(a: Seq<char>, o: Option<(Seq<char>, nat)>) -> Option<(Seq<char>, nat)> {
+    match o {
+        Some((w, j)) => Some((a + w, j)),
+        None => None,
+    }
+}
+
+proof fn sapp_step(a: Seq<char>, c: char, o: Option<(Seq<char>, nat)>)
+    ensures
+        sapp(a, match o {
+            Some((w, j)) => Some((seq![c] + w, j)),
+            None => None,
+        }) == sapp(a.push(c), o),
+{
+    if let Some((w, j)) = o {
+        assert(a + (seq![c] + w) =~= a.push(c) + w);
+    }
+}
+
+/// 文字列リテラルの中身を読む（spec の slit）。t = s[i..] の相対位置 k - i から。
+fn scan_str(s: &Vec<char>, i: usize, k: usize) -> (r: Option<(Vec<char>, usize)>)
+    requires
+        i < k <= s.len(),
+    ensures
+        match r {
+            Some((w, j)) => slit(sfx(s@, i as int), (k - i) as nat) == Some((w@, (j - i) as nat)) && k < j <= s.len(),
+            None => slit(sfx(s@, i as int), (k - i) as nat) is None,
+        },
+{
+    let n = s.len();
+    let ghost t = sfx(s@, i as int);
+    let mut acc: Vec<char> = Vec::new();
+    let mut m = k;
+    proof {
+        if let Some((w, j)) = slit(t, (k - i) as nat) {
+            assert(Seq::<char>::empty() + w =~= w);
+        }
+    }
+    while m < n
+        invariant
+            i < k <= m <= n,
+            n == s.len(),
+            t == sfx(s@, i as int),
+            t.len() == n - i,
+            slit(t, (k - i) as nat) == sapp(acc@, slit(t, (m - i) as nat)),
+        decreases n - m,
+    {
+        let c = s[m];
+        proof {
+            assert(t[(m - i) as int] == s@[m as int]);
+        }
+        if c == '"' {
+            proof {
+                assert(acc@ + Seq::<char>::empty() =~= acc@);
+            }
+            return Some((acc, m + 1));
+        } else if c == '\\' {
+            if m + 1 >= n {
+                return None;
+            }
+            proof {
+                assert(t[(m - i + 1) as int] == s@[m + 1]);
+            }
+            match unesc_e(s[m + 1], '"') {
+                Some(x) => {
+                    proof {
+                        sapp_step(acc@, x, slit(t, (m - i + 2) as nat));
+                    }
+                    acc.push(x);
+                    m = m + 2;
+                },
+                None => return None,
+            }
+        } else if (c as u32) < 0x20 {
+            return None;
+        } else {
+            proof {
+                sapp_step(acc@, c, slit(t, (m - i + 1) as nat));
+            }
+            acc.push(c);
+            m = m + 1;
+        }
+    }
+    None
+}
+
 #[verifier::rlimit(40)]
 pub fn lex_e(s: &Vec<char>) -> (r: Option<Vec<ETok>>)
     ensures
@@ -780,6 +920,63 @@ pub fn lex_e(s: &Vec<char>) -> (r: Option<Vec<ETok>>)
             }
             out.push(ETok::Sym(c));
             i += 1;
+        } else if c == '\'' {
+            if n - i > 2 && s[i + 1] != '\\' && s[i + 1] != '\'' && (s[i + 1] as u32) >= 0x20 && s[i + 2] == '\'' {
+                let x = s[i + 1];
+                proof {
+                    assert(t[1] == s@[i + 1]);
+                    assert(t[2] == s@[i + 2]);
+                    sfx_sfx(s@, i as int, 3);
+                    app_step(vtoks(out@), Tok::Chr(x), lex(sfx(s@, i + 3)));
+                    push_tok(out@, ETok::Chr(x));
+                }
+                out.push(ETok::Chr(x));
+                i = i + 3;
+            } else if n - i > 3 && s[i + 1] == '\\' && s[i + 3] == '\'' {
+                proof {
+                    assert(t[1] == s@[i + 1]);
+                    assert(t[2] == s@[i + 2]);
+                    assert(t[3] == s@[i + 3]);
+                }
+                match unesc_e(s[i + 2], '\'') {
+                    Some(x) => {
+                        proof {
+                            sfx_sfx(s@, i as int, 4);
+                            app_step(vtoks(out@), Tok::Chr(x), lex(sfx(s@, i + 4)));
+                            push_tok(out@, ETok::Chr(x));
+                        }
+                        out.push(ETok::Chr(x));
+                        i = i + 4;
+                    },
+                    None => return None,
+                }
+            } else {
+                proof {
+                    if i + 1 < n {
+                        assert(t[1] == s@[i + 1]);
+                    }
+                    if i + 2 < n {
+                        assert(t[2] == s@[i + 2]);
+                    }
+                    if i + 3 < n {
+                        assert(t[3] == s@[i + 3]);
+                    }
+                }
+                return None;
+            }
+        } else if c == '"' {
+            match scan_str(s, i, i + 1) {
+                Some((w, j)) => {
+                    proof {
+                        sfx_sfx(s@, i as int, (j - i) as int);
+                        app_step(vtoks(out@), Tok::Str(w@), lex(sfx(s@, j as int)));
+                        push_tok(out@, ETok::Str(w));
+                    }
+                    out.push(ETok::Str(w));
+                    i = j;
+                },
+                None => return None,
+            }
         } else {
             return None;
         }
@@ -1015,6 +1212,16 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
     }
     match &ts[i] {
         ETok::Int(n) => Some((SExpr::Int(n.copy()), i + 1)),
+        ETok::Chr(c) => if lit_ok_e(*c) {
+            Some((SExpr::Chr(*c), i + 1))
+        } else {
+            None
+        },
+        ETok::Str(w) => if str_ok_e(w) {
+            Some((SExpr::Str(clone_chars(w)), i + 1))
+        } else {
+            None
+        },
         ETok::Id(x) => {
             if !ident_ok_e(x) {
                 None
@@ -1921,6 +2128,81 @@ fn push_ty(out: &mut Vec<char>, t: &Ty)
     }
 }
 
+fn push_esc(out: &mut Vec<char>, c: char, q: char)
+    ensures
+        final(out)@ == old(out)@ + esc(c, q),
+{
+    if c == '\\' {
+        push2(out, '\\', '\\');
+    } else if c == q {
+        push2(out, '\\', q);
+    } else if c == '\n' {
+        push2(out, '\\', 'n');
+    } else if c == '\t' {
+        push2(out, '\\', 't');
+    } else if c == '\r' {
+        push2(out, '\\', 'r');
+    } else {
+        push1(out, c);
+    }
+}
+
+proof fn escs_app(a: Seq<char>, b: Seq<char>, q: char)
+    ensures
+        escs(a + b, q) == escs(a, q) + escs(b, q),
+    decreases a.len(),
+{
+    if a.len() == 0 {
+        assert(a + b =~= b);
+        assert(Seq::<char>::empty() + escs(b, q) =~= escs(b, q));
+    } else {
+        escs_app(a.drop_first(), b, q);
+        assert((a + b).drop_first() =~= a.drop_first() + b);
+        assert((a + b)[0] == a[0]);
+        assert(esc(a[0], q) + (escs(a.drop_first(), q) + escs(b, q)) =~= (esc(a[0], q) + escs(a.drop_first(), q))
+            + escs(b, q));
+    }
+}
+
+proof fn escs_one(c: char, q: char)
+    ensures
+        escs(seq![c], q) == esc(c, q),
+{
+    reveal_with_fuel(escs, 2);
+    assert(seq![c].drop_first() =~= Seq::<char>::empty());
+    assert(escs(Seq::<char>::empty(), q) == Seq::<char>::empty());
+    assert(esc(c, q) + Seq::<char>::empty() =~= esc(c, q));
+}
+
+fn push_escs(out: &mut Vec<char>, w: &Vec<char>, q: char)
+    ensures
+        final(out)@ == old(out)@ + escs(w@, q),
+{
+    let ghost o = out@;
+    let mut i: usize = 0;
+    proof {
+        assert(w@.subrange(0, 0) =~= Seq::<char>::empty());
+        assert(o + Seq::<char>::empty() =~= o);
+    }
+    while i < w.len()
+        invariant
+            i <= w.len(),
+            out@ == o + escs(w@.subrange(0, i as int), q),
+        decreases w.len() - i,
+    {
+        proof {
+            escs_app(w@.subrange(0, i as int), seq![w@[i as int]], q);
+            escs_one(w@[i as int], q);
+            assert(w@.subrange(0, i as int) + seq![w@[i as int]] =~= w@.subrange(0, i + 1));
+        }
+        push_esc(out, w[i], q);
+        i += 1;
+    }
+    proof {
+        assert(w@.subrange(0, w.len() as int) =~= w@);
+    }
+}
+
 fn push_e(out: &mut Vec<char>, e: &SExpr)
     ensures
         final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
@@ -1932,6 +2214,22 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Int(n) => {
             let ds = n.to_dec_chars();
             append_chars(out, &ds);
+        },
+        SExpr::Chr(c) => {
+            push1(out, '\'');
+            push_esc(out, *c, '\'');
+            push1(out, '\'');
+            proof {
+                assert(out@ =~= o + fe(vx(*e), z));
+            }
+        },
+        SExpr::Str(w) => {
+            push1(out, '"');
+            push_escs(out, w, '"');
+            push1(out, '"');
+            proof {
+                assert(out@ =~= o + fe(vx(*e), z));
+            }
         },
         SExpr::Bool(b) => push_kw(out, if *b { Kw::True } else { Kw::False }),
         SExpr::Unit => push_kw(out, Kw::Unit),

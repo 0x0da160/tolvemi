@@ -35,12 +35,19 @@ pub open spec fn distinct(s: Seq<Seq<char>>) -> bool {
     forall|i: int, j: int| 0 <= i < j < s.len() ==> s[i] != s[j]
 }
 
+/// 文字列リテラルは文字のリストの式になる。
+pub open spec fn str_exprs(w: Seq<char>) -> Seq<Expr> {
+    Seq::new(w.len(), |i: int| Expr::Char(w[i] as u32 as int))
+}
+
 /// 式の名前解決。fs は関数名の列、sc は可視変数の列（外側から順）。
 pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
     decreases e, 0nat,
 {
     match e {
         Sx::Int(n) => Some(Expr::Int(n)),
+        Sx::Chr(c) => Some(Expr::Char(c as u32 as int)),
+        Sx::Str(w) => Some(Expr::List(Ty::Char, str_exprs(w))),
         Sx::Bool(b) => Some(Expr::Bool(b)),
         Sx::Unit => Some(Expr::Unit),
         Sx::Var(x) => match idx(sc, x, 0) {
@@ -274,6 +281,7 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
 {
     match e {
         Sx::Var(x) => idx_props(sc, x, 0),
+        Sx::Str(w) => str_scoped(w, sc.len(), 0),
         Sx::List(_, es) => rxs_scoped(fs, sc, es, 0),
         Sx::Some(a) => rx_scoped(fs, sc, *a),
         Sx::Pair(a, b) => {
@@ -355,6 +363,20 @@ pub proof fn rxs_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: 
     }
 }
 
+proof fn str_scoped(w: Seq<char>, n: nat, i: nat)
+    ensures
+        scoped_all(str_exprs(w), n, i),
+    decreases w.len() - i,
+{
+    let es = str_exprs(w);
+    assert(es.len() == w.len());
+    if i < w.len() {
+        str_scoped(w, n, i + 1);
+        assert(es[i as int] == Expr::Char(w[i as int] as u32 as int));
+        assert(scoped(es[i as int], n));
+    }
+}
+
 proof fn scoped_all_cons(x: Expr, ys: Seq<Expr>, n: nat, i: nat)
     requires
         scoped(x, n),
@@ -364,12 +386,16 @@ proof fn scoped_all_cons(x: Expr, ys: Seq<Expr>, n: nat, i: nat)
     decreases ys.len() - i,
 {
     let s = seq![x] + ys;
+    assert(s.len() == ys.len() + 1);
     if i < ys.len() {
         assert(s[(i + 1) as int] == ys[i as int]);
         scoped_all_cons(x, ys, n, i + 1);
+        assert(scoped_all(s, n, i + 1));
     }
     if i == 0 {
         assert(s[0] == x);
+        assert(scoped_all(s, n, 1));
+        assert(scoped_all(s, n, 0));
     }
 }
 
@@ -477,6 +503,25 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
     let ghost s = vnames(sc@);
     match e {
         SExpr::Int(n) => Some(EExpr::Int(n.copy())),
+        SExpr::Chr(c) => Some(EExpr::Char(*c as u32)),
+        SExpr::Str(w) => {
+            let mut xs: Vec<EExpr> = Vec::new();
+            let mut i: usize = 0;
+            while i < w.len()
+                invariant
+                    i <= w.len(),
+                    xs@.len() == i,
+                    forall|j: int| 0 <= j < i ==> view_expr(#[trigger] xs@[j]) == Expr::Char(w@[j] as u32 as int),
+                decreases w.len() - i,
+            {
+                xs.push(EExpr::Char(w[i] as u32));
+                i += 1;
+            }
+            proof {
+                assert(view_exprs(xs) =~= str_exprs(w@));
+            }
+            Some(EExpr::List(Ty::Char, xs))
+        },
         SExpr::Bool(b) => Some(EExpr::Bool(*b)),
         SExpr::Unit => Some(EExpr::Unit),
         SExpr::Var(x) => match idx_e(sc, x) {
