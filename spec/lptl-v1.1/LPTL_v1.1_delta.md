@@ -80,11 +80,12 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
 ## 2a. 文脈キーワード
 
 組み込み関数と値の構築子の名前 `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
-length uncons min max range contains sort`（24 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
+length uncons min max range contains sort` と宣言のキーワード `entry`（25 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
 
 - 式の位置では、直後が `(` か `<`（v1 の `[` も含む）ならキーワード（組み込み関数・構築子）、それ以外なら変数の参照。
   変数は呼び出せないので、`length(length)` は「組み込みの length を変数 length に適用する」と一意に読める。
-- 関数名と `entry` の名前には使えない（呼び出しの名前なので）。`fn entry Int Bool Unit List Option Pair true
+- `entry` は宣言の先頭でだけキーワードとして働く。式は宣言の途中から始まらないので、式の位置の `entry` は変数と読める。
+- 関数名と `entry` 宣言の名前には使えない（呼び出しの名前なので）。`fn Int Bool Unit List Option Pair true
   false unit let in if fold match_option` は従来どおり予約語。
 - AST API（ast_codec_v1）の識別子は v1 のまま（35 語すべてを拒否）。
 - 実装：検証済み部品の構文規則（`verus/src/syntax.rs` の `soft`・`name_ok`・`bdt`）に入っている。字句は従来どおり
@@ -250,3 +251,6 @@ v1 と同じ 60 問を、v1.1 の Skill（eval/SKILL.md）で解かせて比べ�
 - 出力トークンの LPTL / Python 比（問題ごとの中央値）は 3.07 倍（前回 3.43 倍）。組み込み関数でほぼ 1 行になる 7 問
   （04・05・09・22・45・52・58）を除くと 2.97 倍。Opus の状態の多い 24 問では約 5.1 倍から 4.6 倍になった。
   差の大部分は答える前の推論（見えない思考）で、コードの長さの差は約 2 倍にとどまる。
+
+`entry` を文脈キーワードに加えた後（§2a、2026-10-12）、初回で 3 回とも落ちていた 33-lookup_default だけを Haiku 4.5 / low で
+3 回解かせた：3/3 が初回で正解（出力トークン 5,602）。

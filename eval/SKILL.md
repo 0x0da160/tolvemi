@@ -110,11 +110,11 @@ entry solve
 
 ## Names and scoping
 
-- All names are ASCII identifiers. Reserved words, never usable as names: `fn entry Int Bool Unit List Option
+- All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
   Pair true false unit let in if fold match_option`.
-- The builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
+- `entry` and the builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
   length uncons min max range contains sort` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
-  Followed by `(` or `<` they are always the builtin, so they cannot be function names.
+  `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
 - No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
@@ -180,7 +180,7 @@ entry solve
 
 Before answering, check: every `(` is closed (count them in deep nesting), every `let` has its `in`, every
 `none<T>()` and `list<T>(...)` names its type, no binder reuses a name already in scope, and no name is a
-reserved word (`entry`, `in`, `if`, `let` and `fold` are the usual slips, e.g. `|acc, entry|`).
+reserved word (`in`, `if`, `let` and `fold` are the usual slips).
 
 ## Diagnostics
 

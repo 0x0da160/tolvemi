@@ -334,7 +334,7 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
 
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
-    kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair
+    kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry
 }
 
 /// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
