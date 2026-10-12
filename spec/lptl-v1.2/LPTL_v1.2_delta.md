@@ -109,3 +109,8 @@ AST codec：型は `{"tag":"char"}`、`{"tag":"string"}`。式は `{"tag":"char"
 
 信頼境界の追加：多倍長整数の `to_u32`（`char` の範囲判定に使う。num-traits の `ToPrimitive::to_u32`）を
 `trust-boundary.toml` の `[bigint]` に加える。
+
+## 8. LLM での確認
+
+文字列を使う 3 問（`eval/tasks/85-word_count`、`86-csv_sum`、`87-join_numbers`、カテゴリ `text`）を Haiku（effort low）で
+各 1 回解かせ、3 問とも初回で全テストを通した（2026-10-12）。
