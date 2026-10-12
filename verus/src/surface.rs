@@ -854,7 +854,7 @@ fn soft_e(k: Kw) -> (r: bool)
         r == soft(k),
 {
     match k {
-        Kw::List | Kw::Some | Kw::None | Kw::Pair => true,
+        Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry => true,
         _ => builtin_of(k).is_some(),
     }
 }

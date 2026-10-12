@@ -80,3 +80,24 @@ fn fmt_and_ast() {
         }
     });
 }
+
+#[test]
+fn entry_as_name() {
+    // entry は宣言の先頭でだけキーワード。式の中では変数・束縛・引数の名前に使える
+    let src = "fn find(k: Int, entry: Pair<Int, Int>) -> Bool = eq(fst(entry), k)
+fn solve(x: Pair<Int, List<Pair<Int, Int>>>) -> Int =
+  fold(snd(x), 0, |acc, entry| if(find(fst(x), entry), snd(entry), acc))
+entry solve
+";
+    assert_eq!(run(src, "[2, [[1, 10], [2, 20]]]"), "20");
+    with_file(src, |p| {
+        let (code, out, _) = tlvm(&["fmt", p]);
+        assert_eq!(code, 0);
+        assert!(out.contains("|acc, entry|"), "{out}");
+    });
+    // 関数名には使えない
+    let c = codes("fn entry(x: Int) -> Int = x entry entry");
+    assert!(!c.is_empty() && c.iter().all(|c| *c == "E-PARSE-EXPECTED-IDENT"), "{c:?}");
+    // 式が途中で終わったときは、次の entry 宣言を変数と読んでも誤りのまま
+    assert!(!codes("fn f(x: Int) -> Int = let y = 1 in\nentry f").is_empty());
+}
