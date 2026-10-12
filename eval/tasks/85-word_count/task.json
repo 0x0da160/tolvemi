@@ -1,0 +1,13 @@
+{
+  "id": "85-word_count",
+  "title": "Count words",
+  "category": "text",
+  "prompt": "The input is a line of text. A word is a maximal run of characters that are not spaces (' '). Return the number of words. Spaces may appear at the start, at the end, and several in a row.",
+  "input_type": "String",
+  "output_type": "Int",
+  "examples": [
+    {"input": "hello world", "expected": 2},
+    {"input": "  a  b c ", "expected": 3},
+    {"input": "", "expected": 0}
+  ]
+}

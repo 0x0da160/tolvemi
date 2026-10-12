@@ -1,0 +1,13 @@
+{
+  "id": "87-join_numbers",
+  "title": "Join numbers into text",
+  "category": "text",
+  "prompt": "Return the integers of the input list written in decimal and joined by \", \" (a comma and a space), in order. For example [1, -2, 30] gives \"1, -2, 30\". The empty list gives the empty text.",
+  "input_type": "List<Int>",
+  "output_type": "String",
+  "examples": [
+    {"input": [1, -2, 30], "expected": "1, -2, 30"},
+    {"input": [7], "expected": "7"},
+    {"input": [], "expected": ""}
+  ]
+}

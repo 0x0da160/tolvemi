@@ -1,0 +1,13 @@
+{
+  "id": "86-csv_sum",
+  "title": "Sum of comma-separated integers",
+  "category": "text",
+  "prompt": "The input is text made of one or more integers separated by single commas, with no spaces, for example \"3,-4,10\". Each integer is written in ordinary decimal form (an optional leading '-' followed by digits). Return the sum of the integers.",
+  "input_type": "String",
+  "output_type": "Int",
+  "examples": [
+    {"input": "3,-4,10", "expected": 9},
+    {"input": "42", "expected": 42},
+    {"input": "0,0,-1", "expected": -1}
+  ]
+}

@@ -1,0 +1,4 @@
+fn solve(xs: List<Int>) -> String =
+  fold(xs, "", |acc, x|
+    if(eq(acc, ""), to_string(x), concat(acc, concat(", ", to_string(x)))))
+entry solve

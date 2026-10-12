@@ -1,0 +1,13 @@
+type Scan = { total: Int, cur: String }
+
+fn value(cur: String) -> Int = match_option(parse_int(reverse(cur)), 0, |n| n)
+
+fn step(s: Scan, c: Char) -> Scan =
+  if(eq(c, ','),
+    Scan { total: add(s.total, value(s.cur)), cur: "" },
+    Scan { cur: cons(c, s.cur), ..s })
+
+fn solve(text: String) -> Int =
+  let s = fold(text, Scan { total: 0, cur: "" }, |acc, c| step(acc, c)) in
+  add(s.total, value(s.cur))
+entry solve
