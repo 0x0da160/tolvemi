@@ -179,7 +179,8 @@ entry solve
 ```
 
 Before answering, check: every `(` is closed (count them in deep nesting), every `let` has its `in`, every
-`none<T>()` and `list<T>(...)` names its type, and no binder reuses a name already in scope.
+`none<T>()` and `list<T>(...)` names its type, no binder reuses a name already in scope, and no name is a
+reserved word (`entry`, `in`, `if`, `let` and `fold` are the usual slips, e.g. `|acc, entry|`).
 
 ## Diagnostics
 
