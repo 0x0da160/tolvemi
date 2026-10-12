@@ -1,5 +1,6 @@
 //! 正準フォーマッタ（設計書 §4.3）と ast_codec_v1 の encoder（§19.4）。
 
+use crate::lexer::quote;
 use crate::syntax::*;
 
 pub const FORMATTER_VERSION: &str = "tlvm-format-v1";
@@ -7,6 +8,9 @@ pub const FORMATTER_VERSION: &str = "tlvm-format-v1";
 pub fn format_type(t: &TypeNode) -> String {
     if let Some(n) = &t.name {
         return n.clone();
+    }
+    if t.is_string() {
+        return "String".to_string();
     }
     if t.args.is_empty() {
         return t.tag.name().to_string();
@@ -22,6 +26,8 @@ fn join(xs: &[Expr]) -> String {
 pub fn format_expr(e: &Expr) -> String {
     match &e.kind {
         ExprKind::Int(n) => n.to_string(),
+        ExprKind::Char(c) => quote(&c.to_string(), '\''),
+        ExprKind::Str(w) => quote(w, '"'),
         ExprKind::Bool(b) => b.to_string(),
         ExprKind::Unit => "unit".into(),
         ExprKind::Var(n) => n.clone(),
@@ -77,6 +83,11 @@ pub fn format_program(p: &Program) -> String {
 // ---------------------------------------------------------------- AST encoder
 
 fn type_json(t: &TypeNode, out: &mut String) {
+    if t.is_string() {
+        // v1.2：`String` は一つの node（`List<Char>` の形は transport でも書けない）
+        out.push_str("{\"tag\":\"string\"}");
+        return;
+    }
     let tag = t.tag.name().to_ascii_lowercase();
     out.push_str(&format!("{{\"tag\":\"{tag}\""));
     match t.tag {
@@ -95,6 +106,23 @@ fn type_json(t: &TypeNode, out: &mut String) {
     out.push('}');
 }
 
+/// JSON 文字列（`"`、`\\`、制御文字を escape する。それ以外は UTF-8 のまま）。
+pub fn json_string(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
 fn exprs_json(xs: &[Expr], out: &mut String) {
     out.push('[');
     for (i, x) in xs.iter().enumerate() {
@@ -109,6 +137,13 @@ fn exprs_json(xs: &[Expr], out: &mut String) {
 fn expr_json(e: &Expr, out: &mut String) {
     match &e.kind {
         ExprKind::Int(n) => out.push_str(&format!("{{\"tag\":\"int\",\"value\":\"{n}\"}}")),
+        // v1.2：文字は code point の十進（値 JSON の char と同じ）、文字列は JSON 文字列
+        ExprKind::Char(c) => out.push_str(&format!("{{\"tag\":\"char\",\"value\":\"{}\"}}", *c as u32)),
+        ExprKind::Str(w) => {
+            out.push_str("{\"tag\":\"string\",\"value\":");
+            json_string(w, out);
+            out.push('}');
+        }
         ExprKind::Bool(b) => out.push_str(&format!("{{\"tag\":\"bool\",\"value\":{b}}}")),
         ExprKind::Unit => out.push_str("{\"tag\":\"unit\"}"),
         ExprKind::Var(n) => out.push_str(&format!("{{\"tag\":\"var\",\"name\":\"{n}\"}}")),
@@ -180,7 +215,8 @@ fn expr_json(e: &Expr, out: &mut String) {
     }
 }
 
-/// 正準 AST JSON（UTF-8、最小空白、表の key 順、末尾改行なし）。名前は ASCII なので escape 不要。
+/// 正準 AST JSON（UTF-8、最小空白、表の key 順、末尾改行なし）。名前は ASCII なので escape 不要
+/// （文字列リテラルだけは `json_string` で escape する）。
 pub fn encode_ast(p: &Program) -> String {
     let mut out = String::from("{\"codec\":\"ast_codec_v1\",\"declarations\":[");
     for (i, d) in p.declarations.iter().enumerate() {

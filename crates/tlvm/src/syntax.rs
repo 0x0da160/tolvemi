@@ -7,10 +7,11 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 40] = [
+pub const KEYWORDS: [&str; 46] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort",
+    "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
+    "code", "char", "to_string", "parse_int",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -20,7 +21,7 @@ pub fn is_keyword(s: &str) -> bool {
 pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
         "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
-        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" => 1,
+        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char" | "to_string" | "parse_int" => 1,
         _ => return None,
     })
 }
@@ -71,6 +72,8 @@ pub enum TyTag {
     Int,
     Bool,
     Unit,
+    /// v1.2：Unicode scalar value。`String` は `List<Char>` の別名
+    Char,
     List,
     Option,
     Pair,
@@ -83,6 +86,7 @@ impl TyTag {
             TyTag::Int => "Int",
             TyTag::Bool => "Bool",
             TyTag::Unit => "Unit",
+            TyTag::Char => "Char",
             TyTag::List => "List",
             TyTag::Option => "Option",
             TyTag::Pair => "Pair",
@@ -94,6 +98,7 @@ impl TyTag {
             "Int" => TyTag::Int,
             "Bool" => TyTag::Bool,
             "Unit" => TyTag::Unit,
+            "Char" => TyTag::Char,
             "List" => TyTag::List,
             "Option" => TyTag::Option,
             "Pair" => TyTag::Pair,
@@ -126,6 +131,10 @@ impl TypeNode {
     pub fn new(tag: TyTag, args: Vec<TypeNode>, meta: Meta) -> TypeNode {
         TypeNode { tag, args, meta, name: None, label: Label::default() }
     }
+    /// v1.2：`String`（= `List<Char>`）か。
+    pub fn is_string(&self) -> bool {
+        self.tag == TyTag::List && self.args[0].tag == TyTag::Char && self.args[0].name.is_none()
+    }
 }
 
 /// レコード型の名前と field 名（宣言順）。
@@ -148,6 +157,10 @@ impl PartialEq for Label {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind {
     Int(BigInt),
+    /// v1.2：文字リテラル `'c'`
+    Char(char),
+    /// v1.2：文字列リテラル `"..."`（型は `String` = `List<Char>`）
+    Str(String),
     Bool(bool),
     Unit,
     Var(String),
@@ -306,6 +319,17 @@ impl Ty {
     pub fn unit() -> Ty {
         Ty::new(TyTag::Unit, vec![])
     }
+    pub fn char() -> Ty {
+        Ty::new(TyTag::Char, vec![])
+    }
+    /// `String`（= `List<Char>`）
+    pub fn string() -> Ty {
+        Ty::list(Ty::char())
+    }
+    /// `List<Char>`（表示は `String`）か。
+    pub fn is_string(&self) -> bool {
+        self.0.tag == TyTag::List && self.0.args[0].tag() == TyTag::Char
+    }
     pub fn error() -> Ty {
         Ty::new(TyTag::Error, vec![])
     }
@@ -356,7 +380,7 @@ impl Ty {
             }
             return;
         }
-        let name = self.0.tag.name();
+        let name = if self.is_string() { "String" } else { self.0.tag.name() };
         if name.len() > *budget {
             out.push('…');
             *budget = 0;
@@ -364,7 +388,7 @@ impl Ty {
         }
         out.push_str(name);
         *budget -= name.len();
-        if !self.0.args.is_empty() {
+        if !self.0.args.is_empty() && !self.is_string() {
             out.push('<');
             for (i, a) in self.0.args.iter().enumerate() {
                 if i > 0 {

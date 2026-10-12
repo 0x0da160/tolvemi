@@ -74,7 +74,8 @@ pub fn expr_depths(expr: usize) -> Depths {
 }
 
 enum Fail {
-    Parse { code: &'static str, index: usize, expected: Option<&'static str> },
+    /// `at`：token の span の代わりに示す span と actual（`List<Char>` など複数 token にわたる誤り）
+    Parse { code: &'static str, index: usize, expected: Option<&'static str>, at: Option<(Span, String)> },
     Cutoff(Diagnostic),
 }
 
@@ -121,7 +122,7 @@ impl Parser {
     }
 
     fn perr<T>(&self, code: &'static str, expected: &'static str) -> R<T> {
-        Err(Fail::Parse { code, index: self.pos, expected: Some(expected) })
+        Err(Fail::Parse { code, index: self.pos, expected: Some(expected), at: None })
     }
 
     fn expect(&mut self, s: &'static str) -> R<Token> {
@@ -203,8 +204,13 @@ impl Parser {
                     all.push(d);
                     return ParseOutcome::Cutoff(all);
                 }
-                Err(Fail::Parse { code, index: p, expected }) => {
+                Err(Fail::Parse { code, index: p, expected, at }) => {
                     self.emit(code, p, expected);
+                    if let Some((span, actual)) = at {
+                        let d = self.diags.last_mut().unwrap();
+                        d.span = span;
+                        d.actual = Some(actual);
+                    }
                     if self.toks[p].kind == TokKind::Eof {
                         break;
                     }
@@ -327,16 +333,34 @@ impl Parser {
             t.name = Some(tok.text);
             return Ok(t);
         }
+        if tok.is_kw("String") {
+            // v1.2：`String` は `List<Char>`。一つの型 node として数える（検証済み parser の `pt`、`bt` と同じ）
+            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            self.advance();
+            let meta = Meta::new(tok.span(), idx);
+            return Ok(TypeNode::new(TyTag::List, vec![TypeNode::new(TyTag::Char, vec![], meta)], meta));
+        }
         let tag = match (tok.kind, TyTag::from_keyword(&tok.text)) {
             (TokKind::Kw, Some(t)) => t,
             _ => return self.perr("E-PARSE-EXPECTED-TYPE", "type"),
         };
         let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+        let at = self.pos;
         self.advance();
         let mut args = vec![];
         if tag.arity() > 0 {
             self.expect("<")?;
             args.push(self.parse_type(depth + 1)?);
+            // v1.2：`List<Char>` は `String` と書く（正準形が一つになるよう、検証済み parser も拒否する）
+            if tag == TyTag::List && args[0].tag == TyTag::Char && self.peek(0).is_punct(">") {
+                let end = self.peek(0).end;
+                return Err(Fail::Parse {
+                    code: "E-PARSE-STRING-TYPE",
+                    index: at,
+                    expected: Some("String"),
+                    at: Some(((tok.start, end), "List<Char>".to_string())),
+                });
+            }
             if tag == TyTag::Pair {
                 self.expect(",")?;
                 args.push(self.parse_type(depth + 1)?);
@@ -419,6 +443,16 @@ impl Parser {
                 idx = self.adm.admit(sp, simple)?;
                 self.advance();
                 kind = ExprKind::Int(tok.text.parse::<BigInt>().expect("lexed integer"));
+            }
+            TokKind::Char => {
+                idx = self.adm.admit(sp, simple)?;
+                self.advance();
+                kind = ExprKind::Char(tok.lit.chars().next().expect("lexed char literal"));
+            }
+            TokKind::Str => {
+                idx = self.adm.admit(sp, simple)?;
+                self.advance();
+                kind = ExprKind::Str(tok.lit);
             }
             TokKind::Ident => {
                 idx = self.adm.admit(sp, simple)?;
