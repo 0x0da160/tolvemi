@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "45a83661f7becde638b7c38c4a1890746f788680b1dee0f76eb04896295255f4",
-    "bytes": 12536
+    "sha256": "9dd95ef706fe2ca23671b2a57583f2b81cfc704b7a9ba67980843eab73abf819",
+    "bytes": 13525
   },
-  "task_set_sha256": "c8b04e029d5473ea10983651baa1df5a3550f023074f9b2a3cd5ceb5f6900da8",
-  "tasks": 87,
-  "hidden_cases": 2610,
+  "task_set_sha256": "f5f21e4b1ab6621c6f4f6f7374a1b9c001036917270c17f3dccf87bca71609d1",
+  "tasks": 88,
+  "hidden_cases": 2640,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -356,6 +356,10 @@
     "tasks/87-join_numbers/task.json": "2b392d20fdb32f44f0cac8bf2ba21e16ff241264c07196e160b7cccd109b4f94",
     "tasks/87-join_numbers/hidden.json": "adf79a7fb1d670ba4d61fa4f3f0f6759258b448417e70fe045aec62590a4cbdd",
     "tasks/87-join_numbers/reference.tlvm": "1dc61bfae98547604927483b02ef2151873f94828eb70238534f811b09633875",
-    "tasks/87-join_numbers/reference.py": "0d59c3e883e6bd5cf4049a616664ab0aaebcc84df0996362b16c58ab161832f6"
+    "tasks/87-join_numbers/reference.py": "0d59c3e883e6bd5cf4049a616664ab0aaebcc84df0996362b16c58ab161832f6",
+    "tasks/88-grep_lines/task.json": "183ce7e093dd1db67b900ac43a848a20549090a9c8d47e64d02cee6f59f80057",
+    "tasks/88-grep_lines/hidden.json": "6128ae447794bf47d2deb0c2676030b81304d5383cc37c8a6d24babbc2613156",
+    "tasks/88-grep_lines/reference.tlvm": "8182be586b1715343a03b83ba08f8cf450a9d442a22a70032c6212bba7b330fc",
+    "tasks/88-grep_lines/reference.py": "eab9ab0b9d03b34be144134b24f01c7f2a2d9ca02abfe965a132d8c34ec2898b"
   }
 }

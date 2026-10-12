@@ -80,6 +80,19 @@ pub struct ExecutionProfile {
     pub output_bytes: u64,
 }
 
+impl ExecutionProfile {
+    /// `tlvm exec` の実行上限（テキスト処理向けに参照 profile より大きい）。
+    pub fn exec() -> Self {
+        ExecutionProfile {
+            id: "execution-exec-1",
+            steps: 1_000_000_000,
+            allocated_nodes: 64_000_000,
+            output_bytes: 268_435_456,
+            ..ExecutionProfile::default()
+        }
+    }
+}
+
 impl Default for ExecutionProfile {
     fn default() -> Self {
         ExecutionProfile {

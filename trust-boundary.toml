@@ -35,7 +35,7 @@ version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
 command = "cd verus && cargo verus focus -- --triggers-mode silent"
-result = "587 verified, 0 errors"
+result = "593 verified, 0 errors"
 assume = []
 admit = []
 # external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
@@ -91,6 +91,7 @@ verified = [
   "verus/src/input_exec.rs",
   "verus/src/json.rs",
   "verus/src/pipeline.rs",
+  "verus/src/io.rs",
 ]
 unverified = ["crates/tlvm"]
 glue = [
@@ -101,6 +102,7 @@ glue = [
   "crates/tlvm/src/plain.rs：普通の JSON と値 JSON の相互変換（設計書の外側の便宜。変換後の値 JSON は検証済みの復号器で読む）",
   "crates/tlvm/src/main.rs：tlvm test の期待値との照合（出力の正準 JSON の文字列比較）",
   "crates/tlvm/src/records.rs：v1.1 のレコード型の展開（pair の入れ子と fst／snd への書き換え。検証済み部品は書き換え後の整形ソースを検査・実行する）",
+  "crates/tlvm/src/runtime.rs、main.rs の exec：v1.3 の tlvm exec。entry の入力型から渡すもの（標準入力・引数）を選び、標準入力の UTF-8 を検査し、検証済みの io（テキストと値の変換）と run_checked で実行し、出力の文字の番号を文字にして書く。終了コードへの写像",
   "crates/tlvm/src/softnames.rs：tlvm ast の出力で、文脈キーワードの変数名を AST transport の識別子に付け替える（α 変換。検査・実行には使わない）",
   "crates/tlvm/src/main.rs：レコードを含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
 ]

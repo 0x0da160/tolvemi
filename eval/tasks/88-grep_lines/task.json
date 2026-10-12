@@ -1,0 +1,13 @@
+{
+  "id": "88-grep_lines",
+  "title": "Lines containing a word",
+  "category": "io",
+  "prompt": "This program is run as a command: the input is a pair of the command-line arguments and the whole standard input text. The first argument is a pattern (if there are no arguments, the pattern is empty). Output every line of the standard input that contains the pattern as a contiguous substring, in order, each followed by a newline. Lines are separated by '\\n'; a final line without a trailing newline still counts as a line, but there is no extra empty line after a trailing newline.",
+  "input_type": "Pair<List<String>, String>",
+  "output_type": "String",
+  "examples": [
+    {"input": [["ab"], "xaby\nzz\nab\n"], "expected": "xaby\nab\n"},
+    {"input": [["q"], "no\nmatch"], "expected": ""},
+    {"input": [[], "a\n\nb"], "expected": "a\n\nb\n"}
+  ]
+}

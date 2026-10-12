@@ -1,12 +1,12 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.2), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.3), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.2)
+# Tolvemi (LPTL v1.3)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
-terminates and returns exactly one value of its declared type. There is no I/O, no mutation, no general
+terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no general
 recursion and no exceptions. The language is deliberately small: if something is not listed here, it does not exist.
 
 ## Program shape
@@ -209,6 +209,26 @@ fn step(s: Split, c: Char) -> Split =
 fn words(line: String) -> List<String> =
   reverse(flush(fold(line, Split { words: list<String>(), cur: "" }, |s, c| step(s, c))))
 entry words
+```
+
+## Programs as commands
+
+`tlvm exec prog.tlvm ARGS...` runs a program as a command. The entry's input type says what it receives:
+`String` gets all of standard input, `List<String>` gets the command-line arguments, and
+`Pair<List<String>, String>` gets both. If the output type is `String` it is written to standard output exactly
+(add `"\n"` yourself where you want line breaks); any other output is printed as JSON.
+
+```tlvm
+// Number each line of standard input: "1: first", "2: second", ...
+type Acc = { out: String, n: Int, line: String }
+
+fn emit(a: Acc) -> String = concat(a.out, concat(to_string(a.n), concat(": ", concat(reverse(a.line), "\n"))))
+
+fn solve(text: String) -> String =
+  let a = fold(text, Acc { out: "", n: 1, line: "" }, |a, c|
+    if(eq(c, '\n'), Acc { out: emit(a), n: add(a.n, 1), line: "" }, Acc { line: cons(c, a.line), ..a })) in
+  if(eq(a.line, ""), a.out, emit(a))
+entry solve
 ```
 
 ## Diagnostics
