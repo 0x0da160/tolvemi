@@ -59,4 +59,16 @@ length(list[T](x1, ..., xn)) = n
 
 同型値に対する構造的等値。リスト・ペア・Option を左から右、浅い構造から深い構造の順に比較し、最初の不一致で `false`。等しい場合だけ全構造を走査する。実装は共有 pointer 一致による短絡・memoization をしてはならない（参照コストを変えるため。[execution profile](../resources/execution-profile.md)）。
 
+# v1.2 の追加
+
+| 名前 | 型規則 | 意味 |
+|---|---|---|
+| `code` | `Char -> Int` | 文字の番号 |
+| `char` | `Int -> Option<Char>` | スカラー値なら `some`、そうでなければ `none` |
+| `to_string` | `Int -> String` | 正準十進表記 |
+| `parse_int` | `String -> Option<Int>` | 省略可能な `-` と 1 文字以上の数字なら `some` |
+
+`String` は `List<Char>` なので、リストの組み込みがそのまま文字列に使える。詳細は
+[v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

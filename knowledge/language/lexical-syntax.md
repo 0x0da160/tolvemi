@@ -54,4 +54,10 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 
 `uncons` は予約語ではなく、同名の合法ユーザー関数を定義・呼出しできる（組込みの安全リスト分解は提供しない）。
 
+# v1.2 の追加：文字・文字列リテラル
+
+`'c'` と `"..."`。エスケープは `\\`、`\n`、`\t`、`\r` と、そのリテラルの引用符（文字では `\'`、文字列では `\"`）だけ。
+0x20 未満の文字は生では書けない。非 ASCII 文字はリテラルの中でだけ書ける。予約語に `Char`、`String`、`code`、`char`、
+`to_string`、`parse_int` を加えた（後ろの 4 語は文脈キーワード）。詳細は [v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

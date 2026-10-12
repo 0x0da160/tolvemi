@@ -40,4 +40,10 @@ T, A, B ::= Int | Bool | Unit
 
 意味論上の木展開量と物理割当量の区別は [資源モデル](../resources/resource-model.md)、JSON 表現は [値 JSON codec](../api/value-json-codec.md) を参照。
 
+# v1.2 の追加：文字と文字列
+
+[v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md) で `Char`（Unicode のスカラー値）と `String` を加えた。`String` は
+`List<Char>` の唯一の綴りで、ソースに `List<Char>` とは書けない。値は `'a'`、`"text"`（文字のリスト）。
+値 JSON では文字は `{"tag":"char","value":"<番号>"}`、plain JSON では文字列は JSON の文字列。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
