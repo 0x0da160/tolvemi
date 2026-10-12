@@ -1184,10 +1184,11 @@ impl Machine {
         let mut negative = false;
         match &**l {
             Value::Cons(h, t) => {
-                if (match &**h {
+                let minus = match &**h {
                     Value::Char(c) => *c == 45,
                     _ => false,
-                }) {
+                };
+                if minus {
                     proof {
                         spine_cons(dr(h), dr(t));
                     }
