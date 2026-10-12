@@ -1,0 +1,22 @@
+// Does s start with p?
+fn prefix(p: String, s: String) -> Bool =
+  snd(fold(p, pair(s, true), |st, c|
+    match_option(uncons(fst(st)), pair(fst(st), false), |h|
+      pair(snd(h), if(snd(st), eq(fst(h), c), false)))))
+
+fn contains_str(p: String, s: String) -> Bool =
+  snd(fold(s, pair(s, prefix(p, s)), |st, c|
+    let rest = match_option(uncons(fst(st)), fst(st), |h| snd(h)) in
+    pair(rest, if(snd(st), true, prefix(p, rest)))))
+
+type Scan = { out: String, line: String }
+
+fn flush(pat: String, s: Scan) -> String =
+  if(contains_str(pat, reverse(s.line)), concat(s.out, concat(reverse(s.line), "\n")), s.out)
+
+fn solve(p: Pair<List<String>, String>) -> String =
+  let pat = match_option(uncons(fst(p)), "", |h| fst(h)) in
+  let s = fold(snd(p), Scan { out: "", line: "" }, |st, c|
+    if(eq(c, '\n'), Scan { out: flush(pat, st), line: "" }, Scan { line: cons(c, st.line), ..st })) in
+  if(eq(s.line, ""), s.out, flush(pat, s))
+entry solve

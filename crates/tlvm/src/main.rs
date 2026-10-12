@@ -5,6 +5,9 @@
 //!   tlvm fmt FILE             正準ソースを出力
 //!   tlvm ast FILE             ast_codec_v1 JSON を出力
 //!   tlvm test FILE [CASES]    入力と期待出力の組を実行して照合（CASES の既定は FILE.tests.json）
+//!   tlvm exec FILE [ARGS...]  コマンドとして実行（v1.3）。entry の入力型で渡すものが決まる：
+//!                             String は標準入力の全文、List<String> はコマンドライン引数、
+//!                             Pair<List<String>, String> はその両方。出力が String ならそのまま標準出力へ
 //!
 //! 診断は一行一 JSON object で stderr へ、結果は stdout へ出す。
 //!
@@ -28,7 +31,7 @@ static HUMAN: AtomicBool = AtomicBool::new(false);
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]"
+        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]\n       tlvm exec FILE [ARGS...]"
     );
     ExitCode::from(64)
 }
@@ -191,6 +194,54 @@ fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> R
     }
 }
 
+/// プログラムをコマンドとして実行する（v1.3 の入出力ランタイム。検証されていない接着部分）。
+///
+/// 入力（標準入力の全文とコマンドライン引数）を plain JSON にして、`run --plain` と同じく検証済みの
+/// 復号器で読み、検証済みの評価器で実行する。出力が String なら、その文字列をそのまま標準出力に書く。
+fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
+    use tlvm::runtime::{exec, exec_input, ExecInput, ExecResult};
+    let Some(p) = compile_file(file, false)? else { return Ok(ExitCode::from(1)) };
+    let Some(shape) = exec_input(&p) else {
+        envelope(
+            "UnsupportedEntry",
+            &format!("exec の entry の入力型は String、List<String>、Pair<List<String>, String> のどれか（この entry は {}）", p.input_type),
+        );
+        return Ok(ExitCode::from(64));
+    };
+    let stdin = if shape == ExecInput::Args {
+        String::new()
+    } else {
+        match String::from_utf8(read("-")?) {
+            Ok(t) => t,
+            Err(_) => {
+                envelope("InputBoundaryFailure", "InvalidUtf8");
+                return Ok(ExitCode::from(1));
+            }
+        }
+    };
+    match exec(&p, args, &stdin, &ExecutionProfile::exec(), &HostPolicy::default())? {
+        ExecResult::Output(o) => {
+            use std::io::Write;
+            let mut out = std::io::stdout().lock();
+            out.write_all(o.as_bytes()).map_err(|e| e.to_string())?;
+            out.flush().map_err(|e| e.to_string())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        ExecResult::Stopped(RunResult::ResourceExhausted { kind, observed, limit }) => {
+            eprintln!("{{\"result\":\"ResourceExhausted\",\"kind\":\"{kind}\",\"observed\":{observed},\"limit\":{limit}}}");
+            Ok(ExitCode::from(2))
+        }
+        ExecResult::Stopped(RunResult::HostAborted(r)) => {
+            envelope("HostAborted", &r);
+            Ok(ExitCode::from(2))
+        }
+        ExecResult::Stopped(r) => {
+            envelope("InternalFault", &format!("{r:?}"));
+            Ok(ExitCode::from(3))
+        }
+    }
+}
+
 /// `prog.tlvm` → `prog.tests.json`
 fn default_cases(file: &str) -> String {
     let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
@@ -296,6 +347,13 @@ fn test_cmd(file: &str, cases: Option<&str>, as_ast: bool, plain: bool) -> Resul
 
 fn real_main() -> Result<ExitCode, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // exec の FILE より後ろはプログラムへの引数なので、オプションとして読まない
+    if args.first().map(String::as_str) == Some("exec") {
+        return match args.get(1) {
+            Some(file) => exec_cmd(file, &args[2..]),
+            None => Ok(usage()),
+        };
+    }
     let flags: Vec<&str> = args.iter().filter(|a| a.starts_with("--")).map(|s| s.as_str()).collect();
     let pos: Vec<&str> = args.iter().filter(|a| !a.starts_with("--")).map(|s| s.as_str()).collect();
     let known = ["--ast", "--stats", "--plain", "--human", "--canonical"];
