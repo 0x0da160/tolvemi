@@ -2,7 +2,7 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、組み込み関数名を使った変数名（文脈キーワード）は `softnames.rs` が付け替え、検証済み部品は書き換え後のプログラムを検査・実行します。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、組み込み関数 `min`・`max`・`range`・`contains`・`sort`、値の型引数の山括弧、レコード型）を加えたものです。spec 層と証明は、レコード型を除く v1.1 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は書き換え後のプログラムを検査・実行します。組み込み関数名を使った変数名（文脈キーワード）は検証済みの構文規則が直接受け付けます。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -56,7 +56,7 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
-| `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの変数名の付け替え（α 変換。未検証の接着部分） |
+| `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
 
@@ -125,7 +125,7 @@ git clone https://github.com/verus-lang/verus.git && cd verus/source
 source ../tools/activate && vargo build --release
 # 検証（このリポジトリの verus/ で。cargo-verus は Verus の build に含まれる）
 cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
-# => verification results:: 529 verified, 0 errors
+# => verification results:: 553 verified, 0 errors
 ```
 
 ### まだ証明していないこと

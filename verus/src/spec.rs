@@ -77,6 +77,15 @@ pub enum Builtin {
     Length,
     /// v1.1：安全なリスト分解
     Uncons,
+    /// v1.1：整数の小さい方・大きい方
+    Min,
+    Max,
+    /// v1.1：range(a, b) = [a, a+1, ..., b-1]
+    Range,
+    /// v1.1：contains(xs, x)
+    Contains,
+    /// v1.1：整数リストの昇順整列
+    Sort,
 }
 
 pub enum Expr {
@@ -145,6 +154,18 @@ pub open spec fn builtin_type(b: Builtin, ts: Seq<Ty>) -> Option<Ty> {
             Some(Ty::Option(Box::new(Ty::Pair(Box::new(*ts[0]->List_0), Box::new(ts[0])))))
         } else {
             None
+        },
+        Builtin::Min | Builtin::Max => {
+            if ts.len() == 2 && ts[0] == Ty::Int && ts[1] == Ty::Int { Some(Ty::Int) } else { None }
+        },
+        Builtin::Range => {
+            if ts.len() == 2 && ts[0] == Ty::Int && ts[1] == Ty::Int { Some(Ty::List(Box::new(Ty::Int))) } else { None }
+        },
+        Builtin::Contains => {
+            if ts.len() == 2 && ts[0] == Ty::List(Box::new(ts[1])) { Some(Ty::Bool) } else { None }
+        },
+        Builtin::Sort => {
+            if ts.len() == 1 && ts[0] == Ty::List(Box::new(Ty::Int)) { Some(ts[0]) } else { None }
         },
     }
 }
@@ -296,6 +317,10 @@ pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
             },
             (Builtin::Cons, x, Val::List(s)) => Res::Done(Val::List(seq![x] + s)),
             (Builtin::Concat, Val::List(s), Val::List(u)) => Res::Done(Val::List(s + u)),
+            (Builtin::Min, Val::Int(x), Val::Int(y)) => Res::Done(Val::Int(if x <= y { x } else { y })),
+            (Builtin::Max, Val::Int(x), Val::Int(y)) => Res::Done(Val::Int(if x <= y { y } else { x })),
+            (Builtin::Range, Val::Int(a), Val::Int(b)) => Res::Done(Val::List(range_seq(a, b))),
+            (Builtin::Contains, Val::List(s), x) => Res::Done(Val::Bool(s.contains(x))),
             _ => Res::Stuck,
         }
     } else if vs.len() == 1 {
@@ -310,10 +335,48 @@ pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
             } else {
                 Res::Done(Val::Some(Box::new(Val::Pair(Box::new(s[0]), Box::new(Val::List(s.drop_first()))))))
             },
+            (Builtin::Sort, Val::List(s)) => Res::Done(Val::List(isort(s))),
             _ => Res::Stuck,
         }
     } else {
         Res::Stuck
+    }
+}
+
+/// [a, a+1, ..., b-1]（b <= a なら空）。
+pub open spec fn range_seq(a: int, b: int) -> Seq<Val> {
+    Seq::new(if b <= a { 0 } else { (b - a) as nat }, |i: int| Val::Int(a + i))
+}
+
+/// 整列の比較。整数どうし以外（型付きプログラムでは現れない）は「小さくない」とみなす。
+pub open spec fn vle(x: Val, y: Val) -> bool {
+    match (x, y) {
+        (Val::Int(m), Val::Int(n)) => m <= n,
+        _ => true,
+    }
+}
+
+/// 整列済みの列 t に x を挿入する（x 以上の最初の要素の前）。
+pub open spec fn ins(x: Val, t: Seq<Val>) -> Seq<Val>
+    decreases t.len(),
+{
+    if t.len() == 0 {
+        seq![x]
+    } else if vle(x, t[0]) {
+        seq![x] + t
+    } else {
+        seq![t[0]] + ins(x, t.drop_first())
+    }
+}
+
+/// 挿入整列。
+pub open spec fn isort(s: Seq<Val>) -> Seq<Val>
+    decreases s.len(),
+{
+    if s.len() == 0 {
+        Seq::empty()
+    } else {
+        ins(s[0], isort(s.drop_first()))
     }
 }
 

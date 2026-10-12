@@ -320,7 +320,7 @@ fn real_main() -> Result<ExitCode, String> {
         },
         ["fmt", file] => match parse_file(file, as_ast)? {
             // v1.1：レコードを含むプログラムは検証済み formatter の対象外。診断用 formatter で整形する
-            Some(p) if tlvm::records::has_records(&p) || tlvm::softnames::has_soft_names(&p) => {
+            Some(p) if tlvm::records::has_records(&p) => {
                 print!("{}", format_program(&p));
                 Ok(ExitCode::SUCCESS)
             }
@@ -347,7 +347,7 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["ast", file] => match parse_file(file, as_ast)? {
-            // v1.1：AST transport にレコードの形と予約語の変数名はないので、展開・付け替えしたものを出す
+            // v1.1：AST transport にレコードの形と文脈キーワードの変数名はないので、展開・付け替えしたものを出す
             Some(p) if tlvm::records::has_records(&p) => match tlvm::records::expand(&p) {
                 Ok(px) => {
                     println!("{}", encode_ast(&tlvm::softnames::rename(&tlvm::records::lower(&px))));

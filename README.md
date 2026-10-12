@@ -17,7 +17,7 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 | [`examples/`](examples/) | 設計書 §13 の例とテストケース |
 | [`eval/`](eval/) | LLM 予備実験の評価セット（SKILL.md、60 問のタスク、ハーネス）。説明は [`eval/README.md`](eval/README.md) |
 
-設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。処理系は [v1.1 の差分仕様](spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`）を実装しています。LLM 予備実験の評価セットとハーネスは `eval/` にあり、Claude のサブスクリプションだけで実行できます（`--backend claude-cli`）。
+設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。処理系は [v1.1 の差分仕様](spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option`、`uncons`、レコード型、追加の組み込み関数など）を実装しています。LLM 予備実験の評価セットとハーネスは `eval/` にあり、Claude のサブスクリプションだけで実行できます（`--backend claude-cli`）。
 
 ```sh
 cargo run --release -- run examples/sum_even.tlvm '{"tag":"list","items":[{"tag":"int","value":"2"},{"tag":"int","value":"3"}]}'

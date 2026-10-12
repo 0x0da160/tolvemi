@@ -53,6 +53,22 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
   プログラムについて成り立つ。`tlvm fmt` はレコードを含むプログラムを診断用 formatter で整形する。AST API には
   レコードの形がない（`tlvm ast` は展開後の AST を出す）。
 
+## 1c. 組み込み関数の追加
+
+| 組み込み | 型 | 意味 |
+|---|---|---|
+| `min(a, b)`、`max(a, b)` | `Int, Int -> Int` | 小さい方、大きい方 |
+| `range(a, b)` | `Int, Int -> List<Int>` | `[a, a+1, ..., b-1]`。`b <= a` なら空 |
+| `contains(xs, x)` | `List<T>, T -> Bool` | `eq` と同じ構造的等値で一致する要素があるか |
+| `sort(xs)` | `List<Int> -> List<Int>` | 昇順（重複は残す） |
+
+- spec（verus/src/spec.rs）：`range_seq`、挿入整列 `isort`（`ins` で定義）、`contains` は `Seq::contains`。
+- 資源：`range` は要素ごとに整数と cons セルを、`sort` は出力の cons セルを allocated nodes として数える。
+  `sort` の steps は比較と挿入時のずらしを数え、要素数 n に対して O(n²)。`contains` は `eq` と同じく比較を数える。
+- 証明：型安全性（`apply_sound`。`isort` が整数だけの列を保つ）と、exec 評価器が spec の `apply` と同じ値を返すこと
+  （`range`、`contains`、`sort`。`sort` は配列への挿入位置が `ins` と一致すること `ins_split`）。
+- 5 語は予約語に加わるが、§2a の文脈キーワードなので変数名などに使える。
+
 ## 2. 字句と予約語（v1 §4.2 の変更）
 
 予約語に `uncons` と `match_option` を加える（計 35 語）。`match_option` は `_` を含む一つの予約語トークンである。
@@ -64,16 +80,18 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
 ## 2a. 文脈キーワード
 
 組み込み関数と値の構築子の名前 `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
-length uncons`（19 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
+length uncons min max range contains sort`（24 語）は、変数・引数・`let`／`fold`／`match_option` の束縛・field の名前に使える。
 
 - 式の位置では、直後が `(` か `<`（v1 の `[` も含む）ならキーワード（組み込み関数・構築子）、それ以外なら変数の参照。
   変数は呼び出せないので、`length(length)` は「組み込みの length を変数 length に適用する」と一意に読める。
 - 関数名と `entry` の名前には使えない（呼び出しの名前なので）。`fn entry Int Bool Unit List Option Pair true
   false unit let in if fold match_option` は従来どおり予約語。
 - AST API（ast_codec_v1）の識別子は v1 のまま（35 語すべてを拒否）。
-- 実装：検証済み部品の字句規則はこれらを常に予約語として扱う。source の検査では、診断用の parser が受理した
-  プログラムの該当する名前を、プログラム中に現れない名前（`length_kw` など）に一斉に付け替えてから検証済み部品に
-  渡す（α 変換。接着部分 `crates/tlvm/src/softnames.rs`）。`tlvm ast` は付け替えた AST を出す。
+- 実装：検証済み部品の構文規則（`verus/src/syntax.rs` の `soft`・`name_ok`・`bdt`）に入っている。字句は従来どおり
+  キーワードの token を出し、式の位置で直後が `(` でも `<` でもない文脈キーワードを変数として読む。名前の位置
+  （束縛・引数）は IDENT か文脈キーワードを受け取る。parser の健全性・完全性と formatter の往復の証明はこの規則で
+  通っている。`tlvm ast` だけは AST transport の識別子が v1 のままなので、該当する名前をプログラム中に現れない名前
+  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。
 
 動機：状態の多い 24 問（§9）で、Haiku の初回失敗 5 件のうち 2 件が `length` と `pair` を名前に使ったものだった。
 
@@ -146,7 +164,7 @@ verus/ の spec 層（`spec.rs` の `Builtin::Uncons`、`Expr::Match`、`ty_expr
 | 6〜7 全域性・型安全性・決定性 | `total`、`mono`、`apply_sound` の新しい場合 |
 | 8 評価器の適合 | `bs_match`、`fl_match` と exec 評価器の `Match`・`Uncons` |
 
-上の場合をすべて加え、`cargo verus focus` は 529 verified, 0 errors（v1 では 519）。義務 9〜10 は新しい場合を持たない
+上の場合をすべて加え、`cargo verus focus` は 553 verified, 0 errors（v1 では 519。組み込み関数 5 個と文脈キーワードの構文規則を含む）。義務 9〜10 は新しい場合を持たない
 （値 JSON と入力 JSON は変わらない）。診断側（crates/tlvm）は v1 と同じく未検証で、受理・拒否を検証済み部品と突き合わせる。
 
 ## 9. LLM 評価
@@ -210,3 +228,25 @@ v1 と同じ 60 問を、v1.1 の Skill（eval/SKILL.md）で解かせて比べ�
 - 状態の多い 24 問は、修復後に全問正解した。初回の失敗 4 件（括弧の数、型、`if` の分岐の型、使えない文字）は、どれも次の回で直った。
 - 予約語を名前に使った失敗は 24 問ではなくなった。60 問では `entry`（予約語のまま）を使った 1 件が残った。
 - 元の 60 問の 1 問差は、1 回の試行の誤差の範囲である。修復後に残った 53-mode は、受理された解の論理の誤り。
+
+組み込み関数 5 個（§1c）、Skill の状態機械の例と確認リスト、検証済みの構文規則に入れた文脈キーワード（§2a）を加えた後、
+各 3 回で測り直した（2026-10-08〜12、修復 3 回まで）。「前」は同じ 24 問・同じ条件を、変更前の版（PR #13 の時点）で 3 回解かせたもの。
+
+| モデル / effort | 問題 | 言語 | Success@1 | Success@3 | 出力トークン（1 回あたり） |
+|---|---|---|---|---|---|
+| Haiku 4.5 / low | 状態の多い 24 問（前） | LPTL | 56/72（78%） | 69/72 | 9,320 |
+| Haiku 4.5 / low | 状態の多い 24 問（後） | LPTL | 68/72（94%） | 72/72 | 7,975 |
+| Haiku 4.5 / low | 状態の多い 24 問 | Python | 72/72 | 72/72 | 2,766 |
+| Haiku 4.5 / low | 全 84 問（後） | LPTL | 239/252（95%） | 252/252 | 4,120 |
+| Haiku 4.5 / low | 全 84 問 | Python | 252/252 | 252/252 | 1,277 |
+| Opus 5.5 / high | 状態の多い 24 問（後） | LPTL | 72/72 | 72/72 | 816 |
+| Opus 5.5 / high | 状態の多い 24 問 | Python | 72/72 | 72/72 | 178 |
+
+- Haiku の状態の多い 24 問は、初回の正答が 78% から 94% に上がり、修復後は全問正解になった。出力トークンは 14% 減った。
+  前に初回で 2 回以上落ちていた 68・71・77 は 3 回とも初回で通った（66 は 3 回中 1 回まで減った）。
+- 全 84 問で LPTL は修復後に全問正解。初回の失敗 13 件のうち 3 件は、33-lookup_default でラムダの引数に予約語
+  `entry` を使ったもの（3 回とも）。残りは括弧の数、型の誤り、レコードにないフィールドの参照で、どれも次の回で直った。
+  `entry` は Skill の確認リストに名指しで加えた（この追記は未測定）。
+- 出力トークンの LPTL / Python 比（問題ごとの中央値）は 3.07 倍（前回 3.43 倍）。組み込み関数でほぼ 1 行になる 7 問
+  （04・05・09・22・45・52・58）を除くと 2.97 倍。Opus の状態の多い 24 問では約 5.1 倍から 4.6 倍になった。
+  差の大部分は答える前の推論（見えない思考）で、コードの長さの差は約 2 倍にとどまる。
