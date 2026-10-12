@@ -93,6 +93,14 @@ pub proof fn ty_args_from_each(p: Prog, r: nat, ctx: Map<nat, Ty>, es: Seq<Expr>
     }
 }
 
+/// 文字コードが Unicode のスカラー値か（spec の scalar）。
+pub fn scalar_u32(c: u32) -> (r: bool)
+    ensures
+        r == scalar(c as int),
+{
+    c <= 0x10FFFF && !(0xD800 <= c && c <= 0xDFFF)
+}
+
 pub fn builtin_ty(b: Builtin, ts: &Vec<Ty>) -> (r: Option<Ty>)
     ensures
         r is Some ==> builtin_type(b, ts@) == r,
@@ -227,6 +235,26 @@ pub fn builtin_ty(b: Builtin, ts: &Vec<Ty>) -> (r: Option<Ty>)
         } else {
             None
         },
+        Builtin::Code => if n == 1 && ty_eq(&ts[0], &Ty::Char) {
+            Some(Ty::Int)
+        } else {
+            None
+        },
+        Builtin::CharOf => if n == 1 && ty_eq(&ts[0], &Ty::Int) {
+            Some(Ty::Option(Box::new(Ty::Char)))
+        } else {
+            None
+        },
+        Builtin::ToString => if n == 1 && ty_eq(&ts[0], &Ty::Int) {
+            Some(Ty::List(Box::new(Ty::Char)))
+        } else {
+            None
+        },
+        Builtin::ParseInt => if n == 1 && ty_eq(&ts[0], &Ty::List(Box::new(Ty::Char))) {
+            Some(Ty::Option(Box::new(Ty::Int)))
+        } else {
+            None
+        },
     }
 }
 
@@ -243,6 +271,7 @@ pub fn ty_of(p: &EProg, r: usize, ctx: &mut Vec<(usize, Ty)>, e: &EExpr) -> (res
         EExpr::Int(_) => Some(Ty::Int),
         EExpr::Bool(_) => Some(Ty::Bool),
         EExpr::Unit => Some(Ty::Unit),
+        EExpr::Char(c) => if scalar_u32(*c) { Some(Ty::Char) } else { None },
         EExpr::Var(x) => ctx_lookup(ctx, *x),
         EExpr::List(t, es) => {
             let ts = ty_list_of(p, r, ctx, es)?;
@@ -518,6 +547,7 @@ pub fn has_type(v: &Rc<Value>, t: &Ty) -> (r: bool)
         (Value::Int(_), Ty::Int) => true,
         (Value::Bool(_), Ty::Bool) => true,
         (Value::Unit, Ty::Unit) => true,
+        (Value::Char(c), Ty::Char) => scalar_u32(*c),
         (Value::None, Ty::Option(_)) => true,
         (Value::Some(x), Ty::Option(a)) => has_type(x, a),
         (Value::Pair(a, b), Ty::Pair(ta, tb)) => has_type(a, ta) && has_type(b, tb),

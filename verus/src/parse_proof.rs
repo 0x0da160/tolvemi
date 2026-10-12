@@ -304,7 +304,9 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
     let d1 = (d - 1) as nat;
     let z = Seq::<Tok>::empty();
     match t {
-        Ty::List(a) => {
+        Ty::List(a) => if *a == Ty::Char {
+            hd(ts, i, seq![Tok::Kw(Kw::TString)], k);
+        } else {
             let k1 = seq![Tok::Sym('>')] + k;
             hd(ts, i, seq![Tok::Kw(Kw::TList), Tok::Sym('<')], tt(*a, k1));
             pt_complete(ts, i + 2, d1, *a, k1);
@@ -337,6 +339,7 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
         Ty::Int => hd(ts, i, seq![Tok::Kw(Kw::TInt)], k),
         Ty::Bool => hd(ts, i, seq![Tok::Kw(Kw::TBool)], k),
         Ty::Unit => hd(ts, i, seq![Tok::Kw(Kw::TUnit)], k),
+        Ty::Char => hd(ts, i, seq![Tok::Kw(Kw::TChar)], k),
     }
 }
 
@@ -963,7 +966,7 @@ pub proof fn pt_sound(ts: Seq<Tok>, i: nat, d: nat)
                 if sym(ts, i + 1, '<') {
                     pt_sound(ts, i + 2, d1);
                     if let Some((a, j)) = pt(ts, i + 2, d1) {
-                        if sym(ts, j, '>') {
+                        if sym(ts, j, '>') && pt(ts, i, d) is Some {
                             pfx1(ts, i + 1);
                             pfx1(ts, j);
                             let t = pt(ts, i, d)->Some_0.0;

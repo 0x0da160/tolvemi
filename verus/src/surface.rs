@@ -349,6 +349,12 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Cons)
         } else if c4e(w, 's', 'o', 'r', 't') {
             Some(Kw::Sort)
+        } else if c4e(w, 'C', 'h', 'a', 'r') {
+            Some(Kw::TChar)
+        } else if c4e(w, 'c', 'o', 'd', 'e') {
+            Some(Kw::Code)
+        } else if c4e(w, 'c', 'h', 'a', 'r') {
+            Some(Kw::CharOf)
         } else {
             None
         }
@@ -371,6 +377,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Length)
         } else if c6e(w, 'u', 'n', 'c', 'o', 'n', 's') {
             Some(Kw::Uncons)
+        } else if c6e(w, 'S', 't', 'r', 'i', 'n', 'g') {
+            Some(Kw::TString)
         } else {
             None
         }
@@ -383,6 +391,14 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
     } else if n == 8 {
         if c6e(w, 'c', 'o', 'n', 't', 'a', 'i') && w[6] == 'n' && w[7] == 's' {
             Some(Kw::Contains)
+        } else {
+            None
+        }
+    } else if n == 9 {
+        if c6e(w, 't', 'o', '_', 's', 't', 'r') && w[6] == 'i' && w[7] == 'n' && w[8] == 'g' {
+            Some(Kw::ToString)
+        } else if c6e(w, 'p', 'a', 'r', 's', 'e', '_') && w[6] == 'i' && w[7] == 'n' && w[8] == 't' {
+            Some(Kw::ParseInt)
         } else {
             None
         }
@@ -929,6 +945,8 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
         Kw::TInt => Some((Ty::Int, i + 1)),
         Kw::TBool => Some((Ty::Bool, i + 1)),
         Kw::TUnit => Some((Ty::Unit, i + 1)),
+        Kw::TChar => Some((Ty::Char, i + 1)),
+        Kw::TString => Some((Ty::List(Box::new(Ty::Char)), i + 1)),
         Kw::TList | Kw::TOption => {
             if !sym_e(ts, i + 1, '<') {
                 return None;
@@ -936,7 +954,10 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
             match pt_e(ts, i + 2, d - 1) {
                 Some((a, j)) => if sym_e(ts, j, '>') {
                     let t = match k {
-                        Kw::TList => Ty::List(Box::new(a)),
+                        Kw::TList => match a {
+                            Ty::Char => return None,
+                            _ => Ty::List(Box::new(a)),
+                        },
                         _ => Ty::Option(Box::new(a)),
                     };
                     Some((t, j + 1))
@@ -1053,6 +1074,10 @@ fn builtin_of(k: Kw) -> (r: Option<Builtin>)
         Kw::Range => Some(Builtin::Range),
         Kw::Contains => Some(Builtin::Contains),
         Kw::Sort => Some(Builtin::Sort),
+        Kw::Code => Some(Builtin::Code),
+        Kw::CharOf => Some(Builtin::CharOf),
+        Kw::ToString => Some(Builtin::ToString),
+        Kw::ParseInt => Some(Builtin::ParseInt),
         _ => None,
     }
 }
@@ -1780,6 +1805,24 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
         Kw::TList => push4(out, 'L', 'i', 's', 't'),
         Kw::TOption => push6(out, 'O', 'p', 't', 'i', 'o', 'n'),
         Kw::TPair => push4(out, 'P', 'a', 'i', 'r'),
+        Kw::TChar => push4(out, 'C', 'h', 'a', 'r'),
+        Kw::TString => push6(out, 'S', 't', 'r', 'i', 'n', 'g'),
+        Kw::Code => push4(out, 'c', 'o', 'd', 'e'),
+        Kw::CharOf => push4(out, 'c', 'h', 'a', 'r'),
+        Kw::ToString => {
+            push5(out, 't', 'o', '_', 's', 't');
+            push4(out, 'r', 'i', 'n', 'g');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::ParseInt => {
+            push6(out, 'p', 'a', 'r', 's', 'e', '_');
+            push3(out, 'i', 'n', 't');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
         Kw::True => push4(out, 't', 'r', 'u', 'e'),
         Kw::False => push5(out, 'f', 'a', 'l', 's', 'e'),
         Kw::Unit => push4(out, 'u', 'n', 'i', 't'),
@@ -1838,15 +1881,19 @@ fn push_ty(out: &mut Vec<char>, t: &Ty)
         Ty::Int => push_kw(out, Kw::TInt),
         Ty::Bool => push_kw(out, Kw::TBool),
         Ty::Unit => push_kw(out, Kw::TUnit),
-        Ty::List(a) => {
-            push_kw(out, Kw::TList);
-            push1(out, '<');
-            push_ty(out, a);
-            push1(out, '>');
-            proof {
-                ft_app(**a, seq!['>'] + z);
-                assert(out@ =~= o + ft(*t, z));
-            }
+        Ty::Char => push_kw(out, Kw::TChar),
+        Ty::List(a) => match &**a {
+            Ty::Char => push_kw(out, Kw::TString),
+            _ => {
+                push_kw(out, Kw::TList);
+                push1(out, '<');
+                push_ty(out, a);
+                push1(out, '>');
+                proof {
+                    ft_app(**a, seq!['>'] + z);
+                    assert(out@ =~= o + ft(*t, z));
+                }
+            },
         },
         Ty::Option(a) => {
             push_kw(out, Kw::TOption);
@@ -2096,6 +2143,10 @@ fn builtin_kw(b: Builtin) -> (k: Kw)
         Builtin::Range => Kw::Range,
         Builtin::Contains => Kw::Contains,
         Builtin::Sort => Kw::Sort,
+        Builtin::Code => Kw::Code,
+        Builtin::CharOf => Kw::CharOf,
+        Builtin::ToString => Kw::ToString,
+        Builtin::ParseInt => Kw::ParseInt,
     }
 }
 

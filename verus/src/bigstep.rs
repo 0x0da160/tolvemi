@@ -44,7 +44,7 @@ pub proof fn lift(p: Prog, n: nat, m: nat, env: Map<nat, Val>, e: Expr)
 
 pub proof fn bs_leaf(p: Prog, env: Map<nat, Val>, e: Expr)
     requires
-        e is Int || e is Bool || e is Unit || e is None,
+        e is Int || e is Bool || e is Unit || e is None || e is Char,
     ensures
         evals_to(
             p,
@@ -54,6 +54,7 @@ pub proof fn bs_leaf(p: Prog, env: Map<nat, Val>, e: Expr)
                 Expr::Int(n) => Val::Int(n),
                 Expr::Bool(b) => Val::Bool(b),
                 Expr::Unit => Val::Unit,
+                Expr::Char(c) => Val::Char(c),
                 _ => Val::None,
             },
         ),

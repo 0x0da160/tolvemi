@@ -59,6 +59,12 @@ pub enum Kw {
     Range,
     Contains,
     Sort,
+    TChar,
+    TString,
+    Code,
+    CharOf,
+    ToString,
+    ParseInt,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -103,6 +109,12 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Range => seq!['r', 'a', 'n', 'g', 'e'],
         Kw::Contains => seq!['c', 'o', 'n', 't', 'a', 'i', 'n', 's'],
         Kw::Sort => seq!['s', 'o', 'r', 't'],
+        Kw::TChar => seq!['C', 'h', 'a', 'r'],
+        Kw::TString => seq!['S', 't', 'r', 'i', 'n', 'g'],
+        Kw::Code => seq!['c', 'o', 'd', 'e'],
+        Kw::CharOf => seq!['c', 'h', 'a', 'r'],
+        Kw::ToString => seq!['t', 'o', '_', 's', 't', 'r', 'i', 'n', 'g'],
+        Kw::ParseInt => seq!['p', 'a', 'r', 's', 'e', '_', 'i', 'n', 't'],
     }
 }
 
@@ -197,6 +209,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Cons)
         } else if c4(s, 's', 'o', 'r', 't') {
             Some(Kw::Sort)
+        } else if c4(s, 'C', 'h', 'a', 'r') {
+            Some(Kw::TChar)
+        } else if c4(s, 'c', 'o', 'd', 'e') {
+            Some(Kw::Code)
+        } else if c4(s, 'c', 'h', 'a', 'r') {
+            Some(Kw::CharOf)
         } else {
             None
         }
@@ -219,6 +237,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Length)
         } else if c6(s, 'u', 'n', 'c', 'o', 'n', 's') {
             Some(Kw::Uncons)
+        } else if c6(s, 'S', 't', 'r', 'i', 'n', 'g') {
+            Some(Kw::TString)
         } else {
             None
         }
@@ -231,6 +251,14 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
     } else if s.len() == 8 {
         if c6(s, 'c', 'o', 'n', 't', 'a', 'i') && s[6] == 'n' && s[7] == 's' {
             Some(Kw::Contains)
+        } else {
+            None
+        }
+    } else if s.len() == 9 {
+        if c6(s, 't', 'o', '_', 's', 't', 'r') && s[6] == 'i' && s[7] == 'n' && s[8] == 'g' {
+            Some(Kw::ToString)
+        } else if c6(s, 'p', 'a', 'r', 's', 'e', '_') && s[6] == 'i' && s[7] == 'n' && s[8] == 't' {
+            Some(Kw::ParseInt)
         } else {
             None
         }
@@ -268,6 +296,10 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Range => Kw::Range,
         Builtin::Contains => Kw::Contains,
         Builtin::Sort => Kw::Sort,
+        Builtin::Code => Kw::Code,
+        Builtin::CharOf => Kw::CharOf,
+        Builtin::ToString => Kw::ToString,
+        Builtin::ParseInt => Kw::ParseInt,
     }
 }
 
@@ -293,6 +325,10 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Range => Some(Builtin::Range),
         Kw::Contains => Some(Builtin::Contains),
         Kw::Sort => Some(Builtin::Sort),
+        Kw::Code => Some(Builtin::Code),
+        Kw::CharOf => Some(Builtin::CharOf),
+        Kw::ToString => Some(Builtin::ToString),
+        Kw::ParseInt => Some(Builtin::ParseInt),
         _ => None,
     }
 }
@@ -384,7 +420,12 @@ pub open spec fn tt(t: Ty, k: Seq<Tok>) -> Seq<Tok>
         Ty::Int => seq![Tok::Kw(Kw::TInt)] + k,
         Ty::Bool => seq![Tok::Kw(Kw::TBool)] + k,
         Ty::Unit => seq![Tok::Kw(Kw::TUnit)] + k,
-        Ty::List(a) => seq![Tok::Kw(Kw::TList), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
+        Ty::Char => seq![Tok::Kw(Kw::TChar)] + k,
+        Ty::List(a) => if *a == Ty::Char {
+            seq![Tok::Kw(Kw::TString)] + k
+        } else {
+            seq![Tok::Kw(Kw::TList), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k)
+        },
         Ty::Option(a) => seq![Tok::Kw(Kw::TOption), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
         Ty::Pair(a, b) => seq![Tok::Kw(Kw::TPair), Tok::Sym('<')] + tt(
             *a,
@@ -501,7 +542,12 @@ pub open spec fn ft(t: Ty, k: Seq<char>) -> Seq<char>
         Ty::Int => kwt(Kw::TInt) + k,
         Ty::Bool => kwt(Kw::TBool) + k,
         Ty::Unit => kwt(Kw::TUnit) + k,
-        Ty::List(a) => kwt(Kw::TList) + (seq!['<'] + ft(*a, seq!['>'] + k)),
+        Ty::Char => kwt(Kw::TChar) + k,
+        Ty::List(a) => if *a == Ty::Char {
+            kwt(Kw::TString) + k
+        } else {
+            kwt(Kw::TList) + (seq!['<'] + ft(*a, seq!['>'] + k))
+        },
         Ty::Option(a) => kwt(Kw::TOption) + (seq!['<'] + ft(*a, seq!['>'] + k)),
         Ty::Pair(a, b) => kwt(Kw::TPair) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
     }
@@ -739,9 +785,11 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
             Tok::Kw(Kw::TInt) => Some((Ty::Int, i + 1)),
             Tok::Kw(Kw::TBool) => Some((Ty::Bool, i + 1)),
             Tok::Kw(Kw::TUnit) => Some((Ty::Unit, i + 1)),
+            Tok::Kw(Kw::TChar) => Some((Ty::Char, i + 1)),
+            Tok::Kw(Kw::TString) => Some((Ty::List(Box::new(Ty::Char)), i + 1)),
             Tok::Kw(Kw::TList) => if sym(ts, i + 1, '<') {
                 match pt(ts, i + 2, (d - 1) as nat) {
-                    Some((a, j)) => if sym(ts, j, '>') {
+                    Some((a, j)) => if sym(ts, j, '>') && a != Ty::Char {
                         Some((Ty::List(Box::new(a)), j + 1))
                     } else {
                         None
@@ -1148,7 +1196,7 @@ pub open spec fn bt(t: Ty, d: nat) -> bool
     decreases t,
 {
     d > 0 && match t {
-        Ty::List(a) => bt(*a, (d - 1) as nat),
+        Ty::List(a) => *a == Ty::Char || bt(*a, (d - 1) as nat),
         Ty::Option(a) => bt(*a, (d - 1) as nat),
         Ty::Pair(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
         _ => true,

@@ -267,7 +267,10 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
         Ty::Int => lk(Kw::TInt, k, u),
         Ty::Bool => lk(Kw::TBool, k, u),
         Ty::Unit => lk(Kw::TUnit, k, u),
-        Ty::List(a) => {
+        Ty::Char => lk(Kw::TChar, k, u),
+        Ty::List(a) => if *a == Ty::Char {
+            lk(Kw::TString, k, u);
+        } else {
             let k1 = seq!['>'] + k;
             ls('>', k, u);
             ft_lex(*a, k1, seq![Tok::Sym('>')] + u);
