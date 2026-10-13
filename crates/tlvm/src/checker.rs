@@ -648,7 +648,8 @@ impl<'a> TypeChecker<'a> {
                 };
                 match same {
                     Some(true) => {
-                        let mut ft = want.clone();
+                        // v1.15：印つきの型（名義の型）は印の後ろの展開後の構造で field を数える
+                        let mut ft = if want.record().is_some_and(|r| r.tagged) { want.arg(1) } else { want.clone() };
                         for _ in 0..*i {
                             ft = ft.arg(1);
                         }
@@ -1067,7 +1068,10 @@ impl<'a> TypeChecker<'a> {
             }
             "fst" | "snd" => {
                 let code = if name == "fst" { "E-TYPE-FST-ARG" } else { "E-TYPE-SND-ARG" };
-                need!(self.head(&ts[0], TyTag::Pair, &args[0].meta)?, code, &args[0].meta, "Pair", &ts[0]);
+                // v1.15：名義の型は Pair の別名ではない（印の後ろの構造を fst・snd で取り出させない）
+                let named = ts[0].record().is_some_and(|r| r.tagged) || ts[0].sum().is_some_and(|s| s.tagged);
+                let pair = if named { Some(false) } else { self.head(&ts[0], TyTag::Pair, &args[0].meta)? };
+                need!(pair, code, &args[0].meta, "Pair", &ts[0]);
                 Ok(if ok { ts[0].arg(if name == "fst" { 0 } else { 1 }) } else { Ty::error() })
             }
             "cons" => {

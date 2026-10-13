@@ -19,6 +19,7 @@ pub mod imports;
 pub mod lexer;
 pub mod lines;
 pub mod lsp;
+pub mod nominal;
 pub mod parser;
 pub mod plain;
 pub mod profiles;

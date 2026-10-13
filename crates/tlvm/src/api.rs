@@ -164,9 +164,9 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
             // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す。
             // v1.5：map などは型検査の後に fold などへ書き換える（v1.6 の loop も）
-            // v1.14：再帰する型のあるプログラムは、印つきの写しを先に検査してから印なしの写しを検査する
-            if recursive::has_recursive(&p) {
-                SourceCompile::Result(compile_recursive(&p, source.len(), profile))
+            // v1.14・v1.15：宣言した型のあるプログラムは、印つきの写しを先に検査してから印なしの写しを検査する
+            if declares_types(&p) {
+                SourceCompile::Result(compile_nominal(&p, source.len(), profile))
             } else {
                 SourceCompile::Result(compile_expanded(&p, source.len(), profile, false))
             }
@@ -180,7 +180,7 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     }
 }
 
-/// 展開から検証済み部品の検査までの一通り。`tagged` は再帰する型の印つきの写し（v1.14）。
+/// 展開から検証済み部品の検査までの一通り。`tagged` は名義の型の印つきの写し（v1.15）。
 fn compile_expanded(p: &Program, len: usize, profile: &StaticProfile, tagged: bool) -> CompileResult {
     match expand_with(p, tagged) {
         Err(d) => result(d, None),
@@ -197,9 +197,10 @@ fn compile_expanded(p: &Program, len: usize, profile: &StaticProfile, tagged: bo
     }
 }
 
-/// v1.14：再帰する型は、印つきの写し（型ごとに違う印を値に付けた同じプログラム）を先に検査する。区別は、ここで
-/// 検証済みの部品が判定する。受理されたら、印なしの写し（`List<Int>` の符号化）を検査して実行する。
-fn compile_recursive(p: &Program, len: usize, profile: &StaticProfile) -> CompileResult {
+/// v1.15：宣言した型（レコード型・直和型・再帰する型）を含むプログラムは、印つきの写し（宣言ごとに違う印を値の型に
+/// 付けた同じプログラム）を先に検査する。型の名前による区別は、ここで検証済みの部品が判定する。受理されたら、印なし
+/// の写しを検査して実行する。印つきの再帰する型の文面は、名前に直す（レコード型と直和型は型の名前で表示される）。
+fn compile_nominal(p: &Program, len: usize, profile: &StaticProfile) -> CompileResult {
     match compile_expanded(p, len, profile, true) {
         CompileResult::Rejected { errors, warnings, work } => {
             let names = recursive::tagged_names(p);
@@ -207,6 +208,11 @@ fn compile_recursive(p: &Program, len: usize, profile: &StaticProfile) -> Compil
         }
         CompileResult::Accepted { .. } => compile_expanded(p, len, profile, false),
     }
+}
+
+/// 型の宣言（レコード型・直和型。再帰する型を含む）を含むか。含めば名義の型の印（v1.15）が要る。
+fn declares_types(p: &Program) -> bool {
+    p.declarations.iter().any(|d| matches!(d, crate::syntax::Decl::Type(_) | crate::syntax::Decl::Sum(_)))
 }
 
 /// レコード（v1.1）か直和型・match（v1.4）、型引数（v1.10）を含み、検査の前に展開が要るか。
@@ -227,14 +233,16 @@ pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic
     expand_with(p, false)
 }
 
-/// `tagged` は再帰する型の印つきの写し（v1.14。`compile_recursive` が使う）。
+/// `tagged` は名義の型の印つきの写し（v1.15。`compile_nominal` が使う）。
 fn expand_with(p: &Program, tagged: bool) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
     let p = if generics::has_generics(p) { generics::resolve(p)? } else { p.clone() };
+    // v1.15：宣言の番号（名義の型の印）は展開の前に一度だけ決め、どの展開にも同じ番号を渡す
+    let tags = tagged.then(|| crate::nominal::Tags::of(&p));
     // v1.14：再帰する直和型は List<Int>（印つきの写しでは印の付いた型）に書き換える（再帰しない直和型の展開より前）
-    let p = if recursive::has_recursive(&p) { recursive::expand(&p, tagged)? } else { p };
-    let p = if sums::has_sums(&p) { sums::expand(&p)? } else { p };
+    let p = if recursive::has_recursive(&p) { recursive::expand(&p, tags.as_ref())? } else { p };
+    let p = if sums::has_sums(&p) { sums::expand(&p, tags.as_ref())? } else { p };
     if records::has_records(&p) {
-        records::expand(&p)
+        records::expand(&p, tags.as_ref())
     } else {
         Ok(p)
     }

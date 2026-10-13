@@ -2,12 +2,14 @@
 //!
 //! `type Name = { f1: T1, ..., fn: Tn }` は field の型を右に入れ子にした pair の型の別名である
 //! （n = 1 なら T1 そのもの）。構築 `Name { ... }` は pair の入れ子に、参照 `e.f` は `fst`／`snd` の
-//! 並びに書き換える。型の等価性は展開後の構造で決まり、レコード名は表示と plain JSON にだけ使う。
+//! 並びに書き換える。型の等価性は宣言で決まる（v1.15 の名義の型。宣言ごとの印は `nominal.rs`）。展開後の構造が
+//! 同じでも宣言が違えば別の型で、レコード名は診断の文面と表示と plain JSON に使う。
 //!
 //! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は
 //! 書き換え後のプログラム（`lower` の結果を整形したソース）を検査・実行する。
 
 use crate::diagnostics::{closest, Diagnostic};
+use crate::nominal::{self, Tags};
 use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -39,6 +41,8 @@ struct Rec {
     ty: TypeNode,
     /// v1.10：型引数の名前（宣言順）
     params: Vec<String>,
+    /// v1.15：印を付ける補助関数の名前（印つきの写しだけ）
+    wrap: Option<String>,
 }
 
 struct Env {
@@ -49,6 +53,9 @@ struct Env {
     /// 書き換えで導入する変数名の候補を避けるための、プログラム中の全識別子
     idents: HashSet<String>,
     fresh: usize,
+    /// v1.15：名義の型の番号（印つきの写しだけ）と、印を付ける・外す補助関数の宣言
+    tags: Option<Tags>,
+    helpers: Vec<FnDecl>,
 }
 
 /// レコード型・直和型の名前（展開前）を含むか。
@@ -101,6 +108,7 @@ impl Env {
                             variants: s.variants.clone(),
                             inner: x.label.clone(),
                             generic: s.generic.as_ref().map(|g| self.generic(g)),
+                            tagged: s.tagged,
                         };
                         x.label = Label(Some(Named::Sum(Arc::new(info))));
                     } else if t.label.0.is_some() {
@@ -127,7 +135,7 @@ impl Env {
         if let Some(Named::Sum(s)) = &t.label.0 {
             if let Some(g) = s.generic.as_ref().filter(|g| has_named(&g.template)) {
                 let generic = Some(self.generic(g));
-                let info = SumInfo { name: s.name.clone(), variants: s.variants.clone(), inner: s.inner.clone(), generic };
+                let info = SumInfo { name: s.name.clone(), variants: s.variants.clone(), inner: s.inner.clone(), generic, tagged: s.tagged };
                 out.label = Label(Some(Named::Sum(Arc::new(info))));
             }
         }
@@ -136,6 +144,11 @@ impl Env {
 
     fn generic(&mut self, g: &Generic) -> Generic {
         Generic { params: g.params.clone(), template: self.ty(&g.template) }
+    }
+
+    /// v1.15：補助関数の名前（プログラム中の名前と重ならないもの）。
+    fn name_of(&mut self, base: &str) -> String {
+        crate::generics::fresh(&mut self.idents, base)
     }
 
     fn fresh_name(&mut self) -> String {
@@ -281,6 +294,7 @@ impl Env {
             return unit;
         };
         let names = r.info.fields.clone();
+        let seal = r.wrap.clone();
         let mut given: Vec<Option<Expr>> = vec![None; names.len()];
         for f in fields {
             let v = self.expr(&f.value);
@@ -339,6 +353,10 @@ impl Env {
         if let Some((v, sp, value)) = wrap {
             out = Expr { kind: ExprKind::Let { name: v, name_span: sp, value: Box::new(value), body: Box::new(out) }, meta: m };
         }
+        // v1.15：印つきの写しでは、構築の結果に名義の型の印を付ける（補助関数の結果の型は印つきの型）
+        if let Some(f) = seal {
+            out = nominal::call(&f, out, m);
+        }
         out
     }
 }
@@ -390,8 +408,8 @@ fn collect_idents(p: &Program, out: &mut HashSet<String>) {
 
 /// レコードの構文を展開する。型宣言を除き、型名を展開後の型に、構築を pair の入れ子に置き換え、
 /// field の参照に位置を付ける（`ExprKind::Field` は型検査器が検査し、`lower` が fst／snd にする）。
-pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
-    let mut env = Env { types: HashMap::new(), owner: HashMap::new(), diags: vec![], idents: HashSet::new(), fresh: 0 };
+pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnostic>> {
+    let mut env = Env { types: HashMap::new(), owner: HashMap::new(), diags: vec![], idents: HashSet::new(), fresh: 0, tags: tags.cloned(), helpers: vec![] };
     collect_idents(p, &mut env.idents);
     for d in &p.declarations {
         let Decl::Type(t) = d else { continue };
@@ -425,9 +443,22 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         let params: Vec<String> = t.type_params.iter().map(|p| p.name.clone()).collect();
         let generic = (!params.is_empty())
             .then(|| Generic { params: params.clone(), template: record_type(&tys, Label::default(), t.meta) });
-        let info = Arc::new(RecordInfo { name: t.name.clone(), fields: names, generic });
-        let ty = record_type(&tys, Label(Some(Named::Record(info.clone()))), t.meta);
-        env.types.insert(t.name.clone(), Rec { info, ty, params });
+        let info = Arc::new(RecordInfo { name: t.name.clone(), fields: names.clone(), generic: generic.clone(), tagged: false });
+        let plain = record_type(&tys, Label(Some(Named::Record(info.clone()))), t.meta);
+        // v1.15：印つきの写し：型の名前は印 r を付けた型（表示の名前は印つきの型の情報）。印を付ける・外す補助関数を作る
+        let (ty, wrap) = match env.tags.as_ref().and_then(|g| g.get(&t.name)) {
+            Some(r) => {
+                let tgeneric = generic.as_ref().map(|g| Generic { params: g.params.clone(), template: nominal::named_ty(r, g.template.clone(), Label::default(), t.meta) });
+                let tinfo = Arc::new(RecordInfo { name: t.name.clone(), fields: names, generic: tgeneric, tagged: true });
+                let named = nominal::named_ty(r, plain.clone(), Label(Some(Named::Record(tinfo))), t.meta);
+                let base = t.name.to_ascii_lowercase();
+                let wrap = env.name_of(&format!("{base}_wrap"));
+                env.helpers.push(nominal::wrap_fn(&wrap, r, plain.clone(), named.clone(), &t.type_params, t.meta, &t.name));
+                (named, Some(wrap))
+            }
+            None => (plain, None),
+        };
+        env.types.insert(t.name.clone(), Rec { info, ty, params, wrap });
     }
     let mut decls = vec![];
     for d in &p.declarations {
@@ -443,6 +474,8 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
             }
         }
     }
+    // v1.15：印を付ける・外す補助関数（印つきの写しだけ）
+    decls.extend(env.helpers.drain(..).map(Decl::Fn));
     if env.diags.is_empty() {
         Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
@@ -454,12 +487,16 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
 pub fn lower(p: &Program) -> Program {
     fn ex(e: &Expr) -> Expr {
         let m = e.meta;
-        if let ExprKind::Field { expr, field_span, target: Some((_, i, n)), .. } = &e.kind {
+        if let ExprKind::Field { expr, field_span, target: Some((rt, i, n)), .. } = &e.kind {
             let call = |name: &str, arg: Expr| Expr {
                 kind: ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: *field_span, type_args: vec![] },
                 meta: m,
             };
             let mut x = ex(expr);
+            // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）
+            if nominal::is_tagged(rt) {
+                x = call("snd", x);
+            }
             for _ in 0..*i {
                 x = call("snd", x);
             }

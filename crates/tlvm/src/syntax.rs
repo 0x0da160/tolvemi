@@ -255,6 +255,8 @@ pub struct RecordInfo {
     pub fields: Vec<String>,
     /// v1.10：型引数（総称のレコード型のとき）と、型引数を含む展開後の型（表示で `Box<Int>` の型引数を復元する）
     pub generic: Option<Generic>,
+    /// v1.15：印つきの写し（名義の型の印を付けた型）なら真。印の後ろに展開後の構造が続く
+    pub tagged: bool,
 }
 
 /// v1.10：総称のレコード型・直和型の型引数の名前と、型引数を含む展開後の型（型引数はすべてこの型に現れる）。
@@ -273,6 +275,8 @@ pub struct SumInfo {
     pub inner: Label,
     /// v1.10：総称の直和型の型引数と展開後の型
     pub generic: Option<Generic>,
+    /// v1.15：印つきの写し（名義の型の印を付けた型）なら真。印の後ろに展開後の構造が続く
+    pub tagged: bool,
 }
 
 /// 型に付く名前（レコード型か直和型）。
@@ -298,7 +302,7 @@ impl Named {
     }
 }
 
-/// 型に付くレコード・直和型の名前。型の等価性には含めない（展開後の構造で決まる構造的な型）。
+/// 型に付くレコード・直和型の名前。型の等価性には含めない（名義の区別は印が担い、名前は表示に使う。`nominal.rs`）。
 #[derive(Clone, Debug, Default)]
 pub struct Label(pub Option<Named>);
 
