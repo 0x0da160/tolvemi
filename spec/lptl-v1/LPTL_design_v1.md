@@ -213,9 +213,14 @@ INT   ::= 0 | -?[1-9][0-9]*
 - 空白は ASCII space、tab、CR、LF のみ。
 - コメントは `//` から次の CR、LF、EOF の直前までの行コメントのみ。コメント内は有効 UTF-8 を許す。ブロックコメントはない。
 - 非コメント部の非 ASCII は `E-LEX-NON-ASCII`。UTF-8 BOM は空白でもコメントでもなく拒否する。
-- EOF とコメント・空白はトークン数に含めない。全ての予約語、識別子、整数、句読点をそれぞれ一トークンとする。
-- 予約語は EBNF 中の全固定語である。lexer は予約語を `IDENT` として返さない。
-- 予約語を関数名、変数名、型名に置いた場合、parser は `E-PARSE-EXPECTED-IDENT` として拒否する。
+- EOF とコメント・空白はトークン数に含めない。字句表の語、識別子、整数、句読点をそれぞれ一トークンとする。
+- 字句表は 68 語である（実装の `KEYWORDS` と一致する）。このうち予約語は 19 語、文脈キーワードは 49 語である。
+  - 予約語（19）：`fn`、`Int`、`Bool`、`Unit`、`List`、`Option`、`Pair`、`Char`、`String`、`Result`、`true`、`false`、`unit`、`let`、`in`、`if`、`fold`、`match_option`、`match_result`。
+  - 文脈キーワード（49）：`entry`、`list`、`some`、`none`、`pair`、`add`、`sub`、`mul`、`neg`、`lt`、`le`、`eq`、`mod`、`fst`、`snd`、`cons`、`concat`、`reverse`、`length`、`uncons`、`min`、`max`、`range`、`contains`、`sort`、`code`、`char`、`to_string`、`parse_int`、`ok`、`err`、`map`、`filter`、`any`、`all`、`find`、`sort_by`、`loop`、`div`、`dict`、`dict_get`、`dict_put`、`dict_remove`、`dict_has`、`dict_size`、`dict_keys`、`dict_values`、`dict_entries`、`dict_from`。
+- 字句は字句表の語をキーワードの token として出し、構文解析器が位置で判定する。字句表の語と `rec`、`match`、`import`、`type` は EBNF の固定語である。`rec`、`match`、`import`、`type` は字句表に入らず、それぞれの文法の位置で判定する（v1.7、v1.4、v1.11）。
+- 文脈キーワードは、変数、引数、束縛、field の名前に使える。式の位置では、直後が `(` か `<` のとき（v1.1 §1a の角括弧の旧い書き方 `[` も含む）だけキーワードとして働き、それ以外は変数の参照である。`entry` は宣言の先頭でだけキーワードとして働く（v1.1 §2a）。
+- 関数名と `entry` 宣言の名前には、予約語も文脈キーワードも使えない。
+- 予約語を変数名、関数名、型名に置いた場合、parser は `E-PARSE-EXPECTED-IDENT` として拒否する。
 
 ### 4.3 正準ソースとハッシュ
 
@@ -960,6 +965,8 @@ match_option(mod(fst(x), snd(x)), 0, |r| add(r, 1))
 
 - 第12.3–12.5節に従い、v1／v1-no-let、制約なしSurface／AST、ASTの制約生成消去、Render／Repair、診断消去、別表記、Skill、制限Python、リスト構築組込み消去の介入と識別対象を事前登録する。
 - 秘密seed最終評価、全episodeの分母、失敗分類、無条件費用、資源超過、対応比較と信頼区間を公開する。実験実施・公開と正の優位性の成立を分離して判定する。
+
+v1.0.0 の凍結は、G0 から G4 までのすべてを満たした後に行う。G4 は事前登録した実験の実施と公開を条件とし、正の優位性の成立は条件としない。
 
 ---
 
