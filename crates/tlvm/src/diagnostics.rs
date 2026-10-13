@@ -21,6 +21,9 @@ pub const PHASE_ORDER: [&str; 12] = [
 
 pub const MAX_PER_SEVERITY: usize = 32;
 
+/// 文面が未登録のコードに返す文面。テストは、コードの文面がこれになったら失敗とみなす。
+pub const UNREGISTERED_MESSAGE: &str = "診断の文面が未登録です（内部の誤り）";
+
 /// message テンプレート。正式な diagnostic registry は未作成（G0 未達）なので暫定版。
 pub fn message_for(code: &str) -> &'static str {
     match code {
@@ -159,7 +162,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-AST-LIMIT-BYTES" => "AST JSON bytes が上限を超えました",
         "E-AST-LIMIT-JSON-DEPTH" => "AST JSON の構造深さが上限を超えました",
         "E-AST-LIMIT-INTEGER-DIGITS" => "整数の桁数が上限を超えました",
-        _ => "",
+        "E-INTERNAL-SOURCE-BOUNDARY" => "内部の不変条件に反しました（source は UTF-8 の文字列のはずです）",
+        _ => UNREGISTERED_MESSAGE,
     }
 }
 
