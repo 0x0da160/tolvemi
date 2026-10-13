@@ -68,7 +68,7 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "some" => &[("value", O)],
         "none" => &[("element_type", O)],
         "pair" => &[("left", O), ("right", O)],
-        "call" => &[("callee", S), ("args", A)],
+        "call" => &[("callee", S), ("args", A), ("type_args", A)],
         "let" => &[("name", S), ("value", O), ("body", O)],
         "if" => &[("condition", O), ("then", O), ("else", O)],
         "fold" => &[("list", O), ("init", O), ("acc", S), ("item", S), ("body", O)],
@@ -280,12 +280,8 @@ impl Schema<'_> {
 
     fn expr(&self, n: &JNode) -> R {
         let tag = self.header(n, EXPR_TAGS)?;
-        // v1.10：`call` の `type_args`（明示した型引数の配列）は省略できる
-        let mut fs = expr_fields(tag).to_vec();
-        if tag == "call" && n.get("type_args").is_some() {
-            fs.push(("type_args", A));
-        }
-        let fs = &fs[..];
+        // v1.10：`call` の `type_args` は必ず出す（明示しないときは空配列）
+        let fs = expr_fields(tag);
         self.keys(n, fs, true)?;
         for (k, _) in fs {
             let c = n.get(k).unwrap();
@@ -455,7 +451,7 @@ impl Builder {
                     args.push(self.expr(c, d + 1, ld, fd)?);
                 }
                 let mut type_args = vec![];
-                for t in n.get("type_args").map(|t| &t.items[..]).unwrap_or(&[]) {
+                for t in &g("type_args").items {
                     type_args.push(self.ty(t, 1)?);
                 }
                 ExprKind::Call {

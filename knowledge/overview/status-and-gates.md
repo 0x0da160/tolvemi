@@ -61,9 +61,9 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
   - D10 `SKILL.md` は「仕様と照合する」と書き直す（設計書 §12.2、[LLM 統合と Skill](../llm-evaluation/integration-and-skill.md)）。
   - D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。それまで null のまま。
   - D12 型検査の仕事量 cutoff（typecheck-cost-v1）と AST の重複 key（§9.3a、§19.3）は実装のある規則なので v1 の対象とする。設計書の本文はこの扱いになっている（DECISION-4 による）。
+- DECISION-9（call の型引数、2026-10-13）：オーナーが「call に type_args を足す」を選んだ。`call` は `type_args` を必ず持ち、型引数を明示しない call では空配列を書く（v1.10 で省略可能だった扱いを改める）。構築子（`Leaf<Int>()`）は展開後の形で書くので、型引数は AST に現れない。
 
-未決定：
-- 型引数つき call の AST 表現（`f<Int>(x)`、`Leaf<Int>()`）。§19.2 と schema の作り直しに必要で、G0 の未達項目。
+未決定：なし。
 
 このコンテナでは github.com への接続が 403 で拒否されるため、Verus（GitHub のリリース）を取得できません。証明は、github.com の許可のあとに進めます。
 
@@ -72,7 +72,7 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 設計書の憲章、非目標、§2.3、§3（型・値）、§4（文法・字句・正準形）、§5.1、§5.4、§6（型規則）、§7（評価と組込み）、§8.1、§8.2、§9（JSON と plain JSON）、§11.2a、§13.3、§14.1、§17、§19.2 の node 表、§19.6 の `uncons` は v1.1〜v1.16 を含む形に改めた。本文の残りは次のとおり。畳み込みが済むまで、本文と版の差分の間に食い違いがある。
 
 - §18.1c：v1.1〜v1.16 の追加分の計数。規則は未定で、trace fixture で固定してから書く（G0 の未達項目）。§18.1a の例は山括弧の書き方に直したが、計数は再計測していない。
-- §19.2 と `ast_codec_v1.schema.json`：v1.x の node を含む schema は未作成。型引数を明示する call（`f<Int>(x)`、`Leaf<Int>()`）の AST 表現も未定（G0 の未達項目）。
+- §19.2 と `ast_codec_v1.schema.json`：call の `type_args` は入れた（DECISION-9）。v1.x の残りの node、型と fn の未反映分、予約語の `not.enum`（§4.2 の 19 語）は未反映で、設計書 §19.2 の段落に列挙した。作り直しは G0 の未達項目。
 - §20.1、§20.4：v1.x の回帰テストの追加、schema と成果物の bytes・SHA-256 の再記録（G0 の未達項目）。
 - 証明：§11.2a の義務。Verus は github.com の許可後に版ごとに作る。
 

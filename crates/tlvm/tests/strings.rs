@@ -304,13 +304,13 @@ fn ast_codec() {
     };
     let int = r#"{"tag":"int"}"#;
     assert_eq!(bad(r#"{"tag":"var","name":"x"}"#, r#"{"tag":"list","element":{"tag":"char"}}"#), "E-AST-STRING-TYPE");
-    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"1"}]}"#, int), "E-AST-LITERAL");
-    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"55296"}]}"#, int), "E-AST-LITERAL");
-    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"x"}]}"#, int), "E-AST-LITERAL");
-    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"9"}]}"#, int), "accepted");
-    assert_eq!(bad(r#"{"tag":"call","callee":"length","args":[{"tag":"string","value":"a\u0001"}]}"#, int), "E-AST-LITERAL");
-    assert_eq!(bad(r#"{"tag":"call","callee":"length","args":[{"tag":"string","value":"a\n\"\\'"}]}"#, int), "accepted");
-    assert_eq!(bad(r#"{"tag":"call","callee":"parse_int","args":[{"tag":"var","name":"x"}]}"#, r#"{"tag":"string"}"#), "E-TYPE-RETURN");
+    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"1"}],"type_args":[]}"#, int), "E-AST-LITERAL");
+    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"55296"}],"type_args":[]}"#, int), "E-AST-LITERAL");
+    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"x"}],"type_args":[]}"#, int), "E-AST-LITERAL");
+    assert_eq!(bad(r#"{"tag":"call","callee":"code","args":[{"tag":"char","value":"9"}],"type_args":[]}"#, int), "accepted");
+    assert_eq!(bad(r#"{"tag":"call","callee":"length","args":[{"tag":"string","value":"a\u0001"}],"type_args":[]}"#, int), "E-AST-LITERAL");
+    assert_eq!(bad(r#"{"tag":"call","callee":"length","args":[{"tag":"string","value":"a\n\"\\'"}],"type_args":[]}"#, int), "accepted");
+    assert_eq!(bad(r#"{"tag":"call","callee":"parse_int","args":[{"tag":"var","name":"x"}],"type_args":[]}"#, r#"{"tag":"string"}"#), "E-TYPE-RETURN");
 }
 
 #[test]
