@@ -105,7 +105,8 @@ pub fn format_program(p: &Program) -> String {
             Decl::Fn(f) => {
                 let params: Vec<String> = f.params.iter().map(|p| format!("{}: {}", p.name, format_type(&p.ty))).collect();
                 out.push_str(&format!(
-                    "fn {}({}) -> {} = {}",
+                    "{}fn {}({}) -> {} = {}",
+                    if f.rec { "rec " } else { "" },
                     f.name,
                     params.join(", "),
                     format_type(&f.return_type),
@@ -337,6 +338,10 @@ pub fn encode_ast(p: &Program) -> String {
                 type_json(&f.return_type, &mut out);
                 out.push_str(",\"body\":");
                 expr_json(&f.body, &mut out);
+                // v1.7：`rec` は印のある関数にだけ書く（印のない関数の JSON は v1.6 までと同じ）
+                if f.rec {
+                    out.push_str(",\"rec\":true");
+                }
                 out.push('}');
             }
             Decl::Entry(e) => out.push_str(&format!("{{\"tag\":\"entry\",\"name\":\"{}\"}}", e.name)),

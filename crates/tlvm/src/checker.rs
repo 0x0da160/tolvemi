@@ -222,8 +222,14 @@ pub struct CallGraph<'a> {
     pub diags: Vec<Diagnostic>,
 }
 
+/// v1.7：`rec` の印のある関数へ入る辺を除いた呼出しグラフが DAG であることを検査し、ランクを作る。
+/// ランクは印のない呼出し先について rank[callee] < rank[caller] を満たす（印のある呼出し先は免除。
+/// 検証済みの型付け条件「rank[g] < r または rec[g]」に合わせる）。`edges` は除く前の全ての辺（未使用の警告用）。
 pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
     let edges: HashMap<&str, Vec<CallSite>> = fns.iter().map(|f| (f.name.as_str(), user_calls(&f.body))).collect();
+    let marked: HashSet<&str> = fns.iter().filter(|f| f.rec).map(|f| f.name.as_str()).collect();
+    let dag: HashMap<&str, Vec<&CallSite>> =
+        edges.iter().map(|(f, cs)| (*f, cs.iter().filter(|c| !marked.contains(c.callee)).collect())).collect();
     // Tarjan の強連結成分分解（反復版）。成分は逆トポロジカル順に得られる。
     let mut index: HashMap<&str, usize> = HashMap::new();
     let mut low: HashMap<&str, usize> = HashMap::new();
@@ -245,7 +251,7 @@ pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
                 stack.push(v);
                 on_stack.insert(v);
             }
-            let succ = &edges[v];
+            let succ = &dag[v];
             if i < succ.len() {
                 work.push((v, i + 1));
                 let w = succ[i].callee;
@@ -278,13 +284,24 @@ pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
     let mut diags = vec![];
     for comp in &sccs {
         let members: HashSet<&str> = comp.iter().copied().collect();
-        let inner: Vec<&CallSite> = comp.iter().flat_map(|f| edges[f].iter()).filter(|c| members.contains(c.callee)).collect();
+        let inner: Vec<&CallSite> = comp.iter().flat_map(|f| dag[f].iter().copied()).filter(|c| members.contains(c.callee)).collect();
         if let Some(primary) = inner.iter().min_by_key(|c| c.span) {
-            let mut names: Vec<&str> = members.into_iter().collect();
+            let mut names: Vec<&str> = members.iter().copied().collect();
             names.sort();
             let list = names.join(", ");
             let mut d = Diagnostic::error("call-graph", "E-CYCLE-CALL", primary.span).act(list.clone()).at(primary.index);
             d.message = format!("関数呼出しが循環しています: {list}");
+            // v1.7：循環にある関数（の先頭）に `rec` を付ける修復ヒント
+            if let Some(first) = fns.iter().filter(|f| members.contains(f.name.as_str())).min_by_key(|f| f.meta.span().0) {
+                let at = first.meta.span().0;
+                d = d.fix(
+                    "insert_text",
+                    (at, at),
+                    format!(
+                        "'rec ' before 'fn' of every function on the cycle ({list}) to allow unbounded recursion (termination is then not guaranteed); prefer fold or loop when the number of steps is bounded"
+                    ),
+                );
+            }
             diags.push(d);
         }
     }
@@ -292,7 +309,7 @@ pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
         let mut rank: HashMap<String, usize> = HashMap::new();
         for comp in &sccs {
             let f = comp[0];
-            let r = edges[f].iter().map(|c| rank[c.callee] + 1).max().unwrap_or(0);
+            let r = dag[f].iter().map(|c| rank[c.callee] + 1).max().unwrap_or(0);
             rank.insert(f.to_string(), r);
         }
         Some(rank)
@@ -1027,4 +1044,15 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
         });
     }
     out
+}
+
+impl TypedProgram {
+    /// v1.7：停止が保証されるか（`rec` の印のある関数がないとき。あれば止まらない再帰は資源上限で打ち切る）。
+    pub fn terminates(&self) -> bool {
+        !self.program.has_rec()
+    }
+    /// v1.7：`rec` の印のある関数の名前（宣言順）。
+    pub fn rec_functions(&self) -> Vec<&str> {
+        self.program.functions().filter(|f| f.rec).map(|f| f.name.as_str()).collect()
+    }
 }
