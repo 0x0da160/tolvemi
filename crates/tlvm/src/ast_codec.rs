@@ -15,9 +15,10 @@ const DECL_TAGS: &[&str] = &["fn", "entry"];
 /// v1.2：`char`、`string`（`String` は一つの node。`list` の要素に `char` は書けない）
 /// v1.4：`result`（型）、`ok`・`err`・`match_result`（式）
 const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result"];
+/// v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by`（式。list、binder、body）
 const EXPR_TAGS: &[&str] = &[
     "int", "char", "string", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option",
-    "ok", "err", "match_result",
+    "ok", "err", "match_result", "map", "filter", "any", "all", "find", "sort_by",
 ];
 
 fn decl_fields(tag: &str) -> &'static [(&'static str, JKind)] {
@@ -52,6 +53,7 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "match_option" => &[("scrutinee", O), ("on_none", O), ("binder", S), ("on_some", O)],
         "ok" | "err" => &[("ok_type", O), ("err_type", O), ("value", O)],
         "match_result" => &[("scrutinee", O), ("ok_binder", S), ("on_ok", O), ("err_binder", S), ("on_err", O)],
+        "map" | "filter" | "any" | "all" | "find" | "sort_by" => &[("list", O), ("binder", S), ("body", O)],
         _ => &[],
     }
 }
@@ -348,7 +350,9 @@ impl Builder {
         let tag = n.get("tag").unwrap().text.as_str();
         let (i, ld, fd) = match tag {
             "let" => (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd),
-            "fold" => (self.adm.admit(n.span(), Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?, ld, fd + 1),
+            "fold" | "map" | "filter" | "any" | "all" | "find" | "sort_by" => {
+                (self.adm.admit(n.span(), Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?, ld, fd + 1)
+            }
             "match_option" | "match_result" => {
                 (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd)
             }
@@ -415,6 +419,17 @@ impl Builder {
                     err_binder: g("err_binder").text.clone(),
                     err_span: sp_of(g("err_binder")),
                     on_err: Box::new(b),
+                }
+            }
+            t if HofOp::from_name(t).is_some() => {
+                let xs = self.expr(g("list"), d + 1, ld, fd)?;
+                let body = self.expr(g("body"), d + 1, ld, fd)?;
+                ExprKind::Hof {
+                    op: HofOp::from_name(t).unwrap(),
+                    list: Box::new(xs),
+                    binder: g("binder").text.clone(),
+                    binder_span: sp_of(g("binder")),
+                    body: Box::new(body),
                 }
             }
             "match_option" => {

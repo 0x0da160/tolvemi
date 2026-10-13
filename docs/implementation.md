@@ -6,6 +6,9 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 [v1.4 の差分](../spec/lptl-v1.4/LPTL_v1.4_delta.md) の `Result<T, E>`、`ok`／`err`、`match_result` は検証済み部品が直接扱います。
 ユーザー定義の直和型と `match` は `sums.rs` が `ok`／`err` の入れ子と `match_result`／`match_option`、`fst`／`snd` の
 `let` に書き換え（網羅性などの診断もここで出す）、検証済み部品は書き換え後のプログラムを検査・実行します。組み込み関数名を使った変数名（文脈キーワード）は検証済みの構文規則が直接受け付けます。
+[v1.5 の差分](../spec/lptl-v1.5/LPTL_v1.5_delta.md) の `map`・`filter`・`any`・`all`・`find`・`sort_by` は、診断用の検査器が
+型を検査した後に `hof.rs` が `fold`・`reverse`・`cons`・`if`・`match_option`・`let` の組み合わせへ書き換え（`sort_by` は
+fold による安定な挿入整列）、検証済み部品は書き換え後のプログラムを検査・実行します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -60,6 +63,7 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
+| `hof.rs` | v1.5 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |

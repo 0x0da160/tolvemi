@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "45e8939ca9cd96793689d4d40e82df8c77f36d73b30fbde5e5df7c5c4c273ed4",
-    "bytes": 17069
+    "sha256": "8615e9f7d847961868586b1f80a3f550888a1802b7bc114c53d66a2901cc34c9",
+    "bytes": 18004
   },
-  "task_set_sha256": "8c6d3071e6d960b65989530ca144357e89d2d0ac55eeec8e116db7c652cc4787",
-  "tasks": 90,
-  "hidden_cases": 2700,
+  "task_set_sha256": "03a044386f5e4d91bde641de826325e3b0740477e82a268812e922150082bdad",
+  "tasks": 92,
+  "hidden_cases": 2760,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -368,6 +368,14 @@
     "tasks/90-parse_config/task.json": "21c1ea417153309d5a69681fb11c43b41cd1feb08c587b7f838509c94a22bc7f",
     "tasks/90-parse_config/hidden.json": "8d0ff82d6d04aa1f12e9e955a0d0d671a2721bcdda405d8745f977542d86cf51",
     "tasks/90-parse_config/reference.tlvm": "6f20e4003354f48d69c617858130ad90454ce5b7ffefc534ee16a9d8e4a43df3",
-    "tasks/90-parse_config/reference.py": "47705bc0b0c71548f358def2124acd204d940b4849e4adf25a59d3e05031585d"
+    "tasks/90-parse_config/reference.py": "47705bc0b0c71548f358def2124acd204d940b4849e4adf25a59d3e05031585d",
+    "tasks/91-top_scores/task.json": "93e30a48be63b4847ca85459d02a373c73e50464aa626addef41d3f4f55f1780",
+    "tasks/91-top_scores/hidden.json": "611c0180ff18664e88480a51e7324cd032ddd6bea9ccaa43a8b63a43df9a7ab3",
+    "tasks/91-top_scores/reference.tlvm": "5f52c0ac27f8495ce5888463dd4f5b148e1e249671daa3a2f33ea6bfd837f048",
+    "tasks/91-top_scores/reference.py": "36c8761fcce0b18a78bc25bc0b10c4d9a3368991a4c70d1e29a234a219795052",
+    "tasks/92-word_stats/task.json": "c06102a465f5fd1948cd8723fcd11ce0e2bf5799c35988babe2fabf835367f34",
+    "tasks/92-word_stats/hidden.json": "06bf49770b52af4f01dd56cb5160f3cc8d6e02f3b02467618337ef117c137a2c",
+    "tasks/92-word_stats/reference.tlvm": "29f82f86dfad6b2d04324ab23e47d579c0f4034f41c31c5102b9115590a7a16c",
+    "tasks/92-word_stats/reference.py": "8c5c99959feda89f0be54f6abb8dcf929b598d4a50892b08a8e1a4753686e022"
   }
 }

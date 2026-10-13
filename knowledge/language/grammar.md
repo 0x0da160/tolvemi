@@ -101,4 +101,18 @@ bind      ::= IDENT | "_"
 - `match` の対象の位置では `Name {` をレコードの構築として読まない（`match p { ... }` の `{` は枝の始まり）。
 - 詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
 
+
+# v1.5 の追加：map などの特殊形式
+
+```ebnf
+expr      ::= ... | hof "(" expr "," "|" IDENT "|" expr ")"
+hof       ::= "map" | "filter" | "any" | "all" | "find" | "sort_by"
+```
+
+- 6 語は文脈キーワードで、直後が `(` のときだけ特殊形式。それ以外の位置では変数の参照（`<` が続いても組み込みにはならない）。
+- 第 2 引数は一つの binder のラムダ `|x| e` に限る。関数名だけ（`map(xs, f)`）、ラムダの頭がない式、binder が二つ
+  （`|a, b|`）、第 2 引数がない（`map(xs)`）は `E-PARSE-EXPECTED-LAMBDA`（修復ヒント付き）。
+- 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/hof.rs` が `fold` などに書き換えてから渡す。
+  詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

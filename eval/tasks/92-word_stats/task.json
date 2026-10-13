@@ -1,0 +1,13 @@
+{
+  "id": "92-word_stats",
+  "title": "Word statistics",
+  "category": "hof",
+  "prompt": "The input is a text. Its words are the maximal runs of characters other than ' ' and '\\n' (so empty words are never counted). Return pair(the number of words that contain at least one digit '0'..'9', whether every word has at most 8 characters). With no words the second component is true.",
+  "input_type": "String",
+  "output_type": "Pair<Int, Bool>",
+  "examples": [
+    {"input": "room 101 is on floor 3\n", "expected": [2, true]},
+    {"input": "  extraordinary a1b2  ", "expected": [1, false]},
+    {"input": "", "expected": [0, true]}
+  ]
+}

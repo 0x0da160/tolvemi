@@ -1,0 +1,13 @@
+// Words are the maximal runs of characters other than ' ' and '\n'.
+type Split = { words: List<String>, cur: String }
+
+fn flush(s: Split) -> List<String> = if(eq(s.cur, ""), s.words, cons(reverse(s.cur), s.words))
+
+fn words(text: String) -> List<String> =
+  reverse(flush(fold(text, Split { words: list<String>(), cur: "" }, |s, c|
+    if(contains(" \n", c), Split { words: flush(s), cur: "" }, Split { cur: cons(c, s.cur), ..s }))))
+
+fn solve(text: String) -> Pair<Int, Bool> =
+  let ws = words(text) in
+  pair(length(filter(ws, |w| any(w, |c| contains("0123456789", c)))), all(ws, |w| le(length(w), 8)))
+entry solve

@@ -68,4 +68,11 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 `match` の枝の `=>` は診断用 lexer だけが一つの token として読む（検証済み部品には `match` を書き換えてから渡す）。
 直和型の構築子の名前は大文字で始まる IDENT。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
 
+
+# v1.5 の追加：map など
+
+予約語に `map`、`filter`、`any`、`all`、`find`、`sort_by` を加えた（計 56 語）。6 語とも文脈キーワードで、変数・引数・
+束縛・field の名前に使える。関数名と entry の名前には使えない（`E-PARSE-EXPECTED-IDENT`）。AST transport の識別子にも
+使えないので、`tlvm ast` は `map_kw` などに付け替える。詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

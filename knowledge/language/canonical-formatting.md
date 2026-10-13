@@ -48,4 +48,10 @@ sources:
 この形に整形する。直和型・`match` を含むプログラムは診断用 formatter が `type S = A(T) | B`、
 `match EXPR { P => EXPR, ... }` の形に整形する（レコードと同じく検証済み formatter の対象外）。
 
+
+# v1.5 の追加
+
+`map(EXPR, |X| EXPR)`（`filter`、`any`、`all`、`find`、`sort_by` も同じ形）。これを含むプログラムは検証済み formatter の
+対象外で、`tlvm fmt` は診断用 formatter の出力を出す（レコード・直和型と同じ）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

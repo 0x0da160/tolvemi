@@ -76,4 +76,19 @@ match_result(m, |x| a, |y| b) : A
 枝の型はすべて等しい（`E-TYPE-MATCH-BRANCH`）。`_` だけの `match` は対象が直和型・`Result`・`Option` のどれかであること
 を求める。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
 
+
+# v1.5 の追加：map など
+
+```text
+map(xs, |x| e)     : List<B>     iff xs : List<A>, Γ,x:A ⊢ e : B
+filter(xs, |x| p)  : List<A>     iff xs : List<A>, Γ,x:A ⊢ p : Bool
+any / all(xs, |x| p) : Bool      iff xs : List<A>, Γ,x:A ⊢ p : Bool
+find(xs, |x| p)    : Option<A>   iff xs : List<A>, Γ,x:A ⊢ p : Bool
+sort_by(xs, |x| k) : List<A>     iff xs : List<A>, Γ,x:A ⊢ k : Int
+```
+
+xs がリストでなければ `E-TYPE-HOF-LIST`、本体の型が違えば `E-TYPE-HOF-BODY`（`map` の本体は任意の型）。xs が
+ErrorType なら x も ErrorType とし、依存した診断を抑制する（`fold` と同じ）。詳細は
+[v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

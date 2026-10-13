@@ -56,6 +56,9 @@ sources:
 | `E-MATCH-UNREACHABLE` | name | v1.4：`_` の後の枝、または全部の場合を書いた後の `_` |
 | `E-MATCH-MIXED` | name | v1.4：一つの `match` に違う型の pattern が混ざっている |
 | `E-TYPE-MATCH-SCRUTINEE`、`E-TYPE-MATCH-BRANCH` | typecheck | `match_option`／`match_result`／`match` の対象の型が違う、枝の型が違う |
+| `E-PARSE-EXPECTED-LAMBDA` | parse | v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by` の第 2 引数が一つの binder のラムダ `\|x\| e` でない（関数名だけ、ラムダの頭がない式、binder が二つ、第 2 引数がない。修復ヒント付き） |
+| `E-TYPE-HOF-LIST` | typecheck | v1.5：`map` などの第 1 引数がリストでない |
+| `E-TYPE-HOF-BODY` | typecheck | v1.5：ラムダの本体の型が違う（`filter`・`any`・`all`・`find` で Bool でない、`sort_by` で Int でない） |
 | `E-PARSE-UNEXPECTED-TOKEN` | parse | 完成した式の後に fn/entry/EOF 以外 |
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |
