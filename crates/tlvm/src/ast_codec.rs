@@ -388,7 +388,7 @@ impl Builder {
                 ctor: None,
             }));
         }
-        Ok(Program { declarations: decls, meta: Meta::new(n.span(), idx) })
+        Ok(Program { declarations: decls, meta: Meta::new(n.span(), idx), imports: vec![] })
     }
 
     fn ty(&mut self, n: &JNode, depth: usize) -> Result<TypeNode, Diagnostic> {

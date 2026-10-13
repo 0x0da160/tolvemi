@@ -691,7 +691,7 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
     // v1.10：型引数を推論する構築のために作った総称の関数（宣言の末尾に置く）
     decls.extend(env.synth_decls.drain(..).map(Decl::Fn));
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta })
+        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
         Err(env.diags)
     }
@@ -920,5 +920,5 @@ pub fn lower(p: &Program) -> Program {
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta }
+    Program { declarations, meta: p.meta, imports: p.imports.clone() }
 }

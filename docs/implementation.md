@@ -26,6 +26,14 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 使われない総称の関数はコードにならない。複製 256 個・型引数の大きさ 256 node まで）、単相のプログラムをもう一度検査します。
 以降は今までどおりで、検証済み部品は単相化・書き換え後のプログラムを検査・実行します。`tlvm check` の型の表示は展開後の型から
 `Opt<String>` のように型引数を復元します。
+[v1.11 の差分](../spec/lptl-v1.11/LPTL_v1.11_delta.md) の `import "path.tlvm"` は、`imports.rs` が根のファイルから import を
+深さ優先でたどって各ファイルを一度ずつ読み（パスは import を書いたファイルのディレクトリから解決し、根のファイルのディレクトリ
+より上は拒否。循環・欠落・ファイル間の名前の衝突・ファイル数 64 と bytes の合計 1 MiB の上限を検査）、import されたものが先・
+根が最後の順に一つの source へつなぎます（import の行と根以外の `entry` は同じ長さの空白にして位置を保つ）。つないだ source を
+今までの `compile` に渡すので、総称・直和型・レコード・map など・辞書の処理も検証済み部品の検査も、まとめた一つのプログラムに
+対して行われます。診断の span はファイルの中の位置に戻し、複数ファイルのプログラムの診断には `file` を付けます（一行 JSON の
+最後の key。import のないプログラムでは付けません）。import を解決するのは CLI（ファイル）と `api::compile_files`（名前と source の
+対応表。embed・Python にもある）だけで、source の文字列だけの API は `E-IMPORT-UNSUPPORTED` で拒否します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -81,17 +89,18 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `ast_codec.rs` | §19.2–19.3 | AST transport 検査と Admission 付き AST 構築 |
 | `values.rs` | §9 | 診断付きの値 JSON の復号（InputAdmission を含む）と、検証済み復号器との突き合わせ |
 | `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
-| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ（v1.7：印 `rec` を外したテキストと印の列を渡す） |
+| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`（v1.11：`compile_path`・`compile_files`）、検証済み部品との突き合わせ（v1.7：印 `rec` を外したテキストと印の列を渡す） |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
 | `hof.rs` | v1.5 差分 §2、v1.6 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by`・`loop` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
 | `dict.rs` | v1.9 差分 §2 | 辞書の操作の書き換え（`hof.rs` の走査から呼ばれ、型検査が残した鍵と値の型を使う）と、型の `Dict<K, V>` を `List<Pair<K, V>>` にする `erase`。未検証の接着部分 |
 | `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
+| `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
-| `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
+| `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
 
 ```sh
 cargo build --release
@@ -170,6 +179,7 @@ cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
 - 完全性の向き：整形式のプログラムを `check_prog` が必ず受理すること、DAG なら Tarjan 実装が正しいランクを作ること。
 - 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像、
   v1.7 の印 `rec` の除去と印の列（印の正しさは安全側：落とせば拒否、余計に付ければ停止を主張しなくなるだけ）。
+  v1.11 の import のファイルのつなぎ方（検証済み部品はつないだ一つのプログラムを検査・実行する）と診断の span の写像。
 - V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
@@ -221,6 +231,9 @@ registry が決まったら差し替える前提です。
   | `E-TYPE-GENERIC-DUPLICATE-PARAM`、`-PARAM-CONFLICT`、`-UNUSED-PARAM`（v1.10） | `replace_identifier`／`delete_span` | 別の名前／使わない型引数を消すか field で使う |
   | `E-ENTRY-GENERIC`（v1.10） | `insert_text` | 具体的な型の包み関数を entry にする |
   | `E-TYPE-*`（実際の型が型引数のとき。v1.10） | `replace_expression` | その型の操作は呼び出し側で行うか、具体的な型の引数を取る |
+  | `E-IMPORT-AFTER-DECL`、`E-IMPORT-UNSUPPORTED`、`E-IMPORT-CYCLE`（v1.11） | `delete_span` | import の行をファイルの先頭へ移す／ファイルから検査するか対応表の API を使う／循環する import を消して共有の定義を第三のファイルへ |
+  | `E-IMPORT-PATH`、`E-IMPORT-NOT-FOUND`（v1.11） | `replace_expression`（パスの文字列） | `.tlvm` で終わる相対パス／存在するファイルのパス |
+  | `E-IMPORT-CONFLICT`（v1.11） | `replace_identifier` | ほかのファイルが定義していない名前（名前空間は一つ） |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
@@ -253,7 +266,7 @@ registry が決まったら差し替える前提です。
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。
 - **`--human`**：診断を `file:行:列: error[CODE]: message (expected …, found …)` の形で、該当行・下線・修復ヒントを
-  添えて出します。既定の出力は §10.1 の一行 JSON のままです（schema は未知キーを禁じるので、行・列は JSON に足しません）。
+  添えて出します（v1.11：import したファイルの診断はそのファイルの名前と行）。既定の出力は §10.1 の一行 JSON のままです（schema は未知キーを禁じるので、行・列は JSON に足しません）。
 - **`tlvm test FILE [CASES]`**：`CASES`（既定は `FILE` の拡張子を `.tests.json` にしたもの）の
   `[{"name": …, "input": …, "expected": …}]` を順に実行し、出力の正準 JSON を期待値と比べます。
   input と expected は plain JSON（`--canonical` なら値 JSON）。一件ごとに一行 JSON、最後に件数を出し、
@@ -275,9 +288,10 @@ cargo run --release -- test examples/sum_even.tlvm                              
   `input_type()`／`output_type()` は `List<Int>` の形の型、`run_json(input)` は plain JSON の入力で実行して plain JSON
   （最小空白）の出力を返します。失敗は `RunError`（`Input(診断)`、`ResourceExhausted { kind, observed, limit }`、
   `HostAborted`、`Internal`）です。診断は `diagnostic_json` で CLI と同じ一行 JSON（§10.1）になります。
+  v1.11：`Program::compile_files(root, &files)` は名前と source の対応表（`BTreeMap<String, String>`）から import ごと検査します。
   上限を変えるときは `run_json_with(input, &Limits)` を使います。plain JSON の出力では 2^53 を超える整数が十進文字列になります。桁数によらず number で欲しいホスト（Python など）は `run_json_exact(input)` を使います。
 - **Python**（[`crates/tlvm-py`](../crates/tlvm-py)）：PyO3 の拡張モジュール `tlvm` です。`tlvm.compile(src)` が
-  `Program` を返し、`p.run(value)` は Python の値を `json.dumps` で plain JSON にして実行し、結果を `json.loads` で
+  `Program` を返し（v1.11：`tlvm.compile_files(root, {path: source})` は import ごと検査）、`p.run(value)` は Python の値を `json.dumps` で plain JSON にして実行し、結果を `json.loads` で
   Python の値に戻します（整数は桁数によらず int のまま往復し、`Pair` は list で返ります）。失敗は `tlvm.CompileError`・
   `tlvm.InputError`（属性 `diagnostics` は診断 JSON を dict にした list）、`tlvm.ResourceExhausted`（`kind`、
   `observed`、`limit`）、`tlvm.HostAborted`、`tlvm.InternalError` で、どれも `tlvm.TlvmError` の派生です。

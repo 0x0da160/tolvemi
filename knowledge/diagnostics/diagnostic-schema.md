@@ -51,4 +51,10 @@ repair = {
 
 安定コード・byte 位置・期待制約・決定論的順序を返すことで、LLM などの修復器が局所的に直せるようにする（設計目標「局所修復可能性」、[設計目標](../overview/scope.md)）。RunResult と UTF-8 境界失敗は診断列ではなく結果 envelope として返す。
 
+# v1.11 の追加：file
+
+import で複数のファイルからなるプログラムの診断には、省略できる key `file`（span が指すファイルの名前。CLI ではパス、
+`compile_files` では対応表の key）を最後の key として付ける。span と repair の target_span はそのファイルの中の byte 位置。
+import のないプログラムの診断には付けない（一行 JSON は今までと同じ）。詳細は [v1.11 差分仕様](../../spec/lptl-v1.11/LPTL_v1.11_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

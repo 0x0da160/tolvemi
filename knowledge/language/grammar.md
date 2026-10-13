@@ -64,6 +64,19 @@ dict_op   ::= "dict_get" | "dict_put" | "dict_remove" | "dict_has" | "dict_size"
   同じく型検査で調べる（`E-ARITY-BUILTIN`）。
 - 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/dict.rs` が書き換えてから渡す。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
 
+# v1.11 の追加：import
+
+```ebnf
+program ::= { import_decl } { top_decl }
+import_decl ::= "import" STRING
+```
+
+- `import` は予約語ではなく、トップレベルの宣言の位置で直後が文字列リテラルのときだけ import として読む。宣言の後の import は
+  `E-IMPORT-AFTER-DECL`（parse。修復ヒント：ファイルの先頭へ移す）。
+- パスは import を書いたファイルのディレクトリからの相対パスで `.tlvm` で終わる。ファイルからの検査（CLI、`compile_files`）が
+  import をたどって一つのプログラムにまとめる。source の文字列だけの API では `E-IMPORT-UNSUPPORTED`。
+- 検証済み部品の構文にはなく、まとめた後のプログラムを渡す。詳細は [v1.11 差分仕様](../../spec/lptl-v1.11/LPTL_v1.11_delta.md)。
+
 [^lptl-design]
 
 # 構文上の要点

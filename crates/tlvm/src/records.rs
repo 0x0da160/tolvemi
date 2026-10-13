@@ -444,7 +444,7 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         }
     }
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta })
+        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
         Err(env.diags)
     }
@@ -527,5 +527,5 @@ pub fn lower(p: &Program) -> Program {
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta }
+    Program { declarations, meta: p.meta, imports: p.imports.clone() }
 }

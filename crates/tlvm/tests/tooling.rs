@@ -181,7 +181,7 @@ fn cli_run_plain() {
 
 #[test]
 fn cli_test_examples() {
-    for f in ["examples/sum_even.tlvm", "examples/positive_values.tlvm"] {
+    for f in ["examples/sum_even.tlvm", "examples/positive_values.tlvm", "examples/stats.tlvm"] {
         let (code, out, err) = tlvm(&["test", f]);
         assert_eq!(code, 0, "{f}: {out}{err}");
         assert!(out.ends_with("\"failed\":0}\n"), "{out}");

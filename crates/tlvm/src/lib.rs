@@ -15,6 +15,7 @@ pub mod evaluator;
 pub mod formatter;
 pub mod generics;
 pub mod hof;
+pub mod imports;
 pub mod lexer;
 pub mod parser;
 pub mod plain;

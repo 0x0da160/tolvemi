@@ -1,0 +1,8 @@
+// 統計の補助（ライブラリ：entry を持たず、examples/stats.tlvm などから import して使う）
+type Summary = { count: Int, total: Int, low: Option<Int>, high: Option<Int> }
+
+fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(p) => some(fst(p)), none => none<T>() }
+
+fn summarize(xs: List<Int>) -> Summary =
+  let sorted = sort(xs) in
+  Summary { count: length(xs), total: fold(xs, 0, |acc, x| add(acc, x)), low: first(sorted), high: first(reverse(sorted)) }

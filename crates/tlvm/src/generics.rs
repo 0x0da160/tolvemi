@@ -651,7 +651,7 @@ pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagno
         }));
     }
     if m.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta })
+        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
         Err(m.diags)
     }

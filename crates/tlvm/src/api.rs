@@ -7,6 +7,8 @@ use crate::plain::{canonical_profile, decode_plain, PlainDecode};
 use crate::evaluator::{self, RunResult};
 use crate::dict;
 use crate::generics;
+use crate::imports;
+use std::collections::BTreeMap;
 use crate::hof;
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
@@ -65,7 +67,7 @@ pub enum AstCompile {
     Result(CompileResult),
 }
 
-fn result(diags: Vec<Diagnostic>, outcome: Option<CheckOutcome>) -> CompileResult {
+pub(crate) fn result(diags: Vec<Diagnostic>, outcome: Option<CheckOutcome>) -> CompileResult {
     let (errors, warnings) = finalize(diags);
     let work = outcome.as_ref().and_then(|o| o.work);
     match outcome.and_then(|o| o.typed) {
@@ -100,6 +102,29 @@ pub fn parse_source(source: &[u8], profile: &StaticProfile) -> Parsed {
     }
 }
 
+/// v1.11：ファイル `path` を import ごと検査する（CLI 用）。import がなければ `compile` と同じ（診断に `file` は付かない）。
+/// 返す対応表は読んだファイルの名前と中身（根が先頭）で、診断の `file` から表示用の source を引くのに使う。
+/// 根のファイルが読めなければ Err。
+pub fn compile_path(path: &str, profile: &StaticProfile) -> Result<(SourceCompile, Vec<(String, Vec<u8>)>), String> {
+    let data = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let rel = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(imports::compile_root(path, &rel, &data, &mut imports::FsLoader::new(path), profile))
+}
+
+/// v1.11：名前と source の対応表 `files` から、`root` を根に import ごと検査する（ファイルシステムには触れない）。
+/// key は `/` 区切りのパス（`.`・`..` を含まない）で、import のパスは import を書いたファイルのディレクトリから解決する
+/// （根の key のディレクトリより上は指せない）。import がなければ `compile(files[root])` と同じ。
+pub fn compile_files(root: &str, files: &BTreeMap<String, String>, profile: &StaticProfile) -> SourceCompile {
+    let Some(src) = files.get(root) else {
+        let mut d = Diagnostic::error("import", "E-IMPORT-NOT-FOUND", (0, 0)).act(format!("{root}: not in the map of sources"));
+        d.file = Some(root.to_string());
+        return SourceCompile::Result(result(vec![d], None));
+    };
+    let (dir, rel) = root.rsplit_once('/').unwrap_or(("", root));
+    let mut loader = imports::MapLoader { root_dir: dir.to_string(), files };
+    imports::compile_root(root, rel, src.as_bytes(), &mut loader, profile).0
+}
+
 pub fn compile(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     match compile_unrepaired(source, profile) {
         SourceCompile::Result(r) => SourceCompile::Result(with_repairs(r, source)),
@@ -126,6 +151,14 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
+        // v1.11：source の文字列だけでは import を解決できない（ファイルからの検査は compile_path・compile_files）
+        Parsed::Program(p) if !p.imports.is_empty() => SourceCompile::Result(result(
+            p.imports
+                .iter()
+                .map(|i| Diagnostic::error("import", "E-IMPORT-UNSUPPORTED", i.span.t()).act(format!("import \"{}\"", i.path)))
+                .collect(),
+            None,
+        )),
         Parsed::Program(p) if needs_glue(&p) => {
             // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
             // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す。

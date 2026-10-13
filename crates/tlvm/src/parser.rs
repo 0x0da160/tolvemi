@@ -78,6 +78,15 @@ fn is_rec_at(toks: &[Token], i: usize) -> bool {
         && toks.get(i + 1).is_some_and(|n| n.is_kw("fn") || n.is_kw("entry"))
 }
 
+/// v1.11：宣言の先頭の `import` で、直後が文字列リテラル。`import` は予約語ではないので、それ以外の位置では普通の名前
+/// （トップレベルの宣言は fn・rec・entry・type で始まるので、この形は今まで常に構文誤りだった）。
+pub fn is_import_at(toks: &[Token], i: usize) -> bool {
+    let t = &toks[i];
+    t.kind == TokKind::Ident && t.text == IMPORT && toks.get(i + 1).is_some_and(|n| n.kind == TokKind::Str)
+}
+
+pub const IMPORT: &str = "import";
+
 pub const CTOR_EXPECTED: &str = "constructor name starting with an uppercase letter";
 pub const PATTERN_EXPECTED: &str = "pattern: Ctor, Ctor(x, ...), ok(x), err(e), some(x), none or _";
 /// v1.5：`map(xs, ...)` などの第 2 引数にラムダがない
@@ -192,12 +201,17 @@ impl Parser {
 
     fn at_decl_end(&self) -> bool {
         let t = self.peek(0);
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, self.pos)
+        t.kind == TokKind::Eof
+            || t.is_kw("fn")
+            || t.is_kw("entry")
+            || is_type_kw(t)
+            || is_rec_at(&self.toks, self.pos)
+            || is_import_at(&self.toks, self.pos)
     }
 
     fn is_sync(&self, i: usize) -> bool {
         let t = &self.toks[i];
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, i)
+        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, i) || is_import_at(&self.toks, i)
     }
 
     pub fn parse_program(mut self) -> ParseOutcome {
@@ -207,10 +221,27 @@ impl Parser {
         };
         let mut decls = vec![];
         let mut syncs = 0;
+        // v1.11：先頭の `import "path.tlvm"` の並び。宣言の後の import は E-IMPORT-AFTER-DECL
+        let mut imports = vec![];
+        while is_import_at(&self.toks, self.pos) {
+            let kw = self.advance();
+            let path = self.advance();
+            imports.push(ImportDecl { path: path.lit.clone(), path_span: Sp(path.start, path.end), span: Sp(kw.start, path.end) });
+        }
         loop {
             let s = self.pos;
             if self.peek(0).kind == TokKind::Eof {
                 break;
+            }
+            if is_import_at(&self.toks, self.pos) {
+                let kw = self.advance();
+                let path = self.advance();
+                let mut d = Diagnostic::error("parse", "E-IMPORT-AFTER-DECL", (kw.start, path.end))
+                    .act(format!("import {}", path.text))
+                    .at(self.adm.index);
+                d.seq = self.diags.len();
+                self.diags.push(d);
+                continue;
             }
             let r = if self.peek(0).is_kw("fn") {
                 self.parse_fn().map(Decl::Fn)
@@ -270,7 +301,7 @@ impl Parser {
             return ParseOutcome::Errors(self.diags);
         }
         let end = self.toks.last().unwrap().end;
-        ParseOutcome::Ok(Program { declarations: decls, meta: Meta::new((0, end), prog_idx) })
+        ParseOutcome::Ok(Program { declarations: decls, meta: Meta::new((0, end), prog_idx), imports })
     }
 
     fn parse_fn(&mut self) -> R<FnDecl> {

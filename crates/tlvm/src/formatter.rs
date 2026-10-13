@@ -120,6 +120,10 @@ fn format_type_params(ps: &[TypeParam]) -> String {
 
 pub fn format_program(p: &Program) -> String {
     let mut out = String::new();
+    // v1.11：import は先頭に一行ずつ（パスは文字列リテラルと同じ書き方）
+    for i in &p.imports {
+        out.push_str(&format!("import {}\n", quote(&i.path, '"')));
+    }
     for d in &p.declarations {
         match d {
             Decl::Fn(f) => {

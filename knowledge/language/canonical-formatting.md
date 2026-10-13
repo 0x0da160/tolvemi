@@ -74,4 +74,9 @@ formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す
 `fn f<T, U>(...)`、`type Box<T> = ...`、型 `Box<Int>`、呼び出し `f<Int>(x)`、構築 `Leaf<Int>()`（`<` の前後に空白なし、
 `,` の後に空白一つ）。総称の構文を含むプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
 
+# v1.11 の追加
+
+`import "path.tlvm"` を宣言より前に一行ずつ（パスは文字列リテラルの書き方）。`tlvm fmt` は与えたファイルだけを整形し、import の行を
+残す。import の行を含むファイルは検証済み formatter の対象外で、診断用 formatter の出力を出す。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

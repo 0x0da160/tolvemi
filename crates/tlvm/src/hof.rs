@@ -346,5 +346,5 @@ pub fn lower(p: &Program, types: &HofTypes) -> Program {
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta }
+    Program { declarations, meta: p.meta, imports: p.imports.clone() }
 }

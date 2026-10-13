@@ -4,11 +4,12 @@ use std::collections::HashSet;
 
 pub type Span = (usize, usize);
 
-pub const PHASE_ORDER: [&str; 11] = [
+pub const PHASE_ORDER: [&str; 12] = [
     "source-boundary",
     "lex",
     "lexical-limits",
     "parse",
+    "import",
     "structural-limits",
     "name",
     "call-graph",
@@ -41,6 +42,13 @@ pub fn message_for(code: &str) -> &'static str {
         "E-PARSE-EXPECTED-LAMBDA" => "map・filter・any・all・find・sort_by の第 2 引数と loop の第 3 引数は一つの binder のラムダ |x| e でなければなりません",
         "E-PARSE-REC-ENTRY" => "entry には rec を付けられません（rec は関数の宣言 rec fn に付けます）",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
+        "E-IMPORT-AFTER-DECL" => "import は宣言（fn・type・entry）より前、ファイルの先頭に書きます",
+        "E-IMPORT-UNSUPPORTED" => "source の文字列だけを受け取る API では import を解決できません（ファイルから検査するか、ソースの対応表を渡す API を使います）",
+        "E-IMPORT-PATH" => "import のパスは .tlvm で終わる相対パスで、根のファイルのディレクトリより上を指せません",
+        "E-IMPORT-NOT-FOUND" => "import したファイルがありません",
+        "E-IMPORT-CYCLE" => "import が循環しています",
+        "E-IMPORT-CONFLICT" => "同じ名前が二つのファイルで定義されています（import したファイルは名前空間を共有します）",
+        "E-LIMIT-STATIC-IMPORT-FILES" => "import で読むファイルの数が上限を超えました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
         "E-NAME-DUPLICATE-FUNCTION" => "同名のトップレベル関数が既に定義されています",
@@ -159,6 +167,9 @@ pub struct Diagnostic {
     pub node_index: usize,
     pub seq: usize,
     pub repair: Option<Repair>,
+    /// v1.11：診断の span が指すファイル（import で複数のファイルからなるプログラムのときだけ。単一ファイルでは None で、
+    /// JSON にも出さない）
+    pub file: Option<String>,
 }
 
 /// 修復ヒント（設計書 §10.1）。修復の正しさ・唯一性は保証しない。
@@ -183,6 +194,7 @@ impl Diagnostic {
             node_index: 0,
             seq: 0,
             repair: None,
+            file: None,
         }
     }
 
@@ -230,8 +242,13 @@ impl Diagnostic {
             ),
             None => "null".to_string(),
         };
+        // v1.11：file は複数ファイルのプログラムのときだけ、最後の key として出す
+        let file = match &self.file {
+            Some(f) => format!(",\"file\":{}", json_string(f)),
+            None => String::new(),
+        };
         format!(
-            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":{}}}",
+            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":{}{}}}",
             json_string(self.severity),
             json_string(self.phase),
             json_string(self.code),
@@ -240,7 +257,8 @@ impl Diagnostic {
             opt(&self.expected),
             opt(&self.actual),
             json_string(&self.message),
-            repair
+            repair,
+            file
         )
     }
 }
@@ -273,9 +291,9 @@ pub fn finalize(diags: Vec<Diagnostic>) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
     let mut unique = Vec::new();
     for d in diags {
         let key = if d.phase == "parse" {
-            (d.phase, d.code, d.span, d.seq)
+            (d.phase, d.code, d.span, d.seq, d.file.clone())
         } else {
-            (d.phase, d.code, d.span, d.node_index)
+            (d.phase, d.code, d.span, d.node_index, d.file.clone())
         };
         if seen.insert(key) {
             unique.push(d);
@@ -288,7 +306,7 @@ pub fn finalize(diags: Vec<Diagnostic>) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
             if a.phase == "parse" {
                 a.seq.cmp(&b.seq)
             } else {
-                (a.span.0, a.span.1, a.code, a.node_index).cmp(&(b.span.0, b.span.1, b.code, b.node_index))
+                (&a.file, a.span.0, a.span.1, a.code, a.node_index).cmp(&(&b.file, b.span.0, b.span.1, b.code, b.node_index))
             }
         })
     });
@@ -387,6 +405,17 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 "replace_identifier",
                 span,
                 "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty".into(),
+            )),
+            // v1.11：宣言の後の import
+            "E-IMPORT-AFTER-DECL" => Some((
+                "delete_span",
+                span,
+                "move this import line to the top of the file, above every fn, type and entry declaration".into(),
+            )),
+            "E-IMPORT-UNSUPPORTED" => Some((
+                "delete_span",
+                span,
+                "this API compiles a single source string and cannot read files: compile the file with the CLI (tlvm check FILE), use compile_files with a map of sources, or paste the imported definitions here".into(),
             )),
             // v1.7：`rec entry`
             "E-PARSE-REC-ENTRY" => Some((

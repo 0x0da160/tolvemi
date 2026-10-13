@@ -119,4 +119,22 @@ entry solve
 
 入力 `[[1, 2, 1], ["a", "a"]]` で `[[1, 2], ["a"]]`。
 
+# v1.11 の例
+
+```text
+// examples/lib/stats.tlvm（entry のないライブラリ）
+type Summary = { count: Int, total: Int, low: Option<Int>, high: Option<Int> }
+fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(p) => some(fst(p)), none => none<T>() }
+fn summarize(xs: List<Int>) -> Summary =
+  let sorted = sort(xs) in
+  Summary { count: length(xs), total: fold(xs, 0, |acc, x| add(acc, x)), low: first(sorted), high: first(reverse(sorted)) }
+
+// examples/stats.tlvm
+import "lib/stats.tlvm"
+fn stats(xs: List<Int>) -> Summary = summarize(xs)
+entry stats
+```
+
+入力 `[3, -1, 7, 2]` で `{"count": 4, "total": 11, "low": -1, "high": 7}`。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

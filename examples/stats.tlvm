@@ -1,0 +1,5 @@
+// import の例（v1.11）：lib/stats.tlvm の型 Summary と関数 summarize を使う
+import "lib/stats.tlvm"
+
+fn stats(xs: List<Int>) -> Summary = summarize(xs)
+entry stats

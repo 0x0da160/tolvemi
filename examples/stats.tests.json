@@ -1,0 +1,4 @@
+[
+  {"name": "empty", "input": [], "expected": {"count": 0, "total": 0, "low": null, "high": null}},
+  {"name": "several", "input": [3, -1, 7, 2], "expected": {"count": 4, "total": 11, "low": -1, "high": 7}}
+]

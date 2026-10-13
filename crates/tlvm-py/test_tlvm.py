@@ -114,6 +114,28 @@ class RunTest(unittest.TestCase):
         self.assertEqual(p.output_type, "Pair<Box<Option<Int>>, Option<String>>")
         self.assertEqual(p.run([5, 6]), [{"value": 5, "n": 2}, "a"])
 
+    def test_compile_files(self):
+        # v1.11：名前と source の dict から import ごと検査する（ファイルシステムには触れない）
+        files = {
+            "main.tlvm": 'import "lib/sq.tlvm"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n',
+            "lib/sq.tlvm": "fn sq(x: Int) -> Int = mul(x, x)\n",
+        }
+        p = tlvm.compile_files("main.tlvm", files)
+        self.assertEqual(p.run(7), 49)
+        # source の文字列だけの compile は import を解決しない
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile(files["main.tlvm"])
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-IMPORT-UNSUPPORTED")
+        # 診断には誤りのあるファイルの名前が付く
+        files["lib/sq.tlvm"] = "fn sq(x: Int) -> Int = mul(x, true)\n"
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile_files("main.tlvm", files)
+        d = cm.exception.diagnostics[0]
+        self.assertEqual((d["code"], d["file"]), ("E-TYPE-ARG", "lib/sq.tlvm"))
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile_files("main.tlvm", {"main.tlvm": 'import "missing.tlvm"\n'})
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-IMPORT-NOT-FOUND")
+
     def test_input_error(self):
         p = tlvm.compile(SUM)
         for bad in ([1, True], {"a": 1}, 1.5, "x"):

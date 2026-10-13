@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.10), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.11), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.10)
+# Tolvemi (LPTL v1.11)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -384,6 +384,12 @@ fn solve(text: String) -> String =
   if(eq(a.line, ""), a.out, emit(a))
 entry solve
 ```
+
+## Several files: import
+
+A file may begin with `import "lib/util.tlvm"` lines (before any declaration; the path is relative to the importing
+file) to use the functions and types of other files, which share one namespace. Only the file-based tools resolve
+imports. When you are asked for one program, write everything in that one file and do not use `import`.
 
 ## Diagnostics
 

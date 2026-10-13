@@ -545,6 +545,17 @@ pub struct FieldDecl {
 pub struct Program {
     pub declarations: Vec<Decl>,
     pub meta: Meta,
+    /// v1.11：先頭の `import "path.tlvm"`（宣言より前）。ファイルからの検査（`api::compile_files`）が解決して
+    /// 一つのプログラムにまとめる。source の文字列だけを受け取る API では E-IMPORT-UNSUPPORTED
+    pub imports: Vec<ImportDecl>,
+}
+
+/// v1.11：`import "path.tlvm"`。`path` は復号した文字列、`span` は `import` から文字列リテラルの終わりまで。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportDecl {
+    pub path: String,
+    pub path_span: Sp,
+    pub span: Sp,
 }
 
 impl Program {

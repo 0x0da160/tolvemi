@@ -74,6 +74,12 @@ sources:
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |
 | `E-PARSE-RECOVERY-LIMIT` | parse | recovery 8回の後に更に error |
 | `E-PARSE-REC-ENTRY` | parse | v1.7：`rec entry f`（`rec` は関数の宣言にだけ付ける。修復ヒント：`rec` を消す） |
+| `E-IMPORT-AFTER-DECL` | parse | v1.11：宣言の後の `import`（修復ヒント：ファイルの先頭へ移す） |
+| `E-IMPORT-PATH` | import | v1.11：import のパスの形（絶対パス、`.tlvm` 以外、根のファイルのディレクトリより上への `..` など） |
+| `E-IMPORT-NOT-FOUND` | import | v1.11：import したファイルが無い |
+| `E-IMPORT-CYCLE` | import | v1.11：import の循環（actual に `a.tlvm -> b.tlvm -> a.tlvm`） |
+| `E-IMPORT-CONFLICT` | import | v1.11：二つのファイルが同じ名前を定義（actual に両方のファイル） |
+| `E-IMPORT-UNSUPPORTED` | import | v1.11：source の文字列だけを受け取る API に import |
 | `E-NAME-UNKNOWN-FUNCTION` | name | 未定義の関数名 |
 | `E-ENTRY-UNKNOWN` | name | entry 名が未知 |
 | `E-ENTRY-MISSING` | entry | entry 宣言なし |
@@ -85,7 +91,8 @@ sources:
 | `E-ARITY-BUILTIN` | typecheck | 組込みの引数数不一致 |
 | `E-TYPE-IF-BRANCH` | typecheck | if の両分岐の型不一致 |
 | `E-TYPE-FST-ARG` | typecheck | fst の引数が Pair でない |
-| `E-LIMIT-STATIC-SOURCE-BYTES` | source-boundary | source bytes 上限 |
+| `E-LIMIT-STATIC-SOURCE-BYTES` | source-boundary | source bytes 上限（v1.11：import したファイルの合計は phase import） |
+| `E-LIMIT-STATIC-IMPORT-FILES` | import | v1.11：import で読むファイルの数（根を含めて 64）の上限 |
 | `E-LIMIT-STATIC-TOKENS`、`-INTEGER-DIGITS` | lexical-limits | token 数、整数桁数 |
 | `E-LIMIT-STATIC-FUNCTIONS`、`-AST-NODES`、`-TYPE-DEPTH`、`-EXPR-DEPTH`、`-LET-DEPTH`、`-FOLD-DEPTH` | structural-limits | 構造上限 |
 | `E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH`、`-SEMANTIC-WORK` | semantic-limits | 推論型深さ、型検査仕事量 |

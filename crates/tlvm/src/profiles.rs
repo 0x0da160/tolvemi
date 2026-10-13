@@ -14,6 +14,8 @@ pub struct StaticProfile {
     pub fold_depth: usize,
     pub semantic_type_depth: usize,
     pub semantic_work: u64,
+    /// v1.11：import で読むファイルの数（根を含む）。bytes の合計は source_bytes で抑える
+    pub import_files: usize,
 }
 
 impl Default for StaticProfile {
@@ -31,6 +33,7 @@ impl Default for StaticProfile {
             fold_depth: 32,
             semantic_type_depth: 128,
             semantic_work: 2_000_000,
+            import_files: 64,
         }
     }
 }

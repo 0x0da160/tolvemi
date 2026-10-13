@@ -11,4 +11,4 @@
 * [型規則](typing.md) - 単相の注釈、if/let/fold 規則、arity 検査と ErrorType 回復（v1.10 の型引数と単相化を含む）
 * [組込み関数](builtins.md) - 14個の組込みの型規則スキームと意味（v1.5 の map・filter・any・all・find・sort_by、v1.6 の loop、v1.8 の div、v1.9 の辞書の操作を含む）
 * [動的意味論](dynamic-semantics.md) - 左から右の call-by-value、let・if・fold の評価
-* [プログラム例](examples.md) - 偶数の合計、正の値の抽出、v1 で書けない例
+* [プログラム例](examples.md) - 偶数の合計、正の値の抽出、v1 で書けない例（v1.11 の import の例を含む）
