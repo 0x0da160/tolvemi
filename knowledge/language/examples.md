@@ -62,4 +62,14 @@ entry positive_values
 - `let` と `fold` の binder は外側の名前と被せない。
 - 負の整数は `-2` を一トークンで書き、`- 2` や `1-2` は不正。
 
+
+# v1.5 の例
+
+```text
+// 50 点以上の名前を、点の高い順に（同点は入力の順）
+fn top(xs: List<Pair<String, Int>>) -> List<String> =
+  map(sort_by(filter(xs, |p| le(50, snd(p))), |p| neg(snd(p))), |p| fst(p))
+entry top
+```
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

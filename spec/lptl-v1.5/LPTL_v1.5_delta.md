@@ -51,3 +51,9 @@ acc・y などの導入する名前は、プログラム中のどの名前とも
 ## 4. LLM での確認
 
 この機能を使う少数の問題を Haiku（effort low）で各 1 回解かせる（結果は §5 に書く）。
+
+## 5. 結果
+
+- 実行 `20261013T023355Z-claude-cli`（Haiku・effort low・各 1 回）：91-top_scores・92-word_stats ともに 1 ラウンド目で正解（2/2）。
+- 回答は `map`・`filter`・`sort_by` を使い、`fold` は合計など集約にだけ使った。
+- 検証済みの中核（`verus/`）は変更なし（622 件のまま）。`cargo test --release --locked` は 92 件すべて成功。

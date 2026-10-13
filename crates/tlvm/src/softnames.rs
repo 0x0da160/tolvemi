@@ -11,10 +11,11 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-pub const SOFT_KEYWORDS: [&str; 31] = [
+/// v1.5：`map filter any all find sort_by` も（直後が `(` のときだけ特殊形式）。
+pub const SOFT_KEYWORDS: [&str; 37] = [
     "entry", "list", "some", "none", "pair", "ok", "err", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort", "code", "char", "to_string",
-    "parse_int",
+    "parse_int", "map", "filter", "any", "all", "find", "sort_by",
 ];
 
 pub fn is_soft_keyword(s: &str) -> bool {
@@ -29,7 +30,7 @@ fn walk<'a>(e: &'a Expr, f: &mut impl FnMut(&'a str)) {
             f(acc);
             f(item);
         }
-        ExprKind::Match { binder, .. } => f(binder),
+        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } => f(binder),
         ExprKind::MatchResult { ok_binder, err_binder, .. } => {
             f(ok_binder);
             f(err_binder);
@@ -119,6 +120,11 @@ pub fn rename(p: &Program) -> Program {
                 ex(on_none, r);
                 r(binder);
                 ex(on_some, r);
+            }
+            ExprKind::Hof { list, binder, body, .. } => {
+                ex(list, r);
+                r(binder);
+                ex(body, r);
             }
             ExprKind::Record { fields, base, .. } => {
                 fields.iter_mut().for_each(|f| ex(&mut f.value, r));

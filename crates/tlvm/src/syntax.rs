@@ -7,11 +7,12 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 50] = [
+pub const KEYWORDS: [&str; 56] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
-    "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result",
+    "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
+    "sort_by",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -118,6 +119,35 @@ impl TyTag {
     }
 }
 
+/// v1.5：リストと一引数のラムダ `|x| e` を取る特殊形式（`hof::lower` が fold などに書き換える）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HofOp {
+    Map,
+    Filter,
+    Any,
+    All,
+    Find,
+    SortBy,
+}
+
+impl HofOp {
+    pub const ALL: [HofOp; 6] = [HofOp::Map, HofOp::Filter, HofOp::Any, HofOp::All, HofOp::Find, HofOp::SortBy];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            HofOp::Map => "map",
+            HofOp::Filter => "filter",
+            HofOp::Any => "any",
+            HofOp::All => "all",
+            HofOp::Find => "find",
+            HofOp::SortBy => "sort_by",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<HofOp> {
+        HofOp::ALL.into_iter().find(|o| o.name() == s)
+    }
+}
+
 // ------------------------------------------------------------------ 構文
 
 #[derive(Clone, Debug, PartialEq)]
@@ -221,6 +251,8 @@ pub enum ExprKind {
     },
     /// v1.4：`match e { P => e, ... }`（`sums::expand` が `kind` と各 arm の `variant` を付け、`sums::lower` が書き換える）
     SumMatch { scrutinee: Box<Expr>, arms: Vec<Arm>, kw_span: Sp, close_span: Sp, kind: Option<MatchKind> },
+    /// v1.5：`map(xs, |x| e)` など（`op` が形の名前。`binder` は body の中でだけ見える）
+    Hof { op: HofOp, list: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
 }
 
 /// v1.4：`match` の一つの枝。
@@ -290,6 +322,7 @@ impl Expr {
             ExprKind::Let { value, body, .. } => vec![value, body],
             ExprKind::If(c, t, e) => vec![c, t, e],
             ExprKind::Fold { list, init, body, .. } => vec![list, init, body],
+            ExprKind::Hof { list, body, .. } => vec![list, body],
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
             ExprKind::Record { fields, base, .. } => fields.iter().map(|f| &f.value).chain(base.as_deref()).collect(),
             ExprKind::Field { expr, .. } => vec![expr],
@@ -314,6 +347,7 @@ impl Expr {
             ExprKind::Let { value, body, .. } => vec![&mut **value, &mut **body],
             ExprKind::If(c, t, e) => vec![&mut **c, &mut **t, &mut **e],
             ExprKind::Fold { list, init, body, .. } => vec![&mut **list, &mut **init, &mut **body],
+            ExprKind::Hof { list, body, .. } => vec![&mut **list, &mut **body],
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![&mut **scrutinee, &mut **on_none, &mut **on_some],
             ExprKind::Record { fields, base, .. } => {
                 fields.iter_mut().map(|f| &mut f.value).chain(base.as_deref_mut()).collect()

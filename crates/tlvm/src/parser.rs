@@ -71,6 +71,10 @@ fn is_type_kw(t: &Token) -> bool {
 
 pub const CTOR_EXPECTED: &str = "constructor name starting with an uppercase letter";
 pub const PATTERN_EXPECTED: &str = "pattern: Ctor, Ctor(x, ...), ok(x), err(e), some(x), none or _";
+/// v1.5：`map(xs, ...)` などの第 2 引数にラムダがない
+pub const LAMBDA_EXPECTED: &str = "|x| e";
+/// v1.5：ラムダの binder が一つでない（`|acc, x|`、`||` など）
+pub const LAMBDA_ONE_BINDER: &str = "exactly one binder: |x|";
 
 pub fn expr_depths(expr: usize) -> Depths {
     Depths { expr: Some(expr), ..Default::default() }
@@ -454,6 +458,36 @@ impl Parser {
         })
     }
 
+    /// v1.5：`map(xs, |x| e)` など（名前は読む前）。第 2 引数は一つの binder のラムダ。
+    fn parse_hof(&mut self, op: HofOp, d: usize, ld: usize, fd: usize) -> R<ExprKind> {
+        self.advance();
+        self.expect("(")?;
+        let list = self.parse_expr(d + 1, ld, fd + 1)?;
+        if !self.peek(0).is_punct(",") {
+            // `map(xs)`：ラムダがない（区切りの誤りでなく、閉じ括弧が来たとき）
+            if self.peek(0).is_punct(")") {
+                return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_EXPECTED), at: None });
+            }
+            self.expect(",")?;
+        }
+        self.advance();
+        if !self.peek(0).is_punct("|") {
+            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_EXPECTED), at: None });
+        }
+        self.advance();
+        if !self.at_binder(0) {
+            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_ONE_BINDER), at: None });
+        }
+        let x = self.advance();
+        if !self.peek(0).is_punct("|") {
+            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_ONE_BINDER), at: None });
+        }
+        self.advance();
+        let body = self.parse_expr(d + 1, ld, fd + 1)?;
+        self.expect(")")?;
+        Ok(ExprKind::Hof { op, list: Box::new(list), binder: x.text, binder_span: Sp(x.start, x.end), body: Box::new(body) })
+    }
+
     fn parse_type(&mut self, depth: usize) -> R<TypeNode> {
         let tok = self.peek(0).clone();
         if tok.kind == TokKind::Ident {
@@ -607,8 +641,13 @@ impl Parser {
                     kind = ExprKind::Var(tok.text);
                 }
             }
-            // 文脈キーワード：呼び出しの形（直後が `(`、`<`、v1 の `[`）でなければ変数の参照
-            TokKind::Kw if is_soft_keyword(&tok.text) && !["(", "<", "["].iter().any(|p| self.peek(1).is_punct(p)) => {
+            // 文脈キーワード：呼び出しの形（直後が `(`、`<`、v1 の `[`）でなければ変数の参照。
+            // v1.5 の map などは直後が `(` のときだけ特殊形式
+            TokKind::Kw
+                if is_soft_keyword(&tok.text)
+                    && !(self.peek(1).is_punct("(")
+                        || (HofOp::from_name(&tok.text).is_none() && ["<", "["].iter().any(|p| self.peek(1).is_punct(p)))) =>
+            {
                 idx = self.adm.admit(sp, simple)?;
                 self.advance();
                 kind = ExprKind::Var(tok.text);
@@ -778,6 +817,10 @@ impl Parser {
                         binder_span: Sp(binder.start, binder.end),
                         on_some: Box::new(on_some),
                     };
+                }
+                name if HofOp::from_name(name).is_some() => {
+                    idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
+                    kind = self.parse_hof(HofOp::from_name(name).unwrap(), d, ld, fd)?;
                 }
                 name if is_builtin(name) => {
                     idx = self.adm.admit(sp, simple)?;

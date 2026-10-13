@@ -9,6 +9,6 @@
 * [entry と到達可能性](entry-and-reachability.md) - entry 検査の name/entry phase 分割と W-UNUSED-FUNCTION
 * [呼出しグラフと DAG](call-graph.md) - 自己辺を含む全循環の拒否と rank 構成
 * [型規則](typing.md) - 単相の注釈、if/let/fold 規則、arity 検査と ErrorType 回復
-* [組込み関数](builtins.md) - 14個の組込みの型規則スキームと意味
+* [組込み関数](builtins.md) - 14個の組込みの型規則スキームと意味（v1.5 の map・filter・any・all・find・sort_by を含む）
 * [動的意味論](dynamic-semantics.md) - 左から右の call-by-value、let・if・fold の評価
 * [プログラム例](examples.md) - 偶数の合計、正の値の抽出、v1 で書けない例

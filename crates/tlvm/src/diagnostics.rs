@@ -38,6 +38,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-PARSE-EXPECTED-EXPR" => "式が必要です",
         "E-PARSE-STRING-TYPE" => "List<Char> は String と書きます",
         "E-PARSE-EXPECTED-PATTERN" => "match の枝には pattern（構築子、ok(x)、err(e)、some(x)、none、_）が必要です",
+        "E-PARSE-EXPECTED-LAMBDA" => "map・filter・any・all・find・sort_by の第 2 引数は一つの binder のラムダ |x| e でなければなりません",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
@@ -64,6 +65,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-FOLD-BODY" => "fold 本体の型は初期値の型と一致しなければなりません",
         "E-TYPE-MATCH-SCRUTINEE" => "分解する値の型が合いません（match_option は Option、match_result は Result、match は pattern の直和型・Result・Option）",
         "E-TYPE-MATCH-BRANCH" => "match_option・match_result・match の分岐はすべて同じ型でなければなりません",
+        "E-TYPE-HOF-LIST" => "map・filter・any・all・find・sort_by の第 1 引数は List でなければなりません",
+        "E-TYPE-HOF-BODY" => "ラムダの本体の型が違います（filter・any・all・find は Bool、sort_by は Int）",
         "E-TYPE-FIELD-ACCESS" => "field を参照する式の型が、その field を持つレコード型ではありません",
         "E-RECORD-UNKNOWN-TYPE" => "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
@@ -310,13 +313,14 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
         let exp = d.expected.clone();
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
-            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS"
+            | "E-TYPE-HOF-BODY" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
             "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, match exp.as_deref() {
                 Some("Result") => "expression of type Result<..., ...>".to_string(),
                 Some("Option") | None => "expression of type Option<...>".to_string(),
                 Some(t) => format!("expression of type {t}"),
             })),
-            "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
+            "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" | "E-TYPE-HOF-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
             "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),
             "E-NAME-SHADOW" | "E-NAME-DUPLICATE-BINDER" | "E-NAME-DUPLICATE-PARAM" => {
@@ -334,6 +338,8 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 span,
                 "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty".into(),
             )),
+            // v1.5：map などの第 2 引数
+            "E-PARSE-EXPECTED-LAMBDA" => Some(lambda_repair(span, exp.as_deref(), d.actual.as_deref(), source)),
             "E-PARSE-EXPECTED-PATTERN" => Some((
                 "replace_expression",
                 span,
@@ -402,6 +408,30 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
         if let Some((kind, target_span, constraint)) = r {
             d.repair = Some(Repair { kind, target_span, constraint });
         }
+    }
+}
+
+/// v1.5：E-PARSE-EXPECTED-LAMBDA の修復ヒント。`map(xs, f)`（関数名だけ）、`map(xs, add(x, 1))`（ラムダの頭がない）、
+/// `map(xs)`（第 2 引数がない）、`|acc, x|`（binder が一つでない）を見分ける。
+fn lambda_repair(span: Span, exp: Option<&str>, actual: Option<&str>, source: &[u8]) -> (&'static str, Span, String) {
+    let forms = "map(xs, |x| e), filter(xs, |x| p), any / all / find(xs, |x| p), sort_by(xs, |x| key)";
+    if exp == Some(crate::parser::LAMBDA_ONE_BINDER) {
+        return (
+            "replace_expression",
+            span,
+            format!("exactly one binder between the bars, naming the element: {forms}; use fold(xs, init, |acc, x| ...) to carry an accumulator"),
+        );
+    }
+    let ident = actual.is_some_and(|a| a.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
+    let next = source.get(span.1..).and_then(|r| r.iter().find(|b| !b.is_ascii_whitespace())).copied();
+    match actual {
+        Some(")") => ("insert_text", (span.0, span.0), format!("', |x| e' before ')': the second argument is a one-binder lambda, as in {forms}")),
+        Some(f) if ident && matches!(next, Some(b')' | b',')) => (
+            "replace_expression",
+            span,
+            format!("|x| {f}(x): functions are not values, so pass a lambda that calls {f} on the element"),
+        ),
+        _ => ("insert_text", (span.0, span.0), format!("'|x| ' before the expression, binding the element it uses: {forms}")),
     }
 }
 

@@ -12,6 +12,7 @@ pub mod diagnostics;
 pub mod embed;
 pub mod evaluator;
 pub mod formatter;
+pub mod hof;
 pub mod lexer;
 pub mod parser;
 pub mod plain;

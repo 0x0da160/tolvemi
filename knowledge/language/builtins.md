@@ -71,4 +71,20 @@ length(list[T](x1, ..., xn)) = n
 `String` は `List<Char>` なので、リストの組み込みがそのまま文字列に使える。詳細は
 [v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md)。
 
+
+# v1.5 の追加：関数を渡す組み込み
+
+| 形 | 型 | 意味 |
+|---|---|---|
+| `map(xs, \|x\| e)` | `List<A> -> List<B>` | 各要素に e を当てた列（順序を保つ） |
+| `filter(xs, \|x\| p)` | `List<A> -> List<A>` | p が true の要素だけ（順序を保つ） |
+| `any(xs, \|x\| p)` | `List<A> -> Bool` | p が true の要素がある |
+| `all(xs, \|x\| p)` | `List<A> -> Bool` | すべての要素で p が true（空なら true） |
+| `find(xs, \|x\| p)` | `List<A> -> Option<A>` | p が true の最初の要素 |
+| `sort_by(xs, \|x\| k)` | `List<A> -> List<A>` | k（Int）の昇順。k が等しい要素は元の順（安定） |
+
+`fold` と同じ特殊形式で、`|x| e` は第一級の関数ではない。`String` も `List<Char>` として渡せる。型検査の後に
+`fold`・`reverse`・`cons`・`if`・`match_option`・`let` の組み合わせへ書き換えてから検証済み部品に渡す
+（`crates/tlvm/src/hof.rs`）。詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

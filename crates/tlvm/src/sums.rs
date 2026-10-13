@@ -288,6 +288,11 @@ impl Env {
                 let body = Box::new(self.bind(&[(acc, *acc_span), (item, *item_span)], i, |s| s.expr(body)));
                 ExprKind::Fold { list, init, acc: acc.clone(), acc_span: *acc_span, item: item.clone(), item_span: *item_span, body }
             }
+            ExprKind::Hof { op, list, binder, binder_span, body } => {
+                let list = Box::new(self.expr(list));
+                let body = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(body)));
+                ExprKind::Hof { op: *op, list, binder: binder.clone(), binder_span: *binder_span, body }
+            }
             ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
                 let scrutinee = Box::new(self.expr(scrutinee));
                 let on_none = Box::new(self.expr(on_none));
@@ -578,7 +583,7 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } => {
+        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } => {
             out.insert(binder.clone());
         }
         ExprKind::MatchResult { ok_binder, err_binder, .. } => {

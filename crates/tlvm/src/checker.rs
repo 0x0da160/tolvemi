@@ -44,7 +44,8 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
             }
             ExprKind::Call { callee, args, builtin, callee_span } => {
                 if !builtin && !known.contains(callee.as_str()) {
-                    let near = closest(callee, known.iter().copied().chain(BUILTINS), 3);
+                    let hof = HofOp::ALL.map(HofOp::name);
+                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof), 3);
                     let constraint = if near.is_empty() {
                         "name of a defined function or builtin".to_string()
                     } else {
@@ -85,6 +86,16 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 env.push(item);
                 walk(body, env, known, diags);
                 env.pop();
+                env.pop();
+            }
+            // v1.5：map などの binder は本体の中でだけ見える（match_option の binder と同じ規則）
+            ExprKind::Hof { list, binder, binder_span, body, .. } => {
+                walk(list, env, known, diags);
+                if env.contains(&binder.as_str()) {
+                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                }
+                env.push(binder);
+                walk(body, env, known, diags);
                 env.pop();
             }
             ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
@@ -304,17 +315,21 @@ enum Ev {
 
 type TcR<T> = Result<T, Diagnostic>;
 
+/// v1.5：`map` などの node（論理 node index）ごとの（要素の型 A、本体の型）。`hof::lower` が使う。
+pub type HofTypes = HashMap<usize, (Ty, Ty)>;
+
 pub struct TypeChecker<'a> {
     fns: &'a HashMap<&'a str, &'a FnDecl>,
     profile: &'a StaticProfile,
     pub work: WorkCounter,
     pub diags: Vec<Diagnostic>,
     env: Vec<(&'a str, Ty)>,
+    pub hof: HofTypes,
 }
 
 impl<'a> TypeChecker<'a> {
     pub fn new(fns: &'a HashMap<&'a str, &'a FnDecl>, profile: &'a StaticProfile) -> Self {
-        TypeChecker { fns, profile, work: WorkCounter::default(), diags: vec![], env: vec![] }
+        TypeChecker { fns, profile, work: WorkCounter::default(), diags: vec![], env: vec![], hof: HashMap::new() }
     }
 
     fn event(&mut self, ev: Ev, node: &Meta) -> TcR<()> {
@@ -487,6 +502,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { it } else { Ty::error() })
             }
+            ExprKind::Hof { op, list, binder, body, .. } => self.hof(e, *op, list, binder, body),
             ExprKind::Field { expr, target: Some((rt, i, n)), .. } => {
                 // v1.1：e.f。e の型は field を持つレコード型（展開後の pair の入れ子）と等しい
                 let t = self.expr(expr)?;
@@ -583,6 +599,49 @@ impl<'a> TypeChecker<'a> {
             ExprKind::SumMatch { scrutinee, arms, kind: Some(kind), .. } => self.sum_match(scrutinee, arms, kind),
             // sums::expand の後には現れない
             ExprKind::SumMatch { .. } => Ok(Ty::error()),
+        }
+    }
+
+    /// v1.5：`map(xs, |x| e)` など。xs : List<A>（String も）、x : A。filter・any・all・find の本体は Bool、
+    /// sort_by の本体は Int。結果は map が List<B>、filter・sort_by が List<A>、any・all が Bool、find が Option<A>。
+    fn hof(&mut self, e: &'a Expr, op: HofOp, list: &'a Expr, binder: &'a str, body: &'a Expr) -> TcR<Ty> {
+        let m = &e.meta;
+        let xt = self.expr(list)?;
+        let mut ok = !xt.is_error();
+        let elem = match self.head(&xt, TyTag::List, &list.meta)? {
+            Some(true) => xt.arg(0),
+            Some(false) => {
+                self.report("E-TYPE-HOF-LIST", &list.meta, "List", &xt);
+                ok = false;
+                Ty::error()
+            }
+            None => Ty::error(),
+        };
+        self.env.push((binder, elem.clone()));
+        let bt = self.expr(body);
+        self.env.pop();
+        let bt = bt?;
+        ok &= !bt.is_error();
+        let want = match op {
+            HofOp::Map => None,
+            HofOp::SortBy => Some(Ty::int()),
+            _ => Some(Ty::bool()),
+        };
+        if let Some(w) = want {
+            if self.equal(&bt, &w, &body.meta)? == Some(false) {
+                self.report("E-TYPE-HOF-BODY", &body.meta, &w, &bt);
+                ok = false;
+            }
+        }
+        if !ok {
+            return Ok(Ty::error());
+        }
+        self.hof.insert(m.index, (elem.clone(), bt.clone()));
+        match op {
+            HofOp::Map => self.build(Ty::list(bt), m),
+            HofOp::Filter | HofOp::SortBy => Ok(xt),
+            HofOp::Any | HofOp::All => self.build(Ty::bool(), m),
+            HofOp::Find => self.build(Ty::option(elem), m),
         }
     }
 
@@ -841,6 +900,8 @@ pub struct CheckOutcome {
     pub diagnostics: Vec<Diagnostic>,
     pub typed: Option<TypedProgram>,
     pub work: Option<WorkCounter>,
+    /// v1.5：`map` などの型（型検査まで進んだときだけ）
+    pub hof: HofTypes,
 }
 
 pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> CheckOutcome {
@@ -871,6 +932,7 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
     }
     out.work = Some(tc.work);
     out.diagnostics.append(&mut tc.diags);
+    out.hof = std::mem::take(&mut tc.hof);
 
     // entry
     let mut entry_ok = false;

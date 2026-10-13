@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.4), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.5), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.4)
+# Tolvemi (LPTL v1.5)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no general
@@ -58,9 +58,9 @@ Type arguments are always written in angle brackets, as in types; square bracket
 | `match e { P => e1, ... }` | case analysis on a sum type, a `Result` or an `Option` (below) |
 | `f(e1, ..., en)` | call a builtin or a user function (all arguments are evaluated first) |
 
-`|acc, x| body` is only allowed as the third argument of `fold`, and `|v| e` only as the third argument of
-`match_option` and the second and third arguments of `match_result`. There are no lambdas, closures or first-class
-functions anywhere else.
+`|acc, x| body` is only allowed as the third argument of `fold`, `|x| e` only as the second argument of `map`, `filter`,
+`any`, `all`, `find` and `sort_by` (below) and as the third argument of `match_option` and the second and third arguments
+of `match_result`. There are no lambdas, closures or first-class functions anywhere else: write `map(xs, |x| f(x))`, never `map(xs, f)`.
 
 ## Builtins (the complete list)
 
@@ -85,12 +85,17 @@ functions anywhere else.
 | `char(n)` | `Int -> Option<Char>` | `some(c)` if `n` is a valid code point, otherwise `none<Char>()` |
 | `to_string(n)` | `Int -> String` | decimal text: `to_string(-12) = "-12"` |
 | `parse_int(s)` | `String -> Option<Int>` | `some(n)` if `s` is an optional `-` followed by one or more digits, otherwise `none<Int>()` |
+| `map(xs, \|x\| e)` | `List<A> -> List<B>` | `e` applied to each element, in order |
+| `filter(xs, \|x\| p)` | `List<A> -> List<A>` | the elements for which `p` (a `Bool`) is true, in order |
+| `any(xs, \|x\| p)`, `all(xs, \|x\| p)` | `List<A> -> Bool` | some / every element satisfies `p` (`all` of an empty list is true); stop at the answer |
+| `find(xs, \|x\| p)` | `List<A> -> Option<A>` | the first element satisfying `p`, or `none` |
+| `sort_by(xs, \|x\| k)` | `List<A> -> List<A>` | ascending by the `Int` key `k`; equal keys keep their order (descending: `\|x\| neg(k)`) |
 
 Strings are lists of characters, so the list builtins and `fold` work on them directly: `concat("ab", "c")`,
-`length(s)`, `reverse(s)`, `eq(s, "yes")`, `contains(s, ' ')`, `uncons(s)`, `fold(s, 0, |n, c| ...)`.
+`length(s)`, `reverse(s)`, `eq(s, "yes")`, `contains(s, ' ')`, `uncons(s)`, `fold(s, 0, |n, c| ...)`, `filter(s, |c| ...)`.
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
-There is no division, `head`, `tail`, indexing, `map`, `filter`, `abs`, `not`, `and` or `or`; build
+There is no division, `head`, `tail`, indexing, `abs`, `not`, `and` or `or`; build
 them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `match_option` gives head and tail).
 
 ## Option: unwrap it with match_option
@@ -165,24 +170,22 @@ entry solve
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
   Pair Char String Result true false unit let in if fold match_option match_result`.
 - `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod fst snd cons concat reverse
-  length uncons min max range contains sort code char to_string parse_int` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
   `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration.
-- No shadowing: a `let` name, a `fold` binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
+- No shadowing: a `let` name, a `fold` or `map`-style binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
 
 ## Idioms
 
-Building a list in order: `cons` onto an accumulator (which builds it backwards), then `reverse` once at the end.
+Transforming and selecting elements: `map` and `filter` keep the order. For any other list built in a `fold`, `cons`
+onto an accumulator (which builds it backwards), then `reverse` once at the end.
 
 ```tlvm
-// The positive elements of a list, in their original order.
-fn positive_values(xs: List<Int>) -> List<Int> =
-  let reversed = fold(xs, list<Int>(), |acc, x|
-    if(lt(0, x), cons(x, acc), acc)) in
-  reverse(reversed)
-entry positive_values
+// The squares of the positive elements of a list, in their original order.
+fn positive_squares(xs: List<Int>) -> List<Int> = map(filter(xs, |x| lt(0, x)), |x| mul(x, x))
+entry positive_squares
 ```
 
 Carrying several values through one fold: use a `Pair` (nest pairs for more than two).
@@ -198,8 +201,7 @@ Several inputs: the entry receives one `Pair`, and helper functions may take sev
 
 ```tlvm
 fn scale(k: Int, x: Int) -> Int = mul(k, x)
-fn solve(p: Pair<Int, List<Int>>) -> List<Int> =
-  reverse(fold(snd(p), list<Int>(), |acc, x| cons(scale(fst(p), x), acc)))
+fn solve(p: Pair<Int, List<Int>>) -> List<Int> = map(snd(p), |x| scale(fst(p), x))
 entry solve
 ```
 
@@ -295,6 +297,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-MATCH-MIXED` | patterns of different types in one `match` (e.g. `Circle(r)` and `ok(v)`) |
 | `E-SUM-UNKNOWN-CTOR` / `E-SUM-CTOR-ARITY` | a misspelt constructor, or the wrong number of fields (`Empty()` for a constructor without fields) |
 | `E-SUM-DUPLICATE-CTOR` / `E-SUM-NAME-CONFLICT` | a constructor declared twice, or also used as a function, variable or type name |
+| `E-PARSE-EXPECTED-LAMBDA` | the second argument of `map` / `filter` / `any` / `all` / `find` / `sort_by` is not `\|x\| e` (e.g. a bare function name, or `\|acc, x\|`) |
 | `E-PARSE-EXPECTED-PATTERN` | something other than a pattern before `=>` in a `match` arm |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |

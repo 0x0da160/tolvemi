@@ -43,4 +43,11 @@ entry 名の解決は [entry と到達可能性](entry-and-reachability.md) を�
 - `match` は全部の場合を一度ずつ書くか最後の `_` で残りをまとめる。足りない場合 `E-MATCH-MISSING`、重複
   `E-MATCH-DUPLICATE`、届かない枝 `E-MATCH-UNREACHABLE`、型の違う pattern の混在 `E-MATCH-MIXED`（いずれも name phase）。
 
+
+# v1.5 の追加：map などの binder
+
+`map(xs, |x| e)` などの x は e の中でだけ見え、外側の可視変数をシャドーできない（`E-NAME-SHADOW`。`match_option` の
+binder と同じ規則）。e は外側の変数を参照できる。書き換えで導入する名前（`hof1` など）はプログラム中のどの名前とも
+重ならない。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

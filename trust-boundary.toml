@@ -106,6 +106,7 @@ glue = [
   "crates/tlvm/src/softnames.rs：tlvm ast の出力で、文脈キーワードの変数名を AST transport の識別子に付け替える（α 変換。検査・実行には使わない）",
   "crates/tlvm/src/main.rs：レコードを含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
   "crates/tlvm/src/sums.rs：v1.4 のユーザー定義の直和型と match の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。検証済み部品は書き換え後の整形ソースを検査・実行する）。直和型・match を含むプログラムの fmt も診断用 formatter の出力をそのまま出す",
+  "crates/tlvm/src/hof.rs：v1.5 の map・filter・any・all・find・sort_by の書き換え（型検査の後に fold・reverse・cons・if・match_option・let の組み合わせへ。sort_by は fold による安定な挿入整列。検証済み部品は書き換え後の整形ソースを検査・実行する）。これを含むプログラムの fmt も診断用 formatter の出力をそのまま出す。api.rs は、検証済みの構文規則では普通の名前であるこの 6 語が呼び出し・宣言の名前の位置にあるとき、構文・名前の誤拒否の突き合わせを省く",
   "crates/tlvm/src/runtime.rs、main.rs の exec：v1.4 の出力型 Result<String, String> の ok／err を標準出力・標準エラーと終了コード 0／1 に写す",
 ]
 unsafe = []

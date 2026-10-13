@@ -218,8 +218,8 @@ entry f
 fn g(t: T) -> Int = match t { B(x) => x, D => 4, _ => 0 }
 fn h(r: Result<Int, Int>) -> Int = match r { err(e) => e, _ => 1 }
 fn k(o: Option<Int>) -> Int = match o { none => 0, _ => 1 }
-fn any(t: T) -> Int = match t { _ => 9 }
-fn solve(t: T) -> List<Int> = list<Int>(g(t), h(ok<Int, Int>(3)), h(err<Int, Int>(3)), k(none<Int>()), k(some(2)), any(t))
+fn always(t: T) -> Int = match t { _ => 9 }
+fn solve(t: T) -> List<Int> = list<Int>(g(t), h(ok<Int, Int>(3)), h(err<Int, Int>(3)), k(none<Int>()), k(some(2)), always(t))
 entry solve
 ";
     assert_eq!(run(w, r#"{"A": []}"#), "[0,1,3,0,1,9]");

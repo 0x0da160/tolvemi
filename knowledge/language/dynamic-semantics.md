@@ -47,4 +47,12 @@ fold(list[T](x1, ..., xn), init, body)
 直和型の構築は `ok`／`err` の入れ子の値を作り、`match` は書き換え後の `match_result`／`match_option` の入れ子として
 評価される（対象は一度だけ評価し、選ばれた枝だけを評価する）。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
 
+
+# v1.5 の追加：map など
+
+リスト、続いて要素の順に本体を評価する。`any` は true が出た後、`all` は false が出た後、`find` は見つかった後の
+要素で本体を評価しない（書き換え後の `if`・`match_option` が選ばれた枝だけを評価する）。`sort_by` は安定な挿入整列で、
+比較のたびに鍵を計算し直す（要素数 n に対して O(n²) の評価）。評価は書き換え後のプログラムについて行う。詳細は
+[v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -1,0 +1,4 @@
+// Names with a score of at least 50, highest score first (sort_by is stable, so ties keep their order).
+fn solve(xs: List<Pair<String, Int>>) -> List<String> =
+  map(sort_by(filter(xs, |p| le(50, snd(p))), |p| neg(snd(p))), |p| fst(p))
+entry solve

@@ -41,6 +41,8 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Fold { list, init, acc, item, body, .. } => {
             format!("fold({}, {}, |{}, {}| {})", format_expr(list), format_expr(init), acc, item, format_expr(body))
         }
+        // v1.5：`map(xs, |x| e)` など
+        ExprKind::Hof { op, list, binder, body, .. } => format!("{}({}, |{}| {})", op.name(), format_expr(list), binder, format_expr(body)),
         ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
             format!("match_option({}, {}, |{}| {})", format_expr(scrutinee), format_expr(on_none), binder, format_expr(on_some))
         }
@@ -265,6 +267,14 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(on_none, out);
             out.push_str(&format!(",\"binder\":\"{binder}\",\"on_some\":"));
             expr_json(on_some, out);
+            out.push('}');
+        }
+        // v1.5：`{"tag":"map","list":...,"binder":"x","body":...}` など
+        ExprKind::Hof { op, list, binder, body, .. } => {
+            out.push_str(&format!("{{\"tag\":\"{}\",\"list\":", op.name()));
+            expr_json(list, out);
+            out.push_str(&format!(",\"binder\":\"{binder}\",\"body\":"));
+            expr_json(body, out);
             out.push('}');
         }
         ExprKind::Inj { ok, ty, value } => {

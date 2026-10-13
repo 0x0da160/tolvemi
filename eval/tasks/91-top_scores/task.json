@@ -1,0 +1,13 @@
+{
+  "id": "91-top_scores",
+  "title": "Names of the top scores",
+  "category": "hof",
+  "prompt": "The input is a list of pairs (name, score). Return the names of the entries whose score is at least 50, ordered from the highest score to the lowest. Entries with equal scores keep their order from the input.",
+  "input_type": "List<Pair<String, Int>>",
+  "output_type": "List<String>",
+  "examples": [
+    {"input": [["ann", 72], ["bob", 40], ["cy", 90], ["dee", 72]], "expected": ["cy", "ann", "dee"]},
+    {"input": [["x", 49], ["y", 50]], "expected": ["y"]},
+    {"input": [], "expected": []}
+  ]
+}
