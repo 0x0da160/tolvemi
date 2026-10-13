@@ -1,0 +1,7 @@
+// A generic helper used at two element types: the adjacent pairs of the names and of the numbers.
+fn pairwise<T>(xs: List<T>) -> List<Pair<T, T>> =
+  reverse(snd(fold(xs, pair(none<T>(), list<Pair<T, T>>()), |st, x|
+    match_option(fst(st), pair(some(x), snd(st)), |p| pair(some(x), cons(pair(p, x), snd(st)))))))
+fn solve(inp: Pair<List<String>, List<Int>>) -> Pair<List<Pair<String, String>>, List<Pair<Int, Int>>> =
+  pair(pairwise(fst(inp)), pairwise(snd(inp)))
+entry solve

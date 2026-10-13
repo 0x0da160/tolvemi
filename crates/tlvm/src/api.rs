@@ -171,8 +171,9 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
                     // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
                     // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
                     let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
+                    let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
                     let r = result(o.diagnostics.clone(), Some(o));
-                    SourceCompile::Result(cross_check(&text, r, profile))
+                    SourceCompile::Result(cross_check_at(&text, r, profile, at))
                 }
             }
         }
@@ -251,6 +252,29 @@ fn mismatch(why: &str) -> Diagnostic {
 /// - 字句・構文・名前・entry の段階で拒否したなら（資源上限による打切りを除く）、
 ///   検証済み部品もその段階までに拒否することを確かめる（誤拒否の検出）。
 fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> CompileResult {
+    cross_check_at(text, r, profile, (0, 0))
+}
+
+/// 検証済み parser が式の深さの上限で拒否したとき、受理に要る式の深さ（source と同じ単位）を返す。
+/// 上限を十分大きくすると受理するなら深さの超過で、その最小の上限から求める（拒否の理由が他にあれば None）。
+fn expr_depth_needed(chars: &Vec<char>, td: usize) -> Option<usize> {
+    const HUGE: usize = 1 << 24;
+    parse_e(chars, HUGE, td)?;
+    // lo は拒否、hi は受理
+    let (mut lo, mut hi) = (0usize, HUGE);
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if parse_e(chars, mid, td).is_some() {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    Some(hi.saturating_sub(2).div_ceil(2))
+}
+
+/// `cross_check` と同じ。深さの超過は `at`（書き換え前の最も深い loop の入れ子の位置）に E-LIMIT-STATIC-EXPR-DEPTH で報告する。
+fn cross_check_at(text: &str, r: CompileResult, profile: &StaticProfile, at: crate::diagnostics::Span) -> CompileResult {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() >= VERIFIED_MAX_CHARS {
         return match r {
@@ -272,9 +296,23 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
                     program.verified = Some(Arc::new(VerifiedProgram(p)));
                     CompileResult::Accepted { program, warnings, work }
                 }
-                Compiled::ParseRejected => {
-                    CompileResult::Rejected { errors: vec![mismatch("verified-parser-rejected")], warnings, work }
-                }
+                Compiled::ParseRejected => match expr_depth_needed(&chars, td) {
+                    // 書き換えた式が検証済み parser の式の深さの上限を超えた（式の深さの上限を超えた入力の診断）
+                    Some(need) => {
+                        let mut d = Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-EXPR-DEPTH", at)
+                            .exp(profile.expr_depth.to_string())
+                            .act(need.to_string());
+                        if at != (0, 0) {
+                            d = d.fix(
+                                "replace_expression",
+                                at,
+                                "the nested loop is too deep to lower: fold over a List, or move an inner loop into a named rec fn and call it",
+                            );
+                        }
+                        CompileResult::Rejected { errors: vec![d], warnings, work }
+                    }
+                    None => CompileResult::Rejected { errors: vec![mismatch("verified-parser-rejected")], warnings, work },
+                },
                 Compiled::NameRejected => {
                     CompileResult::Rejected { errors: vec![mismatch("verified-resolver-rejected")], warnings, work }
                 }
@@ -367,8 +405,9 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             } else {
                 format_program(&p.unmarked())
             };
+            let at = hof::deepest_loop_nest(&p).map_or((0, 0), |(_, s)| s);
             let r = result(o.diagnostics.clone(), Some(o));
-            AstCompile::Result(without_repairs(cross_check(&text, r, profile)))
+            AstCompile::Result(without_repairs(cross_check_at(&text, r, profile, at)))
         }
     }
 }
