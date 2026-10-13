@@ -362,8 +362,8 @@ pub fn resolve(p: &Program) -> Result<Program, Vec<Diagnostic>> {
     }
 }
 
-/// 型の宣言の型引数は field（variant の中身）のどこかに現れなければならない（型は展開後の構造で決まるので、
-/// 現れない型引数は意味を持たない）。
+/// 型の宣言の型引数は field（variant の中身）のどこかに現れなければならない（型は宣言の印と展開後の構造で決まるので、
+/// 現れない型引数は型の区別にも構造にも効かない）。
 fn unused(diags: &mut Vec<Diagnostic>, params: &[TypeParam], used: &[&TypeNode], name: &str, index: usize) {
     fn mentions(t: &TypeNode, n: &str) -> bool {
         (t.tag == TyTag::Param && t.name.as_deref() == Some(n)) || t.args.iter().any(|a| mentions(a, n))

@@ -7,10 +7,10 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 | パス | 内容 |
 |---|---|
 | [`spec/lptl-v1/`](spec/lptl-v1/) | LPTL 設計方針 v1 と検証バンドル（一次資料。manifest の SHA-256 と一致） |
-| [`spec/lptl-v1.1/`](spec/lptl-v1.1/) | v1.1 の差分仕様（`match_option` と `uncons` の追加。草案）。v1.2〜v1.14 も同じく `spec/lptl-v1.N/` |
+| [`spec/lptl-v1.1/`](spec/lptl-v1.1/) | v1.1 の差分仕様（`match_option` と `uncons` の追加。草案）。v1.2〜v1.15 も同じく `spec/lptl-v1.N/` |
 | [`spec/Tolvemi_name_explanation_clean.md`](spec/Tolvemi_name_explanation_clean.md) | 名称・表記・設計思想 |
 | [`knowledge/`](knowledge/) | 上記を [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) でまとめたナレッジバンドル（入口は [`knowledge/index.md`](knowledge/index.md)） |
-| [`crates/tlvm/`](crates/tlvm/) | Rust の処理系（`tlvm check／run／fmt／ast／test／exec`、v1.12 の `repl／lsp`、v1.13 の `exec` の辞書の入力、v1.14 の再帰する直和型）と回帰テスト。判定と実行は verus/ の検証済み部品が行う。説明は [`docs/implementation.md`](docs/implementation.md) |
+| [`crates/tlvm/`](crates/tlvm/) | Rust の処理系（`tlvm check／run／fmt／ast／test／exec`、v1.12 の `repl／lsp`、v1.13 の `exec` の辞書の入力、v1.14 の再帰する直和型、v1.15 の名義の型）と回帰テスト。判定と実行は verus/ の検証済み部品が行う。説明は [`docs/implementation.md`](docs/implementation.md) |
 | [`crates/tlvm-py/`](crates/tlvm-py/) | Python binding（PyO3 の拡張モジュール `tlvm`）。Rust の組み込み API `tlvm::embed` を包む。build は [`crates/tlvm-py/README.md`](crates/tlvm-py/README.md) |
 | [`verus/`](verus/) | Verus の spec 層・proof 層と、検証済みの lexer・parser・formatter・名前解決・型検査器・入力 JSON の復号器・評価器・出力 encoder |
 | [`trust-boundary.toml`](trust-boundary.toml) | 信頼境界と未証明義務の一覧（設計書 §11.3） |

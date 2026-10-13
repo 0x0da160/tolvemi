@@ -4,7 +4,8 @@
 //! の別名である（Pk は k 番目の variant の中身の型。中身がなければ `Unit`、一つならその型、複数なら右に入れ子にした
 //! `Pair`）。n = 1 なら P1 そのもの。構築 `A(x, ...)` は `ok`／`err` の入れ子に、`match` は `match_result`
 //! （`Option` なら `match_option`）の入れ子と、中身を取り出す `fst`／`snd` の `let` に書き換える。
-//! 型の等価性は展開後の構造で決まり、直和型の名前は表示と plain JSON にだけ使う。
+//! 型の等価性は宣言で決まる（v1.15 の名義の型。宣言ごとの印は `nominal.rs`）。展開後の構造が同じでも宣言が違えば
+//! 別の型で、直和型の名前は診断の文面と表示と plain JSON に使う。
 //!
 //! 処理は二段に分かれる。`expand` は型名を展開し、構築を書き換え、`match` の pattern を解決して網羅性を
 //! 検査する（診断の phase は name）。型検査器は `match` を（対象と束縛の型が分かる形で）直接検査し、
@@ -15,6 +16,7 @@
 
 use crate::diagnostics::{closest, Diagnostic};
 use crate::formatter::format_type;
+use crate::nominal::{self, Tags};
 use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -46,6 +48,10 @@ struct SumTy {
     /// v1.10：宣言の meta と variant の名前の span（構築子の関数を作るとき用）
     meta: Meta,
     spans: Vec<Sp>,
+    /// v1.15：印つきの写しの番号と、印つきの型の名前（表示と型の印）。印なしの写しでは None
+    tag: Option<(usize, Arc<SumInfo>)>,
+    /// v1.15：印を付ける補助関数の名前（印つきの写しだけ）
+    wrap: String,
 }
 
 impl SumTy {
@@ -78,6 +84,9 @@ struct Env {
     synth_decls: Vec<FnDecl>,
     /// 新しく作る名前が重ならないための、プログラム中の全ての名前
     taken: HashSet<String>,
+    /// v1.15：名義の型の番号（印つきの写しだけ）と、印を付ける・外す補助関数の宣言
+    tags: Option<Tags>,
+    helpers: Vec<FnDecl>,
 }
 
 fn upper(s: &str) -> bool {
@@ -129,6 +138,22 @@ impl Fam {
 }
 
 impl Env {
+    /// v1.15：直和型の名前の型。印つきの写しでは印を付けた型（名前は印つきの型の情報）。
+    fn named(&self, sum: &str, plain: TypeNode) -> TypeNode {
+        match self.sums.get(sum).and_then(|s| s.tag.as_ref()) {
+            Some((r, info)) => nominal::named_ty(*r, plain.clone(), Label(Some(Named::Sum(info.clone()))), plain.meta),
+            None => plain,
+        }
+    }
+
+    /// v1.15：構築の結果に印を付ける（印つきの写しだけ）。
+    fn seal(&self, sum: &str, e: Expr, m: Meta) -> Expr {
+        match self.sums.get(sum).and_then(|s| s.tag.as_ref()) {
+            Some(_) => nominal::call(&self.sums[sum].wrap, e, m),
+            None => e,
+        }
+    }
+
     fn err(&mut self, code: &'static str, span: (usize, usize), index: usize) -> &mut Diagnostic {
         self.diags.push(Diagnostic::error("name", code, span).at(index));
         self.diags.last_mut().unwrap()
@@ -149,7 +174,8 @@ impl Env {
                         crate::generics::arity_error(&mut self.diags, n, &params, args.len(), t.meta);
                         return TypeNode::new(TyTag::Unit, vec![], t.meta);
                     }
-                    let mut x = if params.is_empty() { self.sums[n].chain[0].clone() } else { self.sums[n].chain_with(&args)[0].clone() };
+                    let plain = if params.is_empty() { self.sums[n].chain[0].clone() } else { self.sums[n].chain_with(&args)[0].clone() };
+                    let mut x = self.named(n, plain);
                     x.meta = t.meta;
                     return x;
                 }
@@ -236,7 +262,7 @@ impl Env {
 
     /// v1.10：`chain`（型引数を置き換えた型の列）を使って構築する。
     fn construct_in(&self, ctor: &str, mut args: Vec<Expr>, meta: Meta, chain: &[TypeNode]) -> Expr {
-        let (_, k) = &self.ctors[ctor];
+        let (sum, k) = &self.ctors[ctor];
         let n = chain.len();
         let mut payload = match args.len() {
             0 => ex(ExprKind::Unit, meta),
@@ -249,7 +275,7 @@ impl Env {
             }
         };
         if n == 1 {
-            return payload;
+            return self.seal(sum, payload, meta);
         }
         if k + 1 < n {
             payload = ex(ExprKind::Inj { ok: true, ty: chain[*k].clone(), value: Box::new(payload) }, meta);
@@ -257,7 +283,7 @@ impl Env {
         for j in (0..*k).rev() {
             payload = ex(ExprKind::Inj { ok: false, ty: chain[j].clone(), value: Box::new(payload) }, meta);
         }
-        payload
+        self.seal(sum, payload, meta)
     }
 
     /// v1.10：総称の直和型の構築子 `ctor` を、型引数を推論して構築する総称の関数（なければ作る）の名前。
@@ -271,7 +297,7 @@ impl Env {
         let base = format!("{}_new", ctor.to_ascii_lowercase());
         let name = crate::generics::fresh(&mut self.taken, &base);
         let st = &self.sums[&sum];
-        let (meta, span, tparams, ret) = (st.meta, st.spans[k], st.tparams.clone(), st.chain[0].clone());
+        let (meta, span, tparams, ret) = (st.meta, st.spans[k], st.tparams.clone(), self.named(&sum, st.chain[0].clone()));
         let fields = st.fields[k].clone();
         let mut params = vec![];
         let mut vars = vec![];
@@ -553,7 +579,7 @@ impl Env {
         let kind = match fam {
             Some(Fam::Sum(s)) => {
                 let st = &self.sums[&s];
-                let mut ty = st.chain[0].clone();
+                let mut ty = self.named(&s, st.chain[0].clone());
                 ty.meta = scrutinee.meta;
                 MatchKind::Sum { ty, fields: st.fields.clone() }
             }
@@ -614,13 +640,26 @@ impl Env {
             t.label = Label::default();
             Generic { params, template: t }
         });
-        let info = Arc::new(SumInfo { name: sd.name.clone(), variants, inner, generic });
+        let info = Arc::new(SumInfo { name: sd.name.clone(), variants, inner, generic, tagged: false });
         chain[0].label = Label(Some(Named::Sum(info.clone())));
         for (k, (v, _)) in info.variants.iter().enumerate() {
             self.ctors.entry(v.clone()).or_insert_with(|| (sd.name.clone(), k));
         }
         let spans = sd.variants.iter().map(|v| v.name_span).collect();
-        let st = SumTy { info, pos, chain, fields, sigs, tparams: sd.type_params.clone(), meta, spans };
+        // v1.15：印つきの写し：型の名前は印 r を付けた型（表示の名前は印つきの型の情報）。印を付ける・外す補助関数を作る
+        let tagged = self.tags.as_ref().and_then(|t| t.get(&sd.name));
+        let (tag, wrap) = match tagged {
+            Some(r) => {
+                let generic = info.generic.as_ref().map(|g| Generic { params: g.params.clone(), template: nominal::named_ty(r, g.template.clone(), Label::default(), meta) });
+                let tinfo = Arc::new(SumInfo { name: info.name.clone(), variants: info.variants.clone(), inner: info.inner.clone(), generic, tagged: true });
+                let named = nominal::named_ty(r, chain[0].clone(), Label(Some(Named::Sum(tinfo.clone()))), meta);
+                let wrap = crate::generics::fresh(&mut self.taken, &format!("{}_wrap", sd.name.to_ascii_lowercase()));
+                self.helpers.push(nominal::wrap_fn(&wrap, r, chain[0].clone(), named, &sd.type_params, meta, &sd.name));
+                (Some((r, tinfo)), wrap)
+            }
+            None => (None, String::new()),
+        };
+        let st = SumTy { info, pos, chain, fields, sigs, tparams: sd.type_params.clone(), meta, spans, tag, wrap };
         self.sums.insert(sd.name.clone(), st);
     }
 }
@@ -628,7 +667,7 @@ impl Env {
 /// 直和型を展開する。型宣言を除き、型名を展開後の型に、構築を ok／err の入れ子に置き換え、`match` の pattern を
 /// 解決する（`ExprKind::SumMatch` は型検査器が検査し、`lower` が match_result などにする）。
 /// レコードの構文（レコード型の名前、構築、field の参照）はそのまま残す（この後で `records::expand` が扱う）。
-pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
+pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnostic>> {
     let mut env = Env {
         sums: HashMap::new(),
         ctors: HashMap::new(),
@@ -647,6 +686,8 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         synth: HashMap::new(),
         synth_decls: vec![],
         taken: crate::generics::idents(p),
+        tags: tags.cloned(),
+        helpers: vec![],
     };
     let mut type_names: HashSet<&str> = HashSet::new();
     for (pos, d) in p.declarations.iter().enumerate() {
@@ -690,6 +731,8 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
     }
     // v1.10：型引数を推論する構築のために作った総称の関数（宣言の末尾に置く）
     decls.extend(env.synth_decls.drain(..).map(Decl::Fn));
+    // v1.15：印を付ける・外す補助関数（印つきの写しだけ）
+    decls.extend(env.helpers.drain(..).map(Decl::Fn));
     if env.diags.is_empty() {
         Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
@@ -764,6 +807,14 @@ impl Lower {
     }
 
     fn lower_match(&mut self, m: Meta, scrutinee: Expr, arms: &[Arm], kind: &MatchKind) -> Expr {
+        // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）
+        let scrutinee = match kind {
+            MatchKind::Sum { ty, .. } if nominal::is_tagged(ty) => {
+                let sm = scrutinee.meta;
+                nominal::builtin("snd", vec![scrutinee], sm)
+            }
+            _ => scrutinee,
+        };
         let wild = arms.iter().find(|a| a.variant.is_none()).map(|a| a.body.clone());
         let arm = |k: usize| arms.iter().find(|a| a.variant == Some(k));
         let body = |k: usize| arm(k).map(|a| a.body.clone()).or_else(|| wild.clone()).expect("exhaustive match");

@@ -71,7 +71,7 @@ match_result(m, |x| a, |y| b) : A
   iff m : Result<T, E>, Γ,x:T ⊢ a : A, Γ,y:E ⊢ b : A
 ```
 
-`match e { P => e, ... }` は、pattern が直和型の構築子なら e がその型（展開後の構造が等しい型）、`ok`／`err` なら
+`match e { P => e, ... }` は、pattern が直和型の構築子なら e がその型（同じ宣言の型。v1.15 から名義の型）、`ok`／`err` なら
 `Result`、`some`／`none` なら `Option` でなければならず（違えば `E-TYPE-MATCH-SCRUTINEE`）、各枝の束縛は中身の型を持ち、
 枝の型はすべて等しい（`E-TYPE-MATCH-BRANCH`）。`_` だけの `match` は対象が直和型・`Result`・`Option` のどれかであること
 を求める。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。

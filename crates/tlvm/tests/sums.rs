@@ -331,9 +331,12 @@ fn sum_and_result_names_in_messages() {
     let d = &r.errors()[0];
     assert_eq!(d.code, "E-TYPE-RETURN");
     assert_eq!(d.actual.as_deref(), Some("Shape"));
-    // 型の等価性は展開後の構造で決まる（同じ形の Result とは同じ型）
-    let src = "type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n";
-    assert_eq!(run(src, r#"{"ok": 3}"#), r#"{"Has":[3]}"#);
+    // v1.15：型の等価性は型の名前で決まる（同じ形の Result とは別の型。文面は両方の名前で出る）
+    let r = compiled("type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n");
+    let d = &r.errors()[0];
+    assert_eq!(d.code, "E-TYPE-RETURN");
+    assert_eq!(d.expected.as_deref(), Some("Opt"));
+    assert_eq!(d.actual.as_deref(), Some("Result<Int, Unit>"));
 }
 
 // ---------------------------------------------------------------- exec

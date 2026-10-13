@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.14), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.15), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.14)
+# Tolvemi (LPTL v1.15)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -138,6 +138,7 @@ entry solve
 - Build with `Name { field: e, ... }`, giving every field; or give some fields and copy the rest with `..e` at the end.
 - Read a field with `e.field`. Field names must be unique across all record types in the program.
 - A record type may use record types declared above it (no recursive types).
+- Each declared type is its own type, even when two record types have the same fields. Build a record with its own name (`Box { v: 1, n: 2 }`), not with `pair(...)`. Read a field with `.field`; `fst` and `snd` do not work on records or sums.
 - Record inputs and outputs are JSON objects keyed by field name.
 
 ## Sum types and match: one of several shapes
@@ -204,8 +205,8 @@ entry solve
   guaranteed to terminate (`"terminates":false`). `match` works as for other sum types: one arm per constructor
   or a final `_`, with flat field names (no nested patterns).
 - `eq(a, b)` compares two trees structurally.
-- Two different recursive types never mix: a tree passed where another type is expected, or a `List<Int>` passed
-  where a tree is expected, is a type error (`E-TYPE-ARG`) that names the type, such as `Tree`.
+- Declared types never mix, even when they have the same shape: a tree passed where another type is expected, or a
+  `List<Int>` passed where a tree is expected, is a type error (`E-TYPE-ARG`) that names both types, such as `Tree`.
 - As an entry input or output, a tree is its list of integers: the constructor number first, then each field as
   its length followed by its value. So `Leaf` is `[0]` and `Node(Leaf, 3, Leaf)` is `[1, 1, 0, 1, 3, 1, 0]`.
   `tlvm exec` does not take a tree as its input.
