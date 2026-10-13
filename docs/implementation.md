@@ -31,12 +31,16 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 
 1. **compile**（`api::compile`）：検証済みの `compile_source`（`verus/src/pipeline.rs`）が source を字句解析・構文解析・
    名前解決して中間表現 `EProg` を作り、`check_prog` で整形式条件 `wf` を検査する。呼出しランク列は未検証の
-   Tarjan 実装が作るが、`check_prog` が検査するので信頼不要。
+   Tarjan 実装が作るが、`check_prog` が検査するので信頼不要。v1.7 の `rec fn` の印も未検証の接着部分が作って
+   別に渡す（検証済み parser は `rec` を知らないので、source の印は同じ長さの空白に置き換え、書き換え後・AST の
+   プログラムは印を外して整形してから渡す。印の列は関数の宣言順）。ランクは印のある関数へ入る辺を除いたグラフで作る。
+   印を落とせば `check_prog` が循環として拒否し、余計に付ければ停止の保証の報告（`tlvm check` の `terminates`）を
+   誤るだけで、型と一意性の保証は残る。
 2. **decode**（`values::decode_input`）：診断付きの strict JSON parser と値復号器が入力を読み、検証済みの
    `decode_input_e`（`verus/src/input_exec.rs`）の結果と突き合わせる。
 3. **run**（`evaluator::run`）：検証済みの `run_input_json` が、`check_prog` で `wf` を確かめ、入力 JSON の文字列を
    検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。
-4. **fmt**：検証済みの `canonical_source` が整形する。
+4. **fmt**：検証済みの `canonical_source` が整形する（v1.7：印 `rec` を外したもので照合し、印を付けて出す）。
 
 次が証明されています（`assume`・`admit` は使わず、`external_body` は `bigint.rs` の多倍長整数演算だけ）。
 
@@ -56,13 +60,13 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 |---|---|---|
 | `lexer.rs` | §4.2、§18.1 | 診断付きの字句解析。ASCII 字句、符号付き INT、数値境界、lexical-limits |
 | `parser.rs` | §4.1、§10.3、§18.1b | 診断付きの再帰下降 parser、parse Admission と structural guard、8回までの同期 recovery |
-| `checker.rs` | §5、§6、§10.2、§18.1a | 診断付きの name → call-graph（DAG・rank）→ typecheck（ErrorType 回復、SemanticWork 計数）→ entry → warnings |
+| `checker.rs` | §5、§6、§10.2、§18.1a | 診断付きの name → call-graph（DAG・rank。v1.7：`rec fn` へ入る辺を除いて検査し、循環には `rec` を勧める修復ヒント）→ typecheck（ErrorType 回復、SemanticWork 計数）→ entry → warnings |
 | `formatter.rs` | §4.3、§19.4 | AST 入力用の整形と `ast_codec_v1` encoder |
 | `strict_json.rs` | §9.3a | 診断付きの strict JSON parser（文法／深さ → string scalar → 重複キーの段階順） |
 | `ast_codec.rs` | §19.2–19.3 | AST transport 検査と Admission 付き AST 構築 |
 | `values.rs` | §9 | 診断付きの値 JSON の復号（InputAdmission を含む）と、検証済み復号器との突き合わせ |
 | `evaluator.rs` | §7、§9 | 検証済み部品の結果を envelope に写す接着 |
-| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
+| `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ（v1.7：印 `rec` を外したテキストと印の列を渡す） |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
@@ -147,7 +151,8 @@ cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
 - 資源上限（StaticProfile、InputAdmission の値の深さ・node 数・桁数、出力 bytes）の判定。評価器の step・割当・
   bit 長の上限は検証済み評価器の中で数えますが、上限で打ち切ることの正しさは spec に含みません。
 - 完全性の向き：整形式のプログラムを `check_prog` が必ず受理すること、DAG なら Tarjan 実装が正しいランクを作ること。
-- 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像。
+- 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像、
+  v1.7 の印 `rec` の除去と印の列（印の正しさは安全側：落とせば拒否、余計に付ければ停止を主張しなくなるだけ）。
 - V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
@@ -188,9 +193,15 @@ registry が決まったら差し替える前提です。
   | `E-PARSE-EXPECTED-TOKEN`（`)` の所に `,`、宣言の先頭、EOF） | `insert_text` | 閉じようとしている `名前(` の行と桁、`)` が一つ足りないこと |
   | `E-PARSE-EXPECTED-TOKEN`（`,` の所に `)`） | `delete_span` | その `)` が閉じる `名前(` の行と桁、引数が足りないうちに閉じていること |
   | `E-PARSE-EXPECTED-TYPE` | `replace_type` | 型の文法 |
+  | `E-CYCLE-CALL`（v1.7） | `insert_text`（循環にある最初の関数の宣言の先頭） | 循環にある関数すべてに `rec ` を付けること（停止は保証されなくなる。歩数に上限があるなら fold・loop を勧める） |
+  | `E-PARSE-REC-ENTRY`（v1.7） | `delete_span`（`rec`） | `rec` を消す。entry の関数が再帰するならその宣言を `rec fn` にする |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
+  v1.7 の `rec fn` の止まらない再帰は、この深さ上限（`HostAborted` `eval-depth`）か step・割当の上限
+  （`ResourceExhausted`）で終わります（スタックあふれにはならない）。
+- `tlvm check` の結果 JSON に `terminates`（v1.7）を足しました。`rec fn` がなければ true、あれば false です
+  （`--human` なら stderr に注記）。embed API の `Program::terminates()`、Python の `Program.terminates` も同じです。
 
 ## 設計書の外側の便宜（plain JSON、--human、tlvm test）
 

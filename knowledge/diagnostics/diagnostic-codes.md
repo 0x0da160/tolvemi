@@ -65,12 +65,13 @@ sources:
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |
 | `E-PARSE-RECOVERY-LIMIT` | parse | recovery 8回の後に更に error |
+| `E-PARSE-REC-ENTRY` | parse | v1.7：`rec entry f`（`rec` は関数の宣言にだけ付ける。修復ヒント：`rec` を消す） |
 | `E-NAME-UNKNOWN-FUNCTION` | name | 未定義の関数名 |
 | `E-ENTRY-UNKNOWN` | name | entry 名が未知 |
 | `E-ENTRY-MISSING` | entry | entry 宣言なし |
 | `E-ENTRY-DUPLICATE` | entry | entry 宣言が複数 |
 | `E-ENTRY-ARITY` | entry | entry 関数の引数が一つでない |
-| `E-CYCLE-CALL` | call-graph | 呼出し循環 |
+| `E-CYCLE-CALL` | call-graph | 呼出し循環（v1.7：`rec fn` の印のない関数を含む循環。修復ヒント：循環にある関数に `rec` を付ける） |
 | `E-ARITY-USER` | typecheck | ユーザー関数の引数数不一致 |
 | `E-ARITY-BUILTIN` | typecheck | 組込みの引数数不一致 |
 | `E-TYPE-IF-BRANCH` | typecheck | if の両分岐の型不一致 |

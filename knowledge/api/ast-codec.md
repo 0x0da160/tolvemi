@@ -28,7 +28,7 @@ sources:
 | node | keys／fields |
 |---|---|
 | program | `codec`, `declarations`（codec は固定 `"ast_codec_v1"`） |
-| fn | `tag`, `name`, `params`, `return_type`, `body` |
+| fn | `tag`, `name`, `params`, `return_type`, `body`、v1.7（この処理系の拡張）：省略できる `rec`（boolean。省略は false。encoder は true のときだけ `body` の後に出す） |
 | entry | `tag`, `name` |
 | param | `name`, `type`（tag なし） |
 | type int／bool／unit | `tag` |

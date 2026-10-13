@@ -38,6 +38,12 @@ class CompileTest(unittest.TestCase):
         self.assertEqual(p.output_type, "Int")
         self.assertEqual(p.warnings, [])
         self.assertIn("List<Int> -> Int", repr(p))
+        self.assertTrue(p.terminates)
+
+    def test_rec_terminates_flag(self):
+        p = tlvm.compile("rec fn f(n: Int) -> Int = if(le(n, 0), 0, add(n, f(sub(n, 1))))\nentry f\n")
+        self.assertFalse(p.terminates)
+        self.assertEqual(p.run(10), 55)
 
     def test_compile_error(self):
         with self.assertRaises(tlvm.CompileError) as cm:

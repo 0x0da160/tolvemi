@@ -82,4 +82,19 @@ entry first_power
 
 入力 1 で `some(1024)`、0 で `none`（0 は倍にしても 0 のまま）。
 
+# v1.7 の例
+
+```text
+// ユークリッドの互除法
+rec fn gcd(a: Int, b: Int) -> Int = match mod(a, b) { some(r) => if(eq(r, 0), b, gcd(b, r)), none => a }
+fn solve(p: Pair<Int, Int>) -> Int = gcd(fst(p), snd(p))
+entry solve
+
+// 相互再帰（循環にある関数すべてに rec を付ける）
+rec fn even(n: Int) -> Bool = if(eq(n, 0), true, odd(sub(n, 1)))
+rec fn odd(n: Int) -> Bool = if(eq(n, 0), false, even(sub(n, 1)))
+```
+
+入力 `[12, 18]` で 6。`tlvm check` は `"terminates":false` と報告する。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

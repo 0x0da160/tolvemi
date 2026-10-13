@@ -113,6 +113,11 @@ impl Program {
         self.typed.output_type.to_string()
     }
 
+    /// v1.7：停止が保証されるか（`rec fn` がなければ true。あれば false で、止まらない再帰は資源上限で打ち切る）。
+    pub fn terminates(&self) -> bool {
+        self.typed.terminates()
+    }
+
     pub fn typed(&self) -> &TypedProgram {
         &self.typed
     }

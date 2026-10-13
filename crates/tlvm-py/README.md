@@ -26,6 +26,7 @@ import tlvm
 p = tlvm.compile("fn solve(xs: List<Int>) -> Int = fold(xs, 0, |acc, x| add(acc, x))\nentry solve\n")
 p.input_type          # 'List<Int>'
 p.output_type         # 'Int'
+p.terminates          # True（v1.7：rec fn があれば False。止まらない再帰は資源上限で ResourceExhausted か HostAborted）
 p.run([1, 2, 3])      # 6
 p.run([2**80, 1])     # 1208925819614629174706177（整数は桁数によらず int のまま）
 p.run_json("[1, 2]")  # '3'（plain JSON の文字列で受け渡す版。2^53 を超える整数は十進文字列になる）

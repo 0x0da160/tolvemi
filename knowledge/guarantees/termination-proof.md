@@ -44,4 +44,10 @@ eval_fuel(P,input,n)=Done(v) ∧ m>=n
 - 決定性は純粋性と固定評価順から来る。
 - 数学的停止は、物理ホストでのタイムアウトや資源不足が起こらないことを意味しない（[資源モデル](../resources/resource-model.md)）。
 
+# v1.7：rec fn
+
+`rec fn` の印のある関数を含むプログラムには停止性を主張しない（`total`／`entry_total` は印がないこと `no_rec` を前提にする）。
+その場合も、値を返したならその値は宣言した型を持つ（定理 `sound`、燃料についての帰納法）。止まらない再帰は資源上限で
+打ち切り、`tlvm check` は `"terminates":false` と報告する。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

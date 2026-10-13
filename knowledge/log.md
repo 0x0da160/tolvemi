@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-13
+* **v1.7**: 印をつけた関数の再帰 `rec fn`（[v1.7 差分仕様](../spec/lptl-v1.7/LPTL_v1.7_delta.md)）を、字句・文法・型規則・呼出しグラフ・名前・動的意味論・停止性・例の各ページと診断コード表、AST codec の表に追記した。
 * **v1.6**: 上限つき反復 `loop(init, max, |s| e)`（[v1.6 差分仕様](../spec/lptl-v1.6/LPTL_v1.6_delta.md)）を、組込み・字句・文法・型規則・名前・動的意味論・正準フォーマット・例の各ページと診断コード表、AST codec の表に追記した。
 * **v1.5**: `map`・`filter`・`any`・`all`・`find`・`sort_by`（[v1.5 差分仕様](../spec/lptl-v1.5/LPTL_v1.5_delta.md)）を、組込み・字句・文法・型規則・名前・動的意味論・正準フォーマット・例の各ページと診断コード表、AST codec の表に追記した。
 * **v1.4**: `Result`、`ok`／`err`、`match_result`、ユーザー定義の直和型と `match`（[v1.4 差分仕様](../spec/lptl-v1.4/LPTL_v1.4_delta.md)）を、型と値・字句・文法・型規則・名前・動的意味論・正準フォーマットの各ページと診断コード表に追記した。

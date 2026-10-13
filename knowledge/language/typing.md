@@ -100,4 +100,10 @@ loop(init, max, |s| e) : Option<S>   iff Γ ⊢ init : S, Γ ⊢ max : Int, Γ,s
 max が Int でなければ `E-TYPE-LOOP-MAX`、e が `Option<S>` でなければ `E-TYPE-LOOP-BODY`（expected に `Option<S>`、
 found に e の型）。init が ErrorType なら本体の型の診断は出さない。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
 
+# v1.7 の追加：rec fn と呼出しグラフ
+
+型規則は変わらない（`rec fn` の本体と呼出しは普通の関数と同じ規則で検査する）。呼出しグラフの条件だけが緩む：
+`rec` の印のある関数へ入る辺を除いたグラフが DAG であればよい（[呼出しグラフと DAG](call-graph.md)）。
+検証済みの型付け条件は「`rank[g] < r` または `rec[g]`」。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
