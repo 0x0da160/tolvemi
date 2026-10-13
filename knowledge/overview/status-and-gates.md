@@ -41,6 +41,18 @@ manifest 上のゲート状態：[^manifest]
 
 G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission・実行・型検査の参照 trace fixture、strict parser／encoder／共通検査器との適合照合。限定 schema 検査や補助モデルの通過（[限定検査](../conformance/limited-checks.md)）をゲートへ代用しない。
 
+# v1.0.0 の凍結に関する決定
+
+回答済みの決定は DECISION 行で記録します。未回答の項目は「未決定」と書きます（2026-10-13 時点）。
+
+- DECISION-1（範囲）：設計書の核を v1 とする（route A）。レコード、直和、match、型引数、再帰、Char・String・Result、div、dict、Option 消去は v1 の外。
+- DECISION-2（拡張の扱い）：検証済みの仕様（verus/）は据え置き、v1 の判定が拡張を拒否する。G0 の「後続の Option 消去候補と混在させない」の文言は、凍結時に改める。
+- DECISION-3（凍結の条件）：Verus で証明が要る G0 の項目を満たしてから凍結する。G1〜G4 を凍結の条件に含めるかは未決定。
+
+未決定（推奨つき）：D2 予約語は設計書の 33 語。D3 括弧は山括弧。D4 Char・Result・String・div は v1 の外。D5 作業量・Admission・実行の trace は適合試験の glue。D6 証明の代わりに適合試験は使わず、未証明は明記。D7 v1 モードは厳格に拒否。D8 実行の trace は設計書どおり。D9 補助の行は G0 の必須から外す。D10 SKILL.md は「仕様と照合する」と書き直す。D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。D12 設計書の 1330・1332 行は v1 の対象外と記録。
+
+このコンテナでは github.com が拒否されるため、Verus は入っていません。証明が要る項目は、その許可のあとに進めます。
+
 # 設計状態として明示している境界
 
 - Option payload 消去がないという表現力上の境界を隠さない（[Option の境界](../language/option-boundary.md)）。
