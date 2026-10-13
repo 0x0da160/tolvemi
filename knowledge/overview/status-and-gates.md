@@ -47,15 +47,18 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 
 - DECISION-1（範囲）：設計書の核を v1 とする（route A）。レコード、直和、match、型引数、再帰、Char・String・Result、div、dict、Option 消去は v1 の外。【DECISION-4 により置き換え】
 - DECISION-2（拡張の扱い）：検証済みの仕様（verus/）は据え置き、v1 の判定が拡張を拒否する。【DECISION-4 により置き換え】G0 の「後続の Option 消去候補と混在させない」は option_fold を指し、DECISION-4 のあとも有効。
-- DECISION-3（凍結の条件）：Verus で証明が要る G0 の項目を満たしてから凍結する。G1〜G4 を凍結の条件に含めるかは未決定。
+- DECISION-3（凍結の条件）：Verus で証明が要る G0 の項目を満たしてから凍結する。G1〜G4 を凍結の条件に含めるかは、DECISION-7 で決めた。
 - DECISION-4（範囲）：実装済みの機能（v1.1〜v1.16）をすべて v1 に含める。非目標は実装と照合して改めた（設計書 2.2 節、2.3 節）。option_fold は実装がないため v1 の外。DECISION-1 と DECISION-2 を置き換える。
+- DECISION-5（字句表、D2）：字句表は実装の 68 語とする。予約語 19、文脈キーワード 49。
+- DECISION-6（凍結の時期、D6）：未証明の書換えを残して凍結しない。証明を終えてから凍結する（DECISION-3 を支持）。
+- DECISION-7（凍結条件、G1〜G4）：凍結条件は G0〜G4 のすべてとする。G4 は事前登録した実験の実施と公開を条件とし、正の優位性は条件としない（設計書 §15）。
 
-未決定（推奨つき）：
-- D2 字句表は実装の 68 語（`crates/tlvm/src/syntax.rs` の KEYWORDS）。うち 19 語は予約語、49 語は文脈キーワード（変数名などに使える。`SOFT_KEYWORDS`）。`rec`・`match`・`import`・`type` は字句表に入らず、位置で判定する。設計書の 33 語は古い。
+未決定（推奨つき。D2、D4、D6 は DECISION-5、4、6 で決定済み）：
+- D2 は DECISION-5 で決定。字句表は実装の 68 語（`crates/tlvm/src/syntax.rs` の KEYWORDS）。うち 19 語は予約語、49 語は文脈キーワード（`SOFT_KEYWORDS`）。設計書 §4.2 に書いた。
 - D3 括弧は山括弧。実装は `list<Int>` と `none<Int>()` を受理し、`list[Int]` は E-PARSE-EXPECTED-TOKEN で拒否する。
 - D4 は DECISION-4 で決定：Char・String・Result・div を v1 に含める。
 - D5 作業量・Admission・実行の trace は適合試験の glue。
-- D6 証明の代わりに適合試験は使わず、未証明は明記。※DECISION-3 と矛盾する。未証明の G0 項目を残したまま凍結するかを決める必要がある。
+- D6 は DECISION-6 で決定。証明まで凍結しない（DECISION-3 を支持）。
 - D7 v1 の判定は実装済みの拡張タグを受理する。「厳格に拒否」から変更（DECISION-4 による）。
 - D8 実行の trace は設計書どおり。
 - D9 補助の行は G0 の必須から外す。
@@ -70,7 +73,7 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 設計書の憲章、非目標、§2.3、§11.2a、§13.3、§14.1 は v1.1〜v1.16 を含む形に改めた。本文の残りは次のとおり。畳み込みが済むまで、本文と版の差分の間に食い違いがある。
 
 - §3.1、§3.2：型（`Char`、`String`、`Result`、`Dict`、レコード、直和、名義、型引数）と値。値の角括弧は山括弧へ（v1.1 §1a）。
-- §4.1、§4.2：EBNF と字句。予約語は 19、文脈キーワードは 49（D2）。`rec`、`match`、`import`、`type` は字句表に入らず位置で判定する。
+- §4.1：EBNF の生成規則。字句表（§4.2）は DECISION-5 どおりに書いた。
 - §5.4：呼出しグラフから `rec` 関数への辺を除く（v1.7）。
 - §6、§7：型規則と組込みの意味。v1.1〜v1.10 の組込みと書換え、`rec` の評価。
 - §9、§19、§20.1：正準 JSON、AST codec（新しい tag）、`uncons` の callee 規則（v1.1 で廃止）、`none[Foo]` の期待コード（v1.1 で E-PARSE-EXPECTED-TOKEN）。
