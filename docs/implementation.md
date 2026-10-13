@@ -100,7 +100,9 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
-| `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
+| `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
+| `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形。未検証の front-end |
+| `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`（v1.12：`repl`・`lsp`）、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
 
 ```sh
 cargo build --release
@@ -278,6 +280,31 @@ cargo run --release -- check examples/sum_even.tlvm --human
 cargo run --release -- test examples/sum_even.tlvm                                # examples/sum_even.tests.json
 ```
 
+## 対話的な道具（v1.12：tlvm repl、tlvm lsp）
+
+言語は変えず、今までの検査・実行の経路の前に置く front-end です（検証されていない接着部分。`trust-boundary.toml` の `glue`）。
+仕様は [v1.12 差分仕様](../spec/lptl-v1.12/LPTL_v1.12_delta.md) にあります。
+
+- **`tlvm repl [FILE]`**（`repl.rs`）：セッションは import の行と宣言の source の列です。宣言の入力は単独で parse して宣言ごとに
+  切り分け（同じ名前の古い宣言は置き換え）、`fn __repl_main(__repl_unit: Unit) -> Unit = unit` と `entry __repl_main` を付けた
+  プログラムを `imports::compile_root`（import はカレントディレクトリから `FsLoader` で読む）で検査し、受理なら加えます。
+  式は `entry __repl_main` と `fn __repl_main(__repl_unit: Unit) -> T =` の後ろ（source の最後）に置き、まず `T = Unit` で
+  検査して、本体の `E-TYPE-RETURN` の actual を `T` にして検査し直します（本体がレコードの構築なら先にその型の名前）。
+  実行は `tlvm run` と同じ既定の資源プロファイルで、値は `encode_plain` で出します。診断は、つないだ source のどの部分
+  （今の入力、`:load` したファイル、セッションの宣言）から来たかを覚えておき、その部分の source の行・列で `render_human` します。
+  出力はすべて標準出力で、prompt は標準入力が端末のとき（`std::io::IsTerminal`）だけ出します。
+- **`tlvm lsp`**（`lsp.rs`）：依存を増やさないよう、JSON は `strict_json::parse` で読み、応答は `diagnostics::json_string` で
+  手で組み立てます。request の `id` は受け取った bytes をそのまま返します。文書は全文同期で保持し、開く・変えるたびに
+  その文書と、ほかの開いている文書の診断を出し直します。`file://` の文書は `imports::compile_root` に、開いている文書の
+  中身を先に返す loader（中で `FsLoader` に委ねる）を渡して検査します。span の写像は、byte 位置の前の `\n` の数を行に、
+  行頭からの文字の `len_utf16` の和を列にします。整形は `tlvm fmt` の source の経路と同じ判定（`needs_glue`・import の有無と、
+  検証済み formatter との照合）です。
+
+```sh
+printf 'fn sq(x: Int) -> Int = mul(x, x)\nsq(12)\n' | cargo run --release -- repl    # defined sq / 144 : Int
+cargo test --release --test repl --test lsp
+```
+
 ## 組み込み（Rust の embed API、Python binding）
 
 ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `decode_plain_input` → run →
@@ -307,3 +334,4 @@ assert_eq!(p.run_json("[1, 2, 3]")?, "6");
 
 - BLAKE3 を使う成果物 hash／structural_hash。`spec_version` は未確定なので、仕様結合 hash と再現 hash はどのみち発行しません。
 - 上記の未証明の項目、Skill、LLM 評価。
+- パッケージ管理と性能の改善（v1.12 でも扱わない）。LSP の hover・補完・定義への移動、REPL の行編集と履歴。

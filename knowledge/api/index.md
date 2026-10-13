@@ -5,3 +5,4 @@
 * [strict JSON と decode 順序](strict-json.md) - input と AST 共通の段階順、scalar・重複キー、値位置ごとの検査順
 * [AST codec](ast-codec.md) - ast_codec_v1 の node schema、transport 拒否、Surface との公平性
 * [ハッシュと同一性](hashes-and-identity.md) - 成果物 hash、structural_hash、仕様結合 hash、再現 record
+* [対話的な道具](tooling.md) - v1.12 の tlvm repl（宣言を足しながら式を評価）と tlvm lsp（診断と整形の最小の Language Server）の契約

@@ -17,6 +17,10 @@
 //!
 //! 診断は一行一 JSON object で stderr へ、結果は stdout へ出す。
 //!
+//! v1.12：対話的な道具（検証されていない front-end。判定と実行は上と同じ経路）
+//!   tlvm repl [FILE]          REPL（宣言を加え、式を評価して `値 : 型` を出す。FILE の宣言を最初に読む）
+//!   tlvm lsp                  Language Server（標準入出力の JSON-RPC。診断と整形）
+//!
 //!   --plain   run の入出力を普通の JSON で読み書きする（対応は plain モジュール）
 //!   --human   診断を `file:行:列: error[CODE]: …` の形で、該当行と修復ヒントを添えて出す
 
@@ -37,7 +41,7 @@ static HUMAN: AtomicBool = AtomicBool::new(false);
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]\n       tlvm exec FILE [ARGS...]"
+        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]\n       tlvm exec FILE [ARGS...]\n       tlvm repl [FILE]\n       tlvm lsp"
     );
     ExitCode::from(64)
 }
@@ -432,6 +436,29 @@ fn real_main() -> Result<ExitCode, String> {
             Some(file) => exec_cmd(file, &args[2..]),
             None => Ok(usage()),
         };
+    }
+    // v1.12：repl と lsp
+    match args.first().map(String::as_str) {
+        Some("repl") => {
+            use std::io::IsTerminal;
+            let file = match &args[1..] {
+                [] => None,
+                [f] if !f.starts_with("--") => Some(f.as_str()),
+                _ => return Ok(usage()),
+            };
+            let prompt = std::io::stdin().is_terminal();
+            let code = tlvm::repl::repl(file, &mut std::io::stdin().lock(), &mut std::io::stdout().lock(), prompt).map_err(|e| e.to_string())?;
+            return Ok(ExitCode::from(code as u8));
+        }
+        Some("lsp") => {
+            // editor が付ける --stdio は受け付けて無視する（通信は常に標準入出力）
+            if args[1..].iter().any(|a| a != "--stdio") {
+                return Ok(usage());
+            }
+            let code = tlvm::lsp::serve(&mut std::io::stdin().lock(), &mut std::io::stdout().lock()).map_err(|e| e.to_string())?;
+            return Ok(ExitCode::from(code as u8));
+        }
+        _ => {}
     }
     let flags: Vec<&str> = args.iter().filter(|a| a.starts_with("--")).map(|s| s.as_str()).collect();
     let pos: Vec<&str> = args.iter().filter(|a| !a.starts_with("--")).map(|s| s.as_str()).collect();
