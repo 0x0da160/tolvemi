@@ -46,6 +46,7 @@ pub enum Kw {
     Le,
     Eq,
     Mod,
+    Div,
     Fst,
     Snd,
     Cons,
@@ -100,6 +101,7 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Le => seq!['l', 'e'],
         Kw::Eq => seq!['e', 'q'],
         Kw::Mod => seq!['m', 'o', 'd'],
+        Kw::Div => seq!['d', 'i', 'v'],
         Kw::Fst => seq!['f', 's', 't'],
         Kw::Snd => seq!['s', 'n', 'd'],
         Kw::Cons => seq!['c', 'o', 'n', 's'],
@@ -179,6 +181,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Neg)
         } else if c3(s, 'm', 'o', 'd') {
             Some(Kw::Mod)
+        } else if c3(s, 'd', 'i', 'v') {
+            Some(Kw::Div)
         } else if c3(s, 'f', 's', 't') {
             Some(Kw::Fst)
         } else if c3(s, 's', 'n', 'd') {
@@ -301,6 +305,7 @@ pub open spec fn bkw(b: Builtin) -> Kw {
         Builtin::Le => Kw::Le,
         Builtin::Eq => Kw::Eq,
         Builtin::Mod => Kw::Mod,
+        Builtin::Div => Kw::Div,
         Builtin::Fst => Kw::Fst,
         Builtin::Snd => Kw::Snd,
         Builtin::Cons => Kw::Cons,
@@ -330,6 +335,7 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
         Kw::Le => Some(Builtin::Le),
         Kw::Eq => Some(Builtin::Eq),
         Kw::Mod => Some(Builtin::Mod),
+        Kw::Div => Some(Builtin::Div),
         Kw::Fst => Some(Builtin::Fst),
         Kw::Snd => Some(Builtin::Snd),
         Kw::Cons => Some(Builtin::Cons),

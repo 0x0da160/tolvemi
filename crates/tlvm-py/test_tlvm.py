@@ -87,6 +87,9 @@ class RunTest(unittest.TestCase):
         self.assertEqual(p.output_type, "Option<Int>")
         self.assertEqual(p.run([7, 3]), 1)
         self.assertIsNone(p.run([7, 0]))
+        d = tlvm.compile("fn d(p: Pair<Int, Int>) -> Option<Int> = div(fst(p), snd(p))\nentry d\n")
+        self.assertEqual(d.run([-7, 2]), -4)
+        self.assertIsNone(d.run([7, 0]))
 
     def test_input_error(self):
         p = tlvm.compile(SUM)

@@ -7,12 +7,12 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 57] = [
+pub const KEYWORDS: [&str; 58] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
     "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
-    "sort_by", "loop",
+    "sort_by", "loop", "div",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -21,7 +21,7 @@ pub fn is_keyword(s: &str) -> bool {
 
 pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
-        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
+        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "div" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
         "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char" | "to_string" | "parse_int" => 1,
         _ => return None,
     })

@@ -23,6 +23,7 @@ v1.4 の `sum`（89-shapes_area、90-parse_config）は、直和型と `match`�
 v1.5 の `hof`（91-top_scores、92-word_stats）は、`map`・`filter`・`any`・`all`・`find`・`sort_by` を使うのが自然な問題です。
 v1.6 の `loop`（93-collatz_steps）は、上限つき反復 `loop` を使うのが自然な問題です。
 v1.7 の `rec`（94-prefix_eval）は、`rec fn` の再帰（値と残りの token を返す再帰下降）を使うのが自然な問題です。
+v1.8 の `div`（95-base_digits）は、整数の割り算 `div` を使うのが自然な問題です（`mod` と組にして桁を取り出す）。
 ユーザー定義の型は型の文字列だけでは宣言が分からないので、入出力の型は組み込みの型（`Result<T, E>` を含む）に限り、
 直和型はプログラムの中で宣言して使います。plain JSON とハーネスの Python 側では `Result` を `{"ok": v}`／`{"err": e}` で表します。
 隠しテストの期待値は Python の参照解で求め、LPTL の参照解が同じ答えを返すことを `check.py` で確かめています。

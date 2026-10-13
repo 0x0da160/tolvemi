@@ -11,6 +11,8 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 fold による安定な挿入整列）、検証済み部品は書き換え後のプログラムを検査・実行します。
 [v1.6 の差分](../spec/lptl-v1.6/LPTL_v1.6_delta.md) の `loop(init, max, |s| e)` も同じく `hof.rs` が、状態を `Result<S, S>`
 （ok = 続行中、err = 止まった）で持つ `range(0, max)` 上の `fold` と `match_result`・`match_option` に書き換えます。
+[v1.8 の差分](../spec/lptl-v1.8/LPTL_v1.8_delta.md) の整数の割り算 `div(a, b)` は `mod` と同じ経路で検証済み部品が直接扱います
+（spec の `Builtin::Div`、`apply_sound` の場合、キーワード表、exec は信頼する多倍長整数の `div_pos`）。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -195,6 +197,7 @@ registry が決まったら差し替える前提です。
   | `E-PARSE-EXPECTED-TYPE` | `replace_type` | 型の文法 |
   | `E-CYCLE-CALL`（v1.7） | `insert_text`（循環にある最初の関数の宣言の先頭） | 循環にある関数すべてに `rec ` を付けること（停止は保証されなくなる。歩数に上限があるなら fold・loop を勧める） |
   | `E-PARSE-REC-ENTRY`（v1.7） | `delete_span`（`rec`） | `rec` を消す。entry の関数が再帰するならその宣言を `rec fn` にする |
+  | `E-LEX-UNEXPECTED-CHARACTER`（`/` のとき。v1.8） | `replace_expression` | 演算子は無く、整数の割り算は `div(a, b)`（`Option<Int>`、`b <= 0` なら none）、行コメントは `//` |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。

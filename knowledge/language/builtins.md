@@ -1,7 +1,7 @@
 ---
 type: Language Specification
 title: 組込み関数
-description: LPTL v1 の14個の組込み（算術・比較・構造的等値・剰余・Pair 射影・リスト操作）の型規則スキームと数学的意味。全て有限値に対して全域である。
+description: LPTL v1 の14個の組込み（算術・比較・構造的等値・剰余・Pair 射影・リスト操作）の型規則スキームと数学的意味（v1.1 以降の追加と v1.8 の除算 div を含む）。全て有限値に対して全域である。
 tags: [lptl, builtins, semantics]
 status: draft
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
@@ -33,7 +33,7 @@ sources:
 | `reverse` | `List<A> -> List<A>` | 逆順 |
 | `length` | `List<A> -> Int` | 有限長 |
 
-除算、`head`、`tail`、添字アクセスは部分関数なので存在しない。
+`head`、`tail`、添字アクセスは部分関数なので存在しない。除算は v1.8 で `mod` と同じく `Option<Int>` を返す全域の `div` として加えた（下の節）。
 
 # mod
 
@@ -96,5 +96,21 @@ length(list[T](x1, ..., xn)) = n
 `|s| e` は `map` などと同じ局所の binder（第一級の関数ではない）。`max <= 0` なら本体を評価せず `none<S>()`。型検査の後に
 `range(0, max)` 上の `fold` と `match_result`・`match_option` へ書き換えてから検証済み部品に渡す
 （`crates/tlvm/src/hof.rs`）。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+
+# v1.8 の追加：div
+
+| 名前 | 型規則 | 意味 |
+|---|---|---|
+| `div` | `Int × Int -> Option<Int>` | 正の除数に対する床除算の商 |
+
+```text
+b > 0 なら div(a,b) = some(q)
+  ただし a = b*q + r、0 <= r < b を満たす一意の q（r は mod(a,b) の値）
+b <= 0 なら div(a,b) = none[Int]
+```
+
+`div(7,2)=some(3)`、`div(-7,2)=some(-4)`（`mod(-7,2)=some(1)`）、`div(1,0)=none[Int]`。`mod` と同じく検証済みの中核の
+組込みで（spec の `Builtin::Div`、`apply_sound` の場合）、exec は信頼する多倍長整数の `div_pos`（num-integer の `div_floor`）
+を使う。`div` は文脈キーワード（変数名などに使え、関数名には使えない）。詳細は [v1.8 差分仕様](../../spec/lptl-v1.8/LPTL_v1.8_delta.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

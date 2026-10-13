@@ -355,6 +355,10 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
                 assert(vs[0] is Int && vs[1] is Int);
                 assert(val_type(Val::Int(vs[0]->Int_0 % vs[1]->Int_0), Ty::Int));
             },
+            Builtin::Div => {
+                assert(vs[0] is Int && vs[1] is Int);
+                assert(val_type(Val::Int(vs[0]->Int_0 / vs[1]->Int_0), Ty::Int));
+            },
             _ => {},
         }
     } else {

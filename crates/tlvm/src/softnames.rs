@@ -11,11 +11,11 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-/// v1.5：`map filter any all find sort_by` も（直後が `(` のときだけ特殊形式）。v1.6：`loop` も。
-pub const SOFT_KEYWORDS: [&str; 38] = [
+/// v1.5：`map filter any all find sort_by` も（直後が `(` のときだけ特殊形式）。v1.6：`loop` も。v1.8：`div` も。
+pub const SOFT_KEYWORDS: [&str; 39] = [
     "entry", "list", "some", "none", "pair", "ok", "err", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort", "code", "char", "to_string",
-    "parse_int", "map", "filter", "any", "all", "find", "sort_by", "loop",
+    "parse_int", "map", "filter", "any", "all", "find", "sort_by", "loop", "div",
 ];
 
 pub fn is_soft_keyword(s: &str) -> bool {

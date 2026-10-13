@@ -1,0 +1,13 @@
+{
+  "id": "95-base_digits",
+  "title": "Digits in a base",
+  "category": "div",
+  "prompt": "The input is a pair of a base b (2 <= b <= 16) and a list of non-negative integers. Write each integer in base b and return its digits as integers, most significant digit first (0 is [0], and there are no leading zeros). Return one digit list per integer, in the input order.",
+  "input_type": "Pair<Int, List<Int>>",
+  "output_type": "List<List<Int>>",
+  "examples": [
+    {"input": [2, [6, 0, 1]], "expected": [[1, 1, 0], [0], [1]]},
+    {"input": [16, [255, 4096]], "expected": [[15, 15], [1, 0, 0, 0]]},
+    {"input": [10, []], "expected": []}
+  ]
+}

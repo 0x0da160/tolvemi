@@ -85,4 +85,10 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 `rec` は予約語ではない（予約語は 57 語のまま）。宣言の先頭で直後が `fn` のときだけ関数の印として働き、それ以外では
 IDENT（変数・引数・束縛・field・関数の名前、AST transport の識別子にも使える）。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
+# v1.8 の追加：div
+
+予約語に `div` を加えた（計 58 語）。`mod` と同じ文脈キーワードで、変数・引数・束縛・field の名前に使える。関数名と entry の
+名前には使えない（`E-PARSE-EXPECTED-IDENT`）。検証済みの lexer・parser・formatter のキーワード表にも入っている。演算子 `/` は
+引き続き `E-LEX-UNEXPECTED-CHARACTER` で、修復ヒントが `div(a, b)` を示す。詳細は [v1.8 差分仕様](../../spec/lptl-v1.8/LPTL_v1.8_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

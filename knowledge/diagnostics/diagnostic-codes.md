@@ -46,6 +46,7 @@ sources:
 | `E-LEX-INVALID-ESCAPE`、`E-LEX-UNTERMINATED-STRING`、`E-LEX-INVALID-CHAR-LITERAL`、`E-LEX-CONTROL-CHAR-IN-LITERAL` | lex | v1.2 の文字・文字列リテラルの不正（[v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md) §6a） |
 | `E-PARSE-STRING-TYPE` | parse | 型に `List<Char>` と書いた（`String` と書く） |
 | `E-LEX-NON-ASCII` | lex | 非コメント部の非 ASCII |
+| `E-LEX-UNEXPECTED-CHARACTER` | lex | トークンを開始できない ASCII 文字（演算子 `+`、`-`、`*`、`/` など）。v1.8：`/` には `div(a, b)` を示す修復ヒント |
 | `E-PARSE-EXPECTED-PATTERN` | parse | v1.4：`match` の枝の先頭が pattern でない |
 | `E-SUM-DUPLICATE-CTOR` | name | v1.4：構築子の名前が重複している |
 | `E-SUM-UNKNOWN-CTOR` | name | v1.4：知らない構築子（修復ヒントで近い名前） |
