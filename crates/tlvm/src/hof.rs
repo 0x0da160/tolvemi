@@ -120,7 +120,7 @@ impl B {
         self.ex(ExprKind::Var(n.to_string()))
     }
     pub(crate) fn call(&self, f: &str, args: Vec<Expr>) -> Expr {
-        self.ex(ExprKind::Call { callee: f.into(), args, builtin: true, callee_span: self.m.span })
+        self.ex(ExprKind::Call { callee: f.into(), args, builtin: true, callee_span: self.m.span, type_args: vec![] })
     }
     pub(crate) fn if_(&self, c: Expr, t: Expr, f: Expr) -> Expr {
         self.ex(ExprKind::If(Box::new(c), Box::new(t), Box::new(f)))

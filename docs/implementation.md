@@ -18,6 +18,14 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 検査した後、`dict.rs`（走査は `hof.rs` と共有）が各操作を `fold`・`eq`・`reverse`・`cons`・`let` などに書き換え、型の
 `Dict<K, V>` を `List<Pair<K, V>>` に置き換えます（挿入順で鍵が相異なる列。どの操作も O(n)）。検証済み部品は書き換え後の
 プログラムを検査・実行します。入力の辞書の鍵の重複は接着部分（`values.rs`・`plain.rs`）が拒否します。
+[v1.10 の差分](../spec/lptl-v1.10/LPTL_v1.10_delta.md) の型引数（総称の関数・レコード型・直和型）は、`generics.rs` が
+名前解決（型の位置の型引数の名前を型引数の node にする）の後、`sums.rs`・`records.rs` が総称の型の使用を型引数を置き換えた
+構造に展開し（型引数を推論する構築 `Node(x, 1)` は展開で作る総称の関数の呼び出しにする）、診断用の検査器が総称の関数の本体を
+型引数を不透明な型として一度だけ検査して、呼び出しごとに一階の照合で型引数を決めます。続いて `generics.rs` が多相再帰を
+拒否し、使われた（関数、型引数の組）ごとに複製して単相化し（名前は `first_g1` などの重ならない名前、`rec` の印は複製に移る、
+使われない総称の関数はコードにならない。複製 256 個・型引数の大きさ 256 node まで）、単相のプログラムをもう一度検査します。
+以降は今までどおりで、検証済み部品は単相化・書き換え後のプログラムを検査・実行します。`tlvm check` の型の表示は展開後の型から
+`Opt<String>` のように型引数を復元します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -79,6 +87,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
 | `hof.rs` | v1.5 差分 §2、v1.6 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by`・`loop` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
 | `dict.rs` | v1.9 差分 §2 | 辞書の操作の書き換え（`hof.rs` の走査から呼ばれ、型検査が残した鍵と値の型を使う）と、型の `Dict<K, V>` を `List<Pair<K, V>>` にする `erase`。未検証の接着部分 |
+| `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
@@ -206,6 +215,12 @@ registry が決まったら差し替える前提です。
   | `E-LEX-UNEXPECTED-CHARACTER`（`/` のとき。v1.8） | `replace_expression` | 演算子は無く、整数の割り算は `div(a, b)`（`Option<Int>`、`b <= 0` なら none）、行コメントは `//` |
   | `E-TYPE-DICT-ARG`、`E-TYPE-DICT-FROM`（v1.9） | `replace_expression` | 辞書（`List<Pair<K, V>>` なら `dict_from(xs)`）／pair のリスト（既に辞書ならそのまま） |
   | `E-TYPE-FOLD-LIST`・`E-TYPE-HOF-LIST`・`E-TYPE-EXPECTED-LIST`（実際が辞書のとき。v1.9） | `replace_expression` | `dict_entries(d)`・`dict_keys(d)`・`dict_values(d)` |
+  | `E-TYPE-GENERIC-INFER`（v1.10） | `insert_text`（呼び出し先の名前の直後） | `<Int, U>` のような明示の型引数（推論できた分は具体的な型で埋める）。中身のない構築子なら `Leaf<Int>()` |
+  | `E-TYPE-GENERIC-UNKNOWN-PARAM`（v1.10） | `insert_text`（宣言の型引数の末尾か名前の直後） | `<T>`・`<T, U>` の宣言 |
+  | `E-TYPE-GENERIC-ARITY`、`-MISMATCH`、`-INFINITE`（v1.10） | `replace_type`／`replace_expression` | 宣言どおりの数の型引数／先の引数で決まった型に合わせる／型引数を大きくしない再帰 |
+  | `E-TYPE-GENERIC-DUPLICATE-PARAM`、`-PARAM-CONFLICT`、`-UNUSED-PARAM`（v1.10） | `replace_identifier`／`delete_span` | 別の名前／使わない型引数を消すか field で使う |
+  | `E-ENTRY-GENERIC`（v1.10） | `insert_text` | 具体的な型の包み関数を entry にする |
+  | `E-TYPE-*`（実際の型が型引数のとき。v1.10） | `replace_expression` | その型の操作は呼び出し側で行うか、具体的な型の引数を取る |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
@@ -233,6 +248,7 @@ registry が決まったら差し替える前提です。
   | `Result<T, E>`（v1.4） | `{"ok": v}`、`{"err": e}` |
   | 直和型（v1.4） | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
   | `Dict<K, V>`（v1.9） | `[key, value]` の配列の配列（挿入順。`[["a", 1], ["b", 2]]`）。鍵が重なる入力は `E-INPUT-DICT-DUPLICATE-KEY`（値 JSON でも同じ） |
+  | 総称の型（v1.10） | 型引数を入れて展開した構造と同じ（`Box<Int>` はレコード型の object、`Opt<String>` は直和型の object） |
 
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。

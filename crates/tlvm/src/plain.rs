@@ -96,7 +96,7 @@ pub fn plain_shape(t: &Ty) -> String {
         TyTag::Option => format!("null | {}", plain_shape(&t.arg(0))),
         TyTag::Result => "{\"ok\": ...} | {\"err\": ...}".into(),
         TyTag::Dict => "array of [key, value] arrays".into(),
-        TyTag::Error => "".into(),
+        TyTag::Error | TyTag::Param => "".into(),
     }
 }
 
@@ -435,7 +435,7 @@ impl Conv<'_> {
                 self.value(n.get(key).unwrap(), &inner, depth + 1)?;
                 self.out.push('}');
             }
-            TyTag::Error => return Err(self.shape_err(n, t)),
+            TyTag::Error | TyTag::Param => return Err(self.shape_err(n, t)),
         }
         Ok(())
     }

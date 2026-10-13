@@ -218,7 +218,7 @@ fn tags_for(t: &Ty) -> &'static [&'static str] {
         TyTag::Option => &["some", "none"],
         TyTag::Pair => &["pair"],
         TyTag::Result => &["ok", "err"],
-        TyTag::Error => &[],
+        TyTag::Error | TyTag::Param => &[],
     }
 }
 
@@ -256,7 +256,7 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
         TyTag::Result => VTy::Result(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
         // v1.9：検証済み部品は書き換え後の List<Pair<K, V>> を扱う
         TyTag::Dict => VTy::List(Box::new(VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)))),
-        TyTag::Error => return None,
+        TyTag::Error | TyTag::Param => return None,
     })
 }
 

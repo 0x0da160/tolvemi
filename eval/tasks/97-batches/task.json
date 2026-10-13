@@ -1,0 +1,13 @@
+{
+  "id": "97-batches",
+  "title": "Batches with totals",
+  "category": "generic",
+  "prompt": "The input is a pair (k, records) where k >= 1 and records is a list of (name, amount) pairs. Split the records, in order, into consecutive batches of k records each; the last batch may be shorter, and an empty list gives no batches. For each batch, output a pair of the batch's names in order and the sum of its amounts.",
+  "input_type": "Pair<Int, List<Pair<String, Int>>>",
+  "output_type": "List<Pair<List<String>, Int>>",
+  "examples": [
+    {"input": [2, [["ann", 3], ["bob", 4], ["cy", -1]]], "expected": [[["ann", "bob"], 7], [["cy"], -1]]},
+    {"input": [3, [["dee", 1], ["eve", 2], ["fay", 3]]], "expected": [[["dee", "eve", "fay"], 6]]},
+    {"input": [1, []], "expected": []}
+  ]
+}

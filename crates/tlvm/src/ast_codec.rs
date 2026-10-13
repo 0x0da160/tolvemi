@@ -15,7 +15,8 @@ const DECL_TAGS: &[&str] = &["fn", "entry"];
 /// v1.2：`char`、`string`（`String` は一つの node。`list` の要素に `char` は書けない）
 /// v1.4：`result`（型）、`ok`・`err`・`match_result`（式）
 /// v1.9：`dict`（型。key、value）
-const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result", "dict"];
+/// v1.10：`param`（型引数。name）
+const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result", "dict", "param"];
 /// v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by`（式。list、binder、body）
 /// v1.6：`loop`（式。init、max、binder、body）
 /// v1.9：`dict`（空の辞書。key_type、value_type）。辞書の操作は `call`（callee が `dict_get` など）
@@ -25,11 +26,20 @@ const EXPR_TAGS: &[&str] = &[
 ];
 
 /// v1.7：`fn` の `rec`（真偽値）は省略できる（省略は false。v1.6 までの AST JSON はそのまま読める）。
-fn decl_fields(tag: &str, rec: bool) -> &'static [(&'static str, JKind)] {
+/// v1.10：`fn` の `type_params`（型引数の名前の配列）も省略できる（省略は型引数なし）。
+fn decl_fields(tag: &str, rec: bool, type_params: bool) -> Vec<(&'static str, JKind)> {
     match tag {
-        "fn" if rec => &[("name", S), ("params", A), ("return_type", O), ("body", O), ("rec", B)],
-        "fn" => &[("name", S), ("params", A), ("return_type", O), ("body", O)],
-        _ => &[("name", S)],
+        "fn" => {
+            let mut v = vec![("name", S), ("params", A), ("return_type", O), ("body", O)];
+            if rec {
+                v.push(("rec", B));
+            }
+            if type_params {
+                v.push(("type_params", A));
+            }
+            v
+        }
+        _ => vec![("name", S)],
     }
 }
 
@@ -39,8 +49,14 @@ fn type_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "pair" => &[("left", O), ("right", O)],
         "result" => &[("ok", O), ("err", O)],
         "dict" => &[("key", O), ("value", O)],
+        "param" => &[("name", S)],
         _ => &[],
     }
+}
+
+/// v1.10：型引数の名前（識別子で、大文字で始まる）。
+fn is_type_param(s: &str) -> bool {
+    is_identifier(s) && s.starts_with(|c: char| c.is_ascii_uppercase())
 }
 
 fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
@@ -207,8 +223,18 @@ impl Schema<'_> {
 
     fn decl(&self, n: &JNode) -> R {
         let tag = self.header(n, DECL_TAGS)?;
-        self.keys(n, decl_fields(tag, n.get("rec").is_some()), true)?;
+        self.keys(n, &decl_fields(tag, n.get("rec").is_some(), n.get("type_params").is_some()), true)?;
         self.ident(n.get("name").unwrap())?;
+        if let Some(tp) = n.get("type_params") {
+            for t in &tp.items {
+                if t.kind != S {
+                    return Err(fail("E-AST-FIELD-TYPE", t.span()).exp("string").act(t.kind.name()));
+                }
+                if !is_type_param(&t.text) {
+                    return Err(fail("E-AST-IDENTIFIER", t.span()).exp("type parameter name starting with an uppercase letter"));
+                }
+            }
+        }
         if tag == "fn" {
             for p in &n.get("params").unwrap().items {
                 self.param(p)?;
@@ -232,6 +258,13 @@ impl Schema<'_> {
         let tag = self.header(n, TYPE_TAGS)?;
         let fs = type_fields(tag);
         self.keys(n, fs, true)?;
+        if tag == "param" {
+            let name = n.get("name").unwrap();
+            if !is_type_param(&name.text) {
+                return Err(fail("E-AST-IDENTIFIER", name.span()).exp("type parameter name starting with an uppercase letter"));
+            }
+            return Ok(());
+        }
         if tag == "list" {
             // `List<Char>` は `{"tag":"string"}` と書く
             let el = n.get("element").unwrap();
@@ -247,7 +280,12 @@ impl Schema<'_> {
 
     fn expr(&self, n: &JNode) -> R {
         let tag = self.header(n, EXPR_TAGS)?;
-        let fs = expr_fields(tag);
+        // v1.10：`call` の `type_args`（明示した型引数の配列）は省略できる
+        let mut fs = expr_fields(tag).to_vec();
+        if tag == "call" && n.get("type_args").is_some() {
+            fs.push(("type_args", A));
+        }
+        let fs = &fs[..];
         self.keys(n, fs, true)?;
         for (k, _) in fs {
             let c = n.get(k).unwrap();
@@ -284,6 +322,11 @@ impl Schema<'_> {
                 (_, "items" | "args") => {
                     for x in &c.items {
                         self.expr(x)?;
+                    }
+                }
+                (_, "type_args") => {
+                    for x in &c.items {
+                        self.ty(x)?;
                     }
                 }
                 _ => self.expr(c)?,
@@ -338,6 +381,11 @@ impl Builder {
                 meta: Meta::new(d.span(), i),
                 rec: d.get("rec").is_some_and(|r| r.boolean),
                 rec_span: Sp::default(),
+                type_params: d
+                    .get("type_params")
+                    .map(|t| t.items.iter().map(|x| TypeParam { name: x.text.clone(), span: sp_of(x) }).collect())
+                    .unwrap_or_default(),
+                ctor: None,
             }));
         }
         Ok(Program { declarations: decls, meta: Meta::new(n.span(), idx) })
@@ -349,6 +397,9 @@ impl Builder {
         if tag == "string" {
             let meta = Meta::new(n.span(), i);
             return Ok(TypeNode::new(TyTag::List, vec![TypeNode::new(TyTag::Char, vec![], meta)], meta));
+        }
+        if tag == "param" {
+            return Ok(TypeNode::param(&n.get("name").unwrap().text, Meta::new(n.span(), i)));
         }
         let mut args = vec![];
         for (k, _) in type_fields(tag) {
@@ -403,7 +454,17 @@ impl Builder {
                 for c in &g("args").items {
                     args.push(self.expr(c, d + 1, ld, fd)?);
                 }
-                ExprKind::Call { callee: callee.text.clone(), args, builtin: is_builtin(&callee.text), callee_span: sp_of(callee) }
+                let mut type_args = vec![];
+                for t in n.get("type_args").map(|t| &t.items[..]).unwrap_or(&[]) {
+                    type_args.push(self.ty(t, 1)?);
+                }
+                ExprKind::Call {
+                    callee: callee.text.clone(),
+                    args,
+                    builtin: is_builtin(&callee.text),
+                    callee_span: sp_of(callee),
+                    type_args,
+                }
             }
             "let" => {
                 let v = self.expr(g("value"), d + 1, ld, fd)?;

@@ -152,4 +152,19 @@ top_decl  ::= ... | "rec" function_def
 - `rec entry f` は `E-PARSE-REC-ENTRY`（修復ヒント付き：`rec` を消す）。
 - 検証済み部品の構文にはなく、接着部分が印を外したテキストと関数ごとの印の列を渡す。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
+# v1.10 の追加：型引数
+
+```ebnf
+function_def ::= "fn" IDENT [ type_params ] "(" [ params ] ")" "->" type "=" expr
+top_decl     ::= ... | "type" IDENT [ type_params ] "=" ( record | variant ("|" variant)* )
+type_params  ::= "<" UIDENT { "," UIDENT } ">"
+type         ::= ... | IDENT "<" type { "," type } ">"
+expr         ::= ... | IDENT "<" type { "," type } ">" "(" [ arguments ] ")"
+```
+
+- UIDENT は大文字で始まる IDENT（そうでなければ `E-PARSE-EXPECTED-IDENT`）。型の位置の型引数の名前は、名前解決で
+  型引数として読む（宣言されていなければ `E-TYPE-GENERIC-UNKNOWN-PARAM`）。
+- 呼び出し・構築子の型引数の後には `(` が要る（`Leaf<Int>()`。無ければ `E-PARSE-EXPECTED-TOKEN`、修復ヒント `()`）。
+- 検証済み部品の構文にはなく、単相化した後のプログラムを渡す。詳細は [v1.10 差分仕様](../../spec/lptl-v1.10/LPTL_v1.10_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

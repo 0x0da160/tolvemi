@@ -42,7 +42,7 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                     diags.push(d);
                 }
             }
-            ExprKind::Call { callee, args, builtin, callee_span } => {
+            ExprKind::Call { callee, args, builtin, callee_span, .. } => {
                 if !builtin && !known.contains(callee.as_str()) {
                     let hof = HofOp::ALL.map(HofOp::name);
                     let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof).chain([LOOP]).chain(DICT_OPS), 3);
@@ -348,6 +348,18 @@ type TcR<T> = Result<T, Diagnostic>;
 /// v1.9：辞書の操作（`dict_get` などの呼び出し）の node は（鍵の型 K、値の型 V）。
 pub type HofTypes = HashMap<usize, (Ty, Ty)>;
 
+/// v1.10：総称の関数の呼び出し（論理 node index）ごとの型引数（明示したものか推論したもの。呼び出し側の型引数を
+/// 含みうる）。`generics::monomorphize` が使う。
+pub type Instances = HashMap<usize, Vec<Ty>>;
+
+/// v1.10：型の照合（`TypeChecker::bind`）の失敗。
+enum Bad {
+    /// 形が違う
+    Shape,
+    /// i 番目の型引数に、前の束縛（第 2 要素）と違う型（第 3 要素）が当たった
+    Conflict(usize, Ty, Ty),
+}
+
 pub struct TypeChecker<'a> {
     fns: &'a HashMap<&'a str, &'a FnDecl>,
     profile: &'a StaticProfile,
@@ -355,11 +367,71 @@ pub struct TypeChecker<'a> {
     pub diags: Vec<Diagnostic>,
     env: Vec<(&'a str, Ty)>,
     pub hof: HofTypes,
+    /// v1.10：総称の関数の呼び出しの型引数
+    pub inst: Instances,
 }
 
 impl<'a> TypeChecker<'a> {
     pub fn new(fns: &'a HashMap<&'a str, &'a FnDecl>, profile: &'a StaticProfile) -> Self {
-        TypeChecker { fns, profile, work: WorkCounter::default(), diags: vec![], env: vec![], hof: HashMap::new() }
+        TypeChecker {
+            fns,
+            profile,
+            work: WorkCounter::default(),
+            diags: vec![],
+            env: vec![],
+            hof: HashMap::new(),
+            inst: HashMap::new(),
+        }
+    }
+
+    /// v1.10：`pat` の型引数（名前が `vars` にあるもの）を `t` の対応する部分に束縛する一方向の照合。
+    /// `t` の型引数（呼び出し側の総称の関数の型引数）は定数として扱う。ErrorType を含む部分は照合しない。
+    fn bind(&mut self, pat: &Ty, t: &Ty, vars: &[String], sub: &mut [Option<Ty>], node: &Meta) -> TcR<Result<(), Bad>> {
+        if t.is_error() || pat.is_error() {
+            return Ok(Ok(()));
+        }
+        if let Some(i) = pat.param_name().and_then(|n| vars.iter().position(|v| v == n)) {
+            self.event(Ev::Compare, node)?;
+            return Ok(match sub[i].clone() {
+                None => {
+                    sub[i] = Some(t.clone());
+                    Ok(())
+                }
+                Some(prev) => match self.equal(&prev, t, node)? {
+                    Some(false) => Err(Bad::Conflict(i, prev, t.clone())),
+                    _ => Ok(()),
+                },
+            });
+        }
+        if !pat.has_params() {
+            return Ok(match self.equal(pat, t, node)? {
+                Some(false) => Err(Bad::Shape),
+                _ => Ok(()),
+            });
+        }
+        self.event(Ev::Compare, node)?;
+        if pat.tag() != t.tag() || pat.args().len() != t.args().len() {
+            return Ok(Err(Bad::Shape));
+        }
+        for (p, q) in pat.args().iter().zip(t.args()) {
+            if let Err(b) = self.bind(p, q, vars, sub, node)? {
+                return Ok(Err(b));
+            }
+        }
+        Ok(Ok(()))
+    }
+
+    /// v1.10：総称のレコード型・直和型の展開後の型 `want`（型引数を含む）と値の型 `t` を照合し、型引数の束縛を返す。
+    fn bind_template(&mut self, want: &Ty, t: &Ty, node: &Meta) -> TcR<Option<Vec<(String, Ty)>>> {
+        let vars: Vec<String> = match want.record().map(|r| r.generic.clone()).or_else(|| want.sum().map(|s| s.generic.clone())) {
+            Some(Some(g)) => g.params,
+            _ => collect_params(want),
+        };
+        let mut sub = vec![None; vars.len()];
+        Ok(match self.bind(want, t, &vars, &mut sub, node)? {
+            Ok(()) => Some(vars.into_iter().zip(sub).filter_map(|(v, s)| s.map(|s| (v, s))).collect()),
+            Err(_) => None,
+        })
     }
 
     fn event(&mut self, ev: Ev, node: &Meta) -> TcR<()> {
@@ -420,10 +492,27 @@ impl<'a> TypeChecker<'a> {
 
     pub fn check_function(&mut self, f: &'a FnDecl) -> TcR<()> {
         self.env = f.params.iter().map(|p| (p.name.as_str(), Ty::of(&p.ty))).collect();
+        let before = self.diags.len();
         let body_t = self.expr(&f.body)?;
         let ret = Ty::of(&f.return_type);
         if self.equal(&body_t, &ret, &f.body.meta)? == Some(false) {
             self.report("E-TYPE-RETURN", &f.body.meta, &ret, &body_t);
+        }
+        // v1.10：総称の関数の本体で、型引数の値に特定の型の操作（add など）を使った
+        for d in &mut self.diags[before..] {
+            let Some(t) = f.type_params.iter().find(|p| d.actual.as_deref() == Some(p.name.as_str())) else { continue };
+            if d.repair.is_some() || !d.code.starts_with("E-TYPE-") {
+                continue;
+            }
+            let (t, name) = (&t.name, f.ctor.as_deref().unwrap_or(&f.name));
+            let need = d.expected.clone().unwrap_or_else(|| "a concrete type".into());
+            *d = d.clone().fix(
+                "replace_expression",
+                d.span,
+                format!(
+                    "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known"
+                ),
+            );
         }
         Ok(())
     }
@@ -542,15 +631,32 @@ impl<'a> TypeChecker<'a> {
                 let want = Ty::of(rt);
                 // 型注釈から来た型はレコード名を持つ。名前が違えば、形が同じでも別のレコードの field とみなす
                 let other = matches!((t.record(), want.record()), (Some(a), Some(b)) if a.name != b.name);
-                let same = if other { Some(false) } else { self.equal(&t, &want, &expr.meta)? };
+                // v1.10：総称のレコード型は型引数を照合で決める
+                let mut binds = vec![];
+                let same = if other {
+                    Some(false)
+                } else if want.has_params() && !t.is_error() {
+                    match self.bind_template(&want, &t, &expr.meta)? {
+                        Some(b) => {
+                            binds = b;
+                            Some(true)
+                        }
+                        None => Some(false),
+                    }
+                } else {
+                    self.equal(&t, &want, &expr.meta)?
+                };
                 match same {
                     Some(true) => {
-                        let mut ft = want;
+                        let mut ft = want.clone();
                         for _ in 0..*i {
                             ft = ft.arg(1);
                         }
                         if i + 1 < *n {
                             ft = ft.arg(0);
+                        }
+                        if !binds.is_empty() {
+                            ft = ft.subst(&|p| binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone()));
                         }
                         Ok(ft)
                     }
@@ -587,7 +693,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { nt } else { Ty::error() })
             }
-            ExprKind::Call { callee, args, builtin, .. } => self.call(e, callee, args, *builtin),
+            ExprKind::Call { callee, args, builtin, type_args, callee_span } => self.call(e, callee, args, *builtin, type_args, *callee_span),
             // v1.4：ok<T, E>(x) は x : T、err<T, E>(x) は x : E のとき Result<T, E>
             ExprKind::Inj { ok, ty, value } => {
                 let vt = self.expr(value)?;
@@ -716,11 +822,22 @@ impl<'a> TypeChecker<'a> {
         let fields: Vec<Vec<Ty>> = match kind {
             MatchKind::Sum { ty, fields } => {
                 let want = Ty::of(ty);
-                if self.equal(&st, &want, sm)? == Some(false) {
+                // v1.10：総称の直和型は対象の型と照合して型引数を決め、中身の型に入れる
+                let mut binds = vec![];
+                if want.has_params() && !st.is_error() {
+                    match self.bind_template(&want, &st, sm)? {
+                        Some(b) => binds = b,
+                        None => {
+                            self.report("E-TYPE-MATCH-SCRUTINEE", sm, &want, &st);
+                            ok = false;
+                        }
+                    }
+                } else if self.equal(&st, &want, sm)? == Some(false) {
                     self.report("E-TYPE-MATCH-SCRUTINEE", sm, &want, &st);
                     ok = false;
                 }
-                fields.iter().map(|fs| fs.iter().map(|f| if ok { Ty::of(f) } else { Ty::error() }).collect()).collect()
+                let inst = |f: &TypeNode| Ty::of(f).subst(&|p| binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone()));
+                fields.iter().map(|fs| fs.iter().map(|f| if ok { inst(f) } else { Ty::error() }).collect()).collect()
             }
             MatchKind::Result | MatchKind::Option => {
                 let (tag, name) = if *kind == MatchKind::Result { (TyTag::Result, "Result") } else { (TyTag::Option, "Option") };
@@ -782,8 +899,111 @@ impl<'a> TypeChecker<'a> {
         })
     }
 
-    fn call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], builtin: bool) -> TcR<Ty> {
+    /// v1.10：総称の関数の呼び出し（型引数を書いたものも）。型引数は明示したものを使い、なければ引数の型との照合で
+    /// 推論する（一階の照合。戻り型だけに現れる型引数は推論できないので明示を求める）。
+    fn generic_call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], type_args: &'a [TypeNode], callee_span: Sp) -> TcR<Ty> {
         let m = &e.meta;
+        let f = self.fns[name];
+        let shown = f.ctor.as_deref().unwrap_or(name).to_string();
+        let vars: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+        let mut ts = vec![];
+        for a in args {
+            ts.push(self.expr(a)?);
+        }
+        if !type_args.is_empty() && type_args.len() != vars.len() {
+            let span = (callee_span.0, m.span().1);
+            let fix = if vars.is_empty() {
+                format!("{shown}(...) without type arguments: {shown} is not generic")
+            } else {
+                format!("{shown}<{}>(...) with {} type argument(s), one per type parameter", vars.join(", "), vars.len())
+            };
+            self.diags.push(
+                Diagnostic::error("typecheck", "E-TYPE-GENERIC-ARITY", span)
+                    .exp(format!("{} type arguments", vars.len()))
+                    .act(format!("{} type arguments", type_args.len()))
+                    .at(m.index)
+                    .fix("replace_expression", span, fix),
+            );
+            return Ok(Ty::error());
+        }
+        if args.len() != f.params.len() {
+            let n = f.params.len();
+            self.report("E-ARITY-USER", m, format!("{n} arguments"), format!("{} arguments", args.len()));
+            return Ok(Ty::error());
+        }
+        let explicit = !type_args.is_empty();
+        let mut sub: Vec<Option<Ty>> = type_args.iter().map(|t| Some(Ty::of(t))).collect();
+        sub.resize(vars.len(), None);
+        let mut ok = !ts.iter().any(|t| t.is_error());
+        for ((a, t), p) in args.iter().zip(&ts).zip(&f.params) {
+            let pt = Ty::of(&p.ty);
+            match self.bind(&pt, t, &vars, &mut sub, &a.meta)? {
+                Ok(()) => {}
+                Err(Bad::Conflict(i, prev, new)) if !explicit => {
+                    let v = &vars[i];
+                    self.diags.push(
+                        Diagnostic::error("typecheck", "E-TYPE-GENERIC-MISMATCH", a.meta.span())
+                            .exp(prev.to_string())
+                            .act(new.to_string())
+                            .at(a.meta.index)
+                            .fix(
+                                "replace_expression",
+                                a.meta.span(),
+                                format!(
+                                    "expression whose type gives {v} = {prev}: the type parameter {v} of {shown} was inferred as {prev} from an earlier argument, so every argument written with {v} must use {prev}; if a different type is meant, convert the arguments first or write {shown}<...>(...) explicitly"
+                                ),
+                            ),
+                    );
+                    ok = false;
+                }
+                Err(_) => {
+                    let shown_t = pt.subst(&|n| vars.iter().position(|v| v == n).and_then(|i| sub[i].clone()));
+                    self.report("E-TYPE-ARG", &a.meta, &shown_t, t);
+                    ok = false;
+                }
+            }
+        }
+        if !ok {
+            return Ok(Ty::error());
+        }
+        if sub.iter().any(|s| s.is_none()) {
+            let missing: Vec<&str> = vars.iter().zip(&sub).filter(|(_, s)| s.is_none()).map(|(v, _)| v.as_str()).collect();
+            let shape: Vec<String> = vars.iter().zip(&sub).map(|(v, s)| s.as_ref().map_or(v.clone(), |t| t.to_string())).collect();
+            let at = callee_span.1;
+            let parens = if f.params.is_empty() { "()" } else { "(...)" };
+            self.diags.push(
+                Diagnostic::error("typecheck", "E-TYPE-GENERIC-INFER", callee_span.t())
+                    .exp(format!("type arguments for {}", missing.join(", ")))
+                    .act(format!("{shown}{parens}"))
+                    .at(m.index)
+                    .fix(
+                        "insert_text",
+                        (at, at),
+                        format!(
+                            "'<{}>' after {shown}, replacing {} with concrete types: {} cannot be inferred from the argument types (it appears only in the return type or nowhere in the parameters), so write {shown}<{}>{parens}",
+                            shape.join(", "),
+                            missing.join(", "),
+                            missing.join(", "),
+                            shape.join(", ")
+                        ),
+                    ),
+            );
+            return Ok(Ty::error());
+        }
+        let tys: Vec<Ty> = sub.into_iter().map(|s| s.expect("all bound")).collect();
+        for t in &tys {
+            self.build(t.clone(), m)?;
+        }
+        let ret = Ty::of(&f.return_type).subst(&|n| vars.iter().position(|v| v == n).map(|i| tys[i].clone()));
+        self.inst.insert(m.index, tys);
+        self.build(ret, m)
+    }
+
+    fn call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], builtin: bool, type_args: &'a [TypeNode], callee_span: Sp) -> TcR<Ty> {
+        let m = &e.meta;
+        if !builtin && (!type_args.is_empty() || !self.fns[name].type_params.is_empty()) {
+            return self.generic_call(e, name, args, type_args, callee_span);
+        }
         let arity = if builtin { builtin_arity(name).unwrap() } else { self.fns[name].params.len() };
         if args.len() != arity {
             let code = if builtin { "E-ARITY-BUILTIN" } else { "E-ARITY-USER" };
@@ -971,6 +1191,27 @@ impl<'a> TypeChecker<'a> {
     }
 }
 
+/// v1.10：型に現れる型引数の名前（現れる順、重複なし）。
+pub fn collect_params(t: &Ty) -> Vec<String> {
+    fn go(t: &Ty, out: &mut Vec<String>) {
+        if !t.has_params() {
+            return;
+        }
+        if let Some(n) = t.param_name() {
+            if !out.iter().any(|m| m == n) {
+                out.push(n.to_string());
+            }
+            return;
+        }
+        for a in t.args() {
+            go(a, out);
+        }
+    }
+    let mut out = vec![];
+    go(t, &mut out);
+    out
+}
+
 // ======================================================================= driver
 
 /// 受理済みプログラム（不透明値）。
@@ -1009,6 +1250,8 @@ pub struct CheckOutcome {
     pub work: Option<WorkCounter>,
     /// v1.5：`map` などの型（型検査まで進んだときだけ）
     pub hof: HofTypes,
+    /// v1.10：総称の関数の呼び出しの型引数（型検査まで進んだときだけ）
+    pub inst: Instances,
 }
 
 pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> CheckOutcome {
@@ -1040,6 +1283,7 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
     out.work = Some(tc.work);
     out.diagnostics.append(&mut tc.diags);
     out.hof = std::mem::take(&mut tc.hof);
+    out.inst = std::mem::take(&mut tc.inst);
 
     // entry
     let mut entry_ok = false;
@@ -1050,8 +1294,27 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
         out.diagnostics.push(Diagnostic::error("entry", "E-ENTRY-DUPLICATE", d.meta.span()).at(d.meta.index));
     } else {
         let d = entries[0];
-        let n = fn_map[d.name.as_str()].params.len();
-        if n != 1 {
+        let ef = fn_map[d.name.as_str()];
+        let n = ef.params.len();
+        if !ef.type_params.is_empty() {
+            // v1.10：entry の関数は総称にできない（入出力の型が一つに決まらない）
+            let names: Vec<&str> = ef.type_params.iter().map(|p| p.name.as_str()).collect();
+            let at = ef.meta.span().0;
+            out.diagnostics.push(
+                Diagnostic::error("entry", "E-ENTRY-GENERIC", d.name_span.t())
+                    .exp("function without type parameters")
+                    .act(format!("{}<{}>", ef.name, names.join(", ")))
+                    .at(d.meta.index)
+                    .fix(
+                        "insert_text",
+                        (at, at),
+                        format!(
+                            "a non-generic wrapper with concrete types, e.g. fn main(x: List<Int>) -> Int = {}(x), and name it in entry instead (entry main)",
+                            ef.name
+                        ),
+                    ),
+            );
+        } else if n != 1 {
             out.diagnostics.push(
                 Diagnostic::error("entry", "E-ENTRY-ARITY", d.name_span.t()).exp("1 parameter").act(format!("{n} parameters")).at(d.meta.index),
             );
@@ -1073,7 +1336,8 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
             }
         }
         for f in &fns {
-            if !live.contains(f.name.as_str()) {
+            // v1.10：構築子のために作った関数は使われなくても警告しない（生成したもの）
+            if !live.contains(f.name.as_str()) && f.ctor.is_none() {
                 out.diagnostics.push(Diagnostic::warning("warnings", "W-UNUSED-FUNCTION", f.name_span.t()).at(f.meta.index));
             }
         }

@@ -108,4 +108,15 @@ entry count
 
 入力 `["to", "be", "or", "to", "be"]` で `[["to", 2], ["be", 2], ["or", 1]]`。
 
+# v1.10 の例
+
+```text
+// 一つの補助関数を二つの型で使う
+fn dedup<T>(xs: List<T>) -> List<T> = reverse(fold(xs, list<T>(), |seen, x| if(contains(seen, x), seen, cons(x, seen))))
+fn solve(p: Pair<List<Int>, List<String>>) -> Pair<List<Int>, List<String>> = pair(dedup(fst(p)), dedup(snd(p)))
+entry solve
+```
+
+入力 `[[1, 2, 1], ["a", "a"]]` で `[[1, 2], ["a"]]`。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

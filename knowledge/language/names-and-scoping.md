@@ -66,4 +66,11 @@ binder と同じ規則）。e は外側の変数を参照できる。書き換�
 レコード型の名前にも使える（型の位置で直後が `<` のときだけ辞書の型）。書き換えで導入する名前（`hof1` など）は
 プログラム中のどの名前とも重ならない。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
 
+# v1.10 の追加：型引数の名前
+
+型引数の scope はそれを宣言した関数・型の宣言全体。一つの宣言の中で相異なり（`E-TYPE-GENERIC-DUPLICATE-PARAM`）、宣言された
+型の名前と重ならない（`E-TYPE-GENERIC-PARAM-CONFLICT`）。型の宣言の型引数は field・variant のどこかに現れる
+（`E-TYPE-GENERIC-UNUSED-PARAM`）。単相化で作る複製（`first_g1` など）と構築子のために作る総称の関数（`node_new` など）の
+名前は、プログラム中のどの名前とも重ならない。詳細は [v1.10 差分仕様](../../spec/lptl-v1.10/LPTL_v1.10_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -64,6 +64,11 @@ sources:
 | `E-TYPE-DICT-ARG` | typecheck | v1.9：`dict_get` などの第 1 引数が辞書でない（`List<Pair<K, V>>` なら修復ヒントで `dict_from`） |
 | `E-TYPE-DICT-FROM` | typecheck | v1.9：`dict_from` の引数が `List<Pair<K, V>>` でない |
 | `E-TYPE-LOOP-BODY` | typecheck | v1.6：`loop` の本体が `Option<S>`（S は init の型）でない。`loop` の第 3 引数がラムダでないときは `E-PARSE-EXPECTED-LAMBDA` |
+| `E-TYPE-GENERIC-UNKNOWN-PARAM`、`-DUPLICATE-PARAM`、`-PARAM-CONFLICT`、`-UNUSED-PARAM` | name | v1.10：宣言されていない型引数、同じ名前の型引数、型の名前と同じ型引数、型の宣言で使われない型引数 |
+| `E-TYPE-GENERIC-ARITY` | name／typecheck | v1.10：型・呼び出し・構築の型引数の数が違う |
+| `E-TYPE-GENERIC-INFER` | typecheck（中身のない構築子は name） | v1.10：型引数を推論できない（修復ヒントで `f<Int>(...)`・`Leaf<Int>()`） |
+| `E-TYPE-GENERIC-MISMATCH` | typecheck | v1.10：同じ型引数に引数によって違う型が当たった |
+| `E-TYPE-GENERIC-INFINITE` | typecheck | v1.10：多相再帰（呼ぶたびに型引数が大きくなる） |
 | `E-PARSE-UNEXPECTED-TOKEN` | parse | 完成した式の後に fn/entry/EOF 以外 |
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |
@@ -74,6 +79,7 @@ sources:
 | `E-ENTRY-MISSING` | entry | entry 宣言なし |
 | `E-ENTRY-DUPLICATE` | entry | entry 宣言が複数 |
 | `E-ENTRY-ARITY` | entry | entry 関数の引数が一つでない |
+| `E-ENTRY-GENERIC` | entry | v1.10：entry の関数が総称 |
 | `E-CYCLE-CALL` | call-graph | 呼出し循環（v1.7：`rec fn` の印のない関数を含む循環。修復ヒント：循環にある関数に `rec` を付ける） |
 | `E-ARITY-USER` | typecheck | ユーザー関数の引数数不一致 |
 | `E-ARITY-BUILTIN` | typecheck | 組込みの引数数不一致 |
@@ -83,6 +89,7 @@ sources:
 | `E-LIMIT-STATIC-TOKENS`、`-INTEGER-DIGITS` | lexical-limits | token 数、整数桁数 |
 | `E-LIMIT-STATIC-FUNCTIONS`、`-AST-NODES`、`-TYPE-DEPTH`、`-EXPR-DEPTH`、`-LET-DEPTH`、`-FOLD-DEPTH` | structural-limits | 構造上限 |
 | `E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH`、`-SEMANTIC-WORK` | semantic-limits | 推論型深さ、型検査仕事量 |
+| `E-LIMIT-STATIC-GENERIC-INSTANCES` | semantic-limits | v1.10：単相化の複製が 256 個、型引数の大きさが型の node 256 個を超えた |
 | `E-DIAG-LIMIT`／`W-DIAG-LIMIT` | — | 診断件数上限 |
 | `W-UNUSED-FUNCTION` | warnings | 未到達関数 |
 | `E-INPUT-JSON-SYNTAX`、`-STRING-SCALAR`、`-DUPLICATE-KEY` | input-parse | 入力 JSON transport |

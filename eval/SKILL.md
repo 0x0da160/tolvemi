@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.9), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.10), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.9)
+# Tolvemi (LPTL v1.10)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -46,7 +46,7 @@ entry sum_even
 Escapes in literals: `\\`, `\n`, `\t`, `\r`, and the literal's own quote (`\"` in strings, `\'` in chars). Nothing else.
 In JSON inputs and outputs, a `String` is a JSON string, a `Char` is a one-character JSON string, and a `Dict` is an
 array of `[key, value]` arrays in insertion order.
-There are no floats, type variables or generics. Records and sum types (below) are the only user-defined types.
+There are no floats. Records and sum types (below) are the only user-defined types; functions and types may take type parameters (generics, below).
 Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
 ## Expressions
@@ -198,6 +198,31 @@ entry solve
   by the step or depth limit instead of returning a value.
 - There are no recursive types; recurse over a `List` (take it apart with `uncons`) or over numbers.
 
+## Generics: one helper for several element types
+
+Put type parameters (uppercase names) in `<...>` after a function or type name, and use them in any type position.
+A call infers them from the argument types; write them out (`f<Int>(xs)`) when an argument does not fix them.
+
+```tlvm
+type Tagged<T> = { tag: String, item: T }
+
+fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(p) => some(fst(p)), none => none<T>() }
+
+fn tag_all<T>(tag: String, xs: List<T>) -> List<Tagged<T>> = map(xs, |x| Tagged { tag: tag, item: x })
+
+fn solve(xs: List<Int>) -> Pair<Option<Int>, List<Tagged<String>>> =
+  pair(first(xs), tag_all("w", list<String>("a", "b")))
+entry solve
+```
+
+- Inside a generic body a `T` value can only be compared with `eq`, stored (pairs, lists, options, dicts, records),
+  passed on, or handled by list and higher-order builtins (`cons`, `length`, `fold`, `map`, ...). `add`, `lt`, `sort`,
+  `to_string` and other type-specific builtins on a `T` are errors: do that part in the caller, or take an `Int`.
+- Generic sum types: `type Tree<T> = Leaf | Node(T, Int)`. Build with `Node(x, 1)` (inferred) or `Node<Int>(x, 1)`;
+  a constructor without fields always needs its type argument and `()`: `Leaf<Int>()`. Patterns stay `Leaf`, `Node(v, n)`.
+- Write the type arguments when using a generic type (`Tree<Int>`, `Tagged<String>`). The `entry` function cannot be
+  generic, and a recursive call may not grow its type argument (`g<List<T>>` inside `rec fn g<T>`).
+
 ## Names and scoping
 
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
@@ -237,6 +262,15 @@ Several inputs: the entry receives one `Pair`, and helper functions may take sev
 ```tlvm
 fn scale(k: Int, x: Int) -> Int = mul(k, x)
 fn solve(p: Pair<Int, List<Int>>) -> List<Int> = map(snd(p), |x| scale(fst(p), x))
+entry solve
+```
+
+The same steps on two element types: write the helper once with a type parameter instead of copying it.
+
+```tlvm
+// Drop repeated elements (keeping the first) from both lists.
+fn dedup<T>(xs: List<T>) -> List<T> = reverse(fold(xs, list<T>(), |seen, x| if(contains(seen, x), seen, cons(x, seen))))
+fn solve(p: Pair<List<Int>, List<String>>) -> Pair<List<Int>, List<String>> = pair(dedup(fst(p)), dedup(snd(p)))
 entry solve
 ```
 
@@ -377,6 +411,9 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-TYPE-LOOP-MAX` / `E-TYPE-LOOP-BODY` | the bound of `loop` is not an `Int`, or its step is not `Option<S>` where `S` is the type of `init` (return `some(next)` / `none<S>()`, not the bare state) |
 | `E-TYPE-DICT-ARG` / `E-TYPE-DICT-FROM` | a `dict_*` operation on something that is not a `Dict` (convert a `List<Pair<K, V>>` with `dict_from`), or `dict_from` of something that is not a `List<Pair<K, V>>` |
 | `E-PARSE-EXPECTED-PATTERN` | something other than a pattern before `=>` in a `match` arm |
+| `E-TYPE-GENERIC-INFER` | a type parameter the arguments do not fix (it appears only in the result type, or `Leaf` of a generic sum type): write it, `f<Int>(...)` / `Leaf<Int>()` |
+| `E-TYPE-GENERIC-UNKNOWN-PARAM` / `E-TYPE-GENERIC-ARITY` / `E-TYPE-GENERIC-MISMATCH` | `T` used without `<T>` on the declaration, the wrong number of type arguments, or two arguments giving one parameter different types |
+| `E-TYPE-GENERIC-INFINITE` / `E-ENTRY-GENERIC` | a recursive call that grows its type argument, or a generic `entry` function (wrap it in a function with concrete types) |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |
 | `E-LEX-INVALID-ESCAPE` / `E-LEX-UNTERMINATED-STRING` / `E-LEX-INVALID-CHAR-LITERAL` | a bad escape, a string without its closing `"`, or a char literal that is not exactly one character |

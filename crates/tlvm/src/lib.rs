@@ -13,6 +13,7 @@ pub mod dict;
 pub mod embed;
 pub mod evaluator;
 pub mod formatter;
+pub mod generics;
 pub mod hof;
 pub mod lexer;
 pub mod parser;

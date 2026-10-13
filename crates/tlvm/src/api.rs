@@ -6,6 +6,7 @@ use crate::diagnostics::{finalize, suggest_repairs, Diagnostic};
 use crate::plain::{canonical_profile, decode_plain, PlainDecode};
 use crate::evaluator::{self, RunResult};
 use crate::dict;
+use crate::generics;
 use crate::hof;
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
@@ -132,10 +133,11 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             match expand(&p) {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
-                    let o = check_program(&px, source.len(), profile);
+                    // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
+                    let (o, pm) = generics::check(&px, source.len(), profile);
                     // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
                     // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
-                    let text = format_program(&dict::erase(&lower(&hof::lower(&px, &o.hof))).unmarked());
+                    let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
                     let r = result(o.diagnostics.clone(), Some(o));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
@@ -150,9 +152,9 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     }
 }
 
-/// レコード（v1.1）か直和型・match（v1.4）を含み、検査の前に展開が要るか。
+/// レコード（v1.1）か直和型・match（v1.4）、型引数（v1.10）を含み、検査の前に展開が要るか。
 pub fn needs_expansion(p: &Program) -> bool {
-    sums::has_sums(p) || records::has_records(p)
+    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p)
 }
 
 /// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop・
@@ -161,10 +163,12 @@ pub fn needs_glue(p: &Program) -> bool {
     needs_expansion(p) || hof::has_hof(p) || dict::has_dict(p)
 }
 
-/// 直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
-/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。
+/// 型引数、直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
+/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。総称の関数も残る（型検査の後で
+/// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
-    let p = if sums::has_sums(p) { sums::expand(p)? } else { p.clone() };
+    let p = if generics::has_generics(p) { generics::resolve(p)? } else { p.clone() };
+    let p = if sums::has_sums(&p) { sums::expand(&p)? } else { p };
     if records::has_records(&p) {
         records::expand(&p)
     } else {
@@ -311,7 +315,16 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
     match parse_ast(data, profile, tp) {
         ParsedAst::Failed(f) => f,
         ParsedAst::Program(p) => {
-            let o = check_program(&p, data.len(), profile);
+            // v1.10：型引数を解決し、総称の関数は型検査の後で単相化する
+            let p = if generics::has_generics(&p) {
+                match generics::resolve(&p) {
+                    Ok(p) => p,
+                    Err(d) => return AstCompile::Result(without_repairs(result(d, None))),
+                }
+            } else {
+                p
+            };
+            let (o, p) = generics::check(&p, data.len(), profile);
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）。
             // v1.5：map など（v1.6 の loop も）は fold などに書き換えてから整形する
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）

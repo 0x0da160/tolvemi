@@ -88,6 +88,16 @@ pub fn message_for(code: &str) -> &'static str {
         "E-MATCH-UNREACHABLE" => "届かない枝です（`_` の後の枝、または全部の場合を書いた後の `_`）",
         "E-MATCH-MIXED" => "一つの match に違う型の pattern が混ざっています",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
+        "E-TYPE-GENERIC-UNKNOWN-PARAM" => "宣言されていない型引数です（型引数は関数・型の名前の後の <T, ...> で宣言します）",
+        "E-TYPE-GENERIC-ARITY" => "型引数の数が宣言と違います",
+        "E-TYPE-GENERIC-DUPLICATE-PARAM" => "同じ名前の型引数が二度宣言されています",
+        "E-TYPE-GENERIC-PARAM-CONFLICT" => "型引数の名前が宣言された型の名前と重なっています",
+        "E-TYPE-GENERIC-UNUSED-PARAM" => "型の宣言の型引数が field・variant のどこにも使われていません",
+        "E-TYPE-GENERIC-INFER" => "型引数を引数の型から推論できません（f<Int>(x) のように明示します）",
+        "E-TYPE-GENERIC-MISMATCH" => "同じ型引数に、引数によって違う型が当たっています",
+        "E-TYPE-GENERIC-INFINITE" => "再帰のたびに型引数が大きくなる呼び出し（多相再帰）は具体化が終わりません",
+        "E-ENTRY-GENERIC" => "entry の関数は型引数を持てません",
+        "E-LIMIT-STATIC-GENERIC-INSTANCES" => "総称の関数の具体化の数か型引数の大きさが上限を超えました",
         "E-LIMIT-STATIC-SOURCE-BYTES" => "source bytes が上限を超えました",
         "E-LIMIT-STATIC-TOKENS" => "token 数が上限を超えました",
         "E-LIMIT-STATIC-INTEGER-DIGITS" => "整数リテラルの桁数が上限を超えました",
@@ -367,6 +377,12 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             }
             // 予約語を名前に使ったときだけ書き換え先を示す。それ以外（回復後の連鎖など）は位置が当てにならない
             // v1.4：構築子の名前は大文字で始まる
+            // v1.10：宣言の型引数は大文字で始まる
+            "E-PARSE-EXPECTED-IDENT" if exp.as_deref() == Some(crate::parser::TYPE_PARAM_EXPECTED) => Some((
+                "replace_identifier",
+                span,
+                "type parameter name starting with an uppercase letter, as in fn first<T>(xs: List<T>) -> Option<T> or type Box<T> = { value: T }".into(),
+            )),
             "E-PARSE-EXPECTED-IDENT" if exp.as_deref() == Some(crate::parser::CTOR_EXPECTED) => Some((
                 "replace_identifier",
                 span,
@@ -402,7 +418,11 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                     "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>(), dict<K, V>()".into(),
                 )),
                 (Some("=>"), _) => Some(("insert_text", (span.0, span.0), "'=>' between the pattern and the arm's expression".into())),
-                (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T> or dict<K, V>, as in none<Int>() or dict<String, Int>()".into())),
+                (Some("()"), _) => Some((
+                    "insert_text",
+                    (span.0, span.0),
+                    "() after none<T>, dict<K, V>, an explicit call f<T> or a constructor Leaf<T>, as in none<Int>(), dict<String, Int>(), f<Int>(x) or Leaf<Int>()".into(),
+                )),
                 // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
                 // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
                 (Some(")"), Some("," | "in" | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
@@ -422,7 +442,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             "E-PARSE-EXPECTED-TYPE" => Some((
                 "replace_type",
                 span,
-                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name".into(),
+                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name (Box<Int> for a generic one) | a type parameter of the declaration".into(),
             )),
             "E-PARSE-STRING-TYPE" => Some(("replace_type", span, "String".into())),
             "E-LEX-INVALID-ESCAPE" => Some((

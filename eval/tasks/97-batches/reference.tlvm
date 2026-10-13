@@ -1,0 +1,15 @@
+// A generic helper used at two element types: batch the names and the amounts the same way, then zip the batches.
+fn chunk<T>(xs: List<T>, k: Int) -> List<List<T>> =
+  let r = fold(xs, pair(list<List<T>>(), list<T>()), |st, x|
+    let cur = cons(x, snd(st)) in
+    if(eq(length(cur), k), pair(cons(reverse(cur), fst(st)), list<T>()), pair(fst(st), cur))) in
+  reverse(if(eq(length(snd(r)), 0), fst(r), cons(reverse(snd(r)), fst(r))))
+fn zip<A, B>(xs: List<A>, ys: List<B>) -> List<Pair<A, B>> =
+  reverse(snd(fold(xs, pair(ys, list<Pair<A, B>>()), |st, x| match uncons(fst(st)) { some(p) => pair(snd(p), cons(pair(x, fst(p)), snd(st))), none => st })))
+fn solve(inp: Pair<Int, List<Pair<String, Int>>>) -> List<Pair<List<String>, Int>> =
+  let k = fst(inp) in
+  let rs = snd(inp) in
+  let names = chunk(map(rs, |r| fst(r)), k) in
+  let sums = map(chunk(map(rs, |r| snd(r)), k), |b| fold(b, 0, |a, x| add(a, x))) in
+  zip(names, sums)
+entry solve

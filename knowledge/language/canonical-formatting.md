@@ -69,4 +69,9 @@ sources:
 型は `Dict<T, T>`、空の辞書は `dict<T, T>()`、操作は組み込み関数の呼び出しと同じ形。これを含むプログラムも検証済み
 formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
 
+# v1.10 の追加
+
+`fn f<T, U>(...)`、`type Box<T> = ...`、型 `Box<Int>`、呼び出し `f<Int>(x)`、構築 `Leaf<Int>()`（`<` の前後に空白なし、
+`,` の後に空白一つ）。総称の構文を含むプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

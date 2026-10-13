@@ -102,6 +102,18 @@ class RunTest(unittest.TestCase):
             p.run([["a", 1], ["a", 2]])
         self.assertEqual(cm.exception.diagnostics[0]["code"], "E-INPUT-DICT-DUPLICATE-KEY")
 
+    def test_generics(self):
+        # v1.10：総称の関数は使った型ごとに具体化する。総称のレコード型は plain JSON の object
+        p = tlvm.compile(
+            "type Box<T> = { value: T, n: Int }\n"
+            "fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(q) => some(fst(q)), none => none<T>() }\n"
+            "fn f(xs: List<Int>) -> Pair<Box<Option<Int>>, Option<String>> =\n"
+            "  pair(Box { value: first(xs), n: length(xs) }, first(list<String>(\"a\")))\n"
+            "entry f\n"
+        )
+        self.assertEqual(p.output_type, "Pair<Box<Option<Int>>, Option<String>>")
+        self.assertEqual(p.run([5, 6]), [{"value": 5, "n": 2}, "a"])
+
     def test_input_error(self):
         p = tlvm.compile(SUM)
         for bad in ([1, True], {"a": 1}, 1.5, "x"):
