@@ -1,7 +1,7 @@
 ---
 type: Operating Principle
 title: LLM 統合と Skill
-description: LLM は候補生成・修復器であって信頼実行主体ではなく、受理判断はコンパイラ・codec・評価器・資源 profile・隠しテストに属する。SKILL.md は仕様から生成・照合しハッシュとトークン数を固定する。
+description: LLM は候補生成・修復器であって信頼実行主体ではなく、受理判断はコンパイラ・codec・評価器・資源 profile・隠しテストに属する。SKILL.md は仕様と照合する。
 tags: [lptl, llm, skill, trust]
 status: draft
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
@@ -24,7 +24,7 @@ LLM（提案） → compile / compile_ast（静的受理） → decode_input（�
 
 # Skill（SKILL.md）
 
-- 仕様から生成・照合し、ハッシュとトークン数を固定する。`skill_hash` は成果物 hash と再現 record に入る（[ハッシュ](../api/hashes-and-identity.md)）。
+- 仕様と照合する。`skill_hash` は成果物 hash と再現 record に入る（[ハッシュ](../api/hashes-and-identity.md)）。
 - v1 Skill は Option に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない。
 - **含めるもの**：最小文法、型、組込み規則、`let`・`fold`・`Pair`・`cons`／`reverse` の例、禁止事項、出力形式、主要診断コード。
 - **含めないもの**：最終評価の解法・近傍例・手書き例外規則。

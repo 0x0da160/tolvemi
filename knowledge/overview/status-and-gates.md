@@ -52,19 +52,18 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 - DECISION-5（字句表、D2）：字句表は実装の 68 語とする。予約語 19、文脈キーワード 49。
 - DECISION-6（凍結の時期、D6）：未証明の書換えを残して凍結しない。証明を終えてから凍結する（DECISION-3 を支持）。
 - DECISION-7（凍結条件、G1〜G4）：凍結条件は G0〜G4 のすべてとする。G4 は事前登録した実験の実施と公開を条件とし、正の優位性は条件としない（設計書 §15）。
+- DECISION-8（推奨の採用、D3・D5・D7〜D12、2026-10-13）：オーナーがスレッドで「はい」と答え、次の推奨どおりに決めた。
+  - D3 括弧は山括弧。実装は `list<Int>` と `none<Int>()` を受理し、`list[Int]` は E-PARSE-EXPECTED-TOKEN で拒否する。
+  - D5 作業量・Admission・実行の trace は適合試験の glue であり、規範仕様の一部ではない。G0 では参照 fixture として固定する。
+  - D7 v1 の判定は実装済みの拡張タグ（v1.1〜v1.16）を受理する。「厳格に拒否」から変更（DECISION-4 による）。
+  - D8 実行の trace は設計書の規定どおり（execution-v1-reference-1 と論理 trace）。
+  - D9 補助モデルの行は G0 の必須に含めない。限定検査や補助モデルの通過は G0 の代用にしない。
+  - D10 `SKILL.md` は「仕様と照合する」と書き直す（設計書 §12.2、[LLM 統合と Skill](../llm-evaluation/integration-and-skill.md)）。
+  - D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。それまで null のまま。
+  - D12 型検査の仕事量 cutoff（typecheck-cost-v1）と AST の重複 key（§9.3a、§19.3）は実装のある規則なので v1 の対象とする。設計書の本文はこの扱いになっている（DECISION-4 による）。
 
-未決定（推奨つき。D2、D4、D6 は DECISION-5、4、6 で決定済み）：
-- D2 は DECISION-5 で決定。字句表は実装の 68 語（`crates/tlvm/src/syntax.rs` の KEYWORDS）。うち 19 語は予約語、49 語は文脈キーワード（`SOFT_KEYWORDS`）。設計書 §4.2 に書いた。
-- D3 括弧は山括弧。実装は `list<Int>` と `none<Int>()` を受理し、`list[Int]` は E-PARSE-EXPECTED-TOKEN で拒否する。
-- D4 は DECISION-4 で決定：Char・String・Result・div を v1 に含める。
-- D5 作業量・Admission・実行の trace は適合試験の glue。
-- D6 は DECISION-6 で決定。証明まで凍結しない（DECISION-3 を支持）。
-- D7 v1 の判定は実装済みの拡張タグを受理する。「厳格に拒否」から変更（DECISION-4 による）。
-- D8 実行の trace は設計書どおり。
-- D9 補助の行は G0 の必須から外す。
-- D10 SKILL.md は「仕様と照合する」と書き直す。
-- D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。
-- D12 設計書の 1330・1332 行（型検査の cutoff、AST の重複 key）は実装のある規則なので v1 の対象とする。「対象外」から変更（DECISION-4 による）。
+未決定：
+- 型引数つき call の AST 表現（`f<Int>(x)`、`Leaf<Int>()`）。§19.2 と schema の作り直しに必要で、G0 の未達項目。
 
 このコンテナでは github.com への接続が 403 で拒否されるため、Verus（GitHub のリリース）を取得できません。証明は、github.com の許可のあとに進めます。
 

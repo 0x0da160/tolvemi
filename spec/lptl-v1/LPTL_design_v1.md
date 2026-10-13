@@ -957,7 +957,7 @@ LLM は候補生成・修復器であって、信頼実行主体ではない。�
 
 ### 12.2 Skill
 
-`SKILL.md` は仕様から生成・照合し、ハッシュとトークン数を固定する。v1 Skill は、`Option` に `option_fold` がないことを明記し、`match_option` と `uncons` の書き方を仕様どおりに示す（v1.1）。
+`SKILL.md` は仕様と照合する。v1 Skill は、`Option` に `option_fold` がないことを明記し、`match_option` と `uncons` の書き方を仕様どおりに示す（v1.1）。
 
 含めるのは最小文法、型、組込み規則、`let`・`fold`・`Pair`・`cons`／`reverse` の例、禁止事項、出力形式、主要診断コードである。最終評価の解法・近傍例・手書き例外規則は含めない。
 
