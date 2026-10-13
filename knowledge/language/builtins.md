@@ -87,4 +87,14 @@ length(list[T](x1, ..., xn)) = n
 `fold`・`reverse`・`cons`・`if`・`match_option`・`let` の組み合わせへ書き換えてから検証済み部品に渡す
 （`crates/tlvm/src/hof.rs`）。詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
 
+# v1.6 の追加：上限つき反復
+
+| 形 | 型 | 意味 |
+|---|---|---|
+| `loop(init, max, \|s\| e)` | `S, Int -> Option<S>` | s = init から始め、e（`Option<S>`）が `some(s2)` なら s2 で続け、`none` なら止まる。止まったときの状態を `some(s)` で返し、e を max 回評価しても止まらなければ `none<S>()` |
+
+`|s| e` は `map` などと同じ局所の binder（第一級の関数ではない）。`max <= 0` なら本体を評価せず `none<S>()`。型検査の後に
+`range(0, max)` 上の `fold` と `match_result`・`match_option` へ書き換えてから検証済み部品に渡す
+（`crates/tlvm/src/hof.rs`）。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

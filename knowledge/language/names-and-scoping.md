@@ -50,4 +50,9 @@ entry 名の解決は [entry と到達可能性](entry-and-reachability.md) を�
 binder と同じ規則）。e は外側の変数を参照できる。書き換えで導入する名前（`hof1` など）はプログラム中のどの名前とも
 重ならない。
 
+# v1.6 の追加：loop の binder
+
+`loop(init, max, |s| e)` の s は e の中でだけ見え、外側の可視変数をシャドーできない（`E-NAME-SHADOW`）。init と max の中
+では見えない。書き換えで導入する名前（`hof1` など）はプログラム中のどの名前とも重ならない。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -43,6 +43,10 @@ pub fn format_expr(e: &Expr) -> String {
         }
         // v1.5：`map(xs, |x| e)` など
         ExprKind::Hof { op, list, binder, body, .. } => format!("{}({}, |{}| {})", op.name(), format_expr(list), binder, format_expr(body)),
+        // v1.6：`loop(init, max, |s| e)`
+        ExprKind::Loop { init, max, binder, body, .. } => {
+            format!("loop({}, {}, |{}| {})", format_expr(init), format_expr(max), binder, format_expr(body))
+        }
         ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
             format!("match_option({}, {}, |{}| {})", format_expr(scrutinee), format_expr(on_none), binder, format_expr(on_some))
         }
@@ -273,6 +277,16 @@ fn expr_json(e: &Expr, out: &mut String) {
         ExprKind::Hof { op, list, binder, body, .. } => {
             out.push_str(&format!("{{\"tag\":\"{}\",\"list\":", op.name()));
             expr_json(list, out);
+            out.push_str(&format!(",\"binder\":\"{binder}\",\"body\":"));
+            expr_json(body, out);
+            out.push('}');
+        }
+        // v1.6：`{"tag":"loop","init":...,"max":...,"binder":"s","body":...}`
+        ExprKind::Loop { init, max, binder, body, .. } => {
+            out.push_str("{\"tag\":\"loop\",\"init\":");
+            expr_json(init, out);
+            out.push_str(",\"max\":");
+            expr_json(max, out);
             out.push_str(&format!(",\"binder\":\"{binder}\",\"body\":"));
             expr_json(body, out);
             out.push('}');

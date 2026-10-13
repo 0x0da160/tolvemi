@@ -91,4 +91,13 @@ xs がリストでなければ `E-TYPE-HOF-LIST`、本体の型が違えば `E-T
 ErrorType なら x も ErrorType とし、依存した診断を抑制する（`fold` と同じ）。詳細は
 [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
 
+# v1.6 の追加：loop
+
+```text
+loop(init, max, |s| e) : Option<S>   iff Γ ⊢ init : S, Γ ⊢ max : Int, Γ,s:S ⊢ e : Option<S>
+```
+
+max が Int でなければ `E-TYPE-LOOP-MAX`、e が `Option<S>` でなければ `E-TYPE-LOOP-BODY`（expected に `Option<S>`、
+found に e の型）。init が ErrorType なら本体の型の診断は出さない。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

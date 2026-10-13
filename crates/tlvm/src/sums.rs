@@ -293,6 +293,12 @@ impl Env {
                 let body = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(body)));
                 ExprKind::Hof { op: *op, list, binder: binder.clone(), binder_span: *binder_span, body }
             }
+            ExprKind::Loop { init, max, binder, binder_span, body } => {
+                let init = Box::new(self.expr(init));
+                let max = Box::new(self.expr(max));
+                let body = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(body)));
+                ExprKind::Loop { init, max, binder: binder.clone(), binder_span: *binder_span, body }
+            }
             ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
                 let scrutinee = Box::new(self.expr(scrutinee));
                 let on_none = Box::new(self.expr(on_none));
@@ -583,7 +589,7 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } => {
+        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
             out.insert(binder.clone());
         }
         ExprKind::MatchResult { ok_binder, err_binder, .. } => {

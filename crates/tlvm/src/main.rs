@@ -387,7 +387,7 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["fmt", file] => match parse_file(file, as_ast)? {
-            // v1.1：レコード（v1.4：直和型と match、v1.5：map など）を含むプログラムは検証済み formatter の対象外。
+            // v1.1：レコード（v1.4：直和型と match、v1.5：map など、v1.6：loop）を含むプログラムは検証済み formatter の対象外。
             // 診断用 formatter で整形する
             Some(p) if needs_glue(&p) => {
                 print!("{}", format_program(&p));
@@ -417,7 +417,7 @@ fn real_main() -> Result<ExitCode, String> {
         },
         ["ast", file] => match parse_file(file, as_ast)? {
             // v1.1：AST transport にレコード（v1.4：直和型と match）の形と文脈キーワードの変数名はないので、
-            // 展開・付け替えしたものを出す（v1.5 の map などは AST transport の tag があるのでそのまま出す）
+            // 展開・付け替えしたものを出す（v1.5 の map など・v1.6 の loop は AST transport の tag があるのでそのまま出す）
             Some(p) if needs_expansion(&p) => match expand(&p) {
                 Ok(px) => {
                     println!("{}", encode_ast(&tlvm::softnames::rename(&lower(&px))));

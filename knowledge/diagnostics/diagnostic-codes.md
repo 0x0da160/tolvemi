@@ -59,6 +59,8 @@ sources:
 | `E-PARSE-EXPECTED-LAMBDA` | parse | v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by` の第 2 引数が一つの binder のラムダ `\|x\| e` でない（関数名だけ、ラムダの頭がない式、binder が二つ、第 2 引数がない。修復ヒント付き） |
 | `E-TYPE-HOF-LIST` | typecheck | v1.5：`map` などの第 1 引数がリストでない |
 | `E-TYPE-HOF-BODY` | typecheck | v1.5：ラムダの本体の型が違う（`filter`・`any`・`all`・`find` で Bool でない、`sort_by` で Int でない） |
+| `E-TYPE-LOOP-MAX` | typecheck | v1.6：`loop` の第 2 引数（上限）が Int でない |
+| `E-TYPE-LOOP-BODY` | typecheck | v1.6：`loop` の本体が `Option<S>`（S は init の型）でない。`loop` の第 3 引数がラムダでないときは `E-PARSE-EXPECTED-LAMBDA` |
 | `E-PARSE-UNEXPECTED-TOKEN` | parse | 完成した式の後に fn/entry/EOF 以外 |
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |

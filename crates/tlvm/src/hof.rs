@@ -1,4 +1,5 @@
-//! v1.5 の関数を渡す組み込み `map`・`filter`・`any`・`all`・`find`・`sort_by`（差分仕様 §1、§2）。
+//! v1.5 の関数を渡す組み込み `map`・`filter`・`any`・`all`・`find`・`sort_by`（差分仕様 §1、§2）と、
+//! v1.6 の上限つき反復 `loop`（v1.6 差分仕様 §1、§2）。
 //!
 //! 型検査器は `ExprKind::Hof` を直接検査し、要素の型と本体の型を node index ごとに `HofTypes` に残す。
 //! `lower` はその型を使い、検証済み部品へ渡すソース用に `fold`・`reverse`・`cons`・`if`・`match_option`・`let`
@@ -18,7 +19,16 @@
 //!                               if(lt(ke, ky), pair(fst(st), pair(cons(y, cons(e, fst(snd(st)))), true)),
 //!                                 pair(fst(st), pair(cons(y, fst(snd(st))), false)))))) in
 //!                         reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r))))))
+//! loop(init, max, |s| e)
+//!   => match_result(
+//!        fold(range(0, max), ok<S, S>(init), |acc, i|
+//!          match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))),
+//!        |r| none<S>(), |d| some(d))
 //! ```
+//!
+//! `loop` の状態は `Result<S, S>`（ok = 続行中、err = 止まった）。止まった後の歩では本体を評価せず、
+//! `max` 回の歩を終えても ok のままなら `none<S>()`。`max <= 0` なら `range(0, max)` が空なので本体を評価しない。
+//! s はユーザーの binder（外側の名前をシャドーしないことは名前の検査で確かめてある）。
 //!
 //! `sort_by` は安定な挿入整列：整列済みの acc を小さい方から見て、鍵が e の鍵より大きい最初の要素の前に e を
 //! 入れる（等しい鍵の要素の後ろに入るので、元の順が保たれる）。内側の fold は `cons(e, acc)` を走査し、最初の反復で
@@ -34,10 +44,10 @@ use crate::checker::HofTypes;
 use crate::syntax::*;
 use std::collections::HashSet;
 
-/// `map` などを一つでも含むか。
+/// `map` など（v1.6 の `loop` も）を一つでも含むか。
 pub fn has_hof(p: &Program) -> bool {
     fn ex(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::Hof { .. }) || e.children().into_iter().any(ex)
+        matches!(e.kind, ExprKind::Hof { .. } | ExprKind::Loop { .. }) || e.children().into_iter().any(ex)
     }
     p.functions().any(|f| ex(&f.body))
 }
@@ -52,7 +62,7 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } => {
+        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
             out.insert(binder.clone());
         }
         ExprKind::MatchResult { ok_binder, err_binder, .. } => {
@@ -149,8 +159,10 @@ impl Lower<'_> {
         let Some((a, b)) = self.types.get(&e.meta.index).cloned() else {
             return out;
         };
-        let ExprKind::Hof { op, list, binder, body, .. } = out.kind else {
-            return out;
+        let (op, list, binder, body) = match out.kind {
+            ExprKind::Hof { op, list, binder, body, .. } => (op, list, binder, body),
+            ExprKind::Loop { init, max, binder, body, .. } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
+            _ => return out,
         };
         let k = B { m: e.meta };
         let x = binder;
@@ -216,6 +228,39 @@ impl Lower<'_> {
                 k.fold(xs, k.empty(&a), &acc, &el, k.let_(&r, scan, done))
             }
         }
+    }
+}
+
+impl Lower<'_> {
+    /// v1.6：`loop(init, max, |s| e)`（`st` は状態の型 S）。
+    fn loop_(&mut self, m: Meta, init: Expr, max: Expr, s: String, body: Expr, st: &Ty) -> Expr {
+        let k = B { m };
+        let (acc, i, s2, d, r) = (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+        let rt = type_node(&Ty::result(st.clone(), st.clone()), m);
+        let inj = |ok: bool, v: Expr| k.ex(ExprKind::Inj { ok, ty: rt.clone(), value: Box::new(v) });
+        let match_result = |scrutinee: Expr, okb: &str, on_ok: Expr, errb: &str, on_err: Expr| {
+            k.ex(ExprKind::MatchResult {
+                scrutinee: Box::new(scrutinee),
+                ok_binder: okb.into(),
+                ok_span: m.span,
+                on_ok: Box::new(on_ok),
+                err_binder: errb.into(),
+                err_span: m.span,
+                on_err: Box::new(on_err),
+            })
+        };
+        // 1 歩：本体が some(s2) なら続け、none なら今の状態で止まる
+        let step = k.ex(ExprKind::Match {
+            scrutinee: Box::new(body),
+            on_none: Box::new(inj(false, k.var(&s))),
+            binder: s2.clone(),
+            binder_span: m.span,
+            on_some: Box::new(inj(true, k.var(&s2))),
+        });
+        let fold_body = match_result(k.var(&acc), &s, step, &d, inj(false, k.var(&d)));
+        let steps = k.call("range", vec![k.ex(ExprKind::Int(0.into())), max]);
+        let run = k.fold(steps, inj(true, init), &acc, &i, fold_body);
+        match_result(run, &r, k.none(st), &d, k.ex(ExprKind::Some(Box::new(k.var(&d)))))
     }
 }
 

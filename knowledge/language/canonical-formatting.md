@@ -54,4 +54,9 @@ sources:
 `map(EXPR, |X| EXPR)`（`filter`、`any`、`all`、`find`、`sort_by` も同じ形）。これを含むプログラムは検証済み formatter の
 対象外で、`tlvm fmt` は診断用 formatter の出力を出す（レコード・直和型と同じ）。
 
+# v1.6 の追加
+
+`loop(EXPR, EXPR, |X| EXPR)`。これを含むプログラムも検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の
+出力を出す。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.5), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.6), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.5)
+# Tolvemi (LPTL v1.6)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no general
@@ -59,8 +59,8 @@ Type arguments are always written in angle brackets, as in types; square bracket
 | `f(e1, ..., en)` | call a builtin or a user function (all arguments are evaluated first) |
 
 `|acc, x| body` is only allowed as the third argument of `fold`, `|x| e` only as the second argument of `map`, `filter`,
-`any`, `all`, `find` and `sort_by` (below) and as the third argument of `match_option` and the second and third arguments
-of `match_result`. There are no lambdas, closures or first-class functions anywhere else: write `map(xs, |x| f(x))`, never `map(xs, f)`.
+`any`, `all`, `find` and `sort_by` (below), as the third argument of `loop` (`|s| e`, below) and of `match_option`, and as the
+second and third arguments of `match_result`. There are no lambdas, closures or first-class functions anywhere else: write `map(xs, |x| f(x))`, never `map(xs, f)`.
 
 ## Builtins (the complete list)
 
@@ -90,6 +90,7 @@ of `match_result`. There are no lambdas, closures or first-class functions anywh
 | `any(xs, \|x\| p)`, `all(xs, \|x\| p)` | `List<A> -> Bool` | some / every element satisfies `p` (`all` of an empty list is true); stop at the answer |
 | `find(xs, \|x\| p)` | `List<A> -> Option<A>` | the first element satisfying `p`, or `none` |
 | `sort_by(xs, \|x\| k)` | `List<A> -> List<A>` | ascending by the `Int` key `k`; equal keys keep their order (descending: `\|x\| neg(k)`) |
+| `loop(init, max, \|s\| e)` | `S, Int -> Option<S>` | repeat a step on a state: start with `s = init`; `e : Option<S>` returns `some(next)` to continue or `none<S>()` to stop. Result: `some(s)` with the state at the stop, or `none<S>()` if `e` was evaluated `max` times without stopping (`max <= 0`: `none`, `e` never evaluated) |
 
 Strings are lists of characters, so the list builtins and `fold` work on them directly: `concat("ab", "c")`,
 `length(s)`, `reverse(s)`, `eq(s, "yes")`, `contains(s, ' ')`, `uncons(s)`, `fold(s, 0, |n, c| ...)`, `filter(s, |c| ...)`.
@@ -170,10 +171,10 @@ entry solve
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
   Pair Char String Result true false unit let in if fold match_option match_result`.
 - `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod fst snd cons concat reverse
-  length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by loop` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
   `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration.
-- No shadowing: a `let` name, a `fold` or `map`-style binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
+- No shadowing: a `let` name, a `fold`, `map`-style or `loop` binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
 
@@ -231,6 +232,16 @@ fn step(s: Scan, x: Int) -> Scan =
 
 fn solve(xs: List<Int>) -> Int = fold(xs, Scan { prev: none<Int>(), best: 0 }, |s, x| step(s, x)).best
 entry solve
+```
+
+Repeating until a condition holds (no list to walk): `loop` with an upper bound on the number of steps. The step
+returns `none` to stop, and the result is an `Option`: `none` means the bound ran out first.
+
+```tlvm
+// The smallest power of two that is at least n, or -1 if it is above 2^64.
+fn next_power(n: Int) -> Int =
+  match_option(loop(1, 65, |p| if(lt(p, n), some(mul(p, 2)), none<Int>())), -1, |p| p)
+entry next_power
 ```
 
 Before answering, check: every `(` is closed (count them in deep nesting), every `let` has its `in`, every
@@ -297,7 +308,8 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-MATCH-MIXED` | patterns of different types in one `match` (e.g. `Circle(r)` and `ok(v)`) |
 | `E-SUM-UNKNOWN-CTOR` / `E-SUM-CTOR-ARITY` | a misspelt constructor, or the wrong number of fields (`Empty()` for a constructor without fields) |
 | `E-SUM-DUPLICATE-CTOR` / `E-SUM-NAME-CONFLICT` | a constructor declared twice, or also used as a function, variable or type name |
-| `E-PARSE-EXPECTED-LAMBDA` | the second argument of `map` / `filter` / `any` / `all` / `find` / `sort_by` is not `\|x\| e` (e.g. a bare function name, or `\|acc, x\|`) |
+| `E-PARSE-EXPECTED-LAMBDA` | the second argument of `map` / `filter` / `any` / `all` / `find` / `sort_by`, or the third argument of `loop`, is not `\|x\| e` (e.g. a bare function name, or `\|acc, x\|`) |
+| `E-TYPE-LOOP-MAX` / `E-TYPE-LOOP-BODY` | the bound of `loop` is not an `Int`, or its step is not `Option<S>` where `S` is the type of `init` (return `some(next)` / `none<S>()`, not the bare state) |
 | `E-PARSE-EXPECTED-PATTERN` | something other than a pattern before `=>` in a `match` arm |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |

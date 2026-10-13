@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "8615e9f7d847961868586b1f80a3f550888a1802b7bc114c53d66a2901cc34c9",
-    "bytes": 18004
+    "sha256": "427ec7365555cedf6ac6b7648c0925b6cd3b44867c17fcf2af84785f7a8785c9",
+    "bytes": 19047
   },
-  "task_set_sha256": "03a044386f5e4d91bde641de826325e3b0740477e82a268812e922150082bdad",
-  "tasks": 92,
-  "hidden_cases": 2760,
+  "task_set_sha256": "c3c5a9752aa384e5f11e545d3d3eefccc00cfa1bfc3dc9ce882b9213cf470e18",
+  "tasks": 93,
+  "hidden_cases": 2790,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -376,6 +376,10 @@
     "tasks/92-word_stats/task.json": "c06102a465f5fd1948cd8723fcd11ce0e2bf5799c35988babe2fabf835367f34",
     "tasks/92-word_stats/hidden.json": "06bf49770b52af4f01dd56cb5160f3cc8d6e02f3b02467618337ef117c137a2c",
     "tasks/92-word_stats/reference.tlvm": "29f82f86dfad6b2d04324ab23e47d579c0f4034f41c31c5102b9115590a7a16c",
-    "tasks/92-word_stats/reference.py": "8c5c99959feda89f0be54f6abb8dcf929b598d4a50892b08a8e1a4753686e022"
+    "tasks/92-word_stats/reference.py": "8c5c99959feda89f0be54f6abb8dcf929b598d4a50892b08a8e1a4753686e022",
+    "tasks/93-collatz_steps/task.json": "e828ea10e55078f5a030072cc7836a87fdcbb7760becb8a45252cd98a57bc804",
+    "tasks/93-collatz_steps/hidden.json": "b16e48903aaa88061c8fffaf9bee7165009f356a8fed89dc61f13fe6b7c94ce8",
+    "tasks/93-collatz_steps/reference.tlvm": "b4424b8ca43c27eadba22d44782f453d677a80c58fb35f55a23b5956234d2b29",
+    "tasks/93-collatz_steps/reference.py": "fd7331a58f5b417510dc26336435394bb136372a1c5efc43f6ccd014555b1fa2"
   }
 }

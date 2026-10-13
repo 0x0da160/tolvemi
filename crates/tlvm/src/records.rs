@@ -160,6 +160,13 @@ impl Env {
                 binder_span: *binder_span,
                 body: Box::new(self.expr(body)),
             },
+            ExprKind::Loop { init, max, binder, binder_span, body } => ExprKind::Loop {
+                init: Box::new(self.expr(init)),
+                max: Box::new(self.expr(max)),
+                binder: binder.clone(),
+                binder_span: *binder_span,
+                body: Box::new(self.expr(body)),
+            },
             ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => ExprKind::Match {
                 scrutinee: Box::new(self.expr(scrutinee)),
                 on_none: Box::new(self.expr(on_none)),
@@ -306,7 +313,7 @@ fn collect_idents(p: &Program, out: &mut HashSet<String>) {
                 out.insert(acc.clone());
                 out.insert(item.clone());
             }
-            ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } => {
+            ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
                 out.insert(binder.clone());
             }
             ExprKind::MatchResult { ok_binder, err_binder, .. } => {
@@ -440,6 +447,11 @@ pub fn lower(p: &Program) -> Program {
             }
             ExprKind::Hof { list, body, .. } => {
                 **list = ex(list);
+                **body = ex(body);
+            }
+            ExprKind::Loop { init, max, body, .. } => {
+                **init = ex(init);
+                **max = ex(max);
                 **body = ex(body);
             }
             ExprKind::Match { scrutinee, on_none, on_some, .. } => {
