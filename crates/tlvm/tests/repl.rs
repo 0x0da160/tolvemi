@@ -34,7 +34,13 @@ fn repl_in(dir: Option<&Dir>, args: &[&str], input: &str) -> (i32, Vec<String>) 
         c.current_dir(&d.0);
     }
     let mut child = c.spawn().unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    // FILE が読めない場合は、REPL が標準入力を読まずに終了する。その書き込みは EPIPE になりうるので許す。
+    // 終了コードと出力は下の検査で確かめる。
+    match child.stdin.take().unwrap().write_all(input.as_bytes()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(e) => panic!("write stdin: {e}"),
+    }
     let o = child.wait_with_output().unwrap();
     assert!(o.stderr.is_empty(), "stderr: {}", String::from_utf8_lossy(&o.stderr));
     let out = String::from_utf8(o.stdout).unwrap();

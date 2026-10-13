@@ -23,7 +23,8 @@
   "schema_changes": [
     "$id",
     "title",
-    "properties.codec.const"
+    "properties.codec.const",
+    "call node の type_args（必須、DECISION-9）"
   ],
   "schema_structure_preserved": true,
   "computational_rules_preserved_modulo_namespace": true,
@@ -46,18 +47,18 @@
   "outputs": [
     {
       "name": "LPTL_design_v1.md",
-      "bytes": 115489,
-      "sha256": "457e6959d0d4751e735062a485f607a8c243f4752637172765f120c8f143eaf6"
+      "bytes": 143744,
+      "sha256": "4fc5b6eddf3171732b2cc8afba9aefb5b91a80e74bf7aa86fc1adae08ad75fe8"
     },
     {
       "name": "LPTL_v1_verification_report.md",
-      "bytes": 8616,
-      "sha256": "f2a1edf870d6293b09d6e54ae04a8b79b37b03d3757181ae147f7ce2a68ce5be"
+      "bytes": 8685,
+      "sha256": "0fbec45016aa377f814c91a2e789c5701591b7f37e051dd5bec7b5449cd03232"
     },
     {
       "name": "ast_codec_v1.schema.json",
-      "bytes": 10590,
-      "sha256": "eefa368250b12a11afc842c6f92dc03348a18a9e946a4626b23794a17341e593"
+      "bytes": 10768,
+      "sha256": "44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe"
     },
     {
       "name": "v1_limited_checks.py",

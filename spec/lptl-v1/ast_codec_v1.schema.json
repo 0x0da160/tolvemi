@@ -395,12 +395,19 @@
               "items": {
                 "$ref": "#/$defs/expr"
               }
+            },
+            "type_args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/type"
+              }
             }
           },
           "required": [
             "tag",
             "callee",
-            "args"
+            "args",
+            "type_args"
           ],
           "additionalProperties": false
         },

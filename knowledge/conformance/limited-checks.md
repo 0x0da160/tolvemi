@@ -58,6 +58,7 @@ sources:
 |---|---|---|
 | 2026-10-01（バンドル作成時） | Python 3.12.8、jsonschema 4.23.0 | 92/92 通過[^manifest] |
 | 2026-10-06（本バンドル作成時に再実行） | Python 3.13.16、jsonschema 4.26.0 | 92/92 通過、attester も pass |
+| 2026-10-13（call の `type_args` を必須にした後に再実行） | Python 3.13.16、jsonschema 4.26.0 | 92/92 通過。結果 CSV は版管理下の内容と差分なし（SHA-256 `a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034`） |
 
 # 範囲
 

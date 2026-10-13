@@ -288,7 +288,7 @@ fn ast_transport() {
     }
     assert_eq!(acodes(&int_body.replace("%s", "1")), ["E-AST-FIELD-TYPE"]);
     assert_eq!(acodes(r#"{"codec":"ast_codec_v1","declarations":[]}"#), ["E-ENTRY-MISSING"]);
-    let call = IDENT.replace(r#"{"tag":"var","name":"%s"}"#, r#"{"tag":"call","callee":"uncons","args":[{"tag":"var","name":"x"}]}"#);
+    let call = IDENT.replace(r#"{"tag":"var","name":"%s"}"#, r#"{"tag":"call","callee":"uncons","args":[{"tag":"var","name":"x"}],"type_args":[]}"#);
     // v1.1：uncons は組込みなので、同名の利用者関数は定義できない
     assert_eq!(acodes(&call), ["E-TYPE-EXPECTED-LIST"]);
     let decl = r#"{"tag":"fn","name":"uncons","params":[{"name":"y","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"y"}},"#;

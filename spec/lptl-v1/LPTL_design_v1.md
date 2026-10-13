@@ -12,14 +12,14 @@
 
 **LPTL（LLM-Pure Total Language）** は、有限データ上の純粋な計算のための、静的型付き・決定的・全域な DSL である。
 
-整形式かつ受理済みの LPTL プログラム `P` の entry 関数を、有効な有限入力 `i` に適用すると、数学的意味論において必ず停止し、宣言戻り型に属する一意の有限値 `v` を返す。
+整形式かつ受理済みの LPTL プログラム `P` の entry 関数を、有効な有限入力 `i` に適用する。`P` が rec 関数の印をつけた関数を含まないとき、数学的意味論において必ず停止し、宣言戻り型に属する一意の有限値 `v` を返す。`P` が rec 関数を含むときは停止を保証しない（v1.7）。その場合も、値が返れば宣言戻り型に属する一意の値である。
 
 ```text
-well_formed(P) ∧ i ∈ Value(T_in)
+well_formed(P) ∧ no_rec(P) ∧ i ∈ Value(T_in)
   ⇒ ∃! v ∈ Value(T_out). P(i) ⇓ v
 ```
 
-数学的命題の前提は、固定された数学的仕様、整形式プログラム、型に属する有限入力であり、物理ホストや処理系の存在ではない。well_formedには名前・scope・型・DAG・唯一のarity=1 entryの成立を含む。受理済みならwell_formedを満たすことを処理系適合の証明対象とし、well_formedでも有限profileにより静的拒否され得る。実装上の成功については、検証済み実装範囲、明示的な信頼境界、当該runに十分な参照予算とホスト資源、出力codec完了が別に必要である。ソース不正、静的拒否、入力デコード失敗、資源超過、タイムアウト、処理系障害は、言語意味論上の値・例外・非停止とは別のホスト結果である。
+数学的命題の前提は、固定された数学的仕様、整形式プログラム、型に属する有限入力であり、物理ホストや処理系の存在ではない。well_formedには名前・scope・型・DAG（rec 関数への辺を除く）・唯一のarity=1 entryの成立を含む。受理済みならwell_formedを満たすことを処理系適合の証明対象とし、well_formedでも有限profileにより静的拒否され得る。実装上の成功については、検証済み実装範囲、明示的な信頼境界、当該runに十分な参照予算とホスト資源、出力codec完了が別に必要である。ソース不正、静的拒否、入力デコード失敗、資源超過、タイムアウト、処理系障害は、言語意味論上の値・例外・非停止とは別のホスト結果である。
 
 LPTL は一般目的言語ではない。第一の用途は、LLM を含む外部提案器が生成した有限・純粋・決定的ロジックを、型・停止性・決定性・資源契約の下で受理・実行する高保証計算カーネルである。第二の用途は、LLM の生成・修復に対する構文、意味論、診断、Skill、表記の寄与を分解して測定する研究基盤である。
 
@@ -29,18 +29,18 @@ LPTL は一般目的言語ではない。第一の用途は、LLM を含む外�
 
 ## 1. 基本契約
 
-本コアは機能範囲を限定し、次の契約を採用する。詳細な条件・順序・例外は各該当節に定義する。
+本 v1 は、実装されている機能（v1.1〜v1.16。2.3 節）を含み、次の契約を採用する。詳細な条件・順序・例外は各該当節に定義する。
 
 1. entry は parse 成功後に構文個数を収集する。未知 entry は name phase、欠落・重複・引数数は entry phase とし、name 失敗時は entry phase を実行しない。
 2. トップレベル本体の終端は、完成した一つの expr の直後の `fn`、`entry`、EOF に限定する。改行なしの宣言列も受理する。
-3. DAG 検査は `call-graph` phase で行い、静的資源検査から分離する。
+3. DAG 検査は `call-graph` phase で行い、静的資源検査から分離する。`rec fn` の印をつけた関数への呼出しは、順位（停止の帰納）の検査から外す（v1.7）。
 4. 静的上限は取得できる最初の時点で検査する。上限超過は後続を停止し、未実行の検査を成功とは扱わない。
 5. arity は typecheck phase で検査し、全ての実引数式を検査するが、arity 不一致の呼出しでは期待引数との型比較を抑制する。
-6. `none[Foo]` は閉じた型文法への不適合として `E-PARSE-EXPECTED-TYPE` とする。
+6. 値の型引数は山括弧で書く（`list<T>(...)`、`none<T>()`。v1.1 §1a）。角括弧の `list[T]`、`none[T]` は `E-PARSE-EXPECTED-TOKEN` とし、修復ヒントに山括弧の書き方を示す。閉じた型文法に合わない型は `E-PARSE-EXPECTED-TYPE` とする。
 7. bytes API、値 codec、AST 専用 codec、repair schema、recovery 終了規則、資源計数を契約として定義する。
 8. `Pair<A, B>` の二成分は独立した型である。正準 JSON の例とキー順は第9節に定義する。
 9. `fold` 内の呼出しも呼出しグラフに含め、関数 rank と反復長の帰納を接続する。
-10. `match_option`、`option_fold`、`uncons` は本コアに含めない。将来の独立拡張版で一体的に審査する。
+10. `match_option` と `uncons` は v1 に含める（v1.1）。`option_fold` は実装がないため v1 に含めない。
 
 ---
 
@@ -48,8 +48,8 @@ LPTL は一般目的言語ではない。第一の用途は、LLM を含む外�
 
 ### 2.1 設計目標
 
-1. **全域性**：受理プログラムは有効な有限入力で停止する。
-2. **型安全性**：評価結果は宣言型の有限値であり、動的型エラーを生じない。
+1. **全域性**：rec 関数を含まない受理プログラムは、有効な有限入力で停止する。rec 関数を含むプログラムは停止を保証せず、止まらなければ資源上限で止まる（v1.7）。印のない関数のうち、rec 関数を（推移的に）呼ばないものは全域である。
+2. **型安全性**：評価結果は宣言型の有限値であり、動的型エラーを生じない。ただし rec 関数を含むプログラムは、動的型エラーを生じないことを保証しない。値が返れば、宣言型を持ち spec の評価の唯一の結果であることだけを保証する（v1.7）。
 3. **決定性**：同一のプログラム、入力、仕様版に対する結果は一意である。
 4. **構文的正準性**：曖昧な表面構文を避け、AST を一意に復元しやすくする。
 5. **局所修復可能性**：失敗を安定コード、位置、期待制約、決定論的順序で返す。
@@ -58,21 +58,43 @@ LPTL は一般目的言語ではない。第一の用途は、LLM を含む外�
 
 ### 2.2 非目標
 
-初期コアは以下を含まない。
+v1 は以下を含まない。
 
-- 一般再帰、相互再帰、自己参照 `let`
-- 第一級関数、自由ラムダ、クロージャ
-- 可変状態、参照、例外、外部 I/O、並行性
-- 文字列、浮動小数点、日時、正規表現
-- ユーザー定義 ADT、レコード、パターンマッチ
-- ユーザー定義型変数、型スキーム、let 多相性、ランク多相性、型クラス
+- 自己参照 `let`（再帰は `rec fn` の印をつけた関数だけ。v1.7）
+- 第一級関数、自由ラムダ、クロージャ（ラムダは組み込み関数の引数としてだけ書ける）
+- 可変状態、参照、例外、言語内の外部 I/O、並行性（CLI の入力は v1.3）
+- 浮動小数点、日時、正規表現
+- 型スキーム、let 多相性、ランク多相性、型クラス（型引数は単相化で扱う）
 - サブタイピング、暗黙変換、オーバーロード、デフォルト引数、可変長引数
 - 演算子構文、演算子優先順位、マクロ、ホスト言語エスケープ
-- 部分関数的な `head`、`tail`、添字アクセス、除算
-- `uncons`、`match_option`、`option_fold`（将来の独立拡張候補）
+- 部分関数的な `head`、`tail`、添字アクセス
+- `option_fold`（導入しない。`match_option` で同じ表現力を与える。v1.1）
 - JSON number による `Int` の入出力
 
-`List<T>`、`Option<T>`、`Pair<A,B>` はパラメータ化された型構成子である。これはユーザーが型変数を抽象化・量化する多相型機構を意味しない。
+`List<T>`、`Option<T>`、`Result<T,E>`、`Dict<K,V>`、`Pair<A,B>` は組み込みのパラメータ化された型構成子である。ユーザー定義の型引数（v1.10）は単相化で扱い、型変数の量化（型スキーム）は含まない。
+
+### 2.3 v1 に含める機能（版ごと）
+
+| 版 | 機能 | 規範 |
+|---|---|---|
+| v1.1 | `match_option`、`uncons`、レコード型 | [delta](../lptl-v1.1/LPTL_v1.1_delta.md) |
+| v1.2 | 文字 `Char`、文字列 `String`、リテラル、`code`・`char`・`to_string`・`parse_int` | [delta](../lptl-v1.2/LPTL_v1.2_delta.md) |
+| v1.3 | `tlvm exec`（標準入出力と引数の入力） | [delta](../lptl-v1.3/LPTL_v1.3_delta.md) |
+| v1.4 | `Result<T,E>`（`ok`・`err`・`match_result`）、直和型、`match` | [delta](../lptl-v1.4/LPTL_v1.4_delta.md) |
+| v1.5 | `map`・`filter`・`any`・`all`・`find`・`sort_by`（一引数のラムダ） | [delta](../lptl-v1.5/LPTL_v1.5_delta.md) |
+| v1.6 | 上限つき反復 `loop` | [delta](../lptl-v1.6/LPTL_v1.6_delta.md) |
+| v1.7 | 上限なしの再帰 `rec fn`（印をつけた関数だけ） | [delta](../lptl-v1.7/LPTL_v1.7_delta.md) |
+| v1.8 | 整数の除算 `div`（床除算。`b <= 0` は `none`） | [delta](../lptl-v1.8/LPTL_v1.8_delta.md) |
+| v1.9 | 辞書 `Dict<K,V>` | [delta](../lptl-v1.9/LPTL_v1.9_delta.md) |
+| v1.10 | ユーザー定義の型引数（単相化） | [delta](../lptl-v1.10/LPTL_v1.10_delta.md) |
+| v1.11 | `import`（名前空間は一つ） | [delta](../lptl-v1.11/LPTL_v1.11_delta.md) |
+| v1.12 | REPL と Language Server（言語は変えない） | [delta](../lptl-v1.12/LPTL_v1.12_delta.md) |
+| v1.13 | `exec` の辞書入力（言語は変えない） | [delta](../lptl-v1.13/LPTL_v1.13_delta.md) |
+| v1.14 | 再帰する直和型 | [delta](../lptl-v1.14/LPTL_v1.14_delta.md) |
+| v1.15 | 名義の型（宣言ごとの型の区別） | [delta](../lptl-v1.15/LPTL_v1.15_delta.md) |
+| v1.16 | ローカルのパッケージ依存 | [delta](../lptl-v1.16/LPTL_v1.16_delta.md) |
+
+各版の規範は対応する delta にあります。これを本文（型・文法・組み込み・意味論・codec の節）へ取り込む作業は未了で、この表は取り込みの対象を示します。
 
 ---
 
@@ -81,42 +103,58 @@ LPTL は一般目的言語ではない。第一の用途は、LLM を含む外�
 ### 3.1 型
 
 ```text
-T, A, B ::= Int | Bool | Unit
-    | List<T>
-    | Option<T>
-    | Pair<A, B>
+T, A, B ::= Int | Bool | Unit | Char | String
+    | List<T> | Option<T> | Result<T, E> | Dict<K, V> | Pair<A, B>
+    | N | N<T1, ..., Tk>
 ```
 
 - `Int` は数学的任意精度整数。
 - `Bool` は `true` と `false`。
 - `Unit` の唯一の値は `unit`。
+- `Char` は Unicode のスカラー値である（0 から 0x10FFFF まで。サロゲート 0xD800 から 0xDFFF を除く。v1.2）。
+- `String` は文字のリストの型の唯一の綴りである。`List<Char>` とは書けない（v1.2）。
 - `List<T>` は有限個の `T` 値からなる順序付き同種リスト。
-- `Option<T>` は `none` または `some(v)`。
-- `Pair<A,B>` は `pair(v,w)`。
+- `Option<T>` は `none<T>()` または `some(v)`。
+- `Result<T, E>` は `ok<T, E>(v)` または `err<T, E>(v)` である（v1.4）。
+- `Dict<K, V>` は鍵 `K` から値 `V` への有限の辞書で、挿入順を保つ（v1.9）。鍵の型に制限はない。`Dict<K, V>` は `List<Pair<K, V>>` とは別の型である。
+- `Pair<A,B>` は `pair(v,w)`。二つの成分は独立した型である。
+- `N` は宣言された型の名前であり、`N<T1, ..., Tk>` は総称の型の使用である（型引数は宣言と同じ k 個。v1.10）。
+  - レコード型 `type N = { f1: T1, ..., fn: Tn }` は `Pair<T1, Pair<T2, ... Tn>>` の名前である（n = 1 なら `T1`。v1.1）。
+  - 直和型 `type N = C1(...) | ... | Cn(...)` は `Result<P1, Result<P2, ... Result<Pn-1, Pn>>>` の名前である。`Pk` は k 番目の構築子の中身の型で、中身がなければ `Unit`、一つならその型、複数なら右に入れ子にした `Pair` である。n = 1 なら `P1` である（v1.4）。
+  - 再帰する直和型は、項の型が `Int`、`Bool`、その型自身のどれかである直和型に限る（v1.14）。
+- 型の宣言は使う前に行う。
+- 名義の型（v1.15）：レコード型、直和型、再帰する直和型の宣言は、展開後の構造が同じでも宣言ごとに別の型である。組込みの型（`Pair`、`Option`、`Result`、`List`、`Dict`）は宣言の名前を持たず、構造で決まる。
+- 総称の型と関数は型引数を単相化で扱う。型変数の量化（型スキーム）は含まない（§2.2）。
 
-型等価性は構文的等価性である。v1 の全型は構造的等値可能である。ただし、将来導入される型が自動的に等値可能になることはない。等値可能性は型ごとに明示する。
+型等価性は、組込みの型では構文的な等しさで決まる。名義の型は、宣言の同一性と型引数で決まる。v1 の全ての型は `eq` を持つ。ただし、将来導入される型が自動的に等値可能になることはない。等値可能性は型ごとに明示する。
 
 ### 3.2 値
 
 ```text
-v ::= 整数 | true | false | unit
-    | list[T](v, ...)
-    | some(v) | none[T]
-    | pair(v, v)
+v ::= 整数 | true | false | unit | 文字 | 文字列
+    | list<T>(v, ...) | some(v) | none<T>() | pair(v, w)
+    | ok<T, E>(v) | err<T, E>(v)
 ```
 
 値は有限木としての数学的値である。実装は共有を持つ不変 DAG 表現を使用してよいが、観測可能な意味は有限木の展開として定義する。循環値、参照値、関数値、未初期化値は存在しない。
+
+- 文字列の値は文字のリストであり、`list<Char>(...)` と同じ値である。
+- レコードの値は、成分を `pair` で入れ子にした値である。直和型の値は、構築子の位置を `ok` と `err` の入れ子で表し、中身を入れた値である（v1.1、v1.4）。
+- 辞書の値は、鍵が相異なる `(鍵, 値)` の有限列で、挿入順を持つ（v1.9）。
+- 再帰する直和型の値も有限木である。実行の符号化は v1.14 §3 に従う。その意味保存は §11.2a の未証明の義務である。
+- 名義の型の値は、展開後の値と同じである。宣言による区別は型検査の規則であり、実行時の値には現れない（v1.15 §2、§3）。
 
 ### 3.3 Option の境界
 
 v1 の `Option<T>` は、部分性を言語エラーではなく値へ写すための構成子である。
 
-- `some(e)`、`none[T]`、`mod` により生成できる。
+- `some(e)`、`none<T>()`、`mod` により生成できる。
 - `let`、`pair`、`list` 等で保存・伝達できる。
-- `eq` により、`none[T]` または有限個の既知 payload を持つ `some(c)` と比較できる。
-- **一般 payload を束縛して取り出す消去構文はない。**
+- `eq` により、他の値と同じ構造的等値で比較できる（§7.4）。
+- `match_option(e, e_none, |x| e_some)` により、`some` の payload を局所 binder `x` へ束縛して取り出せる（v1.1）。`x` は `e_some` の中でだけ見え、`e` と `e_none` からは見えない。
+- `uncons(xs)` は `Option<Pair<A, List<A>>>` を返す組込みである（v1.1）。空なら `none`、そうでなければ先頭と残りの組を `some` で包む。
 
-従って v1 は、任意の `some(x)` から未知の `x` を抽出する処理、`uncons` の結果から先頭要素を取得する処理、動的除数の `mod` 結果を一般の整数計算へ渡す処理を対象にしない。この能力は `match_option` 等を含む後続版でのみ導入する。
+v1 は、`Option` の値を畳み込む構文（`option_fold`）を含まない。payload は `match_option` の枝の中で式として使うだけで、枝の外の名前として残らない。`head`、`tail` のような部分関数の組込みは含まない。
 
 ---
 
@@ -124,48 +162,88 @@ v1 の `Option<T>` は、部分性を言語エラーではなく値へ写すた�
 
 compile API は任意の `source_bytes` を受け取る。source bytes 上限を先に検査し、上限内の不正 UTF-8 は `SourceBoundaryFailure(InvalidSourceEncoding)` とする。UTF-8 検査に成功した列だけを lexer に渡す。上限超過は `CompileResult::Rejected(E-LIMIT-STATIC-SOURCE-BYTES)` であり、UTF-8 の妥当性は検査しない。
 
-コメントを除く受理文字は ASCII のみである。Unicode 識別子、文字列リテラル、Unicode 正規化、エスケープ構文は対象外である。
+リテラルとコメントの外で受理する文字は ASCII のみである。非 ASCII は文字リテラル、文字列リテラル、コメントの中にだけ書ける（v1.2）。Unicode 識別子と Unicode 正規化は対象外である。
 
 ### 4.1 EBNF
 
 ```ebnf
-program      ::= { top_decl } EOF
-top_decl     ::= function_def | entry_def
+program      ::= { import_decl } { top_decl } EOF
+import_decl  ::= "import" STRING_LIT                       （ファイルの先頭だけ。v1.11）
+top_decl     ::= fn_decl | rec_decl | entry_decl | type_decl
 
-function_def ::= "fn" IDENT "(" [ params ] ")" "->" type "=" expr
-entry_def    ::= "entry" IDENT
+fn_decl      ::= "fn" IDENT [ type_params ] "(" [ params ] ")" "->" type "=" expr
+rec_decl     ::= "rec" fn_decl                             （印。直後は fn だけ。v1.7）
+entry_decl   ::= "entry" IDENT
+type_decl    ::= "type" IDENT [ type_params ] "=" ( record_type | variant { "|" variant } )
+type_params  ::= "<" CTOR { "," CTOR } ">"                 （大文字で始まる名前。v1.10）
 
 params       ::= param { "," param }
 param        ::= IDENT ":" type
+record_type  ::= "{" field_decl { "," field_decl } [ "," ] "}"      （v1.1）
+field_decl   ::= IDENT ":" type
+variant      ::= CTOR [ "(" type { "," type } ")" ]                 （v1.4）
 
-type         ::= "Int" | "Bool" | "Unit"
+type         ::= "Int" | "Bool" | "Unit" | "Char" | "String"
                | "List" "<" type ">"
                | "Option" "<" type ">"
+               | "Result" "<" type "," type ">"
+               | "Dict" "<" type "," type ">"
                | "Pair" "<" type "," type ">"
+               | IDENT [ "<" type { "," type } ">" ]        （宣言された型、型引数。v1.10）
 
-expr         ::= INT | "true" | "false" | "unit" | IDENT
-               | "list" "[" type "]" "(" [ arguments ] ")"
+expr         ::= primary { "." IDENT }                      （フィールドの参照。左結合。v1.1）
+primary      ::= INT | CHAR_LIT | STRING_LIT | "true" | "false" | "unit"
+               | IDENT                                      （変数、引数のない構築子）
+               | IDENT "{" [ record_items ] "}"             （レコードの構築。v1.1）
+               | IDENT [ "<" type { "," type } ">" ] "(" [ arguments ] ")"   （呼出し、構築子。v1.10）
+               | "list" "<" type ">" "(" [ arguments ] ")"
+               | "dict" "<" type "," type ">" "(" ")"       （v1.9）
                | "some" "(" expr ")"
-               | "none" "[" type "]"
+               | "none" "<" type ">" "(" ")"
                | "pair" "(" expr "," expr ")"
-               | builtin "(" [ arguments ] ")"
-               | "let" IDENT "=" expr "in" expr
+               | "ok" "<" type "," type ">" "(" expr ")"    （v1.4）
+               | "err" "<" type "," type ">" "(" expr ")"
                | "if" "(" expr "," expr "," expr ")"
-               | "fold" "(" expr "," expr "," lambda ")"
-               | IDENT "(" [ arguments ] ")"
+               | "let" IDENT "=" expr "in" expr
+               | "fold" "(" expr "," expr "," fold_lambda ")"
+               | "match_option" "(" expr "," expr "," unary_lambda ")"       （v1.1）
+               | "match_result" "(" expr "," unary_lambda "," unary_lambda ")"   （v1.4）
+               | "loop" "(" expr "," expr "," unary_lambda ")"               （v1.6）
+               | hof "(" expr "," unary_lambda ")"                           （v1.5）
+               | builtin "(" [ arguments ] ")"
+               | "match" expr "{" arm { "," arm } [ "," ] "}"                （v1.4）
 
-builtin      ::= "add" | "sub" | "mul" | "neg"
-               | "lt" | "le" | "eq" | "mod"
-               | "fst" | "snd"
-               | "cons" | "concat" | "reverse" | "length"
+hof          ::= "map" | "filter" | "any" | "all" | "find" | "sort_by"
 
-lambda       ::= "|" IDENT "," IDENT "|" expr
+builtin      ::= "add" | "sub" | "mul" | "div" | "mod" | "neg"
+               | "lt" | "le" | "eq" | "min" | "max"
+               | "fst" | "snd" | "cons" | "concat" | "reverse" | "length" | "uncons"
+               | "range" | "contains" | "sort"
+               | "code" | "char" | "to_string" | "parse_int"
+               | "dict_get" | "dict_put" | "dict_remove" | "dict_has"
+               | "dict_size" | "dict_keys" | "dict_values" | "dict_entries" | "dict_from"
+
+arm          ::= pattern "=>" expr
+pattern      ::= CTOR [ "(" bind { "," bind } ")" ]
+               | "some" "(" bind ")" | "none"
+               | "ok" "(" bind ")" | "err" "(" bind ")"
+               | "_"
+bind         ::= IDENT | "_"
+
+record_items ::= field_init { "," field_init } [ "," base ] | base
+field_init   ::= IDENT ":" expr
+base         ::= ".." expr
+
 arguments    ::= expr { "," expr }
+fold_lambda  ::= "|" IDENT "," IDENT "|" expr
+unary_lambda ::= "|" IDENT "|" expr
 ```
 
-`if`、`fold`、`let` は特殊形式であり、`builtin` とユーザー関数呼出しは strict call である。改行は空白であり、宣言終端ではない。
+`if`、`fold`、`let`、`match`、`match_option`、`match_result`、`loop`、`map` などは特殊形式である。`builtin` とユーザー関数呼出しは strict call である。改行は空白であり、宣言終端ではない。
 
-`fn` と `entry` は `expr` を開始できない予約トークンである。function_def は完全な一つの expr を読み、その式の全ての開いた構文構造を閉じた後、次トークンが `fn`、`entry`、EOF のいずれかなら終了する。その他が続けば `E-PARSE-UNEXPECTED-TOKEN`。未完の式の途中の `fn`／`entry` は正常終端ではなく parse error とする。entry_def も IDENT の直後に同じ終端集合を要求する。
+`match` の式の先頭が IDENT で、その直後が `{` のときは、その IDENT を変数の参照として読み、レコードの構築とはしない。レコードの構築を `match` の式に書くときは括弧で囲む。
+
+`fn` は予約語であり、式の先頭にも名前にもならない。fn_decl は完全な一つの expr を読み、その式の全ての開いた構文構造を閉じた後、次のトークンが宣言の始まり（`fn`、`entry`、`type`、`rec` に続く `fn`、`import` に続く文字列）か EOF なら終了する。その他が続けば `E-PARSE-UNEXPECTED-TOKEN`。未完の式の途中の宣言の始まりは正常終端ではなく parse error とする。entry_decl も IDENT の直後に同じ終端集合を要求する。
 
 従って以下は改行なしで受理する。formatter は宣言ごとに改行する。
 
@@ -173,13 +251,20 @@ arguments    ::= expr { "," expr }
 fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f
 ```
 
-`some`、`pair`、`list`、`none`、`if`、`fold` は専用構文である。その固定位置の欠落・過剰要素は parse error であり、通常の組込み call の arity error と混同しない。
+`some`、`none`、`pair`、`list`、`dict`、`ok`、`err`、`if`、`fold`、`let`、`match_option`、`match_result` は専用構文である。その固定位置の欠落・過剰要素は parse error であり、通常の組込み call の arity error と混同しない。ラムダ（`|x| e`、`|acc, x| e`）は上の各形の固定位置にだけ書け、第一級の関数ではない。
 
 ### 4.2 字句
 
 ```text
-IDENT ::= [A-Za-z_][A-Za-z0-9_]*
-INT   ::= 0 | -?[1-9][0-9]*
+IDENT      ::= [A-Za-z_][A-Za-z0-9_]*
+CTOR       ::= 大文字 A-Z で始まる IDENT（構築子、型引数、パターンの構築子）
+INT        ::= 0 | -?[1-9][0-9]*
+CHAR_LIT   ::= "'" ( raw_c | escape_c ) "'"                   （v1.2）
+STRING_LIT ::= '"' { raw_s | escape_s } '"'
+raw_c      ::= 0x20 以上の Unicode スカラー値で、\ と ' 以外
+raw_s      ::= 0x20 以上の Unicode スカラー値で、\ と " 以外
+escape_c   ::= "\\" | "\'" | "\n" | "\t" | "\r"
+escape_s   ::= "\\" | "\"" | "\n" | "\t" | "\r"
 ```
 
 - `INT` は先行する `-` を含む**単一の字句トークン**である。
@@ -189,10 +274,20 @@ INT   ::= 0 | -?[1-9][0-9]*
 - `-0`、`+1`、先頭ゼロ付き非零整数、指数表記、桁区切り、16進表記を拒否する。
 - 空白は ASCII space、tab、CR、LF のみ。
 - コメントは `//` から次の CR、LF、EOF の直前までの行コメントのみ。コメント内は有効 UTF-8 を許す。ブロックコメントはない。
-- 非コメント部の非 ASCII は `E-LEX-NON-ASCII`。UTF-8 BOM は空白でもコメントでもなく拒否する。
-- EOF とコメント・空白はトークン数に含めない。全ての予約語、識別子、整数、句読点をそれぞれ一トークンとする。
-- 予約語は EBNF 中の全固定語である。lexer は予約語を `IDENT` として返さない。
-- 予約語を関数名、変数名、型名に置いた場合、parser は `E-PARSE-EXPECTED-IDENT` として拒否する。
+- 文字リテラル、文字列リテラル、コメントの外の非 ASCII は `E-LEX-NON-ASCII`。UTF-8 BOM は空白でもコメントでもなく拒否する。
+- EOF とコメント・空白はトークン数に含めない。字句表の語、識別子、整数、文字リテラル、文字列リテラル、句読点をそれぞれ一トークンとする。
+- 文字リテラルは Unicode スカラー値を一つだけ含む。空、複数文字、閉じていないものは `E-LEX-INVALID-CHAR-LITERAL`。
+- 文字列リテラルは改行か EOF の前に閉じる。閉じる前に改行か EOF があれば `E-LEX-UNTERMINATED-STRING`（修復ヒントで `"` を挿入）。
+- 許されないエスケープ（`\q`、文字列の `\'`、文字の `\"`）は `E-LEX-INVALID-ESCAPE`。リテラルの中に 0x20 未満の生の制御文字（タブや改行を含む）を書くと `E-LEX-CONTROL-CHAR-IN-LITERAL`。タブと改行はエスケープで書く。
+- 文字リテラル `'a'` の型は `Char`、文字列リテラル `"..."` の型は `String` である。`"c1...cn"` は `list<Char>(c1, ..., cn)` と同じ値になる（§3.2）。型に `List<Char>` と書けば `E-PARSE-STRING-TYPE`（修復ヒントで `String`）。
+- 正準形（§4.3）のエスケープは、区切りの引用符、`\`、改行、タブ、復帰の 5 つだけを使い、ほかの文字は生で書く。
+- 字句表は 68 語である（実装の `KEYWORDS` と一致する）。このうち予約語は 19 語、文脈キーワードは 49 語である。
+  - 予約語（19）：`fn`、`Int`、`Bool`、`Unit`、`List`、`Option`、`Pair`、`Char`、`String`、`Result`、`true`、`false`、`unit`、`let`、`in`、`if`、`fold`、`match_option`、`match_result`。
+  - 文脈キーワード（49）：`entry`、`list`、`some`、`none`、`pair`、`add`、`sub`、`mul`、`neg`、`lt`、`le`、`eq`、`mod`、`fst`、`snd`、`cons`、`concat`、`reverse`、`length`、`uncons`、`min`、`max`、`range`、`contains`、`sort`、`code`、`char`、`to_string`、`parse_int`、`ok`、`err`、`map`、`filter`、`any`、`all`、`find`、`sort_by`、`loop`、`div`、`dict`、`dict_get`、`dict_put`、`dict_remove`、`dict_has`、`dict_size`、`dict_keys`、`dict_values`、`dict_entries`、`dict_from`。
+- 字句は字句表の語をキーワードの token として出し、構文解析器が位置で判定する。字句表の語と `rec`、`match`、`import`、`type` は EBNF の固定語である。`rec`、`match`、`import`、`type` は字句表に入らず、それぞれの文法の位置で判定する（v1.7、v1.4、v1.11）。
+- 文脈キーワードは、変数、引数、束縛、field の名前に使える。式の位置では、直後が `(` か `<` のとき（v1.1 §1a の角括弧の旧い書き方 `[` も含む）だけキーワードとして働き、それ以外は変数の参照である。`entry` は宣言の先頭でだけキーワードとして働く（v1.1 §2a）。
+- 関数名と `entry` 宣言の名前には、予約語も文脈キーワードも使えない。
+- 予約語を変数名、関数名、型名に置いた場合、parser は `E-PARSE-EXPECTED-IDENT` として拒否する。
 
 ### 4.3 正準ソースとハッシュ
 
@@ -204,7 +299,7 @@ INT   ::= 0 | -?[1-9][0-9]*
 - コメントは正準出力から除去する。
 - フォーマッタは名前・型に依存する書換えを行わず、AST の意味を保存する。
 - 宣言順序・名前・型注釈を保持し、各宣言を一行に出力する。関数は `fn NAME(PARAMS) -> TYPE = EXPR`、entry は `entry NAME` とする。
-- 引数は `NAME: TYPE`、let は `let NAME = EXPR in EXPR`、fold lambda は `|ACC, ITEM| EXPR`。call は `NAME(ARGS)`、型引数のある構成子は `list[TYPE](ARGS)`／`none[TYPE]` とする。
+- 引数は `NAME: TYPE`、let は `let NAME = EXPR in EXPR`、fold lambda は `|ACC, ITEM| EXPR`。call は `NAME(ARGS)`、型引数のある構成子と呼出しは `list<TYPE>(ARGS)`、`none<TYPE>()`、`f<TYPE>(ARGS)` と山括弧で書く（v1.1 §1a、v1.10）。
 - 句読点周辺は上記の空白以外を挿入せず、宣言間は LF 一つ、末尾も LF 一つ。インデント・空行・CR は出力しない。
 
 `canonical_source(P)` は、受理済み AST を formatter が UTF-8 で出力した値である。実験・配布・改竄検知の基本ハッシュは次である。
@@ -235,7 +330,9 @@ BLAKE3(
 - `let` binder と `fold` binder は、外側の可視変数をシャドーできない。
 - 外側の関数引数、外側 `let`、外側 `fold` binder は参照できる。
 - 全トップレベル関数は全プログラムで可視であり、前方参照を許可する。
-- ユーザー関数のオーバーロード、局所関数、名前空間、メソッド記法はない。
+- `match` の腕の binder（`some(x)`、`C(a, b)` など）は、その腕の式だけで可視である。`match_option`、`match_result`、`map`、`filter`、`any`、`all`、`find`、`sort_by`、`loop` のラムダの binder は、そのラムダの本体だけで可視である（`fold` と同じ）。
+- 構築子の名前、型の名前、レコードの field 名は、それぞれプログラム全体で一意である（v1.1、v1.4）。型引数の名前は宣言の中で一意で、宣言された型の名前と重ならない（v1.10）。
+- ユーザー関数のオーバーロード、局所関数、メソッド記法はない。名前空間は `import` したファイルを含めて一つである（v1.11）。
 
 ### 5.2 entry 検査の分割
 
@@ -269,21 +366,21 @@ entry が name phase と entry phase の双方で有効なとき、entry 関数�
 
 ### 5.4 呼出しグラフ
 
-ユーザー関数集合を `F` とし、`f` 本体が `g(...)` を含むとき辺 `f -> g` を置く。自己辺を含む全循環を拒否する。
+ユーザー関数集合を `F` とし、`f` 本体が `g(...)` を含むとき辺 `f -> g` を置く。ただし `g` が rec の印をつけた関数（v1.7）のときは辺を置かない。自己辺を含む全循環を、rec 関数への辺を除いたあとで拒否する。
 
 ```text
-受理条件：call_graph(P) は DAG である。
+受理条件：rec 関数への辺を除いた call_graph(P) は DAG である。
 ```
 
 DAG なら実装はトポロジカルランク `rank : F -> Nat` を構築し、
 
 ```text
-f -> g ならば rank(g) < rank(f)
+f -> g かつ g が rec 関数でないならば rank(g) < rank(f)
 ```
 
-を満たす。循環時は `E-CYCLE-CALL` を返す。`E-CYCLE-*` は診断分類プレフィックスであり、具体コードは `E-CYCLE-CALL` である。辺は非選択枝、未到達関数、fold 本体を含む全ての構文上のユーザー call から収集する。
+を満たす。循環時は `E-CYCLE-CALL` を返す（修復ヒントは、循環にある関数に `rec` を付けることを示す。v1.7）。`E-CYCLE-*` は診断分類プレフィックスであり、具体コードは `E-CYCLE-CALL` である。辺は非選択枝、未到達関数、ラムダの本体（`fold`、`map` など）、`match` の腕を含む全ての構文上のユーザー call から収集する。
 
-循環診断は循環を持つ強連結成分ごとに一件。成分内の辺の call-name span が最小のものを主 span とし、関数名の関連情報は ASCII 辞書順にする。rank は、呼出し先のない関数を0、その他を `1 + max(rank(callee))` とする。循環がある場合 rank を生成せず、実行可能プログラムを受理しない。
+循環診断は循環を持つ強連結成分ごとに一件。成分内の辺の call-name span が最小のものを主 span とし、関数名の関連情報は ASCII 辞書順にする。rank は、rec 関数への辺を除いて、呼出し先のない関数を0、その他を `1 + max(rank(callee))` とする。循環がある場合 rank を生成せず、実行可能プログラムを受理しない。
 
 ---
 
@@ -294,12 +391,15 @@ f -> g ならば rank(g) < rank(f)
 - トップレベル関数の各引数型と戻り型は必須。
 - `fold` binder の型は、リスト型と初期値型から一意に決まるため表記しない。
 - `let` binder の型は束縛式の型から一意に決まる。let-generalization は行わない。
-- リストは空・非空を問わず `list[T](...)` と書く。
+- リストは空・非空を問わず `list<T>(...)` と書く（v1.1 §1a）。
 - `some(e)` の型は `Option<T>`（`e:T`）で一意。
-- `none[T]` の `T` は閉じた `type` 非終端記号で parse する。`none[Foo]` は `E-PARSE-EXPECTED-TYPE`。未定義のユーザー型を typecheck に渡さない。
+- `none<T>()` の `T` は閉じた `type` の文法で parse する。角括弧の `list[T]`、`none[T]` は `E-PARSE-EXPECTED-TOKEN` とし、修復ヒントに山括弧の書き方を示す（v1.1 §1a）。閉じた型の文法に合わない型は `E-PARSE-EXPECTED-TYPE`。未定義のユーザー型を typecheck に渡さない。
 - 関数・通常組込みの arity は typecheck で検査する。未知 call は name error だけで後続を停止する。
 - 通常callのVisitExprが仕事量guardを通過した直後、子の検査前にarityを判定し、不一致なら対応するarity診断候補を一件生成する。判定と候補生成はSemanticWorkへ加算しない。arity不一致でも実引数式を全て左から右に型検査する。ただし資源cutoffで中断した後は継続しない。当該callの期待引数型との比較と結果BuildTypeは全て抑制し、通常完走時の結果をErrorTypeとする。欠落引数への二次エラーは生成しない。
 - 組込み型の推論は実引数型だけから行う。`fold` の acc 型は init、item 型は xs に依存する。依存元が ErrorType なら該当 binder も ErrorType とし、依存した診断は抑制する。
+- 総称の関数と型は、使われる型引数ごとに単相化する。総称の本体は型引数を不透明な型として一度検査し、型引数の値に特定の型の操作（`add`、`lt`、`sort`、`to_string` など）を使うと `E-TYPE-ARG` とする（v1.10 §1a）。
+- 名義の型（v1.15）は宣言ごとに別の型である。レコードの `e.f` は、型注釈から来た名前が field の持ち主と違えば `E-TYPE-FIELD-ACCESS` とする（v1.1 §1b）。
+- `match` の全ての腕は同じ型を持つ。走査する値の型に応じて、腕の形は構築子（直和型）、`some`／`none`（Option）、`ok`／`err`（Result）のいずれかになる（v1.4）。
 
 ### 6.2 型スキーム表記
 
@@ -321,6 +421,25 @@ f -> g ならば rank(g) < rank(f)
 | `concat` | `List<A> × List<A> -> List<A>` | 連結 |
 | `reverse` | `List<A> -> List<A>` | 逆順 |
 | `length` | `List<A> -> Int` | 有限長 |
+| `div` | `Int × Int -> Option<Int>` | 床除算。`b <= 0` は `none`（v1.8） |
+| `min`、`max` | `Int × Int -> Int` | 小さい方、大きい方（v1.1） |
+| `range` | `Int × Int -> List<Int>` | `a` から `b-1` まで。`b <= a` なら空（v1.1） |
+| `contains` | `List<A> × A -> Bool` | `eq` と同じ構造的等値で一致する要素があるか（v1.1） |
+| `sort` | `List<Int> -> List<Int>` | 昇順。重複を残す（v1.1） |
+| `uncons` | `List<A> -> Option<Pair<A, List<A>>>` | 先頭と残り。空なら `none`（v1.1） |
+| `code` | `Char -> Int` | 文字の番号（v1.2） |
+| `char` | `Int -> Option<Char>` | スカラー値なら `some`（v1.2） |
+| `to_string` | `Int -> String` | 正準十進表記。負なら先頭に `-`（v1.2） |
+| `parse_int` | `String -> Option<Int>` | 先頭に `-` が一つあってもよい数字の列なら `some`（v1.2） |
+| `dict_get` | `Dict<K, V> × K -> Option<V>` | 値。なければ `none`（v1.9） |
+| `dict_put` | `Dict<K, V> × K × V -> Dict<K, V>` | 鍵があれば同じ位置で値を置換し、なければ末尾に追加（v1.9） |
+| `dict_remove` | `Dict<K, V> × K -> Dict<K, V>` | 鍵を除く。なければ変わらない（v1.9） |
+| `dict_has` | `Dict<K, V> × K -> Bool` | 鍵があるか（v1.9） |
+| `dict_size` | `Dict<K, V> -> Int` | 鍵の数（v1.9） |
+| `dict_keys` | `Dict<K, V> -> List<K>` | 鍵（挿入順）（v1.9） |
+| `dict_values` | `Dict<K, V> -> List<V>` | 値（鍵の挿入順）（v1.9） |
+| `dict_entries` | `Dict<K, V> -> List<Pair<K, V>>` | `(鍵, 値)` の組（挿入順）（v1.9） |
+| `dict_from` | `List<Pair<K, V>> -> Dict<K, V>` | 前から順に `dict_put` した辞書（v1.9） |
 
 ### 6.3 主要規則
 
@@ -334,11 +453,25 @@ let x = e1 in e2 : B
 fold(xs, init, |acc, item| body) : A
   iff xs : List<X>, init : A,
       Γ,acc:A,item:X ⊢ body : A
+
+match_option(e, e_none, |x| e_some) : R
+  iff e : Option<A>, e_none : R, Γ,x:A ⊢ e_some : R
+
+match_result(e, |x| a, |y| b) : R
+  iff e : Result<A, E>, Γ,x:A ⊢ a : R, Γ,y:E ⊢ b : R
+
+loop(init, max, |s| e) : Option<S>
+  iff init : S, max : Int, Γ,s:S ⊢ e : Option<S>
+
+map(xs, |x| e) : List<B>
+  iff xs : List<A>（String のときは A = Char）, Γ,x:A ⊢ e : B
 ```
 
-`if`、`fold`、`let` は AST 上でも別コンストラクタである。その他の組込みとユーザー関数呼出しは、引数を左から右へ評価する strict call である。
+`filter`、`any`、`all`、`find`、`sort_by` も、同じくラムダの本体を binder だけを追加した環境で検査する。本体は `filter`、`any`、`all`、`find` が `Bool`、`sort_by` が `Int` でなければならない。結果型は、`filter` と `sort_by` が `List<A>`、`any` と `all` が `Bool`、`find` が `Option<A>` である（v1.5）。
 
-異型 `eq(1,true)`、異型 `concat(list[Int](), list[Bool]())` 等は静的拒否であり、実行時に `false` や空リストにはならない。
+`if`、`fold`、`let`、`match_option`、`match_result`、`loop` と、ラムダを取る組込み（`map` など）は AST 上でも別のコンストラクタである。その他の組込みとユーザー関数呼出しは、引数を左から右へ評価する strict call である。
+
+異型 `eq(1,true)`、異型 `concat(list<Int>(), list<Bool>())` 等は静的拒否であり、実行時に `false` や空リストにはならない。
 
 ---
 
@@ -352,6 +485,7 @@ fold(xs, init, |acc, item| body) : A
 - `if` は条件を評価し、選択された枝のみを評価する。
 - `let` は束縛式を一度評価してから本体を評価する。
 - `fold` はリスト式、初期値、各反復本体の順に評価する。
+- rec の印をつけた関数の呼出しも、通常の関数呼出しと同じ strict call として評価する。停止しない再帰は、資源上限（step 数、深さ、割当）の診断で止まる（v1.7 §2）。
 
 ### 7.2 `let`
 
@@ -361,18 +495,24 @@ let x = e1 in e2
 
 は `e1` をちょうど一度評価して値 `v` を得た後、`x=v` を環境に追加して `e2` を評価する。`x` は `e1` 内では可視でない。`let` は非再帰・不変・局所であり、代入、共有可変セル、関数再帰を導入しない。
 
-### 7.3 `if` と `fold`
+### 7.3 `if`、`fold`、分解の形式
 
 ```text
 if(true, t, f)  -> t
 if(false, t, f) -> f
 
-fold(list[T](), init, body) = init
-fold(list[T](x1, ..., xn), init, body)
+fold(list<T>(), init, body) = init
+fold(list<T>(x1, ..., xn), init, body)
   = body(...body(body(init, x1), x2)..., xn)
 ```
 
 各 fold ステップでは現在累積値を `acc`、現在要素を `item` として `body` を評価する。
+
+`match_option(some(v), e_none, |x| e_some)` は、`x=v` を環境に加えて `e_some` を評価した値である。`match_option(none<T>(), e_none, |x| e_some)` は `e_none` の値である（v1.1）。`match_result(ok<T, E>(v), |x| a, |y| b)` は `x=v` で `a` を、`match_result(err<T, E>(v), |x| a, |y| b)` は `y=v` で `b` を評価した値である（v1.4）。
+
+`loop(init, max, |s| e)` は、状態 `s` を `init` から始める（v1.6 §1）。`max <= 0` なら本体を評価せず `none<S>()`。そうでなければ `e` を評価し、`some(t)` なら状態を `t` にして続け、`none` なら止まって、そのとき本体に渡していた状態 `s` を `some(s)` として返す。`e` を `max` 回評価しても止まらなければ `none<S>()` を返す。
+
+`map`、`filter`、`any`、`all`、`find`、`sort_by` は、`fold` への書換えとして意味を定める（v1.5 §2、接着部分 `hof.rs`）。`dict_*` の組込みも、同じく `fold` などへの書換えで意味を定める（v1.9）。レコードの構築と射影、直和型の構築と `match` は、§3 の展開どおりに評価する（v1.1、v1.4）。
 
 ### 7.4 組込み
 
@@ -386,22 +526,33 @@ le(a,b) = (a <= b)
 fst(pair(v,w)) = v
 snd(pair(v,w)) = w
 
-cons(x, list[T](x1, ..., xn)) = list[T](x, x1, ..., xn)
-concat(list[T](x1, ..., xm), list[T](y1, ..., yn))
-  = list[T](x1, ..., xm, y1, ..., yn)
-reverse(list[T](x1, ..., xn)) = list[T](xn, ..., x1)
-length(list[T](x1, ..., xn)) = n
+cons(x, list<T>(x1, ..., xn)) = list<T>(x, x1, ..., xn)
+concat(list<T>(x1, ..., xm), list<T>(y1, ..., yn))
+  = list<T>(x1, ..., xm, y1, ..., yn)
+reverse(list<T>(x1, ..., xn)) = list<T>(xn, ..., x1)
+length(list<T>(x1, ..., xn)) = n
+contains(list<T>(x1, ..., xn), x) = (eq(xi, x) となる i が一つ以上ある)
+uncons(list<T>()) = none<Pair<T, List<T>>>()
+uncons(list<T>(x1, x2, ..., xn)) = some(pair(x1, list<T>(x2, ..., xn)))    (n >= 1)
+range(a, b) = list<Int>(a, a+1, ..., b-1)    (b <= a なら list<Int>())
+sort(list<Int>(x1, ..., xn)) = 昇順に並べ、重複を残した list<Int>
+min(a, b)、max(a, b) = 小さい方、大きい方
+div(a, b) = some(⌊a/b⌋)    (b > 0)、none<Int>()    (b <= 0)
+code(c) = c のスカラー値
+char(n) = some(c)    (n がスカラー値で、c がその文字)、none<Char>()    (そうでなければ)
+to_string(n) = n の正準十進表記（負なら先頭に '-'）
+parse_int(s) = some(値)    (s が、先頭に `-` が一つあってもよい 1 文字以上の ASCII 数字の列のとき)、none<Int>()    (そうでなければ)
 ```
 
-`eq` は同型値に対する構造的等値である。リスト・ペア・Option の比較は左から右、浅い構造から深い構造の順に行い、最初の不一致で `false` を返す。等しい場合だけ全構造を走査する。
+`eq` は同型値に対する構造的等値である。リスト・ペア・Option の比較は左から右、浅い構造から深い構造の順に行い、最初の不一致で `false` を返す。等しい場合だけ全構造を走査する。Result、レコード、直和、Char、String、Dict も同じ規則で比べる。Dict は挿入順を含めて比べる（v1.4、v1.9）。
 
 ```text
 b > 0 なら mod(a,b) = some(r)
   ただし a = b*q + r、0 <= r < b を満たす一意の r
-b <= 0 なら mod(a,b) = none[Int]
+b <= 0 なら mod(a,b) = none<Int>()
 ```
 
-`mod(-3,2)=some(1)`、`mod(1,0)=none[Int]`。
+`mod(-3,2)=some(1)`、`mod(1,0)=none<Int>()`。
 
 ---
 
@@ -409,11 +560,11 @@ b <= 0 なら mod(a,b) = none[Int]
 
 ### 8.1 中心定理
 
-entry 型が `T_in -> T_out` の整形式プログラム `P` と有効入力 `i:T_in` に対し、一意の `v:T_out` が存在して `P(i) ⇓ v` を示す。
+entry 型が `T_in -> T_out` の整形式プログラム `P` と有効入力 `i:T_in` に対し、`P` が rec の印をつけた関数を含まない（`no_rec(P)`）なら、一意の `v:T_out` が存在して `P(i) ⇓ v` を示す。`P` が rec 関数を含むときは停止を示さない（v1.7）。その場合も、評価が値 `v` に達したなら、`v` は宣言された戻り型を持ち、その値は評価の唯一の結果である（`sound`）。
 
 ### 8.2 停止性の証明構造
 
-停止性を、曖昧な単一の「残余式仕事量」測度に依存させない。次の入れ子の帰納で証明する。
+停止性を、曖昧な単一の「残余式仕事量」測度に依存させない。次の入れ子の帰納で証明する。以下は `no_rec(P)` のプログラムの証明構造である。rec 関数を含むプログラムには停止を示さない（v1.7）。
 
 1. **関数ランク帰納**：DAG のランク `rank(f)` について帰納する。関数 `f` からのユーザー関数呼出しは必ずより小さいランクへ進む。
 2. **式構造帰納**：固定した関数本体・環境における各式について構造帰納する。`let` は束縛式と本体の有限構文へ、strict call は有限個の引数と呼出し先へ還元される。
@@ -451,7 +602,7 @@ v1 の標準資源プロファイルは、再現性のため **AllocatedNodeCoun
 
 - リストは不変 cons-cell DAG。空リスト、bool、unit、none は共有 singleton であり、割当数0。none は型を保持するコンパイラ側の型情報で区別し、実行値ごとに型ノードを割り当てない。
 - `cons` は一セル、`pair` は一ノード、`some` は一ノード。既存 payload は共有する。
-- `list[T](e1,...,en)` は引数を左から右に評価後、要素参照を一時スタックに置き、末尾から n セルを構築する。要素のコピーはしない。
+- `list<T>(e1,...,en)` は引数を左から右に評価後、要素参照を一時スタックに置き、末尾から n セルを構築する。要素のコピーはしない。
 - `concat(xs,ys)` は xs の spine を先頭から走査し、要素参照を一時スタックへ置く。ys を初期末尾としてスタックを逆順に取り出し、xs の長さ m の新規セルを作る。ys と要素を共有し、LPTL の中間 cons spine を作らない。
 - `reverse(xs)` は先頭から走査し、空リストを初期末尾として n セルを作る。`length` はキャッシュせず spine を走査する。
 - 整数リテラルの評価、入力整数のデコード、および整数を返す算術・length は、一回ごとに一整数ノードを生成する。小整数の interning は参照モデルにない。変数参照、fst、snd、引数渡しは新規割当しない。
@@ -537,6 +688,35 @@ LPTL Int は正規十進文字列。JSON number は使用しない。以下は�
 {"tag":"none"}
 {"tag":"pair","left":{"tag":"int","value":"1"},"right":{"tag":"bool","value":true}}
 ```
+
+v1.1〜v1.15 の型と値の追加は次の形で書く。
+
+- 文字は `{"tag":"char","value":"<十進の番号>"}`。文字列は文字のリストの値 JSON である。復号はスカラー値でない番号を `E-INPUT-CHAR` で拒否する（v1.2）。
+- `Result` は `{"tag":"ok","value":V}`、`{"tag":"err","value":V}`（v1.4）。
+- `Dict<K, V>` は `List<Pair<K, V>>` の値 JSON と同じ。入力で同じ鍵が二度あれば `E-INPUT-DICT-DUPLICATE-KEY` で拒否する（v1.9）。
+- レコードと直和の値 JSON は、展開後の pair と `ok`／`err` の入れ子である（§3.2）。名義の型は展開後の値と同じである（v1.15）。
+- 再帰する直和型の入出力は v1.14 §5 による。`run` では整数の列、`exec` の入力は未対応である。
+
+### 9.2a 普通の JSON（plain JSON）
+
+`tlvm run --plain` などホスト向けの形式は、型ごとに値 JSON と一対一に対応する便宜の層である。規範の外にあり、変換は検証されていない（接着部分 `plain.rs`）。変換後の値 JSON は検証済みの復号器が読むので、受け取る値の型は保たれる。
+
+| 型 | plain JSON |
+|---|---|
+| `Int` | 整数の JSON number。正規形の十進文字列も受理する。出力は number |
+| `Bool` | `true`、`false` |
+| `Unit` | `null` |
+| `Char` | 1 文字の JSON 文字列 |
+| `String` | JSON 文字列 |
+| `List<T>` | 配列（`T` が `Char` なら `String` と同じ） |
+| `Pair<A, B>` | 二要素の配列 `[a, b]` |
+| `Option<T>` | `none` は `null`、`some(v)` は `v` の plain JSON。ただし `T` が `Unit` か `Option` なら `{"some": v}` |
+| `Result<T, E>` | `{"ok": v}`、`{"err": e}` |
+| `Dict<K, V>` | `[key, value]` の配列の配列（挿入順）。入力で鍵が重なれば拒否する |
+| レコード | field 名を key にした object |
+| 直和型 | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
+
+再帰する直和型の plain JSON は、値の符号化の整数の配列である（v1.14 §5）。
 
 ---
 
@@ -731,6 +911,32 @@ exec/   lexer, parser, formatter, resolver, type checker, DAG checker, evaluator
 9. strict JSON parser・codec の型整合性、往復性、重複キー拒否
 10. Compile / Decode / Run の失敗結果分離
 
+### 11.2a 版ごとの証明状態（v1.1〜v1.16）
+
+検証済みの核（`verus/`）に入った版と、検証されていない接着部分で書き換える版を分ける。件数は各版の差分仕様に記録された値であり、この文書の作成時に Verus を再実行した結果ではない。
+
+- 核に入った版（証明を広げた）：
+  - v1.1：`match_option`、`uncons`、文脈キーワードの構文規則。型安全性と評価器の適合を含む（553 件）。レコードの展開は接着部分。
+  - v1.2：`Char`、`String`、組込み `code`・`char`・`to_string`・`parse_int`。字句・構文・整形・JSON の往復を含む（587 件）。
+  - v1.3：入力の値への変換 `text_value`、引数の列 `args_value`、値からテキストへの変換 `text_codes`。
+  - v1.4：`Result`、`ok`・`err`・`match_result`。型安全性・停止性・決定性と、parser・formatter・JSON の性質を新しい形に広げた（622 件）。直和型の展開と `match` の書換えは接着部分。
+  - v1.7：`rec` の印を持つ関数。返した値の型と唯一性（`sound`、`sound_args`、`sound_fold`、`entry_sound`）。停止は `no_rec(P)` を前提にしてだけ扱う（626 件）。
+  - v1.8：組込み `div`（正の除数の床除算）。多倍長整数の `div_pos` は信頼仮定（626 件）。
+- 接着部分で書き換える版（書換えが元の意味を保つことは未証明。書き換えた後のプログラムの停止性・型安全性・決定性は核が保証する）：
+  - v1.1・v1.4：レコードの展開、直和型と `match` の書換え。
+  - v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by` を `fold` へ。
+  - v1.6：`loop` を `fold` へ。
+  - v1.9：`dict_*` を `List<Pair<K,V>>` と `fold` へ。
+  - v1.10：ユーザー定義の型引数の単相化。
+  - v1.11：`import` を一つの source への連結。
+  - v1.14：再帰する直和型の `List<Int>` への符号化。印つきの写しを核が検査する。
+  - v1.15：名義の型の宣言ごとの印。印つきの写しを核が検査する。印番号の一意性は接着部分の前提。
+  - v1.16：ローカルのパッケージ依存の解決（結果は一つの source）。
+- 証明の対象外：v1.12（REPL と Language Server）、v1.13（辞書入力の読み方と診断の位置写像）、v1.3 の入力形式の選択。
+- 主張しないこと：`rec` 関数を含むプログラムの停止と動的型エラーの不在（§0、§2.1 の 1 と 2）。
+
+未了の証明は、接着部分の書換えごとに「元のプログラムの意味と書換え後の意味が一致する」ことを §11.2 の義務 6〜8 に沿って示すことである。Verus を実行できる環境で、この義務を版ごとに作成する。
+
 ### 11.3 信頼境界
 
 `trust-boundary.toml` には、仕様レビュー、`assume`、`external_body`、`unsafe`、未検証ライブラリ、Verus、SMT、Rust コンパイラ、標準ライブラリ、OS、CPU、アロケータ、BigInt を記録する。
@@ -751,7 +957,7 @@ LLM は候補生成・修復器であって、信頼実行主体ではない。�
 
 ### 12.2 Skill
 
-`SKILL.md` は仕様から生成・照合し、ハッシュとトークン数を固定する。v1 Skill は、`Option` に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない。
+`SKILL.md` は仕様と照合する。v1 Skill は、`Option` に `option_fold` がないことを明記し、`match_option` と `uncons` の書き方を仕様どおりに示す（v1.1）。
 
 含めるのは最小文法、型、組込み規則、`let`・`fold`・`Pair`・`cons`／`reverse` の例、禁止事項、出力形式、主要診断コードである。最終評価の解法・近傍例・手書き例外規則は含めない。
 
@@ -850,7 +1056,7 @@ entry sum_even
 
 ```text
 fn positive_values(xs: List<Int>) -> List<Int> =
-  let reversed = fold(xs, list[Int](), |acc, x|
+  let reversed = fold(xs, list<Int>(), |acc, x|
     if(lt(0, x), cons(x, acc), acc)) in
   reverse(reversed)
 entry positive_values
@@ -858,30 +1064,23 @@ entry positive_values
 
 `fold` と `cons` により逆順で構築し、`reverse` により入力順へ戻す。全操作は有限リストに対し全域である。
 
-### 13.3 v1 で表せない Option payload 消去
+### 13.3 match_option による payload の取り出し（v1.1）
 
-以下は v1 では書けない要求である。
+`mod(a,b)` が `some(r)` のとき `r+1`、`none` のとき 0 を返す要求は、v1 の `match_option` で書ける。
 
 ```text
-// mod(a,b) が some(r) のとき r+1、none のとき 0
+match_option(mod(fst(x), snd(x)), 0, |r| add(r, 1))
 ```
 
-理由は `Option<Int>` の一般 payload `r` を束縛する `match_option` がないためである。これは 将来の独立した Option 消去拡張で初めて対象とする。
+`x` は `Pair<Int, Int>` とする。`tlvm check` は受理し、戻り型は `Int`、`terminates` は `true` を返す。`option_fold` を使わずに payload を取り出せる例である。
 
 ---
 
 ## 14. 将来拡張
 
-### 14.1 独立拡張候補：Option 消去と安全リスト分解
+### 14.1 導入済みの候補（v1.1）
 
-次の機能は一体としてのみ検討する。
-
-```text
-match_option(e, on_none, |x| on_some)
-uncons(xs) : Option<Pair<T, List<T>>>
-```
-
-`match_option` は自由な第一級関数ではなく、`fold` と同様の局所 binder 特殊形式である。導入時には、型規則、選択的評価順序、停止性、診断、codec、LLM 評価、Skill、証明義務を追加する。
+`match_option` と `uncons` は v1 に含める（第2.3節の v1.1）。`option_fold` は導入しない。`match_option` で表せるためである（v1.1 差分仕様 §1）。この節に残る独立拡張候補はない。
 
 ### 14.2 追加判断の条件
 
@@ -919,6 +1118,8 @@ uncons(xs) : Option<Pair<T, List<T>>>
 - 第12.3–12.5節に従い、v1／v1-no-let、制約なしSurface／AST、ASTの制約生成消去、Render／Repair、診断消去、別表記、Skill、制限Python、リスト構築組込み消去の介入と識別対象を事前登録する。
 - 秘密seed最終評価、全episodeの分母、失敗分類、無条件費用、資源超過、対応比較と信頼区間を公開する。実験実施・公開と正の優位性の成立を分離して判定する。
 
+v1.0.0 の凍結は、G0 から G4 までのすべてを満たした後に行う。G4 は事前登録した実験の実施と公開を条件とし、正の優位性の成立は条件としない。
+
 ---
 
 ## 16. 契約索引
@@ -930,7 +1131,7 @@ uncons(xs) : Option<Pair<T, List<T>>>
 | static と DAG の検査分離 | call-graph と各 limits phase に分離 | 10.2 |
 | 上限超過後の継続 | 最初の cutoff で後続を全停止、既存診断は保持 | 10.2 |
 | 通常 call の arity | typecheck、実引数を検査、引数型との比較は抑制 | 6.1 |
-| none[Foo] | E-PARSE-EXPECTED-TYPE | 6.1 |
+| none[Foo] | E-PARSE-EXPECTED-TOKEN（修復ヒントは `none<Foo>()`） | 6.1 |
 | API の bytes 境界 | source_bytes／json_bytes／ast_json_bytes | 9.1 |
 | AST mode | schema、キー、名前、span、共通検査を固定 | 19 |
 | fold 停止証明 | 本体 call を DAG に含め rank 帰納と接続 | 8.2 |
@@ -948,7 +1149,7 @@ uncons(xs) : Option<Pair<T, List<T>>>
 
 本書は、非再帰letと有限リスト構築、診断phase、AST transport、資源cutoff、入力値Admission、scalar検査、予算終了、hash用途の契約を定義する設計案である。固定した記述と、将来spec・registry・実装・証明・実験で照合する条件を区別する。
 
-本版では、Option payload 消去がないという表現力上の境界を隠さない。この制限を明示することで、実装、Verus 証明、Skill、ベンチマーク、LLM の期待能力が同じ言語を対象にする。`match_option` と `uncons` は有用だが、後続の独立拡張版で一体的に審査する。
+本版では、Option の payload を取り出す手段に `option_fold` がないという表現力上の境界を隠さない。payload は `match_option` の枝の中でだけ使える（v1.1）。この制限を明示することで、実装、Verus 証明、Skill、ベンチマーク、LLM の期待能力が同じ言語を対象にする。
 
 LLMに対する優位性は未測定である。v1は、その検証に向けて構文、診断、資源、codec、実験条件を明示し、規範specへの追跡・適合確認を要求する高保証DSLの候補である。文書で手順を選択したことを、実装の決定性や実験の識別可能性が確認済みという意味にしない。
 
@@ -1046,8 +1247,8 @@ ErrorTypeとのEqual／Headは0イベントで二次診断を出さない。必�
 | `fn f(x: Unit) -> Int = 0` | 1 | 1 | 1 | 3 |
 | `fn f(x: Unit) -> Int = add(1, 2)` | 3 | 3 | 3 | 9 |
 | `fn f(x: Unit) -> Option<Int> = some(0)` | 2 | 2 | 2 | 6 |
-| `fn f(x: Unit) -> List<Int> = list[Int](1, 2)` | 3 | 3 | 4 | 10 |
-| `fn f(x: Unit) -> Option<Int> = none[Int]` | 1 | 1 | 2 | 4 |
+| `fn f(x: Unit) -> List<Int> = list<Int>(1, 2)` | 3 | 3 | 4 | 10 |
+| `fn f(x: Unit) -> Option<Int> = none<Int>()` | 1 | 1 | 2 | 4 |
 
 G0では、この論理traceをspecと参照型検査器へ写し、通常型違反、ErrorType回復、深さ／仕事量cutoffを含むfixtureで照合する。本書の規則記述を、参照検査器の実装・証明・適合確認の完了と読み替えない。
 
@@ -1072,6 +1273,16 @@ Admission indexは成功イベントごとに一つ増える論理indexとする
 AST APIでは第19.3節のtransport検査を全て通過した後、物理AST全体を作成する前に、program→declarations入力順の前順Admissionを発行する。子の順はfnでparams→return_type→body、paramでtype、型はelementまたはleft→right、式は第19.2節の子field順・配列入力順とする。paramにはtagはないが一nodeとして計上する。AST cutoff主spanは対象object全体。SurfaceとASTの正常入力は同じ構文ASTについて同じAdmission列・node数・深さを持つ。Surfaceの不正構文にだけ存在する失敗試行をAST APIへ合成しない。
 
 G0では完成ASTとの一致、不完全構文、破棄された親、同期で飛ばすtoken、guard同時超過をfixture化する。この論理契約の記述はparser実装・証明完了の証跡ではない。
+
+### 18.1c v1.1〜v1.16 の追加分の計数（未了）
+
+§18.1a の論理イベントと §18.3 の参照イベントは、v1 の核（v1.0 の組込みと構文）に対して定めている。次の追加分には、まだ規則を定めていない。
+
+- 型検査：レコードの展開後の pair と `ok`／`err` の入れ子、直和型の構築と `match` の書換え後の型、`Char`、`String`、`Result`、`Dict`、`match_option`、`match_result`、`loop`、ラムダを取る組込み（`map` など）、`uncons`、`div`、`min`、`max`、`range`、`contains`、`sort`、`dict_*`、総称の単相化。
+- 実行：上の組込みと書換えの割当ノード数、整数の bit 数、評価遷移数。
+- 上の数値は、接着部分の書換え後のプログラムに対して trace fixture で固定する。その固定まで、これらに数値を与えない。
+
+v1.1〜v1.16 の追加分を含めた計数は、G0 の未達項目である。
 
 ### 18.2 入力と AST transport
 
@@ -1146,14 +1357,19 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 
 | node | keys／fields |
 |---|---|
-| program | `codec`, `declarations`。codec は固定 string、declarations は fn／entry 配列 |
-| fn | `tag`, `name`, `params`, `return_type`, `body` |
+| program | `codec`, `declarations`。codec は固定 string `ast_codec_v1`、declarations は fn／entry 配列 |
+| fn | `tag`, `name`, `params`, `return_type`, `body`。任意：`rec`（boolean。省略は false。v1.7）、`type_params`（大文字で始まる名前の配列。省略は型引数なし。v1.10） |
 | entry | `tag`, `name` |
 | param | `name`, `type` |
-| type int／bool／unit | `tag` |
+| type int／bool／unit／char／string | `tag` |
 | type list／option | `tag`, `element`（type） |
 | type pair | `tag`, `left`, `right`（type） |
+| type result | `tag`, `ok`, `err`（type。v1.4） |
+| type dict | `tag`, `key`, `value`（type。v1.9） |
+| type param | `tag`, `name`（型引数の名前。v1.10） |
 | expr int | `tag`, `value`（正規十進 string） |
+| expr char | `tag`, `value`（スカラー値の十進 string。v1.2） |
+| expr string | `tag`, `value`（文字列の値。JSON 文字列の規則。v1.2） |
 | expr bool | `tag`, `value`（JSON boolean） |
 | expr unit | `tag` |
 | expr var | `tag`, `name` |
@@ -1161,14 +1377,20 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 | expr some | `tag`, `value`（expr） |
 | expr none | `tag`, `element_type` |
 | expr pair | `tag`, `left`, `right`（expr） |
-| expr call | `tag`, `callee`, `args`（expr 配列） |
+| expr call | `tag`, `callee`（名前 string）, `args`（expr 配列）, `type_args`（type 配列。明示しない call は空配列。v1.10） |
 | expr let | `tag`, `name`, `value`, `body`（expr） |
 | expr if | `tag`, `condition`, `then`, `else`（expr） |
 | expr fold | `tag`, `list`, `init`, `acc`, `item`, `body` |
+| expr match_option | `tag`, `scrutinee`, `on_none`, `binder`, `on_some`（v1.1） |
+| expr ok／err | `tag`, `ok_type`, `err_type`, `value`（type、type、expr。v1.4） |
+| expr match_result | `tag`, `scrutinee`, `ok_binder`, `on_ok`, `err_binder`, `on_err`（v1.4） |
+| expr map／filter／any／all／find／sort_by | `tag`, `list`, `binder`, `body`（v1.5） |
+| expr loop | `tag`, `init`, `max`, `binder`, `body`（v1.6） |
+| expr dict | `tag`, `key_type`, `value_type`（空の辞書。v1.9） |
 
-callee は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。
+callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee、args、type_args を持つ。`type_args` は型引数を明示した総称の関数の呼出し（`f<Int>(x)`）の型を書き、明示しない call では空配列を書く。構築子（`Leaf<Int>()`）は直和の宣言と同じく展開後の形で書くので、型引数は AST に現れない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。
 
-`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。
+`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。同梱の schema は call の `type_args` を含む。ほかの v1.x の node（式の char、string、match_option、ok、err、match_result、map など、loop、dict、型の char、string、result、dict、param、fn の rec と type_params）と、予約語の `not.enum`（§4.2 の 19 語）はまだ反映していない。それらを含む schema の作成と、その bytes・SHA-256 の再記録は G0 の未達項目である（§20.4）。
 
 重複キー、バイト数、JSON深さ、UTF-8、不対surrogate、整数桁上限、元byte span、正準キー順、共通静的検査は JSON Schema 単体では保証されず、strict parser、コンパイラ、encoderが別途実施する。schema validator のエラー出力順を第19.3節の規範的診断順に代用しない。
 
@@ -1279,9 +1501,9 @@ schema適合と静的受理は別である。次の入力は構造検査を通�
 | 通常callの実引数不足・過剰 | 解決済みcallならtypecheckで `E-ARITY-*` |
 | 未定義の合法callee名 | nameで `E-NAME-UNKNOWN-FUNCTION` |
 | foldの `acc` と `item` が同名 | nameでbinder重複を拒否 |
-| `callee: "uncons"` | 合法なユーザー関数名として解決。組込みとしては扱わない |
+| `callee: "uncons"` | 組込みとして解決する（v1.1）。文脈キーワードなので、同名の関数は宣言できない |
 
-`uncons` は第4.2節の予約語集合に含めない。従って同名の合法ユーザー関数を定義・呼び出すことは可能だが、Option payload消去や組込みの安全リスト分解を提供するものではない。将来の独立拡張で組込みとして導入する場合は、予約語・名前互換性への影響も審査する。
+`uncons` は予約語ではなく文脈キーワードである（第4.2節）。直後が `(` のときだけ組込みとして働き、引数は一つの `List<A>` であり、結果は `Option<Pair<A, List<A>>>` である（v1.1）。`uncons` という名前の関数は宣言できない。Option の payload を一般に消去する組込みではない。
 
 G0では、実schema、strict parser、文書の文字列条件が同じ受理集合を持つことを照合する。schemaファイルのハッシュとvalidatorの実装・版・設定を記録する。実体が提示されていないファイルのハッシュは unavailable とし、回帰用の再構成物のハッシュで埋めない。同梱schemaの内容識別と限定検査の範囲は第20.4–20.5節に定義する。
 
@@ -1299,7 +1521,7 @@ G0では、実schema、strict parser、文書の文字列条件が同じ受理�
 | `fn f() -> Int = 0 entry f` | E-ENTRY-ARITY |
 | `fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f` | Accepted と g の W-UNUSED-FUNCTION |
 | `fn f(x: Int) -> Int = x 1 entry f` | E-PARSE-UNEXPECTED-TOKEN |
-| `fn f(x: Int) -> Option<Int> = none[Foo] entry f` | E-PARSE-EXPECTED-TYPE |
+| `fn f(x: Int) -> Option<Int> = none[Foo] entry f` | E-PARSE-EXPECTED-TOKEN |
 | 既知の `f(Int)` を `f(1,true)` と呼出し | E-ARITY-USER。true を Int と比較しない |
 | `add(1,true,0)` | E-ARITY-BUILTIN。引数型比較を抑制 |
 | `f(1,fst(unit))`、f は一引数 | E-ARITY-USER と独立した E-TYPE-FST-ARG |
@@ -1317,7 +1539,7 @@ G0では、実schema、strict parser、文書の文字列条件が同じ受理�
 | AST識別子 `"\u0078"`／`"x\n"` | 前者はdecode後 `x` として受理、後者は E-AST-IDENTIFIER |
 | AST `declarations: []` | schema適合。共通検査で E-ENTRY-MISSING |
 | AST foldのaccとitemが同名 | schema適合。共通nameでbinder重複を拒否 |
-| AST `callee="uncons"`、同名fn定義なし／あり | 前者は E-NAME-UNKNOWN-FUNCTION、後者は通常ユーザーcallとして共通検査 |
+| AST `callee="uncons"`、引数一つ | 組込みとして解決する。引数の個数が違えば通常の組込みの arity 診断 |
 | AST call に余分な通常実引数 | transport成功、typecheckで E-ARITY-* |
 | AST some node に valueなし | E-AST-MISSING-FIELD |
 | input int の value が JSON number | E-INPUT-*、Intとして受理しない |
@@ -1386,7 +1608,7 @@ E-ARITY-USER と E-ARITY-BUILTIN は正式な具体コードとする。その�
 
 | 実体 | bytes | SHA-256 |
 |---|---:|---|
-| `ast_codec_v1.schema.json` | 10,590 | `eefa368250b12a11afc842c6f92dc03348a18a9e946a4626b23794a17341e593` |
+| `ast_codec_v1.schema.json` | 10,768 | `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe` |
 
 検査用の対照schemaは実体schemaの代用品ではない。未提示ファイルの実体・hashは推測せず、unavailableとする。
 

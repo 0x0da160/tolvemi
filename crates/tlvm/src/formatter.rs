@@ -283,18 +283,15 @@ fn expr_json(e: &Expr, out: &mut String) {
         ExprKind::Call { callee, args, type_args, .. } => {
             out.push_str(&format!("{{\"tag\":\"call\",\"callee\":\"{callee}\",\"args\":"));
             exprs_json(args, out);
-            // v1.10：明示した型引数（あるときだけ）
-            if !type_args.is_empty() {
-                out.push_str(",\"type_args\":[");
-                for (i, t) in type_args.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',');
-                    }
-                    type_json(t, out);
+            // v1.10：明示した型引数。明示しないときは空配列（必ず出す）
+            out.push_str(",\"type_args\":[");
+            for (i, t) in type_args.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
                 }
-                out.push(']');
+                type_json(t, out);
             }
-            out.push('}');
+            out.push_str("]}");
         }
         ExprKind::Let { name, value, body, .. } => {
             out.push_str(&format!("{{\"tag\":\"let\",\"name\":\"{name}\",\"value\":"));

@@ -27,9 +27,9 @@ sources:
 
 | ファイル | 役割 | bytes | SHA-256 |
 |---|---|---:|---|
-| `LPTL_design_v1.md` | 設計本文 | 115,489 | `457e6959d0d4751e735062a485f607a8c243f4752637172765f120c8f143eaf6` |
-| `LPTL_v1_verification_report.md` | 突き合わせ確認報告 | 8,616 | `f2a1edf870d6293b09d6e54ae04a8b79b37b03d3757181ae147f7ce2a68ce5be` |
-| `ast_codec_v1.schema.json` | AST schema | 10,590 | `eefa368250b12a11afc842c6f92dc03348a18a9e946a4626b23794a17341e593` |
+| `LPTL_design_v1.md` | 設計本文 | 143,744 | `4fc5b6eddf3171732b2cc8afba9aefb5b91a80e74bf7aa86fc1adae08ad75fe8` |
+| `LPTL_v1_verification_report.md` | 突き合わせ確認報告 | 8,685 | `0fbec45016aa377f814c91a2e789c5701591b7f37e051dd5bec7b5449cd03232` |
+| `ast_codec_v1.schema.json` | AST schema | 10,768 | `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe` |
 | `v1_limited_checks.py` | 限定検査コード | 13,396 | `a3c183f8870c97d2e6be7f60c0f3da7f838ca54fb5a0bed29fac4814c13791dc` |
 | `v1_check_inputs.json` | 検査入力・期待値 | 46,914 | `625cc70b793dfbb95e865eb69aa0c945b95cae5e7645012cc676e19188c89aea` |
 | `v1_checks.csv` | 観測結果（再生成される） | 11,637 | `a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034` |
@@ -38,7 +38,7 @@ sources:
 | `v1_structure_checks.json` | 構造照合 | 6,692 | `f0e2eebdb3c0bb226a8ea147870a8d7ff572878376ef5f51a0b30b61eb6c99bb` |
 | `v1_edit_ranges.csv` | 編集範囲一覧 | 4,006 | `9a4066ff2abd7c42fdf9dac0d3743e2c57b766998d3000b2b9e74cbf70939a04` |
 
-manifest 自身は自己 hash を持たない。2026-10-06 にリポジトリ内の全10ファイルの SHA-256 が上表と一致することを確認した（`verified` の process）。
+manifest 自身は自己 hash を持たない。2026-10-13 に、リポジトリ内の全10ファイルの bytes と SHA-256 が上表と一致することを確認した（call の `type_args` 追加後）（`verified` の process）。
 
 # 突き合わせ確認の結果
 

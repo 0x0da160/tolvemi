@@ -342,11 +342,11 @@ fn ast_codec_tags() {
     };
     let x = r#"{"tag":"var","name":"x"}"#;
     let xs = r#"{"tag":"var","name":"xs"}"#;
-    assert!(ast_codes(&format!(r#"{{"tag":"filter","list":{xs},"binder":"x","body":{{"tag":"call","callee":"lt","args":[{{"tag":"int","value":"0"}},{x}]}}}}"#)).is_empty());
+    assert!(ast_codes(&format!(r#"{{"tag":"filter","list":{xs},"binder":"x","body":{{"tag":"call","callee":"lt","args":[{{"tag":"int","value":"0"}},{x}],"type_args":[]}}}}"#)).is_empty());
     assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"body":{x}}}"#)), ["E-AST-MISSING-FIELD"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"map","body":{x}}}"#)), ["E-AST-IDENTIFIER"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"x","init":{x},"body":{x}}}"#)), ["E-AST-UNKNOWN-FIELD"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"call","callee":"map","args":[{xs}]}}"#)), ["E-AST-IDENTIFIER"]);
+    assert_eq!(ast_codes(&format!(r#"{{"tag":"call","callee":"map","args":[{xs}],"type_args":[]}}"#)), ["E-AST-IDENTIFIER"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"sort_by","list":{xs},"binder":"x","body":{{"tag":"bool","value":true}}}}"#)), ["E-TYPE-HOF-BODY"]);
 }
 
