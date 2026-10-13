@@ -45,7 +45,7 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
             ExprKind::Call { callee, args, builtin, callee_span } => {
                 if !builtin && !known.contains(callee.as_str()) {
                     let hof = HofOp::ALL.map(HofOp::name);
-                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof), 3);
+                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof).chain([LOOP]), 3);
                     let constraint = if near.is_empty() {
                         "name of a defined function or builtin".to_string()
                     } else {
@@ -91,6 +91,17 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
             // v1.5：map などの binder は本体の中でだけ見える（match_option の binder と同じ規則）
             ExprKind::Hof { list, binder, binder_span, body, .. } => {
                 walk(list, env, known, diags);
+                if env.contains(&binder.as_str()) {
+                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                }
+                env.push(binder);
+                walk(body, env, known, diags);
+                env.pop();
+            }
+            // v1.6：loop の binder も本体の中でだけ見える
+            ExprKind::Loop { init, max, binder, binder_span, body } => {
+                walk(init, env, known, diags);
+                walk(max, env, known, diags);
                 if env.contains(&binder.as_str()) {
                     diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
                 }
@@ -316,6 +327,7 @@ enum Ev {
 type TcR<T> = Result<T, Diagnostic>;
 
 /// v1.5：`map` などの node（論理 node index）ごとの（要素の型 A、本体の型）。`hof::lower` が使う。
+/// v1.6：`loop` の node は（状態の型 S、本体の型 Option<S>）。
 pub type HofTypes = HashMap<usize, (Ty, Ty)>;
 
 pub struct TypeChecker<'a> {
@@ -503,6 +515,7 @@ impl<'a> TypeChecker<'a> {
                 Ok(if ok { it } else { Ty::error() })
             }
             ExprKind::Hof { op, list, binder, body, .. } => self.hof(e, *op, list, binder, body),
+            ExprKind::Loop { init, max, binder, body, .. } => self.loop_(e, init, max, binder, body),
             ExprKind::Field { expr, target: Some((rt, i, n)), .. } => {
                 // v1.1：e.f。e の型は field を持つレコード型（展開後の pair の入れ子）と等しい
                 let t = self.expr(expr)?;
@@ -643,6 +656,35 @@ impl<'a> TypeChecker<'a> {
             HofOp::Any | HofOp::All => self.build(Ty::bool(), m),
             HofOp::Find => self.build(Ty::option(elem), m),
         }
+    }
+
+    /// v1.6：`loop(init, max, |s| e)`。init : S、max : Int、s : S の下で e : Option<S>。結果は Option<S>。
+    fn loop_(&mut self, e: &'a Expr, init: &'a Expr, max: &'a Expr, binder: &'a str, body: &'a Expr) -> TcR<Ty> {
+        let m = &e.meta;
+        let st = self.expr(init)?;
+        let mt = self.expr(max)?;
+        let mut ok = !(st.is_error() || mt.is_error());
+        if self.equal(&mt, &Ty::int(), &max.meta)? == Some(false) {
+            self.report("E-TYPE-LOOP-MAX", &max.meta, "Int", &mt);
+            ok = false;
+        }
+        self.env.push((binder, st.clone()));
+        let bt = self.expr(body);
+        self.env.pop();
+        let bt = bt?;
+        ok &= !bt.is_error();
+        if !st.is_error() {
+            let want = self.build(Ty::option(st.clone()), m)?;
+            if self.equal(&bt, &want, &body.meta)? == Some(false) {
+                self.report("E-TYPE-LOOP-BODY", &body.meta, &want, &bt);
+                ok = false;
+            }
+        }
+        if !ok {
+            return Ok(Ty::error());
+        }
+        self.hof.insert(m.index, (st, bt.clone()));
+        Ok(bt)
     }
 
     /// v1.4：`match`。対象の型を確かめ、枝ごとに束縛の型を決めて本体を検査する（枝の型はすべて等しい）。

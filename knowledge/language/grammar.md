@@ -115,4 +115,15 @@ hof       ::= "map" | "filter" | "any" | "all" | "find" | "sort_by"
 - 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/hof.rs` が `fold` などに書き換えてから渡す。
   詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
 
+# v1.6 の追加：loop の特殊形式
+
+```ebnf
+expr      ::= ... | "loop" "(" expr "," expr "," "|" IDENT "|" expr ")"
+```
+
+- `loop` は文脈キーワードで、直後が `(` のときだけ特殊形式。それ以外の位置では変数の参照。
+- 第 3 引数は一つの binder のラムダ `|s| e` に限る。関数名だけ、ラムダの頭がない式、binder が二つ、第 3 引数がない
+  （`loop(init, max)`）は `E-PARSE-EXPECTED-LAMBDA`（修復ヒント付き）。
+- 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/hof.rs` が `fold` などに書き換えてから渡す。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

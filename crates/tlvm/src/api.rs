@@ -127,7 +127,7 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
         Parsed::Program(p) if needs_glue(&p) => {
             // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
             // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す。
-            // v1.5：map などは型検査の後に fold などへ書き換える
+            // v1.5：map などは型検査の後に fold などへ書き換える（v1.6 の loop も）
             match expand(&p) {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
@@ -152,7 +152,7 @@ pub fn needs_expansion(p: &Program) -> bool {
     sums::has_sums(p) || records::has_records(p)
 }
 
-/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map などの書き換え）。
+/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop の書き換え）。
 /// こうしたプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
 pub fn needs_glue(p: &Program) -> bool {
     needs_expansion(p) || hof::has_hof(p)
@@ -247,14 +247,14 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
     }
 }
 
-/// v1.5：map などの 6 語が呼び出し・宣言の名前の位置（直後が `(`、直前が `fn`・`entry`）にあるか。
-/// 検証済みの構文規則ではこの 6 語は普通の名前なので、`map(xs, f)` や `fn find(...)` を受理しうる。
+/// v1.5：map などの 6 語（v1.6 の `loop` も）が呼び出し・宣言の名前の位置（直後が `(`、直前が `fn`・`entry`）にあるか。
+/// 検証済みの構文規則ではこれらは普通の名前なので、`map(xs, f)` や `fn find(...)` を受理しうる。
 /// 診断用 parser はそれらを拒否する（`E-PARSE-EXPECTED-LAMBDA`、`E-PARSE-EXPECTED-IDENT`）ので、
 /// その場合は誤拒否の確かめを省く。
 fn hof_word_called(text: &str, profile: &StaticProfile) -> bool {
     let Ok(toks) = lex(text.as_bytes(), profile) else { return false };
     toks.iter().enumerate().any(|(i, t)| {
-        crate::syntax::HofOp::from_name(&t.text).is_some()
+        crate::syntax::is_lambda_form(&t.text)
             && (toks.get(i + 1).is_some_and(|n| n.is_punct("("))
                 || (i > 0 && (toks[i - 1].is_kw("fn") || toks[i - 1].is_kw("entry"))))
     })
@@ -292,7 +292,7 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
         ParsedAst::Program(p) => {
             let o = check_program(&p, data.len(), profile);
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）。
-            // v1.5：map などは fold などに書き換えてから整形する
+            // v1.5：map など（v1.6 の loop も）は fold などに書き換えてから整形する
             let text = if hof::has_hof(&p) { format_program(&hof::lower(&p, &o.hof)) } else { format_program(&p) };
             let r = result(o.diagnostics.clone(), Some(o));
             AstCompile::Result(without_repairs(cross_check(&text, r, profile)))

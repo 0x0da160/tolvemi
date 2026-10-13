@@ -72,4 +72,14 @@ fn top(xs: List<Pair<String, Int>>) -> List<String> =
 entry top
 ```
 
+# v1.6 の例
+
+```text
+// start から倍にして 1000 以上になった最初の値（64 歩で届かなければ none）
+fn first_power(start: Int) -> Option<Int> = loop(start, 64, |n| if(lt(n, 1000), some(mul(n, 2)), none<Int>()))
+entry first_power
+```
+
+入力 1 で `some(1024)`、0 で `none`（0 は倍にしても 0 のまま）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

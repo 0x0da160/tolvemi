@@ -7,12 +7,12 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 56] = [
+pub const KEYWORDS: [&str; 57] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
     "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
-    "sort_by",
+    "sort_by", "loop",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -148,6 +148,14 @@ impl HofOp {
     }
 }
 
+/// v1.6：上限つき反復 `loop(init, max, |s| e)` の名前。
+pub const LOOP: &str = "loop";
+
+/// ラムダを取る特殊形式の名前（v1.5 の 6 語と v1.6 の `loop`）。直後が `(` のときだけ特殊形式。
+pub fn is_lambda_form(s: &str) -> bool {
+    HofOp::from_name(s).is_some() || s == LOOP
+}
+
 // ------------------------------------------------------------------ 構文
 
 #[derive(Clone, Debug, PartialEq)]
@@ -253,6 +261,8 @@ pub enum ExprKind {
     SumMatch { scrutinee: Box<Expr>, arms: Vec<Arm>, kw_span: Sp, close_span: Sp, kind: Option<MatchKind> },
     /// v1.5：`map(xs, |x| e)` など（`op` が形の名前。`binder` は body の中でだけ見える）
     Hof { op: HofOp, list: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
+    /// v1.6：`loop(init, max, |binder| body)`（`binder` は body の中でだけ見える）
+    Loop { init: Box<Expr>, max: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
 }
 
 /// v1.4：`match` の一つの枝。
@@ -323,6 +333,7 @@ impl Expr {
             ExprKind::If(c, t, e) => vec![c, t, e],
             ExprKind::Fold { list, init, body, .. } => vec![list, init, body],
             ExprKind::Hof { list, body, .. } => vec![list, body],
+            ExprKind::Loop { init, max, body, .. } => vec![init, max, body],
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
             ExprKind::Record { fields, base, .. } => fields.iter().map(|f| &f.value).chain(base.as_deref()).collect(),
             ExprKind::Field { expr, .. } => vec![expr],
@@ -348,6 +359,7 @@ impl Expr {
             ExprKind::If(c, t, e) => vec![&mut **c, &mut **t, &mut **e],
             ExprKind::Fold { list, init, body, .. } => vec![&mut **list, &mut **init, &mut **body],
             ExprKind::Hof { list, body, .. } => vec![&mut **list, &mut **body],
+            ExprKind::Loop { init, max, body, .. } => vec![&mut **init, &mut **max, &mut **body],
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![&mut **scrutinee, &mut **on_none, &mut **on_some],
             ExprKind::Record { fields, base, .. } => {
                 fields.iter_mut().map(|f| &mut f.value).chain(base.as_deref_mut()).collect()

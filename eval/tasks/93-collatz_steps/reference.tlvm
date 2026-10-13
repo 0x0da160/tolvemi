@@ -1,0 +1,13 @@
+// n / 2 rounded down, without division: collect the powers of two up to n (largest first), then add them greedily.
+fn half(n: Int) -> Int =
+  let powers = loop(list<Int>(1), 64, |ps|
+    match_option(uncons(ps), none<List<Int>>(), |u|
+      if(le(mul(2, fst(u)), n), some(cons(mul(2, fst(u)), ps)), none<List<Int>>()))) in
+  match_option(powers, 0, |ps| fold(ps, 0, |h, p| if(le(mul(2, add(h, p)), n), add(h, p), h)))
+fn next(n: Int) -> Int = if(eq(mod(n, 2), some(0)), half(n), add(mul(3, n), 1))
+// loop stops once the state reaches 1; reaching it after 100 steps takes 101 body evaluations.
+fn steps(n: Int) -> Int =
+  match_option(loop(pair(n, 0), 101, |s|
+    if(eq(fst(s), 1), none<Pair<Int, Int>>(), some(pair(next(fst(s)), add(snd(s), 1))))), -1, |s| snd(s))
+fn solve(xs: List<Int>) -> List<Int> = map(xs, |n| steps(n))
+entry solve

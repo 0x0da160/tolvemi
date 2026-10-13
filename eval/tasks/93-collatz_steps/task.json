@@ -1,0 +1,13 @@
+{
+  "id": "93-collatz_steps",
+  "title": "Collatz steps",
+  "category": "loop",
+  "prompt": "The input is a list of positive integers. For each integer n, count the steps needed to reach 1, where one step replaces n by n / 2 if n is even and by 3 * n + 1 if n is odd (1 itself needs 0 steps). Return the counts in the input order, using -1 for every integer that needs more than 100 steps.",
+  "input_type": "List<Int>",
+  "output_type": "List<Int>",
+  "examples": [
+    {"input": [6, 1, 27], "expected": [8, 0, -1]},
+    {"input": [107, 214], "expected": [100, -1]},
+    {"input": [], "expected": []}
+  ]
+}

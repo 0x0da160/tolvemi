@@ -75,6 +75,10 @@ pub const PATTERN_EXPECTED: &str = "pattern: Ctor, Ctor(x, ...), ok(x), err(e), 
 pub const LAMBDA_EXPECTED: &str = "|x| e";
 /// v1.5：ラムダの binder が一つでない（`|acc, x|`、`||` など）
 pub const LAMBDA_ONE_BINDER: &str = "exactly one binder: |x|";
+/// v1.6：`loop(init, max, ...)` の第 3 引数にラムダがない
+pub const LOOP_LAMBDA_EXPECTED: &str = "|s| e";
+/// v1.6：`loop` のラムダの binder が一つでない
+pub const LOOP_ONE_BINDER: &str = "exactly one binder: |s|";
 
 pub fn expr_depths(expr: usize) -> Depths {
     Depths { expr: Some(expr), ..Default::default() }
@@ -488,6 +492,45 @@ impl Parser {
         Ok(ExprKind::Hof { op, list: Box::new(list), binder: x.text, binder_span: Sp(x.start, x.end), body: Box::new(body) })
     }
 
+    /// v1.6：`loop(init, max, |s| e)`（名前は読む前）。第 3 引数は一つの binder のラムダ。
+    fn parse_loop(&mut self, d: usize, ld: usize, fd: usize) -> R<ExprKind> {
+        self.advance();
+        self.expect("(")?;
+        let init = self.parse_expr(d + 1, ld, fd + 1)?;
+        self.expect(",")?;
+        let max = self.parse_expr(d + 1, ld, fd + 1)?;
+        let lambda = |p: &Self, expected| Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: p.pos, expected: Some(expected), at: None };
+        if !self.peek(0).is_punct(",") {
+            // `loop(init, max)`：ラムダがない
+            if self.peek(0).is_punct(")") {
+                return Err(lambda(self, LOOP_LAMBDA_EXPECTED));
+            }
+            self.expect(",")?;
+        }
+        self.advance();
+        if !self.peek(0).is_punct("|") {
+            return Err(lambda(self, LOOP_LAMBDA_EXPECTED));
+        }
+        self.advance();
+        if !self.at_binder(0) {
+            return Err(lambda(self, LOOP_ONE_BINDER));
+        }
+        let x = self.advance();
+        if !self.peek(0).is_punct("|") {
+            return Err(lambda(self, LOOP_ONE_BINDER));
+        }
+        self.advance();
+        let body = self.parse_expr(d + 1, ld, fd + 1)?;
+        self.expect(")")?;
+        Ok(ExprKind::Loop {
+            init: Box::new(init),
+            max: Box::new(max),
+            binder: x.text,
+            binder_span: Sp(x.start, x.end),
+            body: Box::new(body),
+        })
+    }
+
     fn parse_type(&mut self, depth: usize) -> R<TypeNode> {
         let tok = self.peek(0).clone();
         if tok.kind == TokKind::Ident {
@@ -642,11 +685,11 @@ impl Parser {
                 }
             }
             // 文脈キーワード：呼び出しの形（直後が `(`、`<`、v1 の `[`）でなければ変数の参照。
-            // v1.5 の map などは直後が `(` のときだけ特殊形式
+            // v1.5 の map など（v1.6 の loop も）は直後が `(` のときだけ特殊形式
             TokKind::Kw
                 if is_soft_keyword(&tok.text)
                     && !(self.peek(1).is_punct("(")
-                        || (HofOp::from_name(&tok.text).is_none() && ["<", "["].iter().any(|p| self.peek(1).is_punct(p)))) =>
+                        || (!is_lambda_form(&tok.text) && ["<", "["].iter().any(|p| self.peek(1).is_punct(p)))) =>
             {
                 idx = self.adm.admit(sp, simple)?;
                 self.advance();
@@ -821,6 +864,10 @@ impl Parser {
                 name if HofOp::from_name(name).is_some() => {
                     idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
                     kind = self.parse_hof(HofOp::from_name(name).unwrap(), d, ld, fd)?;
+                }
+                LOOP => {
+                    idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
+                    kind = self.parse_loop(d, ld, fd)?;
                 }
                 name if is_builtin(name) => {
                     idx = self.adm.admit(sp, simple)?;

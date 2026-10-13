@@ -7,7 +7,7 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 | パス | 内容 |
 |---|---|
 | [`spec/lptl-v1/`](spec/lptl-v1/) | LPTL 設計方針 v1 と検証バンドル（一次資料。manifest の SHA-256 と一致） |
-| [`spec/lptl-v1.1/`](spec/lptl-v1.1/) | v1.1 の差分仕様（`match_option` と `uncons` の追加。草案）。v1.2〜v1.5 も同じく `spec/lptl-v1.N/` |
+| [`spec/lptl-v1.1/`](spec/lptl-v1.1/) | v1.1 の差分仕様（`match_option` と `uncons` の追加。草案）。v1.2〜v1.6 も同じく `spec/lptl-v1.N/` |
 | [`spec/Tolvemi_name_explanation_clean.md`](spec/Tolvemi_name_explanation_clean.md) | 名称・表記・設計思想 |
 | [`knowledge/`](knowledge/) | 上記を [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) でまとめたナレッジバンドル（入口は [`knowledge/index.md`](knowledge/index.md)） |
 | [`crates/tlvm/`](crates/tlvm/) | Rust の処理系（`tlvm check／run／fmt／ast`）と回帰テスト。判定と実行は verus/ の検証済み部品が行う。説明は [`docs/implementation.md`](docs/implementation.md) |
@@ -15,9 +15,9 @@ Tolvemi（トルベミ、省略表記：tlvm）は、有限データ上の純粋
 | [`verus/`](verus/) | Verus の spec 層・proof 層と、検証済みの lexer・parser・formatter・名前解決・型検査器・入力 JSON の復号器・評価器・出力 encoder |
 | [`trust-boundary.toml`](trust-boundary.toml) | 信頼境界と未証明義務の一覧（設計書 §11.3） |
 | [`examples/`](examples/) | 設計書 §13 の例とテストケース |
-| [`eval/`](eval/) | LLM 予備実験の評価セット（SKILL.md、92 問のタスク、ハーネス）。説明は [`eval/README.md`](eval/README.md) |
+| [`eval/`](eval/) | LLM 予備実験の評価セット（SKILL.md、93 問のタスク、ハーネス）。説明は [`eval/README.md`](eval/README.md) |
 
-設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。処理系は [v1.1 の差分仕様](spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option`、`uncons`、レコード型、追加の組み込み関数など）と [v1.2 の差分仕様](spec/lptl-v1.2/LPTL_v1.2_delta.md)（文字 `Char` と文字列 `String`、文字・文字列リテラル、`code`・`char`・`to_string`・`parse_int`）を実装しています。[v1.3](spec/lptl-v1.3/LPTL_v1.3_delta.md) の `tlvm exec FILE ARGS...` で、プログラムを標準入力・引数から標準出力へのコマンドとして動かせます。[v1.4 の差分仕様](spec/lptl-v1.4/LPTL_v1.4_delta.md)（草案）で、失敗を値として返す `Result<T, E>`（`ok`、`err`、`match_result`）と、ユーザー定義の直和型（`type Shape = Circle(Int) | Rect(Int, Int) | Empty`）、それを分解する `match` を加えました。出力型が `Result<String, String>` のプログラムは、`exec` で `err` のとき標準エラーに書いて終了コード 1 で終わります。[v1.5 の差分仕様](spec/lptl-v1.5/LPTL_v1.5_delta.md)（草案）で、リストと一引数のラムダを取る `map(xs, |x| e)`、`filter`、`any`、`all`、`find`、`sort_by` を加えました（型検査の後に `fold` などへ書き換えてから検証済み部品に渡します）。LLM 予備実験の評価セットとハーネスは `eval/` にあり、Claude のサブスクリプションだけで実行できます（`--backend claude-cli`）。
+設計は凍結候補です（G0 未達、G1–G4 未判定）。Rust の処理系があり、字句・構文・整形・名前解決・型検査・入力 JSON の復号・評価・出力 encode は Verus で spec への適合を証明した部品が行います。spec 層の人手レビュー、診断、資源上限、接着部分は未検証で、BigInt は信頼仮定です。処理系は [v1.1 の差分仕様](spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option`、`uncons`、レコード型、追加の組み込み関数など）と [v1.2 の差分仕様](spec/lptl-v1.2/LPTL_v1.2_delta.md)（文字 `Char` と文字列 `String`、文字・文字列リテラル、`code`・`char`・`to_string`・`parse_int`）を実装しています。[v1.3](spec/lptl-v1.3/LPTL_v1.3_delta.md) の `tlvm exec FILE ARGS...` で、プログラムを標準入力・引数から標準出力へのコマンドとして動かせます。[v1.4 の差分仕様](spec/lptl-v1.4/LPTL_v1.4_delta.md)（草案）で、失敗を値として返す `Result<T, E>`（`ok`、`err`、`match_result`）と、ユーザー定義の直和型（`type Shape = Circle(Int) | Rect(Int, Int) | Empty`）、それを分解する `match` を加えました。出力型が `Result<String, String>` のプログラムは、`exec` で `err` のとき標準エラーに書いて終了コード 1 で終わります。[v1.5 の差分仕様](spec/lptl-v1.5/LPTL_v1.5_delta.md)（草案）で、リストと一引数のラムダを取る `map(xs, |x| e)`、`filter`、`any`、`all`、`find`、`sort_by` を加えました（型検査の後に `fold` などへ書き換えてから検証済み部品に渡します）。[v1.6 の差分仕様](spec/lptl-v1.6/LPTL_v1.6_delta.md)（草案）で、上限つき反復 `loop(init, max, |s| e)` を加えました（同じく `fold` に書き換えます）。LLM 予備実験の評価セットとハーネスは `eval/` にあり、Claude のサブスクリプションだけで実行できます（`--backend claude-cli`）。
 
 ```sh
 cargo run --release -- run examples/sum_even.tlvm '{"tag":"list","items":[{"tag":"int","value":"2"},{"tag":"int","value":"3"}]}'
