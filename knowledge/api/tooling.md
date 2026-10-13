@@ -15,6 +15,7 @@ sources:
 # 位置づけ
 
 - 言語（構文・型規則・意味論・診断のコード・資源上限）は v1.11 のまま。加えるのは CLI の `tlvm repl [FILE]` と `tlvm lsp` だけ。[^lptl-v1-12]
+- v1.16 で加えたもの：import の `@名前/パス` と、マニフェスト `tlvm.json`（ローカルの依存。取得と版の解決はない）。[v1.16 差分仕様](../../spec/lptl-v1.16/LPTL_v1.16_delta.md)。CLI の使い方は変えない（根のファイルの隣の `tlvm.json` を import の解決で読む）。
 - どちらも source を組み立てて今までの API（`imports::compile_root`、`api::compile`、`api::run`）に渡し、結果を表示に写す。
   判定と実行は今までどおり検証済み部品が行い、組み立てと写像は検証されていない（[信頼境界](../guarantees/verus-and-trust-boundary.md)）。
 - パッケージ管理と性能の改善は v1.12 に含めない。LLM での確認は対象外（評価セットは変えない）。

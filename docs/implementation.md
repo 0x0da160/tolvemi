@@ -98,6 +98,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `hof.rs` | v1.5 差分 §2、v1.6 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by`・`loop` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
 | `dict.rs` | v1.9 差分 §2 | 辞書の操作の書き換え（`hof.rs` の走査から呼ばれ、型検査が残した鍵と値の型を使う）と、型の `Dict<K, V>` を `List<Pair<K, V>>` にする `erase`。未検証の接着部分 |
 | `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
+| `packages.rs` | v1.16 差分 | ローカルの依存：`tlvm.json` の読み方（厳格な JSON、名前と版の形、依存の path）と、依存のディレクトリの正規化。`imports.rs` が `@名前/パス` の import を依存のファイルに結びつける。未検証の接着部分 |
 | `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_input` で読み、`decode_input_e` で値にして `run_checked` に渡す） |
 | `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
@@ -239,6 +240,7 @@ registry が決まったら差し替える前提です。
   | `E-IMPORT-AFTER-DECL`、`E-IMPORT-UNSUPPORTED`、`E-IMPORT-CYCLE`（v1.11） | `delete_span` | import の行をファイルの先頭へ移す／ファイルから検査するか対応表の API を使う／循環する import を消して共有の定義を第三のファイルへ |
   | `E-IMPORT-PATH`、`E-IMPORT-NOT-FOUND`（v1.11） | `replace_expression`（パスの文字列） | `.tlvm` で終わる相対パス／存在するファイルのパス |
   | `E-IMPORT-CONFLICT`（v1.11） | `replace_identifier` | ほかのファイルが定義していない名前（名前空間は一つ） |
+  | `E-PKG-MANIFEST`、`E-PKG-PATH`、`E-PKG-NOT-FOUND`、`E-PKG-NAME`、`E-PKG-VERSION`、`E-PKG-UNKNOWN`（v1.16） | `replace_expression`、`replace_identifier`（名前） | `tlvm.json` の形／依存の相対パス／宣言した依存のディレクトリ／依存の名前と同じ name／固定した版と同じ version／宣言した依存の名前 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。

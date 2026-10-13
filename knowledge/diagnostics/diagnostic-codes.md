@@ -82,6 +82,12 @@ sources:
 | `E-IMPORT-CYCLE` | import | v1.11：import の循環（actual に `a.tlvm -> b.tlvm -> a.tlvm`） |
 | `E-IMPORT-CONFLICT` | import | v1.11：二つのファイルが同じ名前を定義（actual に両方のファイル） |
 | `E-IMPORT-UNSUPPORTED` | import | v1.11：source の文字列だけを受け取る API に import |
+| `E-PKG-MANIFEST` | import | v1.16：`tlvm.json` が JSON でない、大きすぎる、未知の鍵、名前・版の形が違う（[v1.16 差分仕様](../../spec/lptl-v1.16/LPTL_v1.16_delta.md) §5） |
+| `E-PKG-PATH` | import | v1.16：依存の `path` が不正（絶対パス、根の外、根や自分自身を指す、区切りの誤り） |
+| `E-PKG-NOT-FOUND` | import | v1.16：依存のディレクトリに `tlvm.json` がない |
+| `E-PKG-NAME` | import | v1.16：依存の `tlvm.json` の `name` が宣言した依存の名前と違う |
+| `E-PKG-VERSION` | import | v1.16：版の固定と依存の版が違う（依存に版がない場合も含む） |
+| `E-PKG-UNKNOWN` | import | v1.16：`@名前/…` の名前が、そのファイルのパッケージの依存として宣言されていない |
 | `E-NAME-UNKNOWN-FUNCTION` | name | 未定義の関数名 |
 | `E-ENTRY-UNKNOWN` | name | entry 名が未知 |
 | `E-ENTRY-MISSING` | entry | entry 宣言なし |

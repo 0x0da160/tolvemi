@@ -12,11 +12,13 @@
 
 use crate::api::{compile, parse_source, result, Parsed, SourceCompile};
 use crate::diagnostics::{finalize, Diagnostic};
+use crate::packages::{self, Dep};
 use crate::profiles::StaticProfile;
 use crate::syntax::{Decl, Program};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// ファイルを読む口。`rel` は根のファイルのディレクトリからの正規形の相対パス。
 pub trait Loader {
@@ -90,8 +92,8 @@ impl Loader for MapLoader<'_> {
     }
 }
 
-/// import のパスを、それを書いたファイルのディレクトリ `dir`（正規形の相対パス。根なら空）に対して解決し、正規形にする。
-pub fn join(dir: &str, path: &str) -> Result<String, &'static str> {
+/// import のパスの字句の規則（v1.11）：空でなく、`/` で始まらず、`\`・`:`・制御文字を含まず、`.tlvm` で終わる。
+fn check_path(path: &str) -> Result<(), &'static str> {
     if path.is_empty() {
         return Err("empty path");
     }
@@ -104,6 +106,12 @@ pub fn join(dir: &str, path: &str) -> Result<String, &'static str> {
     if !path.ends_with(".tlvm") {
         return Err("the path must end in .tlvm");
     }
+    Ok(())
+}
+
+/// import のパスを、それを書いたファイルのディレクトリ `dir`（正規形の相対パス。根なら空）に対して解決し、正規形にする。
+pub fn join(dir: &str, path: &str) -> Result<String, &'static str> {
+    check_path(path)?;
     let mut parts: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
     for c in path.split('/') {
         match c {
@@ -218,6 +226,27 @@ struct File {
     program: Option<Program>,
 }
 
+/// ディレクトリの `tlvm.json` の読み方（v1.16）。
+#[derive(Clone)]
+enum Slot {
+    /// そのディレクトリに `tlvm.json` がない
+    Absent,
+    /// `tlvm.json` があるが誤っている（診断は出してある）
+    Bad,
+    Pkg(Rc<Pkg>),
+}
+
+/// 読んだパッケージ。
+struct Pkg {
+    /// 根からの正規形のディレクトリ（根は空）
+    dir: String,
+    /// 診断に出す、マニフェストの名前
+    display: String,
+    name: Option<String>,
+    version: Option<String>,
+    deps: BTreeMap<String, Dep>,
+}
+
 struct Walk<'a> {
     loader: &'a mut dyn Loader,
     profile: &'a StaticProfile,
@@ -229,6 +258,10 @@ struct Walk<'a> {
     diags: Vec<Diagnostic>,
     boundary: Option<String>,
     stop: bool,
+    /// 読んだ `tlvm.json`（ディレクトリごとに一度）
+    pkgs: HashMap<String, Slot>,
+    /// 読んだ `tlvm.json` の名前と中身（`files` に足す。診断の表示に使う）
+    manifests: Vec<(String, Vec<u8>)>,
 }
 
 fn err(code: &'static str, file: &str, span: (usize, usize)) -> Diagnostic {
@@ -238,6 +271,165 @@ fn err(code: &'static str, file: &str, span: (usize, usize)) -> Diagnostic {
 }
 
 impl Walk<'_> {
+    /// ディレクトリ `dir` の `tlvm.json` を読む（ディレクトリごとに一度。誤りは診断に出し、以後は Bad として扱う）。
+    fn slot(&mut self, dir: &str) -> Slot {
+        if let Some(s) = self.pkgs.get(dir) {
+            return s.clone();
+        }
+        let key = if dir.is_empty() { packages::MANIFEST.to_string() } else { format!("{dir}/{}", packages::MANIFEST) };
+        let display = self.loader.display(&key);
+        let s = match self.loader.load(&key, packages::MANIFEST_MAX_BYTES) {
+            Err(_) => Slot::Absent,
+            Ok(bytes) => {
+                self.manifests.push((display.clone(), bytes.clone()));
+                match packages::parse(&bytes) {
+                    Ok(m) => Slot::Pkg(Rc::new(Pkg { dir: dir.to_string(), display, name: m.name, version: m.version, deps: m.deps })),
+                    Err((why, span)) => {
+                        self.diags.push(err("E-PKG-MANIFEST", &display, span).act(why).fix(
+                            "replace_expression",
+                            span,
+                            "a tlvm.json whose keys are only name, version and dependencies (see the LPTL v1.16 delta)",
+                        ));
+                        Slot::Bad
+                    }
+                }
+            }
+        };
+        self.pkgs.insert(dir.to_string(), s.clone());
+        s
+    }
+
+    /// ディレクトリ `dir` から上へたどって最初の `tlvm.json` のパッケージ（無ければ None）。誤りのものに当たれば Err（診断は出してある）。
+    fn nearest(&mut self, dir: &str) -> Result<Option<Rc<Pkg>>, ()> {
+        let mut d = dir.to_string();
+        loop {
+            match self.slot(&d) {
+                Slot::Pkg(p) => return Ok(Some(p)),
+                Slot::Bad => return Err(()),
+                Slot::Absent => {}
+            }
+            if d.is_empty() {
+                return Ok(None);
+            }
+            d = dir_of(&d).to_string();
+        }
+    }
+
+    /// パッケージ `from` が宣言した依存 `name` のパッケージを読む（使われたときに読む）。誤りは診断に出して Err を返す。
+    fn dependency(&mut self, from: &Pkg, name: &str) -> Result<Rc<Pkg>, ()> {
+        let dep: Dep = from.deps[name].clone();
+        let dir = match packages::join_dir(&from.dir, &dep.path) {
+            Ok(d) if !d.is_empty() && d != from.dir => d,
+            Ok(_) => {
+                self.diags.push(err("E-PKG-PATH", &from.display, dep.path_span).act(format!(
+                    "\"{}\": resolves to the project root or to the declaring package itself",
+                    dep.path
+                )).fix("replace_expression", dep.path_span, "a path to a subdirectory that holds the dependency's tlvm.json"));
+                return Err(());
+            }
+            Err(why) => {
+                self.diags.push(err("E-PKG-PATH", &from.display, dep.path_span).act(format!("\"{}\": {why}", dep.path)).fix(
+                    "replace_expression",
+                    dep.path_span,
+                    "a relative path with '/' separators that stays inside the project, such as \"deps/stats\"",
+                ));
+                return Err(());
+            }
+        };
+        let p = match self.slot(&dir) {
+            Slot::Pkg(p) => p,
+            Slot::Absent => {
+                self.diags.push(err("E-PKG-NOT-FOUND", &from.display, dep.path_span).act(format!("{dir}/{}: no such file", packages::MANIFEST)).fix(
+                    "replace_expression",
+                    dep.path_span,
+                    "the path of a directory that holds a tlvm.json declaring the package",
+                ));
+                return Err(());
+            }
+            Slot::Bad => return Err(()),
+        };
+        if p.name.as_deref() != Some(name) {
+            let said = p.name.as_deref().map_or("no name".to_string(), |n| format!("\"{n}\""));
+            self.diags.push(err("E-PKG-NAME", &from.display, dep.name_span).act(format!("{name}: {} says {said}", p.display)).fix(
+                "replace_identifier",
+                dep.name_span,
+                "the dependency's name, the same as the \"name\" in its tlvm.json",
+            ));
+            return Err(());
+        }
+        if let Some(pin) = &dep.pin {
+            if p.version.as_deref() != Some(pin.as_str()) {
+                let has = p.version.as_deref().unwrap_or("no version");
+                self.diags.push(err("E-PKG-VERSION", &from.display, dep.pin_span).act(format!("{name}: pinned {pin}, but {} has {has}", p.display)).fix(
+                    "replace_expression",
+                    dep.pin_span,
+                    "the version of the dependency's tlvm.json, or the version it declares",
+                ));
+                return Err(());
+            }
+        }
+        Ok(p)
+    }
+
+    /// `@名前/パス` の import（v1.16）を、依存のディレクトリからの正規形の相対パスにする。`body` は `@` の後ろ。
+    fn package_target(&mut self, i: usize, body: &str, span: (usize, usize), from: &str) -> Result<String, ()> {
+        let dir = dir_of(&self.files[i].rel).to_string();
+        let Some(pkg) = self.nearest(&dir)? else {
+            self.diags.push(err("E-PKG-UNKNOWN", from, span).act(format!("@{body}: this file is in no package (no tlvm.json at or above its directory)")).fix(
+                "replace_expression",
+                span,
+                "a relative path to the file, or a tlvm.json that declares the dependency",
+            ));
+            return Err(());
+        };
+        let Some((name, path)) = body.split_once('/') else {
+            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{body}\": expected @name/path.tlvm")).fix(
+                "replace_expression",
+                span,
+                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+            ));
+            return Err(());
+        };
+        if !packages::valid_name(name) {
+            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{body}\": the name must match [a-z][a-z0-9_]*")).fix(
+                "replace_expression",
+                span,
+                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+            ));
+            return Err(());
+        }
+        if !pkg.deps.contains_key(name) {
+            let declared: Vec<&str> = pkg.deps.keys().map(String::as_str).collect();
+            let list = if declared.is_empty() { "none".to_string() } else { declared.join(", ") };
+            self.diags.push(err("E-PKG-UNKNOWN", from, span).act(format!("@{name}: not a dependency of this package (declared: {list})")).fix(
+                "replace_expression",
+                span,
+                "the name of a dependency declared in tlvm.json, or a relative path",
+            ));
+            return Err(());
+        }
+        let dep = self.dependency(&pkg, name)?;
+        if let Err(why) = check_path(path) {
+            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{name}/{path}\": {why}")).fix(
+                "replace_expression",
+                span,
+                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+            ));
+            return Err(());
+        }
+        match packages::join_dir(&dep.dir, path) {
+            Ok(key) if key.starts_with(&format!("{}/", dep.dir)) => Ok(key),
+            _ => {
+                self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{name}/{path}\": must stay inside the dependency's directory")).fix(
+                    "replace_expression",
+                    span,
+                    "a path inside the dependency's directory",
+                ));
+                Err(())
+            }
+        }
+    }
+
     fn visit(&mut self, i: usize) {
         self.stack.push(i);
         let imports = self.files[i].program.as_ref().map(|p| p.imports.clone()).unwrap_or_default();
@@ -246,15 +438,22 @@ impl Walk<'_> {
             if self.stop {
                 break;
             }
-            let target = match join(dir_of(&self.files[i].rel), &imp.path) {
-                Ok(t) => t,
-                Err(why) => {
-                    self.diags.push(err("E-IMPORT-PATH", &from, imp.path_span.t()).act(format!("\"{}\": {why}", imp.path)).fix(
-                        "replace_expression",
-                        imp.path_span.t(),
-                        "relative path ending in .tlvm, such as \"lib/util.tlvm\", resolved from the importing file's directory (no leading '/', no '\\', no '..' above the root file's directory)",
-                    ));
-                    continue;
+            let target = if let Some(body) = imp.path.strip_prefix('@') {
+                match self.package_target(i, body, imp.path_span.t(), &from) {
+                    Ok(t) => t,
+                    Err(()) => continue,
+                }
+            } else {
+                match join(dir_of(&self.files[i].rel), &imp.path) {
+                    Ok(t) => t,
+                    Err(why) => {
+                        self.diags.push(err("E-IMPORT-PATH", &from, imp.path_span.t()).act(format!("\"{}\": {why}", imp.path)).fix(
+                            "replace_expression",
+                            imp.path_span.t(),
+                            "relative path ending in .tlvm, such as \"lib/util.tlvm\", resolved from the importing file's directory (no leading '/', no '\\', no '..' above the root file's directory)",
+                        ));
+                        continue;
+                    }
                 }
             };
             if let Some(pos) = self.stack.iter().position(|&j| self.files[j].rel == target) {
@@ -368,10 +567,13 @@ pub fn resolve(root_display: &str, root_rel: &str, root: &[u8], loader: &mut dyn
         diags: vec![],
         boundary: None,
         stop: false,
+        pkgs: HashMap::new(),
+        manifests: vec![],
     };
     w.index.insert(root_rel.to_string(), 0);
     w.visit(0);
-    let files: Vec<(String, Vec<u8>)> = w.files.iter().map(|f| (f.display.clone(), f.bytes.clone())).collect();
+    let mut files: Vec<(String, Vec<u8>)> = w.files.iter().map(|f| (f.display.clone(), f.bytes.clone())).collect();
+    files.extend(w.manifests.iter().cloned());
     if let Some(file) = w.boundary {
         return Resolved::SourceBoundaryFailure { file };
     }
