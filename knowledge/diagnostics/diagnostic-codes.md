@@ -34,6 +34,7 @@ sources:
 | `E-LIMIT-STATIC-*` | コンパイル静的上限超過 |
 | `E-INPUT-*` | JSON 構文、重複キー、tag、キー集合、型、整数正規形 |
 | `E-LIMIT-INPUT-*` | 入力境界上限超過 |
+| `E-SUM-*`、`E-MATCH-*` | v1.4 の直和型と `match`（name phase） |
 | `E-AST-*` | AST transport |
 | `W-UNUSED-FUNCTION` | 未到達トップレベル関数 |
 
@@ -45,6 +46,16 @@ sources:
 | `E-LEX-INVALID-ESCAPE`、`E-LEX-UNTERMINATED-STRING`、`E-LEX-INVALID-CHAR-LITERAL`、`E-LEX-CONTROL-CHAR-IN-LITERAL` | lex | v1.2 の文字・文字列リテラルの不正（[v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md) §6a） |
 | `E-PARSE-STRING-TYPE` | parse | 型に `List<Char>` と書いた（`String` と書く） |
 | `E-LEX-NON-ASCII` | lex | 非コメント部の非 ASCII |
+| `E-PARSE-EXPECTED-PATTERN` | parse | v1.4：`match` の枝の先頭が pattern でない |
+| `E-SUM-DUPLICATE-CTOR` | name | v1.4：構築子の名前が重複している |
+| `E-SUM-UNKNOWN-CTOR` | name | v1.4：知らない構築子（修復ヒントで近い名前） |
+| `E-SUM-CTOR-ARITY` | name | v1.4：構築・pattern の中身の数が宣言と違う |
+| `E-SUM-NAME-CONFLICT` | name | v1.4：構築子と同じ名前の関数・変数・型 |
+| `E-MATCH-MISSING` | name | v1.4：`match` に足りない場合がある（修復ヒントで足りない枝） |
+| `E-MATCH-DUPLICATE` | name | v1.4：同じ場合の枝が二つある |
+| `E-MATCH-UNREACHABLE` | name | v1.4：`_` の後の枝、または全部の場合を書いた後の `_` |
+| `E-MATCH-MIXED` | name | v1.4：一つの `match` に違う型の pattern が混ざっている |
+| `E-TYPE-MATCH-SCRUTINEE`、`E-TYPE-MATCH-BRANCH` | typecheck | `match_option`／`match_result`／`match` の対象の型が違う、枝の型が違う |
 | `E-PARSE-UNEXPECTED-TOKEN` | parse | 完成した式の後に fn/entry/EOF 以外 |
 | `E-PARSE-EXPECTED-TYPE` | parse | `none[Foo]` など閉じた型文法外 |
 | `E-PARSE-EXPECTED-IDENT` | parse | 予約語を名前位置に置いた |

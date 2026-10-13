@@ -1,0 +1,43 @@
+// What a valid line contributes.
+type Line = Blank | Setting(Int)
+
+// Split at the first '=': pair(key, some(value)), or pair(line, none) when there is no '='.
+fn split(line: String) -> Pair<String, Option<String>> =
+  let r = fold(line, pair("", none<String>()), |st, c|
+    match snd(st) {
+      some(v) => pair(fst(st), some(cons(c, v))),
+      none => if(eq(c, '='), pair(fst(st), some("")), pair(cons(c, fst(st)), none<String>()))
+    }) in
+  pair(reverse(fst(r)), match snd(r) { some(v) => some(reverse(v)), none => none<String>() })
+
+fn fail(n: Int, why: String) -> Result<Line, String> =
+  err<Line, String>(concat("line ", concat(to_string(n), concat(": ", why))))
+
+fn check(n: Int, line: String) -> Result<Line, String> =
+  match uncons(line) {
+    none => ok<Line, String>(Blank),
+    some(h) => if(eq(fst(h), '#'), ok<Line, String>(Blank),
+      let kv = split(line) in
+      match snd(kv) {
+        none => fail(n, "missing '='"),
+        some(v) => if(eq(fst(kv), ""), fail(n, "empty key"),
+          match parse_int(v) { some(x) => ok<Line, String>(Setting(x)), none => fail(n, "bad value") })
+      })
+  }
+
+type Scan = { total: Result<Int, String>, n: Int, line: String }
+
+fn add_line(s: Scan) -> Result<Int, String> =
+  match s.total {
+    ok(t) => match check(s.n, reverse(s.line)) {
+      ok(l) => ok<Int, String>(match l { Setting(x) => add(t, x), Blank => t }),
+      err(e) => err<Int, String>(e)
+    },
+    err(_) => s.total
+  }
+
+fn solve(text: String) -> Result<Int, String> =
+  let s = fold(text, Scan { total: ok<Int, String>(0), n: 1, line: "" }, |s, c|
+    if(eq(c, '\n'), Scan { total: add_line(s), n: add(s.n, 1), line: "" }, Scan { line: cons(c, s.line), ..s })) in
+  add_line(s)
+entry solve

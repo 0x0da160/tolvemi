@@ -13,9 +13,11 @@ const PROGRAM_FIELDS: &[(&str, JKind)] = &[("codec", S), ("declarations", A)];
 const PARAM_FIELDS: &[(&str, JKind)] = &[("name", S), ("type", O)];
 const DECL_TAGS: &[&str] = &["fn", "entry"];
 /// v1.2：`char`、`string`（`String` は一つの node。`list` の要素に `char` は書けない）
-const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair"];
+/// v1.4：`result`（型）、`ok`・`err`・`match_result`（式）
+const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result"];
 const EXPR_TAGS: &[&str] = &[
     "int", "char", "string", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option",
+    "ok", "err", "match_result",
 ];
 
 fn decl_fields(tag: &str) -> &'static [(&'static str, JKind)] {
@@ -29,6 +31,7 @@ fn type_fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
         "list" | "option" => &[("element", O)],
         "pair" => &[("left", O), ("right", O)],
+        "result" => &[("ok", O), ("err", O)],
         _ => &[],
     }
 }
@@ -47,6 +50,8 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "if" => &[("condition", O), ("then", O), ("else", O)],
         "fold" => &[("list", O), ("init", O), ("acc", S), ("item", S), ("body", O)],
         "match_option" => &[("scrutinee", O), ("on_none", O), ("binder", S), ("on_some", O)],
+        "ok" | "err" => &[("ok_type", O), ("err_type", O), ("value", O)],
+        "match_result" => &[("scrutinee", O), ("ok_binder", S), ("on_ok", O), ("err_binder", S), ("on_err", O)],
         _ => &[],
     }
 }
@@ -59,6 +64,7 @@ fn type_tag(tag: &str) -> TyTag {
         "char" => TyTag::Char,
         "list" => TyTag::List,
         "option" => TyTag::Option,
+        "result" => TyTag::Result,
         _ => TyTag::Pair,
     }
 }
@@ -262,8 +268,8 @@ impl Schema<'_> {
                         self.ident(c)?;
                     }
                 }
-                (_, "name" | "acc" | "item" | "binder") => self.ident(c)?,
-                (_, "element_type") => self.ty(c)?,
+                (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => self.ident(c)?,
+                (_, "element_type" | "ok_type" | "err_type") => self.ty(c)?,
                 (_, "items" | "args") => {
                     for x in &c.items {
                         self.expr(x)?;
@@ -343,7 +349,7 @@ impl Builder {
         let (i, ld, fd) = match tag {
             "let" => (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd),
             "fold" => (self.adm.admit(n.span(), Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?, ld, fd + 1),
-            "match_option" => {
+            "match_option" | "match_result" => {
                 (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd)
             }
             _ => (self.adm.admit(n.span(), expr_depths(d))?, ld, fd),
@@ -389,6 +395,27 @@ impl Builder {
                 let t = self.expr(g("then"), d + 1, ld, fd)?;
                 let e = self.expr(g("else"), d + 1, ld, fd)?;
                 ExprKind::If(Box::new(c), Box::new(t), Box::new(e))
+            }
+            "ok" | "err" => {
+                let t = self.ty(g("ok_type"), 1)?;
+                let u = self.ty(g("err_type"), 1)?;
+                let v = self.expr(g("value"), d + 1, ld, fd)?;
+                let ty = TypeNode::new(TyTag::Result, vec![t, u], Meta::new(n.span(), i));
+                ExprKind::Inj { ok: tag == "ok", ty, value: Box::new(v) }
+            }
+            "match_result" => {
+                let s = self.expr(g("scrutinee"), d + 1, ld, fd)?;
+                let a = self.expr(g("on_ok"), d + 1, ld, fd)?;
+                let b = self.expr(g("on_err"), d + 1, ld, fd)?;
+                ExprKind::MatchResult {
+                    scrutinee: Box::new(s),
+                    ok_binder: g("ok_binder").text.clone(),
+                    ok_span: sp_of(g("ok_binder")),
+                    on_ok: Box::new(a),
+                    err_binder: g("err_binder").text.clone(),
+                    err_span: sp_of(g("err_binder")),
+                    on_err: Box::new(b),
+                }
             }
             "match_option" => {
                 let s = self.expr(g("scrutinee"), d + 1, ld, fd)?;

@@ -1,0 +1,13 @@
+{
+  "id": "90-parse_config",
+  "title": "Validate and sum a config file",
+  "category": "sum",
+  "prompt": "The input is the text of a configuration file. Lines are separated by '\\n' and numbered from 1. Each line must be empty, a comment (its first character is '#'), or a setting key=value: split the line at its first '='; the key (the text before it) must not be empty, and the value (the text after it) must be an optional '-' followed by one or more digits, with nothing else. If every line is valid, return ok(the sum of all the values). Otherwise return err(message) for the first invalid line, where the message is \"line N: missing '='\" if the line has no '=', \"line N: empty key\" if the key is empty, and \"line N: bad value\" otherwise (N is the line number in decimal).",
+  "input_type": "String",
+  "output_type": "Result<Int, String>",
+  "examples": [
+    {"input": "# limits\nmax=10\n\nmin=-3\n", "expected": {"ok": 7}},
+    {"input": "a=1\nb\nc=x", "expected": {"err": "line 2: missing '='"}},
+    {"input": "a=1\n=2\nb=1=2", "expected": {"err": "line 2: empty key"}}
+  ]
+}

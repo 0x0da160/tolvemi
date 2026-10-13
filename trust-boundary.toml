@@ -35,7 +35,7 @@ version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
 command = "cd verus && cargo verus focus -- --triggers-mode silent"
-result = "593 verified, 0 errors"
+result = "622 verified, 0 errors"
 assume = []
 admit = []
 # external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
@@ -105,6 +105,8 @@ glue = [
   "crates/tlvm/src/runtime.rs、main.rs の exec：v1.3 の tlvm exec。entry の入力型から渡すもの（標準入力・引数）を選び、標準入力の UTF-8 を検査し、検証済みの io（テキストと値の変換）と run_checked で実行し、出力の文字の番号を文字にして書く。終了コードへの写像",
   "crates/tlvm/src/softnames.rs：tlvm ast の出力で、文脈キーワードの変数名を AST transport の識別子に付け替える（α 変換。検査・実行には使わない）",
   "crates/tlvm/src/main.rs：レコードを含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
+  "crates/tlvm/src/sums.rs：v1.4 のユーザー定義の直和型と match の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。検証済み部品は書き換え後の整形ソースを検査・実行する）。直和型・match を含むプログラムの fmt も診断用 formatter の出力をそのまま出す",
+  "crates/tlvm/src/runtime.rs、main.rs の exec：v1.4 の出力型 Result<String, String> の ok／err を標準出力・標準エラーと終了コード 0／1 に写す",
 ]
 unsafe = []
 tests = "cargo test --release（回帰テスト）。検証済み部品に切り替える前の処理系との差分テスト（型付きプログラム 400 件、字句・名前を壊したプログラム 2900 件、入力 JSON 4000 件）で出力・診断・終了コードが一致"

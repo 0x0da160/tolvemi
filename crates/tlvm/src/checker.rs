@@ -97,6 +97,38 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 walk(on_some, env, known, diags);
                 env.pop();
             }
+            // v1.4：二つの binder はそれぞれの枝でだけ見える（同じ名前でもよい）
+            ExprKind::MatchResult { scrutinee, ok_binder, ok_span, on_ok, err_binder, err_span, on_err } => {
+                walk(scrutinee, env, known, diags);
+                for (b, sp, body) in [(ok_binder, ok_span, on_ok), (err_binder, err_span, on_err)] {
+                    if env.contains(&b.as_str()) {
+                        diags.push(Diagnostic::error("name", "E-NAME-SHADOW", sp.t()).act(b).at(idx));
+                    }
+                    env.push(b);
+                    walk(body, env, known, diags);
+                    env.pop();
+                }
+            }
+            // v1.4：`match` の枝の束縛（`_` は束縛しない）。一つの枝の中では相異なる名前
+            ExprKind::SumMatch { scrutinee, arms, .. } => {
+                walk(scrutinee, env, known, diags);
+                for a in arms {
+                    let n = env.len();
+                    for (b, sp) in &a.pat.binds {
+                        if b == "_" {
+                            continue;
+                        }
+                        if env[n..].contains(&b.as_str()) {
+                            diags.push(Diagnostic::error("name", "E-NAME-DUPLICATE-BINDER", sp.t()).act(b).at(idx));
+                        } else if env.contains(&b.as_str()) {
+                            diags.push(Diagnostic::error("name", "E-NAME-SHADOW", sp.t()).act(b).at(idx));
+                        }
+                        env.push(b);
+                    }
+                    walk(&a.body, env, known, diags);
+                    env.truncate(n);
+                }
+            }
             _ => {
                 for c in e.children() {
                     walk(c, env, known, diags);
@@ -118,7 +150,7 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 }
                 walk(&f.body, &mut env, &known, &mut diags);
             }
-            Decl::Type(_) => {}
+            Decl::Type(_) | Decl::Sum(_) => {}
             Decl::Entry(e) => {
                 if !known.contains(e.name.as_str()) {
                     let near = closest(&e.name, known.iter().copied(), 3);
@@ -507,7 +539,126 @@ impl<'a> TypeChecker<'a> {
                 Ok(if ok { nt } else { Ty::error() })
             }
             ExprKind::Call { callee, args, builtin, .. } => self.call(e, callee, args, *builtin),
+            // v1.4：ok<T, E>(x) は x : T、err<T, E>(x) は x : E のとき Result<T, E>
+            ExprKind::Inj { ok, ty, value } => {
+                let vt = self.expr(value)?;
+                let want = Ty::of(ty);
+                let payload = want.arg(if *ok { 0 } else { 1 });
+                match self.equal(&vt, &payload, &value.meta)? {
+                    Some(true) => self.build(want, m),
+                    Some(false) => {
+                        self.report("E-TYPE-ARG", &value.meta, &payload, &vt);
+                        Ok(Ty::error())
+                    }
+                    None => Ok(Ty::error()),
+                }
+            }
+            ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => {
+                let st = self.expr(scrutinee)?;
+                let mut ok = !st.is_error();
+                let (a, b) = match self.head(&st, TyTag::Result, &scrutinee.meta)? {
+                    Some(true) => (st.arg(0), st.arg(1)),
+                    Some(false) => {
+                        self.report("E-TYPE-MATCH-SCRUTINEE", &scrutinee.meta, "Result", &st);
+                        ok = false;
+                        (Ty::error(), Ty::error())
+                    }
+                    None => (Ty::error(), Ty::error()),
+                };
+                self.env.push((ok_binder, a));
+                let at = self.expr(on_ok);
+                self.env.pop();
+                let at = at?;
+                self.env.push((err_binder, b));
+                let bt = self.expr(on_err);
+                self.env.pop();
+                let bt = bt?;
+                ok &= !(at.is_error() || bt.is_error());
+                if self.equal(&bt, &at, &on_err.meta)? == Some(false) {
+                    self.report("E-TYPE-MATCH-BRANCH", &on_err.meta, &at, &bt);
+                    ok = false;
+                }
+                Ok(if ok { at } else { Ty::error() })
+            }
+            ExprKind::SumMatch { scrutinee, arms, kind: Some(kind), .. } => self.sum_match(scrutinee, arms, kind),
+            // sums::expand の後には現れない
+            ExprKind::SumMatch { .. } => Ok(Ty::error()),
         }
+    }
+
+    /// v1.4：`match`。対象の型を確かめ、枝ごとに束縛の型を決めて本体を検査する（枝の型はすべて等しい）。
+    fn sum_match(&mut self, scrutinee: &'a Expr, arms: &'a [Arm], kind: &'a MatchKind) -> TcR<Ty> {
+        let st = self.expr(scrutinee)?;
+        let sm = &scrutinee.meta;
+        let mut ok = !st.is_error();
+        // 場合ごとの束縛の型（対象の型が合わなければ ErrorType）
+        let fields: Vec<Vec<Ty>> = match kind {
+            MatchKind::Sum { ty, fields } => {
+                let want = Ty::of(ty);
+                if self.equal(&st, &want, sm)? == Some(false) {
+                    self.report("E-TYPE-MATCH-SCRUTINEE", sm, &want, &st);
+                    ok = false;
+                }
+                fields.iter().map(|fs| fs.iter().map(|f| if ok { Ty::of(f) } else { Ty::error() }).collect()).collect()
+            }
+            MatchKind::Result | MatchKind::Option => {
+                let (tag, name) = if *kind == MatchKind::Result { (TyTag::Result, "Result") } else { (TyTag::Option, "Option") };
+                match self.head(&st, tag, sm)? {
+                    Some(true) if tag == TyTag::Result => vec![vec![st.arg(0)], vec![st.arg(1)]],
+                    Some(true) => vec![vec![st.arg(0)], vec![]],
+                    r => {
+                        if r == Some(false) {
+                            self.report("E-TYPE-MATCH-SCRUTINEE", sm, name, &st);
+                        }
+                        ok = false;
+                        vec![vec![Ty::error()], vec![Ty::error()]]
+                    }
+                }
+            }
+            MatchKind::Any => {
+                if !st.is_error() {
+                    self.event(Ev::Compare, sm)?;
+                    if !(st.sum().is_some() || matches!(st.tag(), TyTag::Result | TyTag::Option)) {
+                        self.report("E-TYPE-MATCH-SCRUTINEE", sm, "sum type, Result or Option", &st);
+                        ok = false;
+                    }
+                }
+                vec![]
+            }
+        };
+        let mut first: Option<Ty> = None;
+        for a in arms {
+            let n = self.env.len();
+            if let Some(v) = a.variant {
+                for (i, (b, _)) in a.pat.binds.iter().enumerate() {
+                    if b != "_" {
+                        let t = fields.get(v).and_then(|fs| fs.get(i)).cloned().unwrap_or_else(Ty::error);
+                        self.env.push((b, t));
+                    }
+                }
+            }
+            let t = self.expr(&a.body);
+            self.env.truncate(n);
+            let t = t?;
+            if t.is_error() {
+                ok = false;
+                continue;
+            }
+            match &first {
+                None => first = Some(t),
+                Some(f) => {
+                    if self.equal(&t, f, &a.body.meta)? == Some(false) {
+                        let f = f.clone();
+                        self.report("E-TYPE-MATCH-BRANCH", &a.body.meta, &f, &t);
+                        ok = false;
+                    }
+                }
+            }
+        }
+        Ok(match first {
+            Some(t) if ok => t,
+            _ => Ty::error(),
+        })
     }
 
     fn call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], builtin: bool) -> TcR<Ty> {

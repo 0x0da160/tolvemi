@@ -412,6 +412,52 @@ pub fn ty_of(p: &EProg, r: usize, ctx: &mut Vec<(usize, Ty)>, e: &EExpr) -> (res
                 None => None,
             }
         },
+        EExpr::Inj(ok, t, u, x) => {
+            let tx = ty_of(p, r, ctx, x)?;
+            if ty_eq(&tx, if *ok { t } else { u }) {
+                Some(Ty::Result(Box::new(ty_clone(t)), Box::new(ty_clone(u))))
+            } else {
+                None
+            }
+        },
+        EExpr::MatchR(m, x, a, y, b) => {
+            let tm = ty_of(p, r, ctx, m)?;
+            let (tl, tr) = match &tm {
+                Ty::Result(tl, tr) => (ty_clone(tl), ty_clone(tr)),
+                _ => return None,
+            };
+            let ghost before = ctx@;
+            ctx.push((*x, tl));
+            proof {
+                ctx_view_push(before, *x, tl);
+            }
+            let ta = ty_of(p, r, ctx, a);
+            ctx.pop();
+            proof {
+                assert(ctx@ =~= before);
+            }
+            let ta = match ta {
+                Some(ta) => ta,
+                None => return None,
+            };
+            ctx.push((*y, tr));
+            proof {
+                ctx_view_push(before, *y, tr);
+            }
+            let tb = ty_of(p, r, ctx, b);
+            ctx.pop();
+            proof {
+                assert(ctx@ =~= before);
+            }
+            match tb {
+                Some(tb) => if ty_eq(&tb, &ta) {
+                    Some(ta)
+                } else {
+                    None
+                },
+                None => None,
+            }
+        },
     }
 }
 
@@ -551,6 +597,8 @@ pub fn has_type(v: &Rc<Value>, t: &Ty) -> (r: bool)
         (Value::None, Ty::Option(_)) => true,
         (Value::Some(x), Ty::Option(a)) => has_type(x, a),
         (Value::Pair(a, b), Ty::Pair(ta, tb)) => has_type(a, ta) && has_type(b, tb),
+        (Value::Ok(x), Ty::Result(a, _)) => has_type(x, a),
+        (Value::Err(x), Ty::Result(_, b)) => has_type(x, b),
         (Value::Nil, Ty::List(el)) | (Value::Cons(_, _), Ty::List(el)) => {
             let ok = list_has_type(v, el);
             proof {

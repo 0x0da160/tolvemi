@@ -21,14 +21,14 @@ pub fn has_records(p: &Program) -> bool {
         match &e.kind {
             ExprKind::Record { .. } | ExprKind::Field { .. } => true,
             ExprKind::List { element_type, .. } if ty(element_type) => true,
-            ExprKind::None(t) if ty(t) => true,
+            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } if ty(t) => true,
             _ => e.children().into_iter().any(ex),
         }
     }
     p.declarations.iter().any(|d| match d {
         Decl::Type(_) => true,
         Decl::Fn(f) => f.params.iter().any(|p| ty(&p.ty)) || ty(&f.return_type) || ex(&f.body),
-        Decl::Entry(_) => false,
+        Decl::Entry(_) | Decl::Sum(_) => false,
     })
 }
 
@@ -71,6 +71,14 @@ impl Env {
                 Some(r) => {
                     let mut x = r.ty.clone();
                     x.meta = t.meta;
+                    // v1.4：中身が一つのレコードだけの直和型（`type W = W(P)`）は直和型の名前を保つ
+                    // （レコード名は plain JSON 用に直和型の情報の側へ移す）
+                    if let Some(Named::Sum(s)) = &t.label.0 {
+                        let info = SumInfo { name: s.name.clone(), variants: s.variants.clone(), inner: x.label.clone() };
+                        x.label = Label(Some(Named::Sum(Arc::new(info))));
+                    } else if t.label.0.is_some() {
+                        x.label = t.label.clone();
+                    }
                     x
                 }
                 None => {
@@ -173,6 +181,29 @@ impl Env {
                 }
             }
             ExprKind::Record { name, name_span, fields, base } => return self.record(e, name, *name_span, fields, base),
+            ExprKind::Inj { ok, ty, value } => ExprKind::Inj { ok: *ok, ty: self.ty(ty), value: Box::new(self.expr(value)) },
+            ExprKind::MatchResult { scrutinee, ok_binder, ok_span, on_ok, err_binder, err_span, on_err } => ExprKind::MatchResult {
+                scrutinee: Box::new(self.expr(scrutinee)),
+                ok_binder: ok_binder.clone(),
+                ok_span: *ok_span,
+                on_ok: Box::new(self.expr(on_ok)),
+                err_binder: err_binder.clone(),
+                err_span: *err_span,
+                on_err: Box::new(self.expr(on_err)),
+            },
+            ExprKind::SumMatch { scrutinee, arms, kw_span, close_span, kind } => ExprKind::SumMatch {
+                scrutinee: Box::new(self.expr(scrutinee)),
+                arms: arms.iter().map(|a| Arm { body: self.expr(&a.body), ..a.clone() }).collect(),
+                kw_span: *kw_span,
+                close_span: *close_span,
+                kind: kind.as_ref().map(|k| match k {
+                    MatchKind::Sum { ty, fields } => MatchKind::Sum {
+                        ty: self.ty(ty),
+                        fields: fields.iter().map(|fs| fs.iter().map(|f| self.ty(f)).collect()).collect(),
+                    },
+                    k => k.clone(),
+                }),
+            },
             k => k.clone(),
         };
         Expr { kind, meta: m }
@@ -271,6 +302,15 @@ fn collect_idents(p: &Program, out: &mut HashSet<String>) {
             ExprKind::Match { binder, .. } => {
                 out.insert(binder.clone());
             }
+            ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+                out.insert(ok_binder.clone());
+                out.insert(err_binder.clone());
+            }
+            ExprKind::SumMatch { arms, .. } => {
+                for a in arms {
+                    out.extend(a.pat.binds.iter().map(|(b, _)| b.clone()));
+                }
+            }
             ExprKind::Call { callee, .. } => {
                 out.insert(callee.clone());
             }
@@ -326,13 +366,14 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
             env.owner.entry(n.clone()).or_insert_with(|| t.name.clone());
         }
         let info = Arc::new(RecordInfo { name: t.name.clone(), fields: names });
-        let ty = record_type(&tys, Label(Some(info.clone())), t.meta);
+        let ty = record_type(&tys, Label(Some(Named::Record(info.clone()))), t.meta);
         env.types.insert(t.name.clone(), Rec { info, ty });
     }
     let mut decls = vec![];
     for d in &p.declarations {
         match d {
             Decl::Type(_) => {}
+            Decl::Sum(s) => decls.push(Decl::Sum(s.clone())),
             Decl::Entry(e) => decls.push(Decl::Entry(e.clone())),
             Decl::Fn(f) => {
                 let params = f.params.iter().map(|p| Param { ty: env.ty(&p.ty), ..p.clone() }).collect();
@@ -394,6 +435,16 @@ pub fn lower(p: &Program) -> Program {
                 **scrutinee = ex(scrutinee);
                 **on_none = ex(on_none);
                 **on_some = ex(on_some);
+            }
+            ExprKind::Inj { value, .. } => **value = ex(value),
+            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => {
+                **scrutinee = ex(scrutinee);
+                **on_ok = ex(on_ok);
+                **on_err = ex(on_err);
+            }
+            ExprKind::SumMatch { scrutinee, arms, .. } => {
+                **scrutinee = ex(scrutinee);
+                arms.iter_mut().for_each(|a| a.body = ex(&a.body));
             }
             _ => {}
         }

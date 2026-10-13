@@ -7,7 +7,9 @@
 //!   tlvm test FILE [CASES]    入力と期待出力の組を実行して照合（CASES の既定は FILE.tests.json）
 //!   tlvm exec FILE [ARGS...]  コマンドとして実行（v1.3）。entry の入力型で渡すものが決まる：
 //!                             String は標準入力の全文、List<String> はコマンドライン引数、
-//!                             Pair<List<String>, String> はその両方。出力が String ならそのまま標準出力へ
+//!                             Pair<List<String>, String> はその両方。出力が String ならそのまま標準出力へ。
+//!                             出力が Result<String, String> なら ok(s) は s を標準出力へ（終了コード 0）、
+//!                             err(s) は s を標準エラーへ（終了コード 1）
 //!
 //! 診断は一行一 JSON object で stderr へ、結果は stdout へ出す。
 //!
@@ -227,6 +229,14 @@ fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
             out.flush().map_err(|e| e.to_string())?;
             Ok(ExitCode::SUCCESS)
         }
+        // v1.4：出力型 Result<String, String> の err(s) は s を標準エラーへ、終了コード 1
+        ExecResult::Failure(o) => {
+            use std::io::Write;
+            let mut err = std::io::stderr().lock();
+            err.write_all(o.as_bytes()).map_err(|e| e.to_string())?;
+            err.flush().map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(1))
+        }
         ExecResult::Stopped(RunResult::ResourceExhausted { kind, observed, limit }) => {
             eprintln!("{{\"result\":\"ResourceExhausted\",\"kind\":\"{kind}\",\"observed\":{observed},\"limit\":{limit}}}");
             Ok(ExitCode::from(2))
@@ -377,8 +387,8 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["fmt", file] => match parse_file(file, as_ast)? {
-            // v1.1：レコードを含むプログラムは検証済み formatter の対象外。診断用 formatter で整形する
-            Some(p) if tlvm::records::has_records(&p) => {
+            // v1.1：レコード（v1.4：直和型と match）を含むプログラムは検証済み formatter の対象外。診断用 formatter で整形する
+            Some(p) if needs_expansion(&p) => {
                 print!("{}", format_program(&p));
                 Ok(ExitCode::SUCCESS)
             }
@@ -405,10 +415,11 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(ExitCode::from(1)),
         },
         ["ast", file] => match parse_file(file, as_ast)? {
-            // v1.1：AST transport にレコードの形と文脈キーワードの変数名はないので、展開・付け替えしたものを出す
-            Some(p) if tlvm::records::has_records(&p) => match tlvm::records::expand(&p) {
+            // v1.1：AST transport にレコード（v1.4：直和型と match）の形と文脈キーワードの変数名はないので、
+            // 展開・付け替えしたものを出す
+            Some(p) if needs_expansion(&p) => match expand(&p) {
                 Ok(px) => {
-                    println!("{}", encode_ast(&tlvm::softnames::rename(&tlvm::records::lower(&px))));
+                    println!("{}", encode_ast(&tlvm::softnames::rename(&lower(&px))));
                     Ok(ExitCode::SUCCESS)
                 }
                 Err(d) => {

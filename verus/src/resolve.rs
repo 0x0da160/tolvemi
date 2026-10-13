@@ -105,6 +105,20 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
                 _ => None,
             }
         },
+        Sx::Inj(ok, t, u, a) => match rx(fs, sc, *a) {
+            Some(x) => Some(Expr::Inj(ok, t, u, Box::new(x))),
+            None => None,
+        },
+        Sx::MatchR(m, x, a, y, b) => if idx(sc, x, 0) is Some || idx(sc, y, 0) is Some {
+            None
+        } else {
+            match (rx(fs, sc, *m), rx(fs, sc.push(x), *a), rx(fs, sc.push(y), *b)) {
+                (Some(rm), Some(ra), Some(rb)) => Some(
+                    Expr::MatchR(Box::new(rm), sc.len(), Box::new(ra), sc.len(), Box::new(rb)),
+                ),
+                _ => None,
+            }
+        },
     }
 }
 
@@ -261,6 +275,8 @@ pub open spec fn scoped(e: Expr, n: nat) -> bool
         Expr::If(c, a, b) => scoped(*c, n) && scoped(*a, n) && scoped(*b, n),
         Expr::Fold(l, i, a, x, b) => a == n && x == n + 1 && scoped(*l, n) && scoped(*i, n) && scoped(*b, n + 2),
         Expr::Match(m, nb, x, b) => x == n && scoped(*m, n) && scoped(*nb, n) && scoped(*b, n + 1),
+        Expr::Inj(_, _, _, a) => scoped(*a, n),
+        Expr::MatchR(m, x, a, y, b) => x == n && y == n && scoped(*m, n) && scoped(*a, n + 1) && scoped(*b, n + 1),
         _ => true,
     }
 }
@@ -339,6 +355,30 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                     }
                 }
                 rx_scoped(fs, s2, *b);
+            }
+        },
+        Sx::Inj(_, _, _, a) => rx_scoped(fs, sc, *a),
+        Sx::MatchR(m, x, a, y, b) => {
+            idx_props(sc, x, 0);
+            idx_props(sc, y, 0);
+            rx_scoped(fs, sc, *m);
+            if idx(sc, x, 0) is None {
+                let s2 = sc.push(x);
+                assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
+                    if j == sc.len() {
+                        assert(sc[i] != x);
+                    }
+                }
+                rx_scoped(fs, s2, *a);
+            }
+            if idx(sc, y, 0) is None {
+                let s3 = sc.push(y);
+                assert forall|i: int, j: int| 0 <= i < j < s3.len() implies s3[i] != s3[j] by {
+                    if j == sc.len() {
+                        assert(sc[i] != y);
+                    }
+                }
+                rx_scoped(fs, s3, *b);
             }
         },
         _ => {},
@@ -569,6 +609,62 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         },
         SExpr::Fold(..) => rx_fold_e(fs, sc, e),
         SExpr::Match(..) => rx_match_e(fs, sc, e),
+        SExpr::Inj(ok, t, u, a) => match rx_e(fs, sc, a) {
+            Some(x) => Some(EExpr::Inj(*ok, ty_clone(t), ty_clone(u), Box::new(x))),
+            None => None,
+        },
+        SExpr::MatchR(..) => rx_matchr_e(fs, sc, e),
+    }
+}
+
+fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+    requires
+        e is MatchR,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+        },
+    decreases e, 0nat,
+{
+    let ghost s0 = sc@;
+    if let SExpr::MatchR(m, x, a, y, b) = e {
+        if idx_e(sc, x).is_some() || idx_e(sc, y).is_some() {
+            return None;
+        }
+        let rm = rx_e(fs, sc, m);
+        if rm.is_none() {
+            return None;
+        }
+        sc.push(clone_chars(x));
+        let k = sc.len() - 1;
+        proof {
+            vnames_push(s0, sc@[k as int]);
+        }
+        let ra = rx_e(fs, sc, a);
+        sc.pop();
+        proof {
+            assert(sc@ =~= s0);
+        }
+        if ra.is_none() {
+            return None;
+        }
+        sc.push(clone_chars(y));
+        proof {
+            vnames_push(s0, sc@[k as int]);
+        }
+        let rb = rx_e(fs, sc, b);
+        sc.pop();
+        proof {
+            assert(sc@ =~= s0);
+        }
+        match (rm, ra, rb) {
+            (Some(rm), Some(ra), Some(rb)) => Some(EExpr::MatchR(Box::new(rm), k, Box::new(ra), k, Box::new(rb))),
+            _ => None,
+        }
+    } else {
+        None
     }
 }
 

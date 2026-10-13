@@ -69,6 +69,9 @@ fn is_type_kw(t: &Token) -> bool {
     t.kind == TokKind::Ident && t.text == "type"
 }
 
+pub const CTOR_EXPECTED: &str = "constructor name starting with an uppercase letter";
+pub const PATTERN_EXPECTED: &str = "pattern: Ctor, Ctor(x, ...), ok(x), err(e), some(x), none or _";
+
 pub fn expr_depths(expr: usize) -> Depths {
     Depths { expr: Some(expr), ..Default::default() }
 }
@@ -93,6 +96,8 @@ pub struct Parser {
     pub adm: Admission,
     pub diags: Vec<Diagnostic>,
     prev_end: usize,
+    /// v1.4：`match` の対象の先頭 token の位置。そこでは `Name {` をレコードの構築として読まない
+    no_record_at: Option<usize>,
 }
 
 pub enum ParseOutcome {
@@ -105,7 +110,7 @@ pub enum ParseOutcome {
 
 impl Parser {
     pub fn new(toks: Vec<Token>, profile: &StaticProfile) -> Parser {
-        Parser { toks, pos: 0, adm: Admission::new(profile), diags: vec![], prev_end: 0 }
+        Parser { toks, pos: 0, adm: Admission::new(profile), diags: vec![], prev_end: 0, no_record_at: None }
     }
 
     fn peek(&self, k: usize) -> &Token {
@@ -193,7 +198,7 @@ impl Parser {
             } else if self.peek(0).is_kw("entry") {
                 self.parse_entry().map(Decl::Entry)
             } else if is_type_kw(self.peek(0)) {
-                self.parse_type_decl().map(Decl::Type)
+                self.parse_type_decl()
             } else {
                 self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type")
             };
@@ -294,12 +299,15 @@ impl Parser {
         Ok(EntryDecl { name: name.text, name_span: Sp(name.start, name.end), meta: Meta::new((kw.start, self.prev_end), idx) })
     }
 
-    /// v1.1：`type Name = { f: T, ... }`
-    fn parse_type_decl(&mut self) -> R<TypeDecl> {
+    /// v1.1：`type Name = { f: T, ... }`。v1.4：`type Name = A | B(T, ...) | ...`
+    fn parse_type_decl(&mut self) -> R<Decl> {
         let kw = self.advance();
         let idx = self.adm.admit(kw.span(), Depths::default())?;
         let name = self.expect_ident()?;
         self.expect("=")?;
+        if !self.peek(0).is_punct("{") {
+            return self.parse_sum_decl(kw, idx, name).map(Decl::Sum);
+        }
         self.expect("{")?;
         let mut fields = vec![];
         loop {
@@ -320,7 +328,130 @@ impl Parser {
         if !self.at_decl_end() {
             return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
         }
-        Ok(TypeDecl { name: name.text, name_span: Sp(name.start, name.end), fields, meta: Meta::new((kw.start, self.prev_end), idx) })
+        Ok(Decl::Type(TypeDecl {
+            name: name.text,
+            name_span: Sp(name.start, name.end),
+            fields,
+            meta: Meta::new((kw.start, self.prev_end), idx),
+        }))
+    }
+
+    /// v1.4：`=` の後の `A | B(T, ...) | ...`。構築子の名前は大文字で始まる。
+    fn parse_sum_decl(&mut self, kw: Token, idx: usize, name: Token) -> R<SumDecl> {
+        let mut variants = vec![];
+        loop {
+            let c = self.peek(0).clone();
+            if c.kind != TokKind::Ident || !c.text.starts_with(|ch: char| ch.is_ascii_uppercase()) {
+                return self.perr("E-PARSE-EXPECTED-IDENT", CTOR_EXPECTED);
+            }
+            self.advance();
+            let mut fields = vec![];
+            if self.peek(0).is_punct("(") {
+                self.advance();
+                loop {
+                    fields.push(self.parse_type(1)?);
+                    if self.peek(0).is_punct(",") {
+                        self.advance();
+                        continue;
+                    }
+                    break;
+                }
+                self.expect(")")?;
+            }
+            variants.push(VariantDecl { name: c.text, name_span: Sp(c.start, c.end), fields });
+            if self.peek(0).is_punct("|") {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        if !self.at_decl_end() {
+            return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
+        }
+        Ok(SumDecl { name: name.text, name_span: Sp(name.start, name.end), variants, meta: Meta::new((kw.start, self.prev_end), idx) })
+    }
+
+    /// v1.4：`match` で始まるのが match 式か（`match` は文脈キーワード。直後に式が続くときだけ。
+    /// 括弧で囲んだ式はないので、`match(` は関数 `match` の呼び出し）。
+    fn match_starts(&self) -> bool {
+        let t = self.peek(1);
+        match t.kind {
+            // 次の宣言の始まり（`entry f`、`type T =`）なら `match` は変数
+            TokKind::Ident if is_type_kw(t) && self.peek(2).kind == TokKind::Ident && self.peek(3).is_punct("=") => false,
+            TokKind::Int | TokKind::Char | TokKind::Str | TokKind::Ident => true,
+            TokKind::Kw if t.text == "entry" => self.peek(2).kind != TokKind::Ident,
+            TokKind::Kw => !matches!(t.text.as_str(), "in" | "fn"),
+            _ => false,
+        }
+    }
+
+    /// v1.4：`match` の pattern。
+    fn parse_pattern(&mut self) -> R<Pattern> {
+        let tok = self.peek(0).clone();
+        let start = tok.start;
+        let (kind, arity) = match tok.kind {
+            TokKind::Ident if tok.text == "_" => (PatKind::Wild, None),
+            TokKind::Ident => (PatKind::Ctor(tok.text.clone()), None),
+            TokKind::Kw if tok.text == "ok" => (PatKind::Ok, Some(1)),
+            TokKind::Kw if tok.text == "err" => (PatKind::Err, Some(1)),
+            TokKind::Kw if tok.text == "some" => (PatKind::Some, Some(1)),
+            TokKind::Kw if tok.text == "none" => (PatKind::None, Some(0)),
+            _ => return self.perr("E-PARSE-EXPECTED-PATTERN", PATTERN_EXPECTED),
+        };
+        self.advance();
+        let mut binds = vec![];
+        let mut parens = false;
+        if (matches!(kind, PatKind::Ctor(_)) && self.peek(0).is_punct("(")) || arity == Some(1) {
+            parens = true;
+            self.expect("(")?;
+            if !(arity.is_none() && self.peek(0).is_punct(")")) {
+                loop {
+                    let b = self.expect_binder()?;
+                    binds.push((b.text, Sp(b.start, b.end)));
+                    if arity.is_none() && self.peek(0).is_punct(",") {
+                        self.advance();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect(")")?;
+        }
+        Ok(Pattern { kind, span: Sp(start, self.prev_end), parens, binds })
+    }
+
+    /// v1.4：`match e { P => e, ... }`（`match` は読む前）
+    fn parse_match(&mut self, d: usize, ld: usize, fd: usize) -> R<ExprKind> {
+        let kw = self.advance();
+        self.no_record_at = Some(self.pos);
+        let scrutinee = self.parse_expr(d + 1, ld + 1, fd);
+        self.no_record_at = None;
+        let scrutinee = scrutinee?;
+        self.expect("{")?;
+        let mut arms = vec![];
+        loop {
+            if !arms.is_empty() && self.peek(0).is_punct("}") {
+                break;
+            }
+            let pat = self.parse_pattern()?;
+            self.expect("=>")?;
+            let body = self.parse_expr(d + 1, ld + 1, fd)?;
+            let span = Sp(pat.span.0, self.prev_end);
+            arms.push(Arm { pat, body, span, variant: None });
+            if self.peek(0).is_punct(",") {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        let close = self.expect("}")?;
+        Ok(ExprKind::SumMatch {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            kw_span: Sp(kw.start, kw.end),
+            close_span: Sp(close.start, close.end),
+            kind: None,
+        })
     }
 
     fn parse_type(&mut self, depth: usize) -> R<TypeNode> {
@@ -361,7 +492,7 @@ impl Parser {
                     at: Some(((tok.start, end), "List<Char>".to_string())),
                 });
             }
-            if tag == TyTag::Pair {
+            if tag.arity() == 2 {
                 self.expect(",")?;
                 args.push(self.parse_type(depth + 1)?);
             }
@@ -454,10 +585,17 @@ impl Parser {
                 self.advance();
                 kind = ExprKind::Str(tok.lit);
             }
+            TokKind::Ident if tok.text == "match" && self.match_starts() => {
+                idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                kind = self.parse_match(d, ld, fd)?;
+            }
             TokKind::Ident => {
                 idx = self.adm.admit(sp, simple)?;
+                let at = self.pos;
                 self.advance();
-                if self.peek(0).is_punct("(") {
+                if self.peek(0).is_punct("{") && self.no_record_at == Some(at) {
+                    kind = ExprKind::Var(tok.text);
+                } else if self.peek(0).is_punct("(") {
                     self.advance();
                     let args = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
@@ -517,6 +655,46 @@ impl Parser {
                     self.advance();
                     self.expect(")")?;
                     kind = ExprKind::None(ty);
+                }
+                "ok" | "err" => {
+                    idx = self.adm.admit(sp, simple)?;
+                    self.advance();
+                    self.expect("<")?;
+                    let t = self.parse_type(1)?;
+                    self.expect(",")?;
+                    let u = self.parse_type(1)?;
+                    self.expect(">")?;
+                    let ty = TypeNode::new(TyTag::Result, vec![t, u], Meta::new((start, self.prev_end), idx));
+                    self.expect("(")?;
+                    let v = self.parse_expr(d + 1, ld, fd)?;
+                    self.expect(")")?;
+                    kind = ExprKind::Inj { ok: tok.text == "ok", ty, value: Box::new(v) };
+                }
+                "match_result" => {
+                    idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                    self.advance();
+                    self.expect("(")?;
+                    let scrutinee = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(",")?;
+                    self.expect("|")?;
+                    let x = self.expect_binder()?;
+                    self.expect("|")?;
+                    let on_ok = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(",")?;
+                    self.expect("|")?;
+                    let y = self.expect_binder()?;
+                    self.expect("|")?;
+                    let on_err = self.parse_expr(d + 1, ld + 1, fd)?;
+                    self.expect(")")?;
+                    kind = ExprKind::MatchResult {
+                        scrutinee: Box::new(scrutinee),
+                        ok_binder: x.text,
+                        ok_span: Sp(x.start, x.end),
+                        on_ok: Box::new(on_ok),
+                        err_binder: y.text,
+                        err_span: Sp(y.start, y.end),
+                        on_err: Box::new(on_err),
+                    };
                 }
                 "pair" => {
                     idx = self.adm.admit(sp, simple)?;

@@ -41,4 +41,11 @@ sources:
 
 境界 fixture：関数名を 524,276 文字の `f` 列とすると、`fn N(x:Int)->Int=x entry N` は 1,048,576 bytes で source 上限を通過するが、format 出力は 1,048,582 bytes になり同じ profile へ再投入すると `SOURCE-BYTES` で拒否される。これは抽象往復を否定しない。
 
+
+# v1.4 の追加
+
+`Result<A, B>`、`ok<A, B>(EXPR)`、`err<A, B>(EXPR)`、`match_result(EXPR, |X| EXPR, |Y| EXPR)` は検証済み formatter が
+この形に整形する。直和型・`match` を含むプログラムは診断用 formatter が `type S = A(T) | B`、
+`match EXPR { P => EXPR, ... }` の形に整形する（レコードと同じく検証済み formatter の対象外）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

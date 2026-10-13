@@ -11,8 +11,8 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 
 /// 変数名として使える予約語（組み込み関数と値の構築子の名前）。
-pub const SOFT_KEYWORDS: [&str; 29] = [
-    "entry", "list", "some", "none", "pair", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
+pub const SOFT_KEYWORDS: [&str; 31] = [
+    "entry", "list", "some", "none", "pair", "ok", "err", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "min", "max", "range", "contains", "sort", "code", "char", "to_string",
     "parse_int",
 ];
@@ -30,6 +30,17 @@ fn walk<'a>(e: &'a Expr, f: &mut impl FnMut(&'a str)) {
             f(item);
         }
         ExprKind::Match { binder, .. } => f(binder),
+        ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+            f(ok_binder);
+            f(err_binder);
+        }
+        ExprKind::SumMatch { arms, .. } => {
+            for a in arms {
+                for (b, _) in &a.pat.binds {
+                    f(b);
+                }
+            }
+        }
         ExprKind::Call { callee, builtin: false, .. } => f(callee),
         _ => {}
     }
@@ -49,7 +60,7 @@ fn names(p: &Program) -> Vec<&str> {
                 walk(&fd.body, &mut |x| out.push(x));
             }
             Decl::Entry(e) => out.push(e.name.as_str()),
-            Decl::Type(_) => {}
+            Decl::Type(_) | Decl::Sum(_) => {}
         }
     }
     out
@@ -116,6 +127,21 @@ pub fn rename(p: &Program) -> Program {
                 }
             }
             ExprKind::Field { expr, .. } => ex(expr, r),
+            ExprKind::Inj { value, .. } => ex(value, r),
+            ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => {
+                ex(scrutinee, r);
+                r(ok_binder);
+                ex(on_ok, r);
+                r(err_binder);
+                ex(on_err, r);
+            }
+            ExprKind::SumMatch { scrutinee, arms, .. } => {
+                ex(scrutinee, r);
+                for a in arms {
+                    a.pat.binds.iter_mut().for_each(|(b, _)| r(b));
+                    ex(&mut a.body, r);
+                }
+            }
             ExprKind::Int(_)
             | ExprKind::Char(_)
             | ExprKind::Str(_)

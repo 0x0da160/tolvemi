@@ -59,6 +59,8 @@ pub enum SExpr {
     If(Box<SExpr>, Box<SExpr>, Box<SExpr>),
     Fold(Box<SExpr>, Box<SExpr>, Vec<char>, Vec<char>, Box<SExpr>),
     Match(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
+    Inj(bool, Ty, Ty, Box<SExpr>),
+    MatchR(Box<SExpr>, Vec<char>, Box<SExpr>, Vec<char>, Box<SExpr>),
 }
 
 pub enum SDecl {
@@ -86,6 +88,8 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::If(c, a, b) => Sx::If(Box::new(vx(*c)), Box::new(vx(*a)), Box::new(vx(*b))),
         SExpr::Fold(l, i, a, x, b) => Sx::Fold(Box::new(vx(*l)), Box::new(vx(*i)), a@, x@, Box::new(vx(*b))),
         SExpr::Match(m, n, x, b) => Sx::Match(Box::new(vx(*m)), Box::new(vx(*n)), x@, Box::new(vx(*b))),
+        SExpr::Inj(ok, t, u, a) => Sx::Inj(ok, t, u, Box::new(vx(*a))),
+        SExpr::MatchR(m, x, a, y, b) => Sx::MatchR(Box::new(vx(*m)), x@, Box::new(vx(*a)), y@, Box::new(vx(*b))),
     }
 }
 
@@ -301,6 +305,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Le)
         } else if c2e(w, 'e', 'q') {
             Some(Kw::Eq)
+        } else if c2e(w, 'o', 'k') {
+            Some(Kw::Ok)
         } else {
             None
         }
@@ -327,6 +333,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Min)
         } else if c3e(w, 'm', 'a', 'x') {
             Some(Kw::Max)
+        } else if c3e(w, 'e', 'r', 'r') {
+            Some(Kw::Err)
         } else {
             None
         }
@@ -387,6 +395,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Uncons)
         } else if c6e(w, 'S', 't', 'r', 'i', 'n', 'g') {
             Some(Kw::TString)
+        } else if c6e(w, 'R', 'e', 's', 'u', 'l', 't') {
+            Some(Kw::TResult)
         } else {
             None
         }
@@ -414,6 +424,9 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
         if c6e(w, 'm', 'a', 't', 'c', 'h', '_') && w[6] == 'o' && w[7] == 'p' && w[8] == 't' && w[9] == 'i'
             && w[10] == 'o' && w[11] == 'n' {
             Some(Kw::MatchOption)
+        } else if c6e(w, 'm', 'a', 't', 'c', 'h', '_') && w[6] == 'r' && w[7] == 'e' && w[8] == 's' && w[9] == 'u'
+            && w[10] == 'l' && w[11] == 't' {
+            Some(Kw::MatchResult)
         } else {
             None
         }
@@ -1067,7 +1080,7 @@ fn soft_e(k: Kw) -> (r: bool)
         r == soft(k),
 {
     match k {
-        Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry => true,
+        Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry | Kw::Ok | Kw::Err => true,
         _ => builtin_of(k).is_some(),
     }
 }
@@ -1164,7 +1177,7 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
                 None => None,
             }
         },
-        Kw::TPair => {
+        Kw::TPair | Kw::TResult => {
             if !sym_e(ts, i + 1, '<') {
                 return None;
             }
@@ -1172,7 +1185,13 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
                 Some((a, j)) => if sym_e(ts, j, ',') {
                     match pt_e(ts, j + 1, d - 1) {
                         Some((b, m)) => if sym_e(ts, m, '>') {
-                            Some((Ty::Pair(Box::new(a), Box::new(b)), m + 1))
+                            Some((
+                                match k {
+                                    Kw::TPair => Ty::Pair(Box::new(a), Box::new(b)),
+                                    _ => Ty::Result(Box::new(a), Box::new(b)),
+                                },
+                                m + 1,
+                            ))
                         } else {
                             None
                         },
@@ -1249,6 +1268,8 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::If => pe_if_e(ts, i, d, td),
             Kw::Fold => pe_fold_e(ts, i, d, td),
             Kw::MatchOption => pe_match_e(ts, i, d, td),
+            Kw::Ok | Kw::Err => pe_inj_e(ts, i, d, td),
+            Kw::MatchResult => pe_matchr_e(ts, i, d, td),
             _ => pe_builtin_e(ts, i, d, td),
             }
         },
@@ -1300,6 +1321,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
             let k = ts@[i as int]->Kw_0;
             k != Kw::True && k != Kw::False && k != Kw::Unit && k != Kw::List && k != Kw::Some && k != Kw::None
                 && k != Kw::Pair && k != Kw::Let && k != Kw::If && k != Kw::Fold && k != Kw::MatchOption
+                && k != Kw::Ok && k != Kw::Err && k != Kw::MatchResult
         }),
     ensures
         pe_ok(ts@, i, d, td, r),
@@ -1627,6 +1649,101 @@ fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExp
         return None;
     }
     Some((SExpr::Match(Box::new(m), Box::new(n), x, Box::new(b)), u + 1))
+}
+
+fn pe_inj_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        nv(vtoks(ts@), i as nat),
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(Kw::Ok) || vtok(ts@[i as int]) == Tok::Kw(Kw::Err),
+    ensures
+        pe_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+    }
+    let ok = match &ts[i] {
+        ETok::Kw(Kw::Ok) => true,
+        _ => false,
+    };
+    if !sym_e(ts, i + 1, '<') {
+        return None;
+    }
+    let (t, j) = match pt_e(ts, i + 2, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, j, ',') {
+        return None;
+    }
+    let (u, m) = match pt_e(ts, j + 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !(sym_e(ts, m, '>') && sym_e(ts, m + 1, '(')) {
+        return None;
+    }
+    let (a, q) = match pe_e(ts, m + 2, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, q, ')') {
+        return None;
+    }
+    Some((SExpr::Inj(ok, t, u, Box::new(a)), q + 1))
+}
+
+fn pe_matchr_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(Kw::MatchResult),
+    ensures
+        pe_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+    }
+    if !sym_e(ts, i + 1, '(') {
+        return None;
+    }
+    let (m, j) = match pe_e(ts, i + 2, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if j >= ts.len() || !(sym_e(ts, j, ',') && sym_e(ts, j + 1, '|') && sym_e(ts, j + 3, '|')) {
+        return None;
+    }
+    let x = match bdt_e(ts, j + 2) {
+        Some(x) => x,
+        None => return None,
+    };
+    let (a, q) = match pe_e(ts, j + 4, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if q >= ts.len() || !(sym_e(ts, q, ',') && sym_e(ts, q + 1, '|') && sym_e(ts, q + 3, '|')) {
+        return None;
+    }
+    let y = match bdt_e(ts, q + 2) {
+        Some(y) => y,
+        None => return None,
+    };
+    let (b, u) = match pe_e(ts, q + 4, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, u, ')') {
+        return None;
+    }
+    Some((SExpr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b)), u + 1))
 }
 
 proof fn vxs_push(a: Vec<SExpr>, b: Vec<SExpr>, e: SExpr)
@@ -2074,6 +2191,16 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
                 assert(out@ =~= old(out)@ + kwt(k));
             }
         },
+        Kw::TResult => push6(out, 'R', 'e', 's', 'u', 'l', 't'),
+        Kw::Ok => push2(out, 'o', 'k'),
+        Kw::Err => push3(out, 'e', 'r', 'r'),
+        Kw::MatchResult => {
+            push6(out, 'm', 'a', 't', 'c', 'h', '_');
+            push6(out, 'r', 'e', 's', 'u', 'l', 't');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
     }
 }
 
@@ -2112,8 +2239,11 @@ fn push_ty(out: &mut Vec<char>, t: &Ty)
                 assert(out@ =~= o + ft(*t, z));
             }
         },
-        Ty::Pair(a, b) => {
-            push_kw(out, Kw::TPair);
+        Ty::Pair(a, b) | Ty::Result(a, b) => {
+            push_kw(out, match t {
+                Ty::Pair(..) => Kw::TPair,
+                _ => Kw::TResult,
+            });
             push1(out, '<');
             push_ty(out, a);
             push2(out, ',', ' ');
@@ -2203,6 +2333,7 @@ fn push_escs(out: &mut Vec<char>, w: &Vec<char>, q: char)
     }
 }
 
+#[verifier::rlimit(60)]
 fn push_e(out: &mut Vec<char>, e: &SExpr)
     ensures
         final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
@@ -2289,6 +2420,8 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::If(..) => push_if(out, e),
         SExpr::Fold(..) => push_fold(out, e),
         SExpr::Match(..) => push_match(out, e),
+        SExpr::Inj(..) => push_inj(out, e),
+        SExpr::MatchR(..) => push_matchr(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -2411,6 +2544,66 @@ fn push_match(out: &mut Vec<char>, e: &SExpr)
             let kn = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
             fe_app(vx(**n), kn);
             fe_app(vx(**m), seq![',', ' '] + fe(vx(**n), kn));
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
+fn push_inj(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Inj,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Inj(ok, t, u, a) = e {
+        push_kw(out, if *ok { Kw::Ok } else { Kw::Err });
+        push1(out, '<');
+        push_ty(out, t);
+        push2(out, ',', ' ');
+        push_ty(out, u);
+        push2(out, '>', '(');
+        push_e(out, a);
+        push1(out, ')');
+        proof {
+            fe_app(vx(**a), seq![')'] + z);
+            let ku = seq!['>', '('] + fe(vx(**a), seq![')'] + z);
+            ft_app(*u, ku);
+            ft_app(*t, seq![',', ' '] + ft(*u, ku));
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
+fn push_matchr(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is MatchR,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::MatchR(m, x, a, y, b) = e {
+        push_kw(out, Kw::MatchResult);
+        push1(out, '(');
+        push_e(out, m);
+        push3(out, ',', ' ', '|');
+        append_chars(out, x);
+        push2(out, '|', ' ');
+        push_e(out, a);
+        push3(out, ',', ' ', '|');
+        append_chars(out, y);
+        push2(out, '|', ' ');
+        push_e(out, b);
+        push1(out, ')');
+        proof {
+            fe_app(vx(**b), seq![')'] + z);
+            let ka = seq![',', ' ', '|'] + (y@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
+            fe_app(vx(**a), ka);
+            fe_app(vx(**m), seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**a), ka))));
             assert(out@ =~= o + fe(vx(*e), z));
         }
     }

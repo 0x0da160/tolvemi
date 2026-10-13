@@ -102,6 +102,11 @@ class HarnessTest(unittest.TestCase):
         self.assertIn("solve(list<Int>()) = none<Pair<Int, Int>>()", p)
         self.assertIn("fn solve(x: List<Int>) -> Option<Pair<Int, Int>>", p)
 
+    def test_prompt_renders_result_literals(self):
+        t = load_tasks(["parse_config"])[0]
+        self.assertIn("= ok<Int, String>(7)", harness.task_prompt(t, "lptl"))
+        self.assertIn("== {'err': \"line 2: missing '='\"}", harness.task_prompt(t, "python"))
+
     def test_summary(self):
         eps = [harness.episode(harness.OracleBackend(), self.task, "lptl", 3, 1)]
         s = harness.summarize(eps, 3)

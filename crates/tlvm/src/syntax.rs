@@ -7,11 +7,11 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 46] = [
+pub const KEYWORDS: [&str; 50] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
-    "code", "char", "to_string", "parse_int",
+    "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -77,6 +77,8 @@ pub enum TyTag {
     List,
     Option,
     Pair,
+    /// v1.4：`Result<T, E>`
+    Result,
     Error,
 }
 
@@ -90,6 +92,7 @@ impl TyTag {
             TyTag::List => "List",
             TyTag::Option => "Option",
             TyTag::Pair => "Pair",
+            TyTag::Result => "Result",
             TyTag::Error => "Error",
         }
     }
@@ -102,13 +105,14 @@ impl TyTag {
             "List" => TyTag::List,
             "Option" => TyTag::Option,
             "Pair" => TyTag::Pair,
+            "Result" => TyTag::Result,
             _ => return None,
         })
     }
     pub fn arity(self) -> usize {
         match self {
             TyTag::List | TyTag::Option => 1,
-            TyTag::Pair => 2,
+            TyTag::Pair | TyTag::Result => 2,
             _ => 0,
         }
     }
@@ -144,9 +148,34 @@ pub struct RecordInfo {
     pub fields: Vec<String>,
 }
 
-/// 型に付くレコードの名前。型の等価性には含めない（レコード型は field の型の並びで決まる構造的な型）。
+/// v1.4：ユーザー定義の直和型の名前と variant（宣言順。名前と中身の数）。
+#[derive(Debug)]
+pub struct SumInfo {
+    pub name: String,
+    pub variants: Vec<(String, usize)>,
+    /// variant が一つで中身が一つのとき、その中身の型に付いていた名前（型全体の名前で上書きされるので別に持つ）
+    pub inner: Label,
+}
+
+/// 型に付く名前（レコード型か直和型）。
+#[derive(Clone, Debug)]
+pub enum Named {
+    Record(Arc<RecordInfo>),
+    Sum(Arc<SumInfo>),
+}
+
+impl Named {
+    pub fn name(&self) -> &str {
+        match self {
+            Named::Record(r) => &r.name,
+            Named::Sum(s) => &s.name,
+        }
+    }
+}
+
+/// 型に付くレコード・直和型の名前。型の等価性には含めない（展開後の構造で決まる構造的な型）。
 #[derive(Clone, Debug, Default)]
-pub struct Label(pub Option<Arc<RecordInfo>>);
+pub struct Label(pub Option<Named>);
 
 impl PartialEq for Label {
     fn eq(&self, _: &Self) -> bool {
@@ -178,6 +207,63 @@ pub enum ExprKind {
     Record { name: String, name_span: Sp, fields: Vec<RecordField>, base: Option<Box<Expr>> },
     /// v1.1：field の参照 `e.f`。`target` は展開後に付く（レコード型、field の位置、field の数）
     Field { expr: Box<Expr>, field: String, field_span: Sp, target: Option<(TypeNode, usize, usize)> },
+    /// v1.4：`ok<T, E>(x)`（ok = true）、`err<T, E>(x)`。`ty` は `Result<T, E>`（直和型の構築なら名前付き）
+    Inj { ok: bool, ty: TypeNode, value: Box<Expr> },
+    /// v1.4：match_result(scrutinee, |ok_binder| on_ok, |err_binder| on_err)
+    MatchResult {
+        scrutinee: Box<Expr>,
+        ok_binder: String,
+        ok_span: Sp,
+        on_ok: Box<Expr>,
+        err_binder: String,
+        err_span: Sp,
+        on_err: Box<Expr>,
+    },
+    /// v1.4：`match e { P => e, ... }`（`sums::expand` が `kind` と各 arm の `variant` を付け、`sums::lower` が書き換える）
+    SumMatch { scrutinee: Box<Expr>, arms: Vec<Arm>, kw_span: Sp, close_span: Sp, kind: Option<MatchKind> },
+}
+
+/// v1.4：`match` の一つの枝。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Arm {
+    pub pat: Pattern,
+    pub body: Expr,
+    /// pattern の先頭から body の末尾まで
+    pub span: Sp,
+    /// 展開後：この枝が受け持つ場合の番号（直和型は variant の位置、Result は ok = 0・err = 1、
+    /// Option は some = 0・none = 1）。`_` は None
+    pub variant: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PatKind {
+    Ctor(String),
+    Ok,
+    Err,
+    Some,
+    None,
+    Wild,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pattern {
+    pub kind: PatKind,
+    pub span: Sp,
+    /// `CTOR(...)` のように括弧を書いたか
+    pub parens: bool,
+    /// 束縛する名前（`_` は束縛しない）
+    pub binds: Vec<(String, Sp)>,
+}
+
+/// v1.4：`match` の対象の種類（展開後）。
+#[derive(Clone, Debug, PartialEq)]
+pub enum MatchKind {
+    /// 直和型（展開後の名前付きの型と、variant ごとの中身の型）
+    Sum { ty: TypeNode, fields: Vec<Vec<TypeNode>> },
+    Result,
+    Option,
+    /// `_` だけ
+    Any,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -207,6 +293,36 @@ impl Expr {
             ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
             ExprKind::Record { fields, base, .. } => fields.iter().map(|f| &f.value).chain(base.as_deref()).collect(),
             ExprKind::Field { expr, .. } => vec![expr],
+            ExprKind::Inj { value, .. } => vec![value],
+            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => vec![scrutinee, on_ok, on_err],
+            ExprKind::SumMatch { scrutinee, arms, .. } => {
+                std::iter::once(&**scrutinee).chain(arms.iter().map(|a| &a.body)).collect()
+            }
+            _ => vec![],
+        }
+    }
+}
+
+impl Expr {
+    /// 子式（`children` と同じ順）への可変参照。
+    pub fn children_mut(&mut self) -> Vec<&mut Expr> {
+        match &mut self.kind {
+            ExprKind::List { items, .. } => items.iter_mut().collect(),
+            ExprKind::Some(v) | ExprKind::Inj { value: v, .. } => vec![&mut **v],
+            ExprKind::Pair(a, b) => vec![&mut **a, &mut **b],
+            ExprKind::Call { args, .. } => args.iter_mut().collect(),
+            ExprKind::Let { value, body, .. } => vec![&mut **value, &mut **body],
+            ExprKind::If(c, t, e) => vec![&mut **c, &mut **t, &mut **e],
+            ExprKind::Fold { list, init, body, .. } => vec![&mut **list, &mut **init, &mut **body],
+            ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![&mut **scrutinee, &mut **on_none, &mut **on_some],
+            ExprKind::Record { fields, base, .. } => {
+                fields.iter_mut().map(|f| &mut f.value).chain(base.as_deref_mut()).collect()
+            }
+            ExprKind::Field { expr, .. } => vec![&mut **expr],
+            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => vec![&mut **scrutinee, &mut **on_ok, &mut **on_err],
+            ExprKind::SumMatch { scrutinee, arms, .. } => {
+                std::iter::once(&mut **scrutinee).chain(arms.iter_mut().map(|a| &mut a.body)).collect()
+            }
             _ => vec![],
         }
     }
@@ -243,6 +359,23 @@ pub enum Decl {
     Entry(EntryDecl),
     /// v1.1：`type Name = { f: T, ... }`
     Type(TypeDecl),
+    /// v1.4：`type Name = A | B(T, ...) | ...`
+    Sum(SumDecl),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SumDecl {
+    pub name: String,
+    pub name_span: Sp,
+    pub variants: Vec<VariantDecl>,
+    pub meta: Meta,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantDecl {
+    pub name: String,
+    pub name_span: Sp,
+    pub fields: Vec<TypeNode>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -308,7 +441,17 @@ impl Ty {
         self.labeled(Label::default())
     }
     pub fn record(&self) -> Option<&Arc<RecordInfo>> {
-        self.0.label.0.as_ref()
+        match &self.0.label.0 {
+            Some(Named::Record(r)) => Some(r),
+            _ => None,
+        }
+    }
+    /// v1.4：直和型の名前と variant。
+    pub fn sum(&self) -> Option<&Arc<SumInfo>> {
+        match &self.0.label.0 {
+            Some(Named::Sum(s)) => Some(s),
+            _ => None,
+        }
     }
     pub fn int() -> Ty {
         Ty::new(TyTag::Int, vec![])
@@ -342,6 +485,9 @@ impl Ty {
     pub fn pair(a: Ty, b: Ty) -> Ty {
         Ty::new(TyTag::Pair, vec![a, b])
     }
+    pub fn result(a: Ty, b: Ty) -> Ty {
+        Ty::new(TyTag::Result, vec![a, b])
+    }
     pub fn tag(&self) -> TyTag {
         self.0.tag
     }
@@ -371,9 +517,10 @@ impl Ty {
             return;
         }
         if let Some(r) = &self.0.label.0 {
-            if r.name.len() <= *budget {
-                out.push_str(&r.name);
-                *budget -= r.name.len();
+            let name = r.name();
+            if name.len() <= *budget {
+                out.push_str(name);
+                *budget -= name.len();
             } else {
                 out.push('…');
                 *budget = 0;

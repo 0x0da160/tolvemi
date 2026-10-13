@@ -9,6 +9,7 @@ use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
 use crate::records;
+use crate::sums;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use crate::formatter::format_program;
@@ -122,14 +123,15 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
-        Parsed::Program(p) if records::has_records(&p) => {
-            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す
-            match records::expand(&p) {
+        Parsed::Program(p) if needs_expansion(&p) => {
+            // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
+            // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す
+            match expand(&p) {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
                     let o = check_program(&px, source.len(), profile);
                     let r = result(o.diagnostics.clone(), Some(o));
-                    let text = format_program(&records::lower(&px));
+                    let text = format_program(&lower(&px));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
             }
@@ -141,6 +143,26 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
     }
+}
+
+/// レコード（v1.1）か直和型・match（v1.4）を含み、検査の前に展開が要るか。
+pub fn needs_expansion(p: &Program) -> bool {
+    sums::has_sums(p) || records::has_records(p)
+}
+
+/// 直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
+pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
+    let p = if sums::has_sums(p) { sums::expand(p)? } else { p.clone() };
+    if records::has_records(&p) {
+        records::expand(&p)
+    } else {
+        Ok(p)
+    }
+}
+
+/// 展開したプログラムを、検証済み部品が読む形（match_result、fst／snd など）に書き換える。
+pub fn lower(px: &Program) -> Program {
+    records::lower(&sums::lower(px))
 }
 
 // ---------------------------------------------------------------- 検証済み部品による確認

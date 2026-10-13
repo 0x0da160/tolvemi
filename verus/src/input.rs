@@ -466,6 +466,22 @@ pub open spec fn t_some() -> Seq<u32> {
     cs(c_some())
 }
 
+pub open spec fn c_ok() -> Seq<char> {
+    seq!['o', 'k']
+}
+
+pub open spec fn t_ok() -> Seq<u32> {
+    cs(c_ok())
+}
+
+pub open spec fn c_err() -> Seq<char> {
+    seq!['e', 'r', 'r']
+}
+
+pub open spec fn t_err() -> Seq<u32> {
+    cs(c_err())
+}
+
 pub open spec fn c_pair() -> Seq<char> {
     seq!['p', 'a', 'i', 'r']
 }
@@ -600,6 +616,19 @@ pub open spec fn jd(j: J, t: Ty) -> Option<Val>
                             } else if g == t_some() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
                                 match jd(vs[iv as int], *el) {
                                     Some(x) => Some(Val::Some(Box::new(x))),
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            Ty::Result(ta, tb) => if g == t_ok() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                match jd(vs[iv as int], *ta) {
+                                    Some(x) => Some(Val::Ok(Box::new(x))),
+                                    None => None,
+                                }
+                            } else if g == t_err() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                match jd(vs[iv as int], *tb) {
+                                    Some(x) => Some(Val::Err(Box::new(x))),
                                     None => None,
                                 }
                             } else {

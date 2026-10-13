@@ -353,7 +353,7 @@ pub proof fn lcs(s: Seq<char>, u: Seq<Tok>)
 
 // ------------------------------------------------------------------ 正準ソースの字句解析
 
-#[verifier::rlimit(40)]
+#[verifier::rlimit(120)]
 pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
     requires
         lex(k) == Some(u),
@@ -403,6 +403,20 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
             lk(Kw::TPair, k2, seq![Tok::Sym('<')] + tt(*a, ua));
             assert(seq![Tok::Kw(Kw::TPair)] + (seq![Tok::Sym('<')] + tt(*a, ua)) =~= tt(t, u));
         },
+        Ty::Result(a, b) => {
+            let kb = seq!['>'] + k;
+            let ub = seq![Tok::Sym('>')] + u;
+            ls('>', k, u);
+            ft_lex(*b, kb, ub);
+            let ka = seq![',', ' '] + ft(*b, kb);
+            let ua = seq![Tok::Sym(',')] + tt(*b, ub);
+            lcs(ft(*b, kb), tt(*b, ub));
+            ft_lex(*a, ka, ua);
+            let k2 = seq!['<'] + ft(*a, ka);
+            ls('<', ft(*a, ka), tt(*a, ua));
+            lk(Kw::TResult, k2, seq![Tok::Sym('<')] + tt(*a, ua));
+            assert(seq![Tok::Kw(Kw::TResult)] + (seq![Tok::Sym('<')] + tt(*a, ua)) =~= tt(t, u));
+        },
     }
 }
 
@@ -433,6 +447,8 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::If(c, a, b) => fe_lex_if(e, d, td, k, u),
         Sx::Fold(l, i, a, x, b) => fe_lex_fold(e, d, td, k, u),
         Sx::Match(m, n, x, b) => fe_lex_match(e, d, td, k, u),
+        Sx::Inj(..) => fe_lex_inj(e, d, td, k, u),
+        Sx::MatchR(..) => fe_lex_matchr(e, d, td, k, u),
     }
 }
 
@@ -716,6 +732,105 @@ proof fn fe_lex_fold(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
+proof fn fe_lex_inj(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is Inj,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        safe(k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::Inj(ok, t, w, a) => {
+        ls(')', k, u);
+        fe_lex(*a, d1, td, seq![')'] + k, seq![Tok::Sym(')')] + u);
+        let kx = fe(*a, seq![')'] + k);
+        let ux = te(*a, seq![Tok::Sym(')')] + u);
+        ls('(', kx, ux);
+        ls('>', seq!['('] + kx, seq![Tok::Sym('(')] + ux);
+        let kw = seq!['>', '('] + kx;
+        let uw = seq![Tok::Sym('>'), Tok::Sym('(')] + ux;
+        assert(kw =~= seq!['>'] + (seq!['('] + kx));
+        assert(uw =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + ux));
+        ft_lex(w, kw, uw);
+        lcs(ft(w, kw), tt(w, uw));
+        let kt = seq![',', ' '] + ft(w, kw);
+        let ut = seq![Tok::Sym(',')] + tt(w, uw);
+        ft_lex(t, kt, ut);
+        ls('<', ft(t, kt), tt(t, ut));
+        let kk = if ok { Kw::Ok } else { Kw::Err };
+        lk(kk, seq!['<'] + ft(t, kt), seq![Tok::Sym('<')] + tt(t, ut));
+        assert(seq![Tok::Kw(kk)] + (seq![Tok::Sym('<')] + tt(t, ut)) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
+/// ", |x| " の後に kb。
+proof fn lbar(x: Seq<char>, kb: Seq<char>, ub: Seq<Tok>)
+    requires
+        name_ok(x),
+        lex(kb) == Some(ub),
+    ensures
+        lex(seq![',', ' ', '|'] + (x + (seq!['|', ' '] + kb))) == Some(
+            seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + ub,
+        ),
+{
+    lw(' ', kb, ub);
+    ls('|', seq![' '] + kb, ub);
+    assert(seq!['|', ' '] + kb =~= seq!['|'] + (seq![' '] + kb));
+    let k1 = seq!['|', ' '] + kb;
+    let u1 = seq![Tok::Sym('|')] + ub;
+    ln(x, k1, u1);
+    let k2 = x + k1;
+    let u2 = seq![word_tok(x)] + u1;
+    ls('|', k2, u2);
+    lcs(seq!['|'] + k2, seq![Tok::Sym('|')] + u2);
+    assert(seq![',', ' ', '|'] + k2 =~= seq![',', ' '] + (seq!['|'] + k2));
+    assert(seq![Tok::Sym(',')] + (seq![Tok::Sym('|')] + u2) =~= seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + ub);
+}
+
+proof fn fe_lex_matchr(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is MatchR,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        safe(k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::MatchR(m, x, a, y, b) => {
+        ls(')', k, u);
+        fe_lex(*b, d1, td, seq![')'] + k, seq![Tok::Sym(')')] + u);
+        let kb = fe(*b, seq![')'] + k);
+        let ub = te(*b, seq![Tok::Sym(')')] + u);
+        lbar(y, kb, ub);
+        let k5 = seq![',', ' ', '|'] + (y + (seq!['|', ' '] + kb));
+        let u5 = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(y), Tok::Sym('|')] + ub;
+        assert(k5[0] == ',');
+        fe_lex(*a, d1, td, k5, u5);
+        let ka = fe(*a, k5);
+        let ua = te(*a, u5);
+        lbar(x, ka, ua);
+        let k6 = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + ka));
+        let u6 = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + ua;
+        assert(k6[0] == ',');
+        fe_lex(*m, d1, td, k6, u6);
+        let um = te(*m, u6);
+        ls('(', fe(*m, k6), um);
+        lk(Kw::MatchResult, seq!['('] + fe(*m, k6), seq![Tok::Sym('(')] + um);
+        assert(seq![Tok::Kw(Kw::MatchResult)] + (seq![Tok::Sym('(')] + um) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
 proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         e is Match,
@@ -785,6 +900,7 @@ pub proof fn fargs_lex(es: Seq<Sx>, i: nat, d: nat, td: nat, k: Seq<char>, u: Se
     }
 }
 
+#[verifier::rlimit(60)]
 pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bps(ps, i, td),
@@ -815,6 +931,7 @@ pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u:
     }
 }
 
+#[verifier::rlimit(60)]
 pub proof fn fd_lex(x: Sd, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bd(x, d, td),
@@ -889,7 +1006,7 @@ pub proof fn ft_app(t: Ty, k: Seq<char>)
             ft_app(*a, seq!['>'] + k);
             ft_app(*a, seq!['>'] + z);
         },
-        Ty::Pair(a, b) => {
+        Ty::Pair(a, b) | Ty::Result(a, b) => {
             ft_app(*b, seq!['>'] + k);
             ft_app(*b, seq!['>'] + z);
             ft_app(*a, seq![',', ' '] + ft(*b, seq!['>'] + k));
@@ -900,6 +1017,7 @@ pub proof fn ft_app(t: Ty, k: Seq<char>)
     assert(ft(t, k) =~= ft(t, z) + k);
 }
 
+#[verifier::rlimit(60)]
 pub proof fn fe_app(e: Sx, k: Seq<char>)
     ensures
         fe(e, k) == fe(e, Seq::empty()) + k,
@@ -939,7 +1057,47 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         Sx::If(..) => fe_app_if(e, k),
         Sx::Fold(..) => fe_app_fold(e, k),
         Sx::Match(..) => fe_app_match(e, k),
+        Sx::Inj(_, t, u, a) => {
+            fe_app(*a, seq![')'] + k);
+            fe_app(*a, seq![')'] + z);
+            let ku = seq!['>', '('] + fe(*a, seq![')'] + k);
+            let zu = seq!['>', '('] + fe(*a, seq![')'] + z);
+            assert(ku =~= zu + k);
+            ft_app(u, ku);
+            ft_app(u, zu);
+            let kt = seq![',', ' '] + ft(u, ku);
+            let zt = seq![',', ' '] + ft(u, zu);
+            assert(kt =~= zt + k);
+            ft_app(t, kt);
+            ft_app(t, zt);
+        },
+        Sx::MatchR(..) => fe_app_matchr(e, k),
         _ => {},
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+proof fn fe_app_matchr(e: Sx, k: Seq<char>)
+    requires
+        e is MatchR,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::MatchR(m, x, a, y, b) = e {
+        fe_app(*b, seq![')'] + k);
+        fe_app(*b, seq![')'] + z);
+        let ka = seq![',', ' ', '|'] + (y + (seq!['|', ' '] + fe(*b, seq![')'] + k)));
+        let za = seq![',', ' ', '|'] + (y + (seq!['|', ' '] + fe(*b, seq![')'] + z)));
+        assert(ka =~= za + k);
+        fe_app(*a, ka);
+        fe_app(*a, za);
+        let km = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*a, ka)));
+        let zm = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*a, za)));
+        assert(km =~= zm + k);
+        fe_app(*m, km);
+        fe_app(*m, zm);
     }
     assert(fe(e, k) =~= fe(e, z) + k);
 }

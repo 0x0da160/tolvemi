@@ -17,6 +17,9 @@
 //! | `List<T>` | 配列（T が `Char` なら上の `String`） |
 //! | `Pair<A, B>` | 二要素の配列 `[a, b]` |
 //! | `Option<T>` | `none` は `null`。`some(v)` は v の plain JSON。ただし T が `Unit` か `Option` なら `null` と区別できないので `{"some": v}` |
+//! | `Result<T, E>`（v1.4） | `{"ok": v}`、`{"err": e}` |
+//! | レコード型（v1.1） | field 名を key にした object |
+//! | 直和型（v1.4） | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
 
 use crate::diagnostics::Diagnostic;
 use crate::formatter::json_string;
@@ -34,13 +37,51 @@ pub enum PlainDecode {
 
 /// `some(v)` を `{"some": v}` で包む必要がある型（plain JSON で `null` になりうる型）。
 fn nullable(t: &Ty) -> bool {
-    matches!(t.tag(), TyTag::Unit | TyTag::Option)
+    t.sum().is_none() && matches!(t.tag(), TyTag::Unit | TyTag::Option)
+}
+
+/// v1.4：直和型の k 番目の variant の中身の型（展開後の `Result<P1, Result<P2, ... Pn>>` から取り出す）。
+fn sum_payload(t: &Ty, n: usize, k: usize) -> Ty {
+    let mut cur = t.unlabeled();
+    if n == 1 {
+        return match t.sum() {
+            Some(s) if s.inner.0.is_some() => cur.labeled(s.inner.clone()),
+            _ => cur,
+        };
+    }
+    for _ in 0..k {
+        cur = cur.arg(1);
+    }
+    if k + 1 < n {
+        cur.arg(0)
+    } else {
+        cur
+    }
+}
+
+/// 中身の型の並び（`Unit`、その型一つ、右に入れ子にした `Pair`）を m 個に分ける。
+fn payload_fields(p: &Ty, m: usize) -> Vec<Ty> {
+    let mut out = vec![];
+    let mut cur = p.clone();
+    for i in 0..m {
+        if i + 1 == m {
+            out.push(cur.clone());
+        } else {
+            out.push(cur.arg(0));
+            cur = cur.arg(1);
+        }
+    }
+    out
 }
 
 /// plain JSON での型の説明（診断の expected）。
 pub fn plain_shape(t: &Ty) -> String {
     if let Some(r) = t.record() {
         return format!("object with keys {}", r.fields.join(", "));
+    }
+    if let Some(s) = t.sum() {
+        let vs: Vec<&str> = s.variants.iter().map(|(v, _)| v.as_str()).collect();
+        return format!("object with one key ({}) whose value is an array of the fields", vs.join(" | "));
     }
     match t.tag() {
         TyTag::Int => "integer".into(),
@@ -52,6 +93,7 @@ pub fn plain_shape(t: &Ty) -> String {
         TyTag::Pair => "array of 2 elements".into(),
         TyTag::Option if nullable(&t.arg(0)) => "null | {\"some\": ...}".into(),
         TyTag::Option => format!("null | {}", plain_shape(&t.arg(0))),
+        TyTag::Result => "{\"ok\": ...} | {\"err\": ...}".into(),
         TyTag::Error => "".into(),
     }
 }
@@ -158,10 +200,72 @@ impl Conv<'_> {
         Ok(())
     }
 
+    /// v1.4：直和型は `{"Variant": [fields...]}`。値 JSON では ok／err の入れ子と、中身の pair の入れ子になる。
+    fn sum(&mut self, n: &JNode, t: &Ty, variants: &[(String, usize)], depth: usize) -> Result<(), Diagnostic> {
+        if n.kind != JKind::Object || n.members.len() != 1 {
+            let act = if n.kind == JKind::Object { format!("object with {} keys", n.members.len()) } else { n.kind.name().to_string() };
+            return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(act));
+        }
+        let key = &n.members[0].key;
+        let Some(k) = variants.iter().position(|(v, _)| v == key) else {
+            let names: Vec<&str> = variants.iter().map(|(v, _)| v.as_str()).collect();
+            return Err(Diagnostic::error("input-decode", "E-INPUT-TAG", n.key_span(key)).exp(names.join(" | ")).act(key.clone()));
+        };
+        let arr = n.get(key).unwrap();
+        let m = variants[k].1;
+        if arr.kind != JKind::Array || arr.items.len() != m {
+            let act = if arr.kind == JKind::Array { format!("array of {} elements", arr.items.len()) } else { arr.kind.name().to_string() };
+            return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", arr.span()).exp(format!("array of {m} elements")).act(act));
+        }
+        let nv = variants.len();
+        let mut d = depth;
+        let mut close = 0;
+        if nv > 1 {
+            for _ in 0..k {
+                self.admit(n, d)?;
+                self.out.push_str("{\"tag\":\"err\",\"value\":");
+                d += 1;
+                close += 1;
+            }
+            if k + 1 < nv {
+                self.admit(n, d)?;
+                self.out.push_str("{\"tag\":\"ok\",\"value\":");
+                d += 1;
+                close += 1;
+            }
+        }
+        let payload = sum_payload(t, nv, k);
+        if m == 0 {
+            self.admit(n, d)?;
+            self.out.push_str("{\"tag\":\"unit\"}");
+        } else {
+            let tys = payload_fields(&payload, m);
+            for (i, (item, ty)) in arr.items.iter().zip(&tys).enumerate() {
+                if i + 1 == m {
+                    self.value(item, ty, d + i)?;
+                } else {
+                    self.admit(arr, d + i)?;
+                    self.out.push_str("{\"tag\":\"pair\",\"left\":");
+                    self.value(item, ty, d + i + 1)?;
+                    self.out.push_str(",\"right\":");
+                    close += 1;
+                }
+            }
+        }
+        for _ in 0..close {
+            self.out.push('}');
+        }
+        Ok(())
+    }
+
     fn value(&mut self, n: &JNode, t: &Ty, depth: usize) -> Result<(), Diagnostic> {
         if let Some(r) = t.record() {
             let fields = r.fields.clone();
             return self.record(n, t, &fields, depth);
+        }
+        if let Some(s) = t.sum() {
+            let variants = s.variants.clone();
+            return self.sum(n, t, &variants, depth);
         }
         match t.tag() {
             TyTag::Int => {
@@ -279,6 +383,25 @@ impl Conv<'_> {
                 self.value(payload, &inner, depth + 1)?;
                 self.out.push('}');
             }
+            TyTag::Result => {
+                if n.kind != JKind::Object {
+                    return Err(self.shape_err(n, t));
+                }
+                let (key, inner) = if n.get("ok").is_some() {
+                    ("ok", t.arg(0))
+                } else if n.get("err").is_some() {
+                    ("err", t.arg(1))
+                } else {
+                    return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp("ok | err"));
+                };
+                if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| *k != key)) {
+                    return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+                }
+                self.admit(n, depth)?;
+                self.out.push_str(if key == "ok" { "{\"tag\":\"ok\",\"value\":" } else { "{\"tag\":\"err\",\"value\":" });
+                self.value(n.get(key).unwrap(), &inner, depth + 1)?;
+                self.out.push('}');
+            }
             TyTag::Error => return Err(self.shape_err(n, t)),
         }
         Ok(())
@@ -332,6 +455,42 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
         out.push('}');
         return Ok(());
     }
+    if let Some(s) = t.sum() {
+        // v1.4：直和型は `{"Variant": [fields...]}`
+        let nv = s.variants.len();
+        let mut node = n;
+        let mut k = 0;
+        while nv > 1 && k + 1 < nv {
+            let tag = node.get("tag").map(|x| x.text.as_str()).unwrap_or("");
+            let v = node.get("value").ok_or("値 JSON に value がありません")?;
+            node = v;
+            if tag == "ok" {
+                break;
+            }
+            k += 1;
+        }
+        let (name, m) = &s.variants[k];
+        out.push('{');
+        json_string(name, out);
+        out.push_str(":[");
+        let payload = sum_payload(t, nv, k);
+        if *m > 0 {
+            let tys = payload_fields(&payload, *m);
+            for (i, ty) in tys.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                if i + 1 == *m {
+                    write_plain(node, ty, out, exact)?;
+                } else {
+                    write_plain(node.get("left").ok_or("値 JSON に left がありません")?, ty, out, exact)?;
+                    node = node.get("right").ok_or("値 JSON に right がありません")?;
+                }
+            }
+        }
+        out.push_str("]}");
+        return Ok(());
+    }
     let field = |k: &str| n.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
     let tag = field("tag")?.text.as_str();
     match (t.tag(), tag) {
@@ -372,6 +531,11 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
             out.push(',');
             write_plain(field("right")?, &t.arg(1), out, exact)?;
             out.push(']');
+        }
+        (TyTag::Result, "ok" | "err") => {
+            out.push_str(if tag == "ok" { "{\"ok\":" } else { "{\"err\":" });
+            write_plain(field("value")?, &t.arg(if tag == "ok" { 0 } else { 1 }), out, exact)?;
+            out.push('}');
         }
         (TyTag::Option, "some") => {
             let inner = t.arg(0);

@@ -20,6 +20,8 @@ pub enum Value {
     Pair(Rc<Value>, Rc<Value>),
     Nil,
     Cons(Rc<Value>, Rc<Value>),
+    Ok(Rc<Value>),
+    Err(Rc<Value>),
 }
 
 pub open spec fn is_list(v: Value) -> bool {
@@ -39,6 +41,8 @@ pub open spec fn view_val(v: Value) -> Val
         Value::Pair(a, b) => Val::Pair(Box::new(view_val(*a)), Box::new(view_val(*b))),
         Value::Nil => Val::List(spine(v)),
         Value::Cons(_, _) => Val::List(spine(v)),
+        Value::Ok(x) => Val::Ok(Box::new(view_val(*x))),
+        Value::Err(x) => Val::Err(Box::new(view_val(*x))),
     }
 }
 

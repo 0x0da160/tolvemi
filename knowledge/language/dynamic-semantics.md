@@ -40,4 +40,11 @@ fold(list[T](x1, ..., xn), init, body)
 
 組込みの意味は [組込み関数](builtins.md)、停止性は [停止性の証明構造](../guarantees/termination-proof.md)、参照コストは [execution profile](../resources/execution-profile.md) を参照。
 
+
+# v1.4 の追加：match_result と match
+
+`match_result(m, |x| a, |y| b)` は m を評価し、`ok(v)` なら x=v で a だけを、`err(w)` なら y=w で b だけを評価する。
+直和型の構築は `ok`／`err` の入れ子の値を作り、`match` は書き換え後の `match_result`／`match_option` の入れ子として
+評価される（対象は一度だけ評価し、選ばれた枝だけを評価する）。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

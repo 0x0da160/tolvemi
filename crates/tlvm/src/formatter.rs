@@ -52,6 +52,43 @@ pub fn format_expr(e: &Expr) -> String {
             format!("{} {{ {} }}", name, parts.join(", "))
         }
         ExprKind::Field { expr, field, .. } => format!("{}.{}", format_expr(expr), field),
+        ExprKind::Inj { ok, ty, value } => format!(
+            "{}<{}, {}>({})",
+            if *ok { "ok" } else { "err" },
+            format_type(&ty.args[0]),
+            format_type(&ty.args[1]),
+            format_expr(value)
+        ),
+        ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => format!(
+            "match_result({}, |{}| {}, |{}| {})",
+            format_expr(scrutinee),
+            ok_binder,
+            format_expr(on_ok),
+            err_binder,
+            format_expr(on_err)
+        ),
+        ExprKind::SumMatch { scrutinee, arms, .. } => {
+            let arms: Vec<String> = arms.iter().map(|a| format!("{} => {}", format_pattern(&a.pat), format_expr(&a.body))).collect();
+            format!("match {} {{ {} }}", format_expr(scrutinee), arms.join(", "))
+        }
+    }
+}
+
+/// v1.4：`match` の pattern。
+pub fn format_pattern(p: &Pattern) -> String {
+    let binds: Vec<&str> = p.binds.iter().map(|(b, _)| b.as_str()).collect();
+    let head = match &p.kind {
+        PatKind::Ctor(c) => c.as_str(),
+        PatKind::Ok => "ok",
+        PatKind::Err => "err",
+        PatKind::Some => "some",
+        PatKind::None => "none",
+        PatKind::Wild => "_",
+    };
+    if p.parens {
+        format!("{head}({})", binds.join(", "))
+    } else {
+        head.to_string()
     }
 }
 
@@ -73,6 +110,20 @@ pub fn format_program(p: &Program) -> String {
             Decl::Type(t) => {
                 let fs: Vec<String> = t.fields.iter().map(|f| format!("{}: {}", f.name, format_type(&f.ty))).collect();
                 out.push_str(&format!("type {} = {{ {} }}", t.name, fs.join(", ")));
+            }
+            Decl::Sum(t) => {
+                let vs: Vec<String> = t
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        if v.fields.is_empty() {
+                            v.name.clone()
+                        } else {
+                            format!("{}({})", v.name, v.fields.iter().map(format_type).collect::<Vec<_>>().join(", "))
+                        }
+                    })
+                    .collect();
+                out.push_str(&format!("type {} = {}", t.name, vs.join(" | ")));
             }
         }
         out.push('\n');
@@ -99,6 +150,12 @@ fn type_json(t: &TypeNode, out: &mut String) {
             out.push_str(",\"left\":");
             type_json(&t.args[0], out);
             out.push_str(",\"right\":");
+            type_json(&t.args[1], out);
+        }
+        TyTag::Result => {
+            out.push_str(",\"ok\":");
+            type_json(&t.args[0], out);
+            out.push_str(",\"err\":");
             type_json(&t.args[1], out);
         }
         _ => {}
@@ -210,8 +267,26 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(on_some, out);
             out.push('}');
         }
-        // AST transport にレコードの形はない。呼び出し側が records::expand と lower を済ませてから渡す
-        ExprKind::Record { .. } | ExprKind::Field { .. } => out.push_str("{\"tag\":\"unit\"}"),
+        ExprKind::Inj { ok, ty, value } => {
+            out.push_str(if *ok { "{\"tag\":\"ok\",\"ok_type\":" } else { "{\"tag\":\"err\",\"ok_type\":" });
+            type_json(&ty.args[0], out);
+            out.push_str(",\"err_type\":");
+            type_json(&ty.args[1], out);
+            out.push_str(",\"value\":");
+            expr_json(value, out);
+            out.push('}');
+        }
+        ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => {
+            out.push_str("{\"tag\":\"match_result\",\"scrutinee\":");
+            expr_json(scrutinee, out);
+            out.push_str(&format!(",\"ok_binder\":\"{ok_binder}\",\"on_ok\":"));
+            expr_json(on_ok, out);
+            out.push_str(&format!(",\"err_binder\":\"{err_binder}\",\"on_err\":"));
+            expr_json(on_err, out);
+            out.push('}');
+        }
+        // AST transport にレコード・直和型・match の形はない。呼び出し側が展開と lower を済ませてから渡す
+        ExprKind::Record { .. } | ExprKind::Field { .. } | ExprKind::SumMatch { .. } => out.push_str("{\"tag\":\"unit\"}"),
     }
 }
 
@@ -241,7 +316,7 @@ pub fn encode_ast(p: &Program) -> String {
                 out.push('}');
             }
             Decl::Entry(e) => out.push_str(&format!("{{\"tag\":\"entry\",\"name\":\"{}\"}}", e.name)),
-            Decl::Type(_) => {}
+            Decl::Type(_) | Decl::Sum(_) => {}
         }
     }
     out.push_str("]}");

@@ -1,6 +1,6 @@
 # 言語
 
-* [型と値](types-and-values.md) - Int/Bool/Unit/List/Option/Pair の6型と、有限木としての値
+* [型と値](types-and-values.md) - Int/Bool/Unit/List/Option/Pair の6型と、有限木としての値（v1.4 の Result と直和型を含む）
 * [Option の境界](option-boundary.md) - v1 の Option は生成・伝達・比較のみで、一般 payload の取り出しはできない
 * [字句規則](lexical-syntax.md) - ASCII のみ、符号付き INT 単一トークン、行コメント、予約語
 * [文法と宣言終端](grammar.md) - EBNF、特殊形式と strict call、改行なし宣言列

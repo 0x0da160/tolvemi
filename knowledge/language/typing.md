@@ -61,4 +61,19 @@ fold(xs, init, |acc, item| body) : A
 - 型検査は全関数を宣言順、部分式を左から右に走査し、非選択枝・未到達関数も検査する。
 - 型検査の論理仕事量の計数は [static profile](../resources/static-profile.md) を参照。
 
+
+# v1.4 の追加：Result と match
+
+```text
+ok<T, E>(x) : Result<T, E>    iff x : T
+err<T, E>(x) : Result<T, E>   iff x : E
+match_result(m, |x| a, |y| b) : A
+  iff m : Result<T, E>, Γ,x:T ⊢ a : A, Γ,y:E ⊢ b : A
+```
+
+`match e { P => e, ... }` は、pattern が直和型の構築子なら e がその型（展開後の構造が等しい型）、`ok`／`err` なら
+`Result`、`some`／`none` なら `Option` でなければならず（違えば `E-TYPE-MATCH-SCRUTINEE`）、各枝の束縛は中身の型を持ち、
+枝の型はすべて等しい（`E-TYPE-MATCH-BRANCH`）。`_` だけの `match` は対象が直和型・`Result`・`Option` のどれかであること
+を求める。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
