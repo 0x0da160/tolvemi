@@ -9,7 +9,7 @@ LLM向け純粋・全域言語 LPTL（LLM-Pure Total Language）設計方針 v1 
 * [概要](overview/) - 憲章、名称、範囲、基本契約、設計状態と出荷ゲート
 * [言語](language/) - 型と値、字句、文法、名前、entry、呼出しグラフ、型規則、組込み、動的意味論、例
 * [保証](guarantees/) - 停止性の証明構造、Verus の層分離・証明義務・信頼境界
-* [API とコーデック](api/) - compile/decode/run の分離、値 JSON、strict JSON、AST codec、ハッシュ
+* [API とコーデック](api/) - compile/decode/run の分離、値 JSON、strict JSON、AST codec、ハッシュ、REPL と Language Server（v1.12）
 * [診断](diagnostics/) - 診断 schema、パイプライン、件数と recovery、コード一覧
 * [資源](resources/) - 資源モデル、static/parse/typecheck/input/execution の各 profile
 * [LLM 統合と評価](llm-evaluation/) - 運用原則と Skill、評価モード、事前登録と指標

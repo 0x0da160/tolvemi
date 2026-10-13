@@ -213,13 +213,17 @@ fn tags_for(t: &Ty) -> &'static [&'static str] {
         TyTag::Bool => &["bool"],
         TyTag::Unit => &["unit"],
         TyTag::Char => &["char"],
-        TyTag::List => &["list"],
+        // v1.9：辞書は (鍵, 値) の pair のリスト（挿入順、鍵は相異なる）
+        TyTag::List | TyTag::Dict => &["list"],
         TyTag::Option => &["some", "none"],
         TyTag::Pair => &["pair"],
         TyTag::Result => &["ok", "err"],
-        TyTag::Error => &[],
+        TyTag::Error | TyTag::Param => &[],
     }
 }
+
+/// v1.9：入力の辞書に同じ鍵が二度ある。
+pub const DICT_DUPLICATE_KEY: &str = "E-INPUT-DICT-DUPLICATE-KEY";
 
 pub fn is_canonical_int(s: &str) -> bool {
     let d = s.strip_prefix('-').unwrap_or(s);
@@ -250,7 +254,9 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
         TyTag::Option => VTy::Option(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Pair => VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
         TyTag::Result => VTy::Result(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
-        TyTag::Error => return None,
+        // v1.9：検証済み部品は書き換え後の List<Pair<K, V>> を扱う
+        TyTag::Dict => VTy::List(Box::new(VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)))),
+        TyTag::Error | TyTag::Param => return None,
     })
 }
 
@@ -296,7 +302,10 @@ fn cross_check(t_in: &Ty, text: &str, decoded: Result<V, Diagnostic>, profile: &
         }
         (Ok(_), Some(None)) => DecodeResult::Invalid(vec![mismatch("verified-decoder-rejected")]),
         (Ok(_), None) => DecodeResult::Invalid(vec![mismatch("input-not-decodable-by-verified-decoder")]),
-        (Err(d), Some(Some(_))) if !limit_code(d.code) => DecodeResult::Invalid(vec![d, mismatch("verified-decoder-accepted")]),
+        // v1.9：辞書の鍵の重複は接着部分だけの検査（検証済みの復号器は List<Pair<K, V>> として受理する）
+        (Err(d), Some(Some(_))) if !limit_code(d.code) && d.code != DICT_DUPLICATE_KEY => {
+            DecodeResult::Invalid(vec![d, mismatch("verified-decoder-accepted")])
+        }
         (Err(d), _) => DecodeResult::Invalid(vec![d]),
     };
     if let Some(Some(w)) = verified {
@@ -430,6 +439,23 @@ impl Decoder<'_> {
                 let l = self.value(n.get("left").unwrap(), &t.arg(0), depth + 1)?;
                 let r = self.value(n.get("right").unwrap(), &t.arg(1), depth + 1)?;
                 V::new(Value::Pair(l, r))
+            }
+            _ if t.tag() == TyTag::Dict => {
+                // v1.9：(鍵, 値) の pair のリスト。鍵は相異なる（正準 JSON が等しい値は構造的に等しい）
+                let el = Ty::pair(t.arg(0), t.arg(1));
+                let mut items = vec![];
+                let mut keys = std::collections::HashSet::new();
+                for c in &n.get("items").unwrap().items {
+                    let v = self.value(c, &el, depth + 1)?;
+                    if let Value::Pair(k, _) = &*v {
+                        if !keys.insert(encode_value(k)) {
+                            let key = c.get("left").map_or(c.span(), |k| k.span());
+                            return Err(Diagnostic::error("input-decode", DICT_DUPLICATE_KEY, key).act(encode_value(k)));
+                        }
+                    }
+                    items.push(v);
+                }
+                list_from(items)
             }
             _ => {
                 let el = t.arg(0);

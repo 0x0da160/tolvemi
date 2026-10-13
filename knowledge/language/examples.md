@@ -97,4 +97,44 @@ rec fn odd(n: Int) -> Bool = if(eq(n, 0), false, even(sub(n, 1)))
 
 入力 `[12, 18]` で 6。`tlvm check` は `"terminates":false` と報告する。
 
+# v1.9 の例
+
+```text
+// 語の出現回数（初めて現れた順）
+fn count(ws: List<String>) -> List<Pair<String, Int>> =
+  dict_entries(fold(ws, dict<String, Int>(), |d, w| dict_put(d, w, add(match_option(dict_get(d, w), 0, |n| n), 1))))
+entry count
+```
+
+入力 `["to", "be", "or", "to", "be"]` で `[["to", 2], ["be", 2], ["or", 1]]`。
+
+# v1.10 の例
+
+```text
+// 一つの補助関数を二つの型で使う
+fn dedup<T>(xs: List<T>) -> List<T> = reverse(fold(xs, list<T>(), |seen, x| if(contains(seen, x), seen, cons(x, seen))))
+fn solve(p: Pair<List<Int>, List<String>>) -> Pair<List<Int>, List<String>> = pair(dedup(fst(p)), dedup(snd(p)))
+entry solve
+```
+
+入力 `[[1, 2, 1], ["a", "a"]]` で `[[1, 2], ["a"]]`。
+
+# v1.11 の例
+
+```text
+// examples/lib/stats.tlvm（entry のないライブラリ）
+type Summary = { count: Int, total: Int, low: Option<Int>, high: Option<Int> }
+fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(p) => some(fst(p)), none => none<T>() }
+fn summarize(xs: List<Int>) -> Summary =
+  let sorted = sort(xs) in
+  Summary { count: length(xs), total: fold(xs, 0, |acc, x| add(acc, x)), low: first(sorted), high: first(reverse(sorted)) }
+
+// examples/stats.tlvm
+import "lib/stats.tlvm"
+fn stats(xs: List<Int>) -> Summary = summarize(xs)
+entry stats
+```
+
+入力 `[3, -1, 7, 2]` で `{"count": 4, "total": 11, "low": -1, "high": 7}`。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

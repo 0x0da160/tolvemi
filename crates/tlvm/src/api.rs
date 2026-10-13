@@ -5,6 +5,10 @@ use crate::checker::{check_program, CheckOutcome, TypedProgram, VerifiedProgram,
 use crate::diagnostics::{finalize, suggest_repairs, Diagnostic};
 use crate::plain::{canonical_profile, decode_plain, PlainDecode};
 use crate::evaluator::{self, RunResult};
+use crate::dict;
+use crate::generics;
+use crate::imports;
+use std::collections::BTreeMap;
 use crate::hof;
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
@@ -63,7 +67,7 @@ pub enum AstCompile {
     Result(CompileResult),
 }
 
-fn result(diags: Vec<Diagnostic>, outcome: Option<CheckOutcome>) -> CompileResult {
+pub(crate) fn result(diags: Vec<Diagnostic>, outcome: Option<CheckOutcome>) -> CompileResult {
     let (errors, warnings) = finalize(diags);
     let work = outcome.as_ref().and_then(|o| o.work);
     match outcome.and_then(|o| o.typed) {
@@ -98,6 +102,29 @@ pub fn parse_source(source: &[u8], profile: &StaticProfile) -> Parsed {
     }
 }
 
+/// v1.11：ファイル `path` を import ごと検査する（CLI 用）。import がなければ `compile` と同じ（診断に `file` は付かない）。
+/// 返す対応表は読んだファイルの名前と中身（根が先頭）で、診断の `file` から表示用の source を引くのに使う。
+/// 根のファイルが読めなければ Err。
+pub fn compile_path(path: &str, profile: &StaticProfile) -> Result<(SourceCompile, Vec<(String, Vec<u8>)>), String> {
+    let data = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let rel = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(imports::compile_root(path, &rel, &data, &mut imports::FsLoader::new(path), profile))
+}
+
+/// v1.11：名前と source の対応表 `files` から、`root` を根に import ごと検査する（ファイルシステムには触れない）。
+/// key は `/` 区切りのパス（`.`・`..` を含まない）で、import のパスは import を書いたファイルのディレクトリから解決する
+/// （根の key のディレクトリより上は指せない）。import がなければ `compile(files[root])` と同じ。
+pub fn compile_files(root: &str, files: &BTreeMap<String, String>, profile: &StaticProfile) -> SourceCompile {
+    let Some(src) = files.get(root) else {
+        let mut d = Diagnostic::error("import", "E-IMPORT-NOT-FOUND", (0, 0)).act(format!("{root}: not in the map of sources"));
+        d.file = Some(root.to_string());
+        return SourceCompile::Result(result(vec![d], None));
+    };
+    let (dir, rel) = root.rsplit_once('/').unwrap_or(("", root));
+    let mut loader = imports::MapLoader { root_dir: dir.to_string(), files };
+    imports::compile_root(root, rel, src.as_bytes(), &mut loader, profile).0
+}
+
 pub fn compile(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     match compile_unrepaired(source, profile) {
         SourceCompile::Result(r) => SourceCompile::Result(with_repairs(r, source)),
@@ -124,6 +151,14 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             SourceCompile::Result(cross_check(text, r, profile))
         }
         Parsed::Failed(f) => f,
+        // v1.11：source の文字列だけでは import を解決できない（ファイルからの検査は compile_path・compile_files）
+        Parsed::Program(p) if !p.imports.is_empty() => SourceCompile::Result(result(
+            p.imports
+                .iter()
+                .map(|i| Diagnostic::error("import", "E-IMPORT-UNSUPPORTED", i.span.t()).act(format!("import \"{}\"", i.path)))
+                .collect(),
+            None,
+        )),
         Parsed::Program(p) if needs_glue(&p) => {
             // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
             // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す。
@@ -131,9 +166,11 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             match expand(&p) {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
-                    let o = check_program(&px, source.len(), profile);
+                    // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
+                    let (o, pm) = generics::check(&px, source.len(), profile);
                     // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
-                    let text = format_program(&lower(&hof::lower(&px, &o.hof)).unmarked());
+                    // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
+                    let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
                     let r = result(o.diagnostics.clone(), Some(o));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
@@ -148,21 +185,23 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     }
 }
 
-/// レコード（v1.1）か直和型・match（v1.4）を含み、検査の前に展開が要るか。
+/// レコード（v1.1）か直和型・match（v1.4）、型引数（v1.10）を含み、検査の前に展開が要るか。
 pub fn needs_expansion(p: &Program) -> bool {
-    sums::has_sums(p) || records::has_records(p)
+    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p)
 }
 
-/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop の書き換え）。
-/// こうしたプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
+/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop・
+/// v1.9 の辞書の書き換え）。こうしたプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
 pub fn needs_glue(p: &Program) -> bool {
-    needs_expansion(p) || hof::has_hof(p)
+    needs_expansion(p) || hof::has_hof(p) || dict::has_dict(p)
 }
 
-/// 直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
-/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。
+/// 型引数、直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
+/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。総称の関数も残る（型検査の後で
+/// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
-    let p = if sums::has_sums(p) { sums::expand(p)? } else { p.clone() };
+    let p = if generics::has_generics(p) { generics::resolve(p)? } else { p.clone() };
+    let p = if sums::has_sums(&p) { sums::expand(&p)? } else { p };
     if records::has_records(&p) {
         records::expand(&p)
     } else {
@@ -265,15 +304,16 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
     }
 }
 
-/// v1.5：map などの 6 語（v1.6 の `loop` も）が呼び出し・宣言の名前の位置（直後が `(`、直前が `fn`・`entry`）にあるか。
-/// 検証済みの構文規則ではこれらは普通の名前なので、`map(xs, f)` や `fn find(...)` を受理しうる。
-/// 診断用 parser はそれらを拒否する（`E-PARSE-EXPECTED-LAMBDA`、`E-PARSE-EXPECTED-IDENT`）ので、
-/// その場合は誤拒否の確かめを省く。
+/// v1.5：map などの 6 語（v1.6 の `loop`、v1.9 の `dict` と `dict_get` なども）が呼び出し・宣言の名前の位置
+/// （直後が `(` か `<`、直前が `fn`・`entry`）にあるか。検証済みの構文規則ではこれらは普通の名前なので、
+/// `map(xs, f)` や `fn find(...)` を受理しうる。診断用 parser はそれらを拒否する（`E-PARSE-EXPECTED-LAMBDA`、
+/// `E-PARSE-EXPECTED-IDENT` など）ので、その場合は誤拒否の確かめを省く。
 fn hof_word_called(text: &str, profile: &StaticProfile) -> bool {
     let Ok(toks) = lex(text.as_bytes(), profile) else { return false };
     toks.iter().enumerate().any(|(i, t)| {
-        crate::syntax::is_lambda_form(&t.text)
-            && (toks.get(i + 1).is_some_and(|n| n.is_punct("("))
+        let dict = crate::syntax::is_dict_word(&t.text);
+        (crate::syntax::is_lambda_form(&t.text) || dict)
+            && (toks.get(i + 1).is_some_and(|n| n.is_punct("(") || (dict && n.is_punct("<")))
                 || (i > 0 && (toks[i - 1].is_kw("fn") || toks[i - 1].is_kw("entry"))))
     })
 }
@@ -308,12 +348,22 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
     match parse_ast(data, profile, tp) {
         ParsedAst::Failed(f) => f,
         ParsedAst::Program(p) => {
-            let o = check_program(&p, data.len(), profile);
+            // v1.10：型引数を解決し、総称の関数は型検査の後で単相化する
+            let p = if generics::has_generics(&p) {
+                match generics::resolve(&p) {
+                    Ok(p) => p,
+                    Err(d) => return AstCompile::Result(without_repairs(result(d, None))),
+                }
+            } else {
+                p
+            };
+            let (o, p) = generics::check(&p, data.len(), profile);
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）。
             // v1.5：map など（v1.6 の loop も）は fold などに書き換えてから整形する
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
-            let text = if hof::has_hof(&p) {
-                format_program(&hof::lower(&p, &o.hof).unmarked())
+            // v1.9：辞書も同じく書き換え、型の Dict<K, V> を List<Pair<K, V>> にする
+            let text = if hof::has_hof(&p) || dict::has_dict(&p) {
+                format_program(&dict::erase(&hof::lower(&p, &o.hof)).unmarked())
             } else {
                 format_program(&p.unmarked())
             };

@@ -41,6 +41,25 @@ struct SumTy {
     fields: Vec<Vec<TypeNode>>,
     /// variant ごとの宣言の形（`Rect(Int, Int)`。修復ヒント用）
     sigs: Vec<String>,
+    /// v1.10：型引数（総称の直和型のとき。`chain` と `fields` はこの名前の `TyTag::Param` を含む）
+    tparams: Vec<TypeParam>,
+    /// v1.10：宣言の meta と variant の名前の span（構築子の関数を作るとき用）
+    meta: Meta,
+    spans: Vec<Sp>,
+}
+
+impl SumTy {
+    fn params(&self) -> Vec<String> {
+        self.tparams.iter().map(|p| p.name.clone()).collect()
+    }
+    /// v1.10：型引数を `args` に置き換えた `chain`。
+    fn chain_with(&self, args: &[TypeNode]) -> Vec<TypeNode> {
+        let params = self.params();
+        self.chain
+            .iter()
+            .map(|t| t.subst(&|p| params.iter().position(|q| q == p).map(|i| args[i].clone())))
+            .collect()
+    }
 }
 
 struct Env {
@@ -54,6 +73,11 @@ struct Env {
     fns: HashSet<String>,
     diags: Vec<Diagnostic>,
     scope: Vec<String>,
+    /// v1.10：型引数を推論する構築（`Node(x, 1)`）のために作った総称の関数（構築子 → 関数名）と、その宣言
+    synth: HashMap<String, String>,
+    synth_decls: Vec<FnDecl>,
+    /// 新しく作る名前が重ならないための、プログラム中の全ての名前
+    taken: HashSet<String>,
 }
 
 fn upper(s: &str) -> bool {
@@ -112,10 +136,20 @@ impl Env {
 
     /// 型の中の直和型の名前を展開する。`at` はこの型を書いた宣言の位置（それより前に宣言した型だけ使える）。
     fn ty(&mut self, t: &TypeNode, at: usize) -> TypeNode {
+        if t.tag == TyTag::Param {
+            return t.clone();
+        }
         if let Some(n) = &t.name {
             let later = match self.sums.get(n) {
                 Some(s) if s.pos < at => {
-                    let mut x = s.chain[0].clone();
+                    // v1.10：総称の直和型は型引数を置き換える（`Tree<Int>`）
+                    let params = s.params();
+                    let args: Vec<TypeNode> = t.args.iter().map(|a| self.ty(a, at)).collect();
+                    if args.len() != params.len() {
+                        crate::generics::arity_error(&mut self.diags, n, &params, args.len(), t.meta);
+                        return TypeNode::new(TyTag::Unit, vec![], t.meta);
+                    }
+                    let mut x = if params.is_empty() { self.sums[n].chain[0].clone() } else { self.sums[n].chain_with(&args)[0].clone() };
                     x.meta = t.meta;
                     return x;
                 }
@@ -129,6 +163,7 @@ impl Env {
                 } else {
                     format!("type declared above, e.g. {}", near.join(", "))
                 };
+                let fix = crate::generics::param_note(n, fix);
                 let d = self.err("E-RECORD-UNKNOWN-TYPE", t.meta.span(), t.meta.index);
                 *d = d.clone().act(n).fix("replace_type", t.meta.span(), fix);
                 return TypeNode::new(TyTag::Unit, vec![], t.meta);
@@ -142,8 +177,8 @@ impl Env {
                 );
                 return TypeNode::new(TyTag::Unit, vec![], t.meta);
             }
-            // レコード型の名前（または未知の名前）は records::expand が扱う
-            return t.clone();
+            // レコード型の名前（または未知の名前）は records::expand が扱う（v1.10：型引数の中の直和型はここで展開する）
+            return TypeNode { args: t.args.iter().map(|a| self.ty(a, at)).collect(), ..t.clone() };
         }
         TypeNode { args: t.args.iter().map(|a| self.ty(a, at)).collect(), ..t.clone() }
     }
@@ -194,10 +229,15 @@ impl Env {
     }
 
     /// 構築子 `ctor` を中身 `args` で構築する式（ok／err の入れ子）。
-    fn construct(&self, ctor: &str, mut args: Vec<Expr>, meta: Meta) -> Expr {
-        let (sum, k) = &self.ctors[ctor];
-        let s = &self.sums[sum];
-        let n = s.chain.len();
+    fn construct(&self, ctor: &str, args: Vec<Expr>, meta: Meta) -> Expr {
+        let (sum, _) = &self.ctors[ctor];
+        self.construct_in(ctor, args, meta, &self.sums[sum].chain)
+    }
+
+    /// v1.10：`chain`（型引数を置き換えた型の列）を使って構築する。
+    fn construct_in(&self, ctor: &str, mut args: Vec<Expr>, meta: Meta, chain: &[TypeNode]) -> Expr {
+        let (_, k) = &self.ctors[ctor];
+        let n = chain.len();
         let mut payload = match args.len() {
             0 => ex(ExprKind::Unit, meta),
             _ => {
@@ -212,12 +252,49 @@ impl Env {
             return payload;
         }
         if k + 1 < n {
-            payload = ex(ExprKind::Inj { ok: true, ty: s.chain[*k].clone(), value: Box::new(payload) }, meta);
+            payload = ex(ExprKind::Inj { ok: true, ty: chain[*k].clone(), value: Box::new(payload) }, meta);
         }
         for j in (0..*k).rev() {
-            payload = ex(ExprKind::Inj { ok: false, ty: s.chain[j].clone(), value: Box::new(payload) }, meta);
+            payload = ex(ExprKind::Inj { ok: false, ty: chain[j].clone(), value: Box::new(payload) }, meta);
         }
         payload
+    }
+
+    /// v1.10：総称の直和型の構築子 `ctor` を、型引数を推論して構築する総称の関数（なければ作る）の名前。
+    /// `fn node_new<T>(a1: T, a2: Int) -> Tree<T> = err<Unit, Pair<T, Int>>(pair(a1, a2))` のような関数で、
+    /// 型引数は普通の総称の関数の呼び出しと同じく引数の型から推論する。
+    fn synth(&mut self, ctor: &str) -> String {
+        if let Some(n) = self.synth.get(ctor) {
+            return n.clone();
+        }
+        let (sum, k) = self.ctors[ctor].clone();
+        let base = format!("{}_new", ctor.to_ascii_lowercase());
+        let name = crate::generics::fresh(&mut self.taken, &base);
+        let st = &self.sums[&sum];
+        let (meta, span, tparams, ret) = (st.meta, st.spans[k], st.tparams.clone(), st.chain[0].clone());
+        let fields = st.fields[k].clone();
+        let mut params = vec![];
+        let mut vars = vec![];
+        for (i, f) in fields.into_iter().enumerate() {
+            let pn = crate::generics::fresh(&mut self.taken, &format!("{name}_arg{}", i + 1));
+            vars.push(ex(ExprKind::Var(pn.clone()), meta));
+            params.push(Param { name: pn, name_span: span, ty: f, meta });
+        }
+        let body = self.construct(ctor, vars, meta);
+        self.synth_decls.push(FnDecl {
+            name: name.clone(),
+            name_span: span,
+            params,
+            return_type: ret,
+            body,
+            meta,
+            rec: false,
+            rec_span: Sp::default(),
+            type_params: tparams,
+            ctor: Some(ctor.to_string()),
+        });
+        self.synth.insert(ctor.to_string(), name.clone());
+        name
     }
 
     fn bind<R>(&mut self, names: &[(&str, Sp)], index: usize, f: impl FnOnce(&mut Self) -> R) -> R {
@@ -240,6 +317,20 @@ impl Env {
                 let fm = self.sums[&sum].fields[k].len();
                 if fm != 0 {
                     self.arity(n, 0, false, m.span, i, false);
+                } else if !self.sums[&sum].tparams.is_empty() {
+                    // v1.10：総称の直和型の中身のない構築子は、型引数を推論する手がかりがない（`none<T>()` と同じく書く）
+                    let params = self.sums[&sum].params();
+                    let d = Diagnostic::error("name", "E-TYPE-GENERIC-INFER", m.span()).at(i).exp(format!("type arguments for {}", params.join(", "))).act(n).fix(
+                        "replace_expression",
+                        m.span(),
+                        format!(
+                            "{n}<{}>() with each type parameter replaced by a concrete type, e.g. {n}<{}>() (like none<T>())",
+                            params.join(", "),
+                            vec!["Int"; params.len()].join(", ")
+                        ),
+                    );
+                    self.diags.push(d);
+                    return ex(ExprKind::Unit, m);
                 }
                 return self.construct(n, vec![], m);
             }
@@ -247,13 +338,34 @@ impl Env {
                 self.unknown_ctor(n, m.span, i, false);
                 ExprKind::Unit
             }
-            ExprKind::Call { callee, args, builtin: false, callee_span } if self.ctors.contains_key(callee) => {
+            ExprKind::Call { callee, args, builtin: false, callee_span, type_args } if self.ctors.contains_key(callee) => {
                 let args: Vec<Expr> = args.iter().map(|a| self.expr(a)).collect();
                 let (sum, k) = self.ctors[callee].clone();
                 let fm = self.sums[&sum].fields[k].len();
+                let params = self.sums[&sum].params();
+                if !type_args.is_empty() {
+                    // v1.10：型引数を書いた構築 `Node<Int>(x, 1)`、`Leaf<Int>()`
+                    let targs: Vec<TypeNode> = type_args.iter().map(|t| self.ty(t, usize::MAX)).collect();
+                    if targs.len() != params.len() {
+                        let at = Meta::new((callee_span.0, m.span.1), i);
+                        crate::generics::arity_error(&mut self.diags, &sum, &params, targs.len(), at);
+                        return ex(ExprKind::Unit, m);
+                    }
+                    if args.len() != fm {
+                        self.arity(callee, args.len(), true, Sp(callee_span.0, m.span.1), i, false);
+                        return ex(ExprKind::Unit, m);
+                    }
+                    let chain = self.sums[&sum].chain_with(&targs);
+                    return self.construct_in(callee, args, m, &chain);
+                }
                 if fm == 0 || args.len() != fm {
                     self.arity(callee, args.len(), true, Sp(callee_span.0, m.span.1), i, false);
                     return ex(ExprKind::Unit, m);
+                }
+                if !params.is_empty() {
+                    // v1.10：型引数は総称の関数の呼び出しとして型検査で推論する
+                    let f = self.synth(callee);
+                    return ex(ExprKind::Call { callee: f, args, builtin: false, callee_span: *callee_span, type_args: vec![] }, m);
                 }
                 return self.construct(callee, args, m);
             }
@@ -263,17 +375,19 @@ impl Env {
                 self.unknown_ctor(callee, *callee_span, i, false);
                 ExprKind::Unit
             }
-            ExprKind::Call { callee, args, builtin, callee_span } => ExprKind::Call {
+            ExprKind::Call { callee, args, builtin, callee_span, type_args } => ExprKind::Call {
                 callee: callee.clone(),
                 args: args.iter().map(|a| self.expr(a)).collect(),
                 builtin: *builtin,
                 callee_span: *callee_span,
+                type_args: type_args.iter().map(|t| self.ty(t, usize::MAX)).collect(),
             },
             ExprKind::List { element_type, items } => ExprKind::List {
                 element_type: self.ty(element_type, usize::MAX),
                 items: items.iter().map(|x| self.expr(x)).collect(),
             },
             ExprKind::None(t) => ExprKind::None(self.ty(t, usize::MAX)),
+            ExprKind::DictNew(t) => ExprKind::DictNew(self.ty(t, usize::MAX)),
             ExprKind::Inj { ok, ty, value } => {
                 ExprKind::Inj { ok: *ok, ty: self.ty(ty, usize::MAX), value: Box::new(self.expr(value)) }
             }
@@ -494,12 +608,20 @@ impl Env {
             chain.insert(0, TypeNode::new(TyTag::Result, vec![p.clone(), next], meta));
         }
         let inner = if n == 1 { chain[0].label.clone() } else { Label::default() };
-        let info = Arc::new(SumInfo { name: sd.name.clone(), variants, inner });
+        let params: Vec<String> = sd.type_params.iter().map(|p| p.name.clone()).collect();
+        let generic = (!params.is_empty()).then(|| {
+            let mut t = chain[0].clone();
+            t.label = Label::default();
+            Generic { params, template: t }
+        });
+        let info = Arc::new(SumInfo { name: sd.name.clone(), variants, inner, generic });
         chain[0].label = Label(Some(Named::Sum(info.clone())));
         for (k, (v, _)) in info.variants.iter().enumerate() {
             self.ctors.entry(v.clone()).or_insert_with(|| (sd.name.clone(), k));
         }
-        self.sums.insert(sd.name.clone(), SumTy { info, pos, chain, fields, sigs });
+        let spans = sd.variants.iter().map(|v| v.name_span).collect();
+        let st = SumTy { info, pos, chain, fields, sigs, tparams: sd.type_params.clone(), meta, spans };
+        self.sums.insert(sd.name.clone(), st);
     }
 }
 
@@ -522,6 +644,9 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         fns: p.functions().map(|f| f.name.clone()).collect(),
         diags: vec![],
         scope: vec![],
+        synth: HashMap::new(),
+        synth_decls: vec![],
+        taken: crate::generics::idents(p),
     };
     let mut type_names: HashSet<&str> = HashSet::new();
     for (pos, d) in p.declarations.iter().enumerate() {
@@ -563,8 +688,10 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
             }
         }
     }
+    // v1.10：型引数を推論する構築のために作った総称の関数（宣言の末尾に置く）
+    decls.extend(env.synth_decls.drain(..).map(Decl::Fn));
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta })
+        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
         Err(env.diags)
     }
@@ -750,7 +877,7 @@ impl Lower {
             _ => (self.fresh(), Some(src)),
         };
         let call = |name: &str, arg: Expr| {
-            ex(ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: m.span }, m)
+            ex(ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: m.span, type_args: vec![] }, m)
         };
         let mut out = a.body.clone();
         for (i, b) in names.iter().enumerate().rev() {
@@ -793,5 +920,5 @@ pub fn lower(p: &Program) -> Program {
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta }
+    Program { declarations, meta: p.meta, imports: p.imports.clone() }
 }

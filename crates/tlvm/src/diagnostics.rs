@@ -4,11 +4,12 @@ use std::collections::HashSet;
 
 pub type Span = (usize, usize);
 
-pub const PHASE_ORDER: [&str; 11] = [
+pub const PHASE_ORDER: [&str; 12] = [
     "source-boundary",
     "lex",
     "lexical-limits",
     "parse",
+    "import",
     "structural-limits",
     "name",
     "call-graph",
@@ -41,6 +42,13 @@ pub fn message_for(code: &str) -> &'static str {
         "E-PARSE-EXPECTED-LAMBDA" => "map・filter・any・all・find・sort_by の第 2 引数と loop の第 3 引数は一つの binder のラムダ |x| e でなければなりません",
         "E-PARSE-REC-ENTRY" => "entry には rec を付けられません（rec は関数の宣言 rec fn に付けます）",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
+        "E-IMPORT-AFTER-DECL" => "import は宣言（fn・type・entry）より前、ファイルの先頭に書きます",
+        "E-IMPORT-UNSUPPORTED" => "source の文字列だけを受け取る API では import を解決できません（ファイルから検査するか、ソースの対応表を渡す API を使います）",
+        "E-IMPORT-PATH" => "import のパスは .tlvm で終わる相対パスで、根のファイルのディレクトリより上を指せません",
+        "E-IMPORT-NOT-FOUND" => "import したファイルがありません",
+        "E-IMPORT-CYCLE" => "import が循環しています",
+        "E-IMPORT-CONFLICT" => "同じ名前が二つのファイルで定義されています（import したファイルは名前空間を共有します）",
+        "E-LIMIT-STATIC-IMPORT-FILES" => "import で読むファイルの数が上限を超えました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
         "E-NAME-DUPLICATE-FUNCTION" => "同名のトップレベル関数が既に定義されています",
@@ -70,6 +78,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-HOF-BODY" => "ラムダの本体の型が違います（filter・any・all・find は Bool、sort_by は Int）",
         "E-TYPE-LOOP-MAX" => "loop の第 2 引数（反復の上限）は Int でなければなりません",
         "E-TYPE-LOOP-BODY" => "loop の本体の型は Option<S>（S は初期値の型）でなければなりません",
+        "E-TYPE-DICT-ARG" => "dict_get・dict_put・dict_remove・dict_has・dict_size・dict_keys・dict_values・dict_entries の第 1 引数は Dict でなければなりません",
+        "E-TYPE-DICT-FROM" => "dict_from の引数は (鍵, 値) の pair のリスト List<Pair<K, V>> でなければなりません",
         "E-TYPE-FIELD-ACCESS" => "field を参照する式の型が、その field を持つレコード型ではありません",
         "E-RECORD-UNKNOWN-TYPE" => "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
@@ -86,6 +96,16 @@ pub fn message_for(code: &str) -> &'static str {
         "E-MATCH-UNREACHABLE" => "届かない枝です（`_` の後の枝、または全部の場合を書いた後の `_`）",
         "E-MATCH-MIXED" => "一つの match に違う型の pattern が混ざっています",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
+        "E-TYPE-GENERIC-UNKNOWN-PARAM" => "宣言されていない型引数です（型引数は関数・型の名前の後の <T, ...> で宣言します）",
+        "E-TYPE-GENERIC-ARITY" => "型引数の数が宣言と違います",
+        "E-TYPE-GENERIC-DUPLICATE-PARAM" => "同じ名前の型引数が二度宣言されています",
+        "E-TYPE-GENERIC-PARAM-CONFLICT" => "型引数の名前が宣言された型の名前と重なっています",
+        "E-TYPE-GENERIC-UNUSED-PARAM" => "型の宣言の型引数が field・variant のどこにも使われていません",
+        "E-TYPE-GENERIC-INFER" => "型引数を引数の型から推論できません（f<Int>(x) のように明示します）",
+        "E-TYPE-GENERIC-MISMATCH" => "同じ型引数に、引数によって違う型が当たっています",
+        "E-TYPE-GENERIC-INFINITE" => "再帰のたびに型引数が大きくなる呼び出し（多相再帰）は具体化が終わりません",
+        "E-ENTRY-GENERIC" => "entry の関数は型引数を持てません",
+        "E-LIMIT-STATIC-GENERIC-INSTANCES" => "総称の関数の具体化の数か型引数の大きさが上限を超えました",
         "E-LIMIT-STATIC-SOURCE-BYTES" => "source bytes が上限を超えました",
         "E-LIMIT-STATIC-TOKENS" => "token 数が上限を超えました",
         "E-LIMIT-STATIC-INTEGER-DIGITS" => "整数リテラルの桁数が上限を超えました",
@@ -109,6 +129,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-INPUT-TAG" => "入力値の tag が期待型と一致しません",
         "E-INPUT-UNKNOWN-FIELD" => "入力値に未知のキーがあります",
         "E-INPUT-INTEGER" => "入力整数が正規形ではありません",
+        "E-INPUT-DICT-DUPLICATE-KEY" => "入力の辞書（Dict）に同じ鍵が二度あります",
         "E-INPUT-CHAR" => "入力の文字が Unicode scalar value ではありません",
         "E-LIMIT-INPUT-JSON-BYTES" => "入力 JSON bytes が上限を超えました",
         "E-LIMIT-INPUT-JSON-DEPTH" => "入力 JSON の構造深さが上限を超えました",
@@ -146,6 +167,9 @@ pub struct Diagnostic {
     pub node_index: usize,
     pub seq: usize,
     pub repair: Option<Repair>,
+    /// v1.11：診断の span が指すファイル（import で複数のファイルからなるプログラムのときだけ。単一ファイルでは None で、
+    /// JSON にも出さない）
+    pub file: Option<String>,
 }
 
 /// 修復ヒント（設計書 §10.1）。修復の正しさ・唯一性は保証しない。
@@ -170,6 +194,7 @@ impl Diagnostic {
             node_index: 0,
             seq: 0,
             repair: None,
+            file: None,
         }
     }
 
@@ -217,8 +242,13 @@ impl Diagnostic {
             ),
             None => "null".to_string(),
         };
+        // v1.11：file は複数ファイルのプログラムのときだけ、最後の key として出す
+        let file = match &self.file {
+            Some(f) => format!(",\"file\":{}", json_string(f)),
+            None => String::new(),
+        };
         format!(
-            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":{}}}",
+            "{{\"severity\":{},\"phase\":{},\"code\":{},\"span\":{{\"start\":{},\"end\":{}}},\"expected\":{},\"actual\":{},\"message\":{},\"repair\":{}{}}}",
             json_string(self.severity),
             json_string(self.phase),
             json_string(self.code),
@@ -227,7 +257,8 @@ impl Diagnostic {
             opt(&self.expected),
             opt(&self.actual),
             json_string(&self.message),
-            repair
+            repair,
+            file
         )
     }
 }
@@ -260,9 +291,9 @@ pub fn finalize(diags: Vec<Diagnostic>) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
     let mut unique = Vec::new();
     for d in diags {
         let key = if d.phase == "parse" {
-            (d.phase, d.code, d.span, d.seq)
+            (d.phase, d.code, d.span, d.seq, d.file.clone())
         } else {
-            (d.phase, d.code, d.span, d.node_index)
+            (d.phase, d.code, d.span, d.node_index, d.file.clone())
         };
         if seen.insert(key) {
             unique.push(d);
@@ -275,7 +306,7 @@ pub fn finalize(diags: Vec<Diagnostic>) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
             if a.phase == "parse" {
                 a.seq.cmp(&b.seq)
             } else {
-                (a.span.0, a.span.1, a.code, a.node_index).cmp(&(b.span.0, b.span.1, b.code, b.node_index))
+                (&a.file, a.span.0, a.span.1, a.code, a.node_index).cmp(&(&b.file, b.span.0, b.span.1, b.code, b.node_index))
             }
         })
     });
@@ -317,13 +348,41 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
             | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS"
-            | "E-TYPE-HOF-BODY" | "E-TYPE-LOOP-BODY" | "E-TYPE-LOOP-MAX" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            | "E-TYPE-HOF-BODY" | "E-TYPE-LOOP-BODY" | "E-TYPE-LOOP-MAX" => exp.map(|t| {
+                // v1.9：Dict と List<Pair<K, V>> の取り違えには変換の操作を示す
+                let act = d.actual.as_deref().unwrap_or("");
+                let how = if t.starts_with("Dict<") && act.starts_with("List<Pair<") {
+                    " (dict_from(xs) makes a Dict from a List of pairs)"
+                } else if t.starts_with("List<Pair<") && act.starts_with("Dict<") {
+                    " (dict_entries(d) gives the pairs of a Dict in insertion order)"
+                } else {
+                    ""
+                };
+                ("replace_expression", span, format!("expression of type {t}{how}"))
+            }),
             "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, match exp.as_deref() {
                 Some("Result") => "expression of type Result<..., ...>".to_string(),
                 Some("Option") | None => "expression of type Option<...>".to_string(),
                 Some(t) => format!("expression of type {t}"),
             })),
+            // v1.9：辞書をリストとして使ったときは、リストを取り出す操作を示す
+            "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" | "E-TYPE-HOF-LIST" if d.actual.as_deref().is_some_and(|a| a.starts_with("Dict<")) => Some((
+                "replace_expression",
+                span,
+                "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)".into(),
+            )),
             "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" | "E-TYPE-HOF-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
+            // v1.9：辞書の操作の第 1 引数
+            "E-TYPE-DICT-ARG" => Some(("replace_expression", span, match d.actual.as_deref() {
+                Some(a) if a.starts_with("List<Pair<") => {
+                    "expression of type Dict<K, V>: dict_from(xs) makes a Dict from a List<Pair<K, V>> (a later pair replaces the value of an earlier equal key)".to_string()
+                }
+                _ => "expression of type Dict<K, V>, such as dict<K, V>() (empty), dict_put(d, k, v) or dict_from(pairs)".to_string(),
+            })),
+            "E-TYPE-DICT-FROM" => Some(("replace_expression", span, match d.actual.as_deref() {
+                Some(a) if a.starts_with("Dict<") => "expression of type List<Pair<K, V>>: this is already a Dict, so use it without dict_from".to_string(),
+                _ => "expression of type List<Pair<K, V>>, such as map(xs, |x| pair(key, value))".to_string(),
+            })),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
             "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),
             "E-NAME-SHADOW" | "E-NAME-DUPLICATE-BINDER" | "E-NAME-DUPLICATE-PARAM" => {
@@ -336,10 +395,27 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             }
             // 予約語を名前に使ったときだけ書き換え先を示す。それ以外（回復後の連鎖など）は位置が当てにならない
             // v1.4：構築子の名前は大文字で始まる
+            // v1.10：宣言の型引数は大文字で始まる
+            "E-PARSE-EXPECTED-IDENT" if exp.as_deref() == Some(crate::parser::TYPE_PARAM_EXPECTED) => Some((
+                "replace_identifier",
+                span,
+                "type parameter name starting with an uppercase letter, as in fn first<T>(xs: List<T>) -> Option<T> or type Box<T> = { value: T }".into(),
+            )),
             "E-PARSE-EXPECTED-IDENT" if exp.as_deref() == Some(crate::parser::CTOR_EXPECTED) => Some((
                 "replace_identifier",
                 span,
                 "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty".into(),
+            )),
+            // v1.11：宣言の後の import
+            "E-IMPORT-AFTER-DECL" => Some((
+                "delete_span",
+                span,
+                "move this import line to the top of the file, above every fn, type and entry declaration".into(),
+            )),
+            "E-IMPORT-UNSUPPORTED" => Some((
+                "delete_span",
+                span,
+                "this API compiles a single source string and cannot read files: compile the file with the CLI (tlvm check FILE), use compile_files with a map of sources, or paste the imported definitions here".into(),
             )),
             // v1.7：`rec entry`
             "E-PARSE-REC-ENTRY" => Some((
@@ -368,10 +444,14 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 (Some("<"), Some("(")) => Some((
                     "insert_text",
                     (span.0, span.0),
-                    "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>()".into(),
+                    "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>(), dict<K, V>()".into(),
                 )),
                 (Some("=>"), _) => Some(("insert_text", (span.0, span.0), "'=>' between the pattern and the arm's expression".into())),
-                (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
+                (Some("()"), _) => Some((
+                    "insert_text",
+                    (span.0, span.0),
+                    "() after none<T>, dict<K, V>, an explicit call f<T> or a constructor Leaf<T>, as in none<Int>(), dict<String, Int>(), f<Int>(x) or Leaf<Int>()".into(),
+                )),
                 // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
                 // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
                 (Some(")"), Some("," | "in" | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
@@ -391,7 +471,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             "E-PARSE-EXPECTED-TYPE" => Some((
                 "replace_type",
                 span,
-                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | a declared type name".into(),
+                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name (Box<Int> for a generic one) | a type parameter of the declaration".into(),
             )),
             "E-PARSE-STRING-TYPE" => Some(("replace_type", span, "String".into())),
             "E-LEX-INVALID-ESCAPE" => Some((

@@ -47,4 +47,10 @@ entry が name phase と entry phase の双方で有効なとき、entry 関数�
 | `fn f() -> Int = 0 entry f` | `E-ENTRY-ARITY` |
 | `fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f` | Accepted と g の `W-UNUSED-FUNCTION` |
 
+# v1.11 の追加：import したファイルの entry
+
+entry は根のファイル（検査・実行を指示したファイル）のものだけが数え、import したファイルの `entry` の行は無視する。根に entry が
+なければ `E-ENTRY-MISSING`（entry のないライブラリは単独では検査できず、import する側から検査する）。`W-UNUSED-FUNCTION` は
+根のファイルの関数にだけ出す。詳細は [v1.11 差分仕様](../../spec/lptl-v1.11/LPTL_v1.11_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -29,6 +29,7 @@ sources:
 | fold ネスト深さ | 32 | FOLD-DEPTH | structural-limits |
 | 推論された型深さ | 128 | SEMANTIC-TYPE-DEPTH | semantic-limits |
 | 型検査イベント数 | 2,000,000 | SEMANTIC-WORK | semantic-limits |
+| import で読むファイル数（根を含む。v1.11、この処理系の拡張） | 64 | IMPORT-FILES | import |
 
 # 数え方
 
@@ -77,5 +78,10 @@ CompareType：完全型の比較 `Equal(A,B)` は根から走査し、Pair は l
 | `fn f(x: Unit) -> Option<Int> = none[Int]` | 1 | 1 | 2 | 4 |
 
 `add` 例で SemanticWork 上限9なら完了、8なら SEMANTIC-WORK cutoff。`add(1,true,0)` で上限0なら call の VisitExpr 前 cutoff のみ、1なら `E-ARITY-BUILTIN` を保持して最初の子の VisitExpr 前で cutoff。
+
+# v1.11 の追加：import
+
+import したファイルの bytes の合計は source bytes の上限（1,048,576）で抑え、ほかの上限（token 数、関数数、AST node 数など）は
+まとめたプログラム全体にかかる。詳細は [v1.11 差分仕様](../../spec/lptl-v1.11/LPTL_v1.11_delta.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

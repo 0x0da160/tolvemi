@@ -91,6 +91,51 @@ class RunTest(unittest.TestCase):
         self.assertEqual(d.run([-7, 2]), -4)
         self.assertIsNone(d.run([7, 0]))
 
+    def test_dict(self):
+        # v1.9：Dict<K, V> は [key, value] の配列の配列（挿入順）。鍵が重なる入力は InputError
+        p = tlvm.compile(
+            "fn f(d: Dict<String, Int>) -> Dict<String, Int> = dict_put(dict_remove(d, \"a\"), \"z\", dict_size(d))\nentry f\n"
+        )
+        self.assertEqual(p.input_type, "Dict<String, Int>")
+        self.assertEqual(p.run([["a", 1], ["b", 2]]), [["b", 2], ["z", 2]])
+        with self.assertRaises(tlvm.InputError) as cm:
+            p.run([["a", 1], ["a", 2]])
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-INPUT-DICT-DUPLICATE-KEY")
+
+    def test_generics(self):
+        # v1.10：総称の関数は使った型ごとに具体化する。総称のレコード型は plain JSON の object
+        p = tlvm.compile(
+            "type Box<T> = { value: T, n: Int }\n"
+            "fn first<T>(xs: List<T>) -> Option<T> = match uncons(xs) { some(q) => some(fst(q)), none => none<T>() }\n"
+            "fn f(xs: List<Int>) -> Pair<Box<Option<Int>>, Option<String>> =\n"
+            "  pair(Box { value: first(xs), n: length(xs) }, first(list<String>(\"a\")))\n"
+            "entry f\n"
+        )
+        self.assertEqual(p.output_type, "Pair<Box<Option<Int>>, Option<String>>")
+        self.assertEqual(p.run([5, 6]), [{"value": 5, "n": 2}, "a"])
+
+    def test_compile_files(self):
+        # v1.11：名前と source の dict から import ごと検査する（ファイルシステムには触れない）
+        files = {
+            "main.tlvm": 'import "lib/sq.tlvm"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n',
+            "lib/sq.tlvm": "fn sq(x: Int) -> Int = mul(x, x)\n",
+        }
+        p = tlvm.compile_files("main.tlvm", files)
+        self.assertEqual(p.run(7), 49)
+        # source の文字列だけの compile は import を解決しない
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile(files["main.tlvm"])
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-IMPORT-UNSUPPORTED")
+        # 診断には誤りのあるファイルの名前が付く
+        files["lib/sq.tlvm"] = "fn sq(x: Int) -> Int = mul(x, true)\n"
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile_files("main.tlvm", files)
+        d = cm.exception.diagnostics[0]
+        self.assertEqual((d["code"], d["file"]), ("E-TYPE-ARG", "lib/sq.tlvm"))
+        with self.assertRaises(tlvm.CompileError) as cm:
+            tlvm.compile_files("main.tlvm", {"main.tlvm": 'import "missing.tlvm"\n'})
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-IMPORT-NOT-FOUND")
+
     def test_input_error(self):
         p = tlvm.compile(SUM)
         for bad in ([1, True], {"a": 1}, 1.5, "x"):

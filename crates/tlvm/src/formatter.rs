@@ -7,6 +7,11 @@ pub const FORMATTER_VERSION: &str = "tlvm-format-v1";
 
 pub fn format_type(t: &TypeNode) -> String {
     if let Some(n) = &t.name {
+        // v1.10：総称の型 `Box<Int>`
+        if !t.args.is_empty() {
+            let args: Vec<String> = t.args.iter().map(format_type).collect();
+            return format!("{n}<{}>", args.join(", "));
+        }
         return n.clone();
     }
     if t.is_string() {
@@ -35,6 +40,12 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Some(v) => format!("some({})", format_expr(v)),
         ExprKind::None(t) => format!("none<{}>()", format_type(t)),
         ExprKind::Pair(a, b) => format!("pair({}, {})", format_expr(a), format_expr(b)),
+        // v1.9：`dict<K, V>()`
+        ExprKind::DictNew(t) => format!("dict<{}, {}>()", format_type(&t.args[0]), format_type(&t.args[1])),
+        // v1.10：明示した型引数 `f<Int>(x)`
+        ExprKind::Call { callee, args, type_args, .. } if !type_args.is_empty() => {
+            format!("{}<{}>({})", callee, type_args.iter().map(format_type).collect::<Vec<_>>().join(", "), join(args))
+        }
         ExprKind::Call { callee, args, .. } => format!("{}({})", callee, join(args)),
         ExprKind::Let { name, value, body, .. } => format!("let {} = {} in {}", name, format_expr(value), format_expr(body)),
         ExprKind::If(c, t, f) => format!("if({}, {}, {})", format_expr(c), format_expr(t), format_expr(f)),
@@ -98,16 +109,30 @@ pub fn format_pattern(p: &Pattern) -> String {
     }
 }
 
+/// v1.10：宣言の型引数 `<T, U>`（なければ空）。
+fn format_type_params(ps: &[TypeParam]) -> String {
+    if ps.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", ps.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "))
+    }
+}
+
 pub fn format_program(p: &Program) -> String {
     let mut out = String::new();
+    // v1.11：import は先頭に一行ずつ（パスは文字列リテラルと同じ書き方）
+    for i in &p.imports {
+        out.push_str(&format!("import {}\n", quote(&i.path, '"')));
+    }
     for d in &p.declarations {
         match d {
             Decl::Fn(f) => {
                 let params: Vec<String> = f.params.iter().map(|p| format!("{}: {}", p.name, format_type(&p.ty))).collect();
                 out.push_str(&format!(
-                    "{}fn {}({}) -> {} = {}",
+                    "{}fn {}{}({}) -> {} = {}",
                     if f.rec { "rec " } else { "" },
                     f.name,
+                    format_type_params(&f.type_params),
                     params.join(", "),
                     format_type(&f.return_type),
                     format_expr(&f.body)
@@ -116,7 +141,7 @@ pub fn format_program(p: &Program) -> String {
             Decl::Entry(e) => out.push_str(&format!("entry {}", e.name)),
             Decl::Type(t) => {
                 let fs: Vec<String> = t.fields.iter().map(|f| format!("{}: {}", f.name, format_type(&f.ty))).collect();
-                out.push_str(&format!("type {} = {{ {} }}", t.name, fs.join(", ")));
+                out.push_str(&format!("type {}{} = {{ {} }}", t.name, format_type_params(&t.type_params), fs.join(", ")));
             }
             Decl::Sum(t) => {
                 let vs: Vec<String> = t
@@ -130,7 +155,7 @@ pub fn format_program(p: &Program) -> String {
                         }
                     })
                     .collect();
-                out.push_str(&format!("type {} = {}", t.name, vs.join(" | ")));
+                out.push_str(&format!("type {}{} = {}", t.name, format_type_params(&t.type_params), vs.join(" | ")));
             }
         }
         out.push('\n');
@@ -146,6 +171,11 @@ fn type_json(t: &TypeNode, out: &mut String) {
         out.push_str("{\"tag\":\"string\"}");
         return;
     }
+    // v1.10：型引数 `{"tag":"param","name":"T"}`
+    if t.tag == TyTag::Param {
+        out.push_str(&format!("{{\"tag\":\"param\",\"name\":\"{}\"}}", t.name.as_deref().unwrap_or("")));
+        return;
+    }
     let tag = t.tag.name().to_ascii_lowercase();
     out.push_str(&format!("{{\"tag\":\"{tag}\""));
     match t.tag {
@@ -157,6 +187,13 @@ fn type_json(t: &TypeNode, out: &mut String) {
             out.push_str(",\"left\":");
             type_json(&t.args[0], out);
             out.push_str(",\"right\":");
+            type_json(&t.args[1], out);
+        }
+        // v1.9：`{"tag":"dict","key":...,"value":...}`
+        TyTag::Dict => {
+            out.push_str(",\"key\":");
+            type_json(&t.args[0], out);
+            out.push_str(",\"value\":");
             type_json(&t.args[1], out);
         }
         TyTag::Result => {
@@ -228,6 +265,14 @@ fn expr_json(e: &Expr, out: &mut String) {
             type_json(t, out);
             out.push('}');
         }
+        // v1.9：`{"tag":"dict","key_type":...,"value_type":...}`
+        ExprKind::DictNew(t) => {
+            out.push_str("{\"tag\":\"dict\",\"key_type\":");
+            type_json(&t.args[0], out);
+            out.push_str(",\"value_type\":");
+            type_json(&t.args[1], out);
+            out.push('}');
+        }
         ExprKind::Pair(a, b) => {
             out.push_str("{\"tag\":\"pair\",\"left\":");
             expr_json(a, out);
@@ -235,9 +280,20 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(b, out);
             out.push('}');
         }
-        ExprKind::Call { callee, args, .. } => {
+        ExprKind::Call { callee, args, type_args, .. } => {
             out.push_str(&format!("{{\"tag\":\"call\",\"callee\":\"{callee}\",\"args\":"));
             exprs_json(args, out);
+            // v1.10：明示した型引数（あるときだけ）
+            if !type_args.is_empty() {
+                out.push_str(",\"type_args\":[");
+                for (i, t) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    type_json(t, out);
+                }
+                out.push(']');
+            }
             out.push('}');
         }
         ExprKind::Let { name, value, body, .. } => {
@@ -341,6 +397,11 @@ pub fn encode_ast(p: &Program) -> String {
                 // v1.7：`rec` は印のある関数にだけ書く（印のない関数の JSON は v1.6 までと同じ）
                 if f.rec {
                     out.push_str(",\"rec\":true");
+                }
+                // v1.10：型引数（総称の関数にだけ書く）
+                if !f.type_params.is_empty() {
+                    let names: Vec<String> = f.type_params.iter().map(|p| format!("\"{}\"", p.name)).collect();
+                    out.push_str(&format!(",\"type_params\":[{}]", names.join(",")));
                 }
                 out.push('}');
             }

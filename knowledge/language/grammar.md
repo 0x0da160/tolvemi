@@ -49,6 +49,34 @@ lambda       ::= "|" IDENT "," IDENT "|" expr
 arguments    ::= expr { "," expr }
 ```
 
+# v1.9 の追加：辞書
+
+```ebnf
+type      ::= ... | "Dict" "<" type "," type ">"
+expr      ::= ... | "dict" "<" type "," type ">" "(" ")"
+            | dict_op "(" expr ("," expr)* ")"
+dict_op   ::= "dict_get" | "dict_put" | "dict_remove" | "dict_has" | "dict_size"
+            | "dict_keys" | "dict_values" | "dict_entries" | "dict_from"
+```
+
+- `Dict` は型の位置で直後が `<` のときだけ辞書の型。型引数のない `Dict` はレコード型の名前として読む。
+- `dict` は直後が `<`、操作は直後が `(` のときだけ組み込み（それ以外の位置では変数の参照）。操作の引数の数は組み込み関数と
+  同じく型検査で調べる（`E-ARITY-BUILTIN`）。
+- 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/dict.rs` が書き換えてから渡す。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
+# v1.11 の追加：import
+
+```ebnf
+program ::= { import_decl } { top_decl }
+import_decl ::= "import" STRING
+```
+
+- `import` は予約語ではなく、トップレベルの宣言の位置で直後が文字列リテラルのときだけ import として読む。宣言の後の import は
+  `E-IMPORT-AFTER-DECL`（parse。修復ヒント：ファイルの先頭へ移す）。
+- パスは import を書いたファイルのディレクトリからの相対パスで `.tlvm` で終わる。ファイルからの検査（CLI、`compile_files`）が
+  import をたどって一つのプログラムにまとめる。source の文字列だけの API では `E-IMPORT-UNSUPPORTED`。
+- 検証済み部品の構文にはなく、まとめた後のプログラムを渡す。詳細は [v1.11 差分仕様](../../spec/lptl-v1.11/LPTL_v1.11_delta.md)。
+
 [^lptl-design]
 
 # 構文上の要点
@@ -136,5 +164,20 @@ top_decl  ::= ... | "rec" function_def
 - 宣言の終端の規則は、次の token が `fn`、`entry`、`type`（宣言の先頭）、EOF に加えて、直後が `fn` か `entry` の `rec` でもよい。
 - `rec entry f` は `E-PARSE-REC-ENTRY`（修復ヒント付き：`rec` を消す）。
 - 検証済み部品の構文にはなく、接着部分が印を外したテキストと関数ごとの印の列を渡す。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
+
+# v1.10 の追加：型引数
+
+```ebnf
+function_def ::= "fn" IDENT [ type_params ] "(" [ params ] ")" "->" type "=" expr
+top_decl     ::= ... | "type" IDENT [ type_params ] "=" ( record | variant ("|" variant)* )
+type_params  ::= "<" UIDENT { "," UIDENT } ">"
+type         ::= ... | IDENT "<" type { "," type } ">"
+expr         ::= ... | IDENT "<" type { "," type } ">" "(" [ arguments ] ")"
+```
+
+- UIDENT は大文字で始まる IDENT（そうでなければ `E-PARSE-EXPECTED-IDENT`）。型の位置の型引数の名前は、名前解決で
+  型引数として読む（宣言されていなければ `E-TYPE-GENERIC-UNKNOWN-PARAM`）。
+- 呼び出し・構築子の型引数の後には `(` が要る（`Leaf<Int>()`。無ければ `E-PARSE-EXPECTED-TOKEN`、修復ヒント `()`）。
+- 検証済み部品の構文にはなく、単相化した後のプログラムを渡す。詳細は [v1.10 差分仕様](../../spec/lptl-v1.10/LPTL_v1.10_delta.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

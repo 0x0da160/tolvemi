@@ -38,6 +38,18 @@ except tlvm.CompileError as e:
         print(d["code"], d["span"])
 ```
 
+`import "path.tlvm"`（v1.11）を含むプログラムは、名前と source の dict を渡す `tlvm.compile_files` で検査します
+（ファイルシステムには触れません。`tlvm.compile` は `E-IMPORT-UNSUPPORTED` で拒否します）。import のパスは
+import を書いたファイルのディレクトリから解決し、診断の dict には誤りのあるファイルの名前が `"file"` として付きます。
+
+```python
+p = tlvm.compile_files("main.tlvm", {
+    "main.tlvm": 'import "lib/sq.tlvm"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n',
+    "lib/sq.tlvm": "fn sq(x: Int) -> Int = mul(x, x)\n",
+})
+p.run(7)              # 49
+```
+
 値は plain JSON（`tlvm run --plain` と同じ対応）を経由して受け渡します。`run` は Python の値を `json.dumps` で
 文字列にし、結果を `json.loads` で戻します。
 

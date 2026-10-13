@@ -106,4 +106,41 @@ found に e の型）。init が ErrorType なら本体の型の診断は出さ�
 `rec` の印のある関数へ入る辺を除いたグラフが DAG であればよい（[呼出しグラフと DAG](call-graph.md)）。
 検証済みの型付け条件は「`rank[g] < r` または `rec[g]`」。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
+# v1.9 の追加：辞書
+
+```text
+dict<K, V>()        : Dict<K, V>
+dict_get(d, k)      : Option<V>          iff d : Dict<K, V>, k : K
+dict_put(d, k, v)   : Dict<K, V>         iff d : Dict<K, V>, k : K, v : V
+dict_remove(d, k)   : Dict<K, V>         iff d : Dict<K, V>, k : K
+dict_has(d, k)      : Bool               iff d : Dict<K, V>, k : K
+dict_size(d)        : Int                iff d : Dict<K, V>
+dict_keys(d)        : List<K>            iff d : Dict<K, V>      （dict_values は List<V>）
+dict_entries(d)     : List<Pair<K, V>>   iff d : Dict<K, V>
+dict_from(xs)       : Dict<K, V>         iff xs : List<Pair<K, V>>
+```
+
+`Dict<K, V>` と `List<Pair<K, V>>` は別の型（等価性は tag で決まる）。第 1 引数が辞書でなければ `E-TYPE-DICT-ARG`、
+`dict_from` の引数が pair のリストでなければ `E-TYPE-DICT-FROM`、鍵・値の型が違えば `E-TYPE-ARG`。辞書を `fold`・`map`
+などに渡すと既存の `E-TYPE-FOLD-LIST`・`E-TYPE-HOF-LIST`（修復ヒントで `dict_entries` などを示す）。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
+# v1.10 の追加：型引数
+
+総称の関数の本体は一度だけ、型引数を不透明な型として検査する（`T` の値に使えるのは `eq`、組み・リスト・Option・辞書・
+レコード・直和型への出し入れ、`fold`・`map` などと `loop`、関数への受け渡し。`add`・`lt`・`sort`・`to_string` などは
+`E-TYPE-ARG`、修復ヒントで呼び出し側で行うよう示す）。呼び出し `f(e1, ..., en)` の型引数は、明示（`f<Int>(...)`）がなければ
+引数の型との一階の照合で左から決める。
+
+```text
+f<T1..Tm>(x1: S1, ..., xn: Sn) -> R
+f(e1, ..., en) : R[T := U]   iff ei : Si[T := U]（U は照合で一意に決まる）
+```
+
+同じ型引数に違う型が当たれば `E-TYPE-GENERIC-MISMATCH`、束縛されない型引数が残れば `E-TYPE-GENERIC-INFER`、明示した
+型引数の数が違えば `E-TYPE-GENERIC-ARITY`。呼び出しの外の文脈からは推論しない。中身のない構築子は `Leaf<Int>()` と書く。
+型検査の後、使われた（関数、型引数の組）ごとに複製して単相化し（`crates/tlvm/src/generics.rs`）、単相のプログラムを
+もう一度検査してから検証済み部品に渡す。呼ぶたびに型引数が大きくなる再帰（多相再帰）は `E-TYPE-GENERIC-INFINITE`、
+複製の数・型引数の大きさの上限は `E-LIMIT-STATIC-GENERIC-INSTANCES`。entry の関数は総称にできない（`E-ENTRY-GENERIC`）。
+詳細は [v1.10 差分仕様](../../spec/lptl-v1.10/LPTL_v1.10_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

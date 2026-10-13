@@ -27,6 +27,7 @@ lexical-limits は lex と、structural-limits の guard は parse と、semanti
 | lex | ASCII、トークン形式 | 最初の字句 error で停止。parse しない |
 | lexical-limits | token 数と整数桁数 | 上限を超える token 確定時に cutoff。parse しない |
 | parse | EBNF、宣言終端 | parse error のみなら bounded recovery。name 以後なし |
+| import（v1.11） | import のパス・欠落・循環、読んだファイルの構文、ファイル間の名前の衝突、ファイル数と bytes の合計 | ファイルからの検査だけ。error があればまとめたプログラムを検査しない |
 | structural-limits | 関数数、AST node 数、型・式・let・fold 深さ | guard 超過時点で parse／recovery を打切り、以後停止 |
 | name | 全宣言・全式の名前と entry 参照 | error があれば call-graph 以後停止 |
 | call-graph | 全関数の DAG | cycle error があっても typecheck と entry を実行 |

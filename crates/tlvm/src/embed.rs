@@ -12,7 +12,8 @@
 //! assert_eq!(p.run_json("[1, 2, 3]").unwrap(), "6");
 //! ```
 
-use crate::api::{compile, decode_plain_input, run, CompileResult, SourceCompile};
+use crate::api::{compile, compile_files, decode_plain_input, run, CompileResult, SourceCompile};
+use std::collections::BTreeMap;
 use crate::checker::TypedProgram;
 use crate::evaluator::RunResult;
 use crate::plain::encode_plain_with;
@@ -82,7 +83,28 @@ impl Program {
     }
 
     pub fn compile_with(source: &str, profile: &StaticProfile) -> Result<Program, Vec<Diagnostic>> {
-        match compile(source.as_bytes(), profile) {
+        Self::accept(compile(source.as_bytes(), profile))
+    }
+
+    /// v1.11：名前と source の対応表 `files` から、`root` を根に `import` ごと検査する（ファイルシステムには触れない）。
+    /// key は `/` 区切りのパス（`lib/util.tlvm` など。`.`・`..` を含まない）で、import のパスは import を書いたファイルの
+    /// ディレクトリから解決する。import のあるプログラムの診断には、そのファイルの key が `file` として付く。
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// let files = BTreeMap::from([
+    ///     ("main.tlvm".to_string(), "import \"lib/sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n".to_string()),
+    ///     ("lib/sq.tlvm".to_string(), "fn sq(x: Int) -> Int = mul(x, x)\n".to_string()),
+    /// ]);
+    /// let p = tlvm::embed::Program::compile_files("main.tlvm", &files).unwrap();
+    /// assert_eq!(p.run_json("7").unwrap(), "49");
+    /// ```
+    pub fn compile_files(root: &str, files: &BTreeMap<String, String>) -> Result<Program, Vec<Diagnostic>> {
+        Self::accept(compile_files(root, files, &StaticProfile::default()))
+    }
+
+    fn accept(r: SourceCompile) -> Result<Program, Vec<Diagnostic>> {
+        match r {
             SourceCompile::Result(CompileResult::Accepted { program, warnings, .. }) => {
                 Ok(Program { typed: program, warnings })
             }

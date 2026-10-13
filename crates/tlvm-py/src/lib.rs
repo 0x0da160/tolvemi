@@ -128,11 +128,23 @@ fn compile(py: Python<'_>, source: &str) -> PyResult<Program> {
     }
 }
 
+/// v1.11：名前と source の dict（`{"main.tlvm": "...", "lib/util.tlvm": "..."}`）から、root を根に import ごと検査する。
+/// ファイルシステムには触れない。import のパスは import を書いたファイルのディレクトリから解決する。拒否なら CompileError
+/// （import のあるプログラムの診断の dict には "file" が付く）。
+#[pyfunction]
+fn compile_files(py: Python<'_>, root: &str, files: std::collections::BTreeMap<String, String>) -> PyResult<Program> {
+    match EmbedProgram::compile_files(root, &files) {
+        Ok(inner) => Ok(Program { inner }),
+        Err(ds) => Err(with_diagnostics(py, CompileError::new_err(summary(&ds)), &ds)?),
+    }
+}
+
 #[pymodule(name = "tlvm")]
 fn tlvm_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = m.py();
     m.add_class::<Program>()?;
     m.add_function(wrap_pyfunction!(compile, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_files, m)?)?;
     m.add("TlvmError", py.get_type::<TlvmError>())?;
     m.add("CompileError", py.get_type::<CompileError>())?;
     m.add("InputError", py.get_type::<InputError>())?;

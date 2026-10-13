@@ -15,13 +15,14 @@ use std::sync::Arc;
 /// レコードの構文（型宣言、型名、構築、field の参照）を一つでも含むか。
 pub fn has_records(p: &Program) -> bool {
     fn ty(t: &TypeNode) -> bool {
-        t.name.is_some() || t.args.iter().any(ty)
+        t.is_named() || t.args.iter().any(ty)
     }
     fn ex(e: &Expr) -> bool {
         match &e.kind {
             ExprKind::Record { .. } | ExprKind::Field { .. } => true,
+            ExprKind::Call { type_args, .. } if type_args.iter().any(ty) => true,
             ExprKind::List { element_type, .. } if ty(element_type) => true,
-            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } if ty(t) => true,
+            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } | ExprKind::DictNew(t) if ty(t) => true,
             _ => e.children().into_iter().any(ex),
         }
     }
@@ -34,8 +35,10 @@ pub fn has_records(p: &Program) -> bool {
 
 struct Rec {
     info: Arc<RecordInfo>,
-    /// 展開後の型（レコード名付き）
+    /// 展開後の型（レコード名付き）。v1.10：総称のレコード型なら型引数（`TyTag::Param`）を含む
     ty: TypeNode,
+    /// v1.10：型引数の名前（宣言順）
+    params: Vec<String>,
 }
 
 struct Env {
@@ -46,6 +49,11 @@ struct Env {
     /// 書き換えで導入する変数名の候補を避けるための、プログラム中の全識別子
     idents: HashSet<String>,
     fresh: usize,
+}
+
+/// レコード型・直和型の名前（展開前）を含むか。
+fn has_named(t: &TypeNode) -> bool {
+    t.is_named() || t.args.iter().any(has_named)
 }
 
 /// 展開後のレコード型：field の型を右に入れ子にした pair（n = 1 ならその型）にレコード名を付ける。
@@ -66,15 +74,34 @@ impl Env {
 
     /// 型の中のレコード名を展開する。
     fn ty(&mut self, t: &TypeNode) -> TypeNode {
+        if t.tag == TyTag::Param {
+            return t.clone();
+        }
         if let Some(n) = &t.name {
             return match self.types.get(n) {
                 Some(r) => {
-                    let mut x = r.ty.clone();
+                    // v1.10：総称のレコード型は型引数を置き換える（`Box<Int>`）
+                    let (params, template) = (r.params.clone(), r.ty.clone());
+                    let args: Vec<TypeNode> = t.args.iter().map(|a| self.ty(a)).collect();
+                    if args.len() != params.len() {
+                        crate::generics::arity_error(&mut self.diags, n, &params, args.len(), t.meta);
+                        return TypeNode::new(TyTag::Unit, vec![], t.meta);
+                    }
+                    let mut x = if params.is_empty() {
+                        template
+                    } else {
+                        template.subst(&|p| params.iter().position(|q| q == p).map(|i| args[i].clone()))
+                    };
                     x.meta = t.meta;
                     // v1.4：中身が一つのレコードだけの直和型（`type W = W(P)`）は直和型の名前を保つ
                     // （レコード名は plain JSON 用に直和型の情報の側へ移す）
                     if let Some(Named::Sum(s)) = &t.label.0 {
-                        let info = SumInfo { name: s.name.clone(), variants: s.variants.clone(), inner: x.label.clone() };
+                        let info = SumInfo {
+                            name: s.name.clone(),
+                            variants: s.variants.clone(),
+                            inner: x.label.clone(),
+                            generic: s.generic.as_ref().map(|g| self.generic(g)),
+                        };
                         x.label = Label(Some(Named::Sum(Arc::new(info))));
                     } else if t.label.0.is_some() {
                         x.label = t.label.clone();
@@ -88,13 +115,27 @@ impl Env {
                     } else {
                         format!("record type declared above, e.g. {}", near.join(", "))
                     };
+                    let fix = crate::generics::param_note(n, fix);
                     let d = self.err("E-RECORD-UNKNOWN-TYPE", t.meta.span(), t.meta.index);
                     *d = d.clone().act(n).fix("replace_type", t.meta.span(), fix);
                     TypeNode::new(TyTag::Unit, vec![], t.meta)
                 }
             };
         }
-        TypeNode { args: t.args.iter().map(|a| self.ty(a)).collect(), ..t.clone() }
+        let mut out = TypeNode { args: t.args.iter().map(|a| self.ty(a)).collect(), ..t.clone() };
+        // v1.10：総称の直和型の名前が持つ展開後の型（表示で型引数を復元する）の中のレコード型の名前も展開する
+        if let Some(Named::Sum(s)) = &t.label.0 {
+            if let Some(g) = s.generic.as_ref().filter(|g| has_named(&g.template)) {
+                let generic = Some(self.generic(g));
+                let info = SumInfo { name: s.name.clone(), variants: s.variants.clone(), inner: s.inner.clone(), generic };
+                out.label = Label(Some(Named::Sum(Arc::new(info))));
+            }
+        }
+        out
+    }
+
+    fn generic(&mut self, g: &Generic) -> Generic {
+        Generic { params: g.params.clone(), template: self.ty(&g.template) }
     }
 
     fn fresh_name(&mut self) -> String {
@@ -129,13 +170,15 @@ impl Env {
                 ExprKind::List { element_type: self.ty(element_type), items: items.iter().map(|x| self.expr(x)).collect() }
             }
             ExprKind::None(t) => ExprKind::None(self.ty(t)),
+            ExprKind::DictNew(t) => ExprKind::DictNew(self.ty(t)),
             ExprKind::Some(v) => ExprKind::Some(Box::new(self.expr(v))),
             ExprKind::Pair(a, b) => ExprKind::Pair(Box::new(self.expr(a)), Box::new(self.expr(b))),
-            ExprKind::Call { callee, args, builtin, callee_span } => ExprKind::Call {
+            ExprKind::Call { callee, args, builtin, callee_span, type_args } => ExprKind::Call {
                 callee: callee.clone(),
                 args: args.iter().map(|x| self.expr(x)).collect(),
                 builtin: *builtin,
                 callee_span: *callee_span,
+                type_args: type_args.iter().map(|t| self.ty(t)).collect(),
             },
             ExprKind::Let { name, name_span, value, body } => ExprKind::Let {
                 name: name.clone(),
@@ -379,9 +422,12 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         for n in &names {
             env.owner.entry(n.clone()).or_insert_with(|| t.name.clone());
         }
-        let info = Arc::new(RecordInfo { name: t.name.clone(), fields: names });
+        let params: Vec<String> = t.type_params.iter().map(|p| p.name.clone()).collect();
+        let generic = (!params.is_empty())
+            .then(|| Generic { params: params.clone(), template: record_type(&tys, Label::default(), t.meta) });
+        let info = Arc::new(RecordInfo { name: t.name.clone(), fields: names, generic });
         let ty = record_type(&tys, Label(Some(Named::Record(info.clone()))), t.meta);
-        env.types.insert(t.name.clone(), Rec { info, ty });
+        env.types.insert(t.name.clone(), Rec { info, ty, params });
     }
     let mut decls = vec![];
     for d in &p.declarations {
@@ -398,7 +444,7 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         }
     }
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta })
+        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
     } else {
         Err(env.diags)
     }
@@ -410,7 +456,7 @@ pub fn lower(p: &Program) -> Program {
         let m = e.meta;
         if let ExprKind::Field { expr, field_span, target: Some((_, i, n)), .. } = &e.kind {
             let call = |name: &str, arg: Expr| Expr {
-                kind: ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: *field_span },
+                kind: ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: *field_span, type_args: vec![] },
                 meta: m,
             };
             let mut x = ex(expr);
@@ -481,5 +527,5 @@ pub fn lower(p: &Program) -> Program {
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta }
+    Program { declarations, meta: p.meta, imports: p.imports.clone() }
 }

@@ -18,6 +18,7 @@
 //! | `Pair<A, B>` | 二要素の配列 `[a, b]` |
 //! | `Option<T>` | `none` は `null`。`some(v)` は v の plain JSON。ただし T が `Unit` か `Option` なら `null` と区別できないので `{"some": v}` |
 //! | `Result<T, E>`（v1.4） | `{"ok": v}`、`{"err": e}` |
+//! | `Dict<K, V>`（v1.9） | `[key, value]` の配列の配列（挿入順。`[["a", 1], ["b", 2]]`）。入力で鍵が重なれば拒否 |
 //! | レコード型（v1.1） | field 名を key にした object |
 //! | 直和型（v1.4） | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
 
@@ -26,7 +27,7 @@ use crate::formatter::json_string;
 use crate::profiles::InputProfile;
 use crate::strict_json::{parse, smallest_key, JKind, JNode, JsonFailKind};
 use crate::syntax::{Ty, TyTag};
-use crate::values::is_canonical_int;
+use crate::values::{is_canonical_int, DICT_DUPLICATE_KEY};
 
 pub enum PlainDecode {
     /// 変換した値 JSON
@@ -94,7 +95,8 @@ pub fn plain_shape(t: &Ty) -> String {
         TyTag::Option if nullable(&t.arg(0)) => "null | {\"some\": ...}".into(),
         TyTag::Option => format!("null | {}", plain_shape(&t.arg(0))),
         TyTag::Result => "{\"ok\": ...} | {\"err\": ...}".into(),
-        TyTag::Error => "".into(),
+        TyTag::Dict => "array of [key, value] arrays".into(),
+        TyTag::Error | TyTag::Param => "".into(),
     }
 }
 
@@ -341,6 +343,37 @@ impl Conv<'_> {
                 }
                 self.out.push_str("]}");
             }
+            TyTag::Dict => {
+                // v1.9：`[[k, v], ...]`。値 JSON では pair のリスト。鍵は相異なる（正準の値 JSON で比べる）
+                if n.kind != JKind::Array {
+                    return Err(self.shape_err(n, t));
+                }
+                self.admit(n, depth)?;
+                let mut keys = std::collections::HashSet::new();
+                self.out.push_str("{\"tag\":\"list\",\"items\":[");
+                for (i, c) in n.items.iter().enumerate() {
+                    if i > 0 {
+                        self.out.push(',');
+                    }
+                    if c.kind != JKind::Array || c.items.len() != 2 {
+                        let act = if c.kind == JKind::Array { format!("array of {} elements", c.items.len()) } else { c.kind.name().to_string() };
+                        return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", c.span()).exp("[key, value]").act(act));
+                    }
+                    self.admit(c, depth + 1)?;
+                    self.out.push_str("{\"tag\":\"pair\",\"left\":");
+                    let at = self.out.len();
+                    self.value(&c.items[0], &t.arg(0), depth + 2)?;
+                    let key = self.out[at..].to_string();
+                    if !keys.insert(key) {
+                        let d = Diagnostic::error("input-decode", DICT_DUPLICATE_KEY, c.items[0].span());
+                        return Err(if c.items[0].text.is_empty() { d } else { d.act(c.items[0].text.clone()) });
+                    }
+                    self.out.push_str(",\"right\":");
+                    self.value(&c.items[1], &t.arg(1), depth + 2)?;
+                    self.out.push('}');
+                }
+                self.out.push_str("]}");
+            }
             TyTag::Pair => {
                 if n.kind != JKind::Array {
                     return Err(self.shape_err(n, t));
@@ -402,7 +435,7 @@ impl Conv<'_> {
                 self.value(n.get(key).unwrap(), &inner, depth + 1)?;
                 self.out.push('}');
             }
-            TyTag::Error => return Err(self.shape_err(n, t)),
+            TyTag::Error | TyTag::Param => return Err(self.shape_err(n, t)),
         }
         Ok(())
     }
@@ -522,6 +555,18 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
                     out.push(',');
                 }
                 write_plain(c, &t.arg(0), out, exact)?;
+            }
+            out.push(']');
+        }
+        // v1.9：辞書は `[[k, v], ...]`（挿入順）
+        (TyTag::Dict, "list") => {
+            let entry = Ty::pair(t.arg(0), t.arg(1));
+            out.push('[');
+            for (i, c) in field("items")?.items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_plain(c, &entry, out, exact)?;
             }
             out.push(']');
         }

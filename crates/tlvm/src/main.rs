@@ -4,7 +4,10 @@
 //!                             `rec fn` がなければ true（停止を保証）、あれば false（v1.7）
 //!   tlvm run FILE INPUT       検査・入力 decode・実行（INPUT は JSON 文字列、@path、- は stdin）
 //!   tlvm fmt FILE             正準ソースを出力
-//!   tlvm ast FILE             ast_codec_v1 JSON を出力
+//!   tlvm ast FILE             ast_codec_v1 JSON を出力（v1.11：import があればまとめたプログラム）
+//!
+//! v1.11：source のファイルの先頭の `import "path.tlvm"` は、check・run・test・exec・ast がたどって一つのプログラムに
+//! まとめる（`tlvm::imports`）。fmt は与えたファイルだけを整形する（import の行は残す）。
 //!   tlvm test FILE [CASES]    入力と期待出力の組を実行して照合（CASES の既定は FILE.tests.json）
 //!   tlvm exec FILE [ARGS...]  コマンドとして実行（v1.3）。entry の入力型で渡すものが決まる：
 //!                             String は標準入力の全文、List<String> はコマンドライン引数、
@@ -13,6 +16,10 @@
 //!                             err(s) は s を標準エラーへ（終了コード 1）
 //!
 //! 診断は一行一 JSON object で stderr へ、結果は stdout へ出す。
+//!
+//! v1.12：対話的な道具（検証されていない front-end。判定と実行は上と同じ経路）
+//!   tlvm repl [FILE]          REPL（宣言を加え、式を評価して `値 : 型` を出す。FILE の宣言を最初に読む）
+//!   tlvm lsp                  Language Server（標準入出力の JSON-RPC。診断と整形）
 //!
 //!   --plain   run の入出力を普通の JSON で読み書きする（対応は plain モジュール）
 //!   --human   診断を `file:行:列: error[CODE]: …` の形で、該当行と修復ヒントを添えて出す
@@ -34,7 +41,7 @@ static HUMAN: AtomicBool = AtomicBool::new(false);
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]\n       tlvm exec FILE [ARGS...]"
+        "usage: tlvm check|fmt|ast FILE [--ast] [--human]\n       tlvm run FILE INPUT [--ast] [--stats] [--plain] [--human]\n       tlvm test FILE [CASES] [--ast] [--canonical] [--human]\n       tlvm exec FILE [ARGS...]\n       tlvm repl [FILE]\n       tlvm lsp"
     );
     ExitCode::from(64)
 }
@@ -57,6 +64,17 @@ fn emit_in(ds: &[Diagnostic], label: &str, src: &[u8]) {
         } else {
             eprintln!("{}", d.to_json());
         }
+    }
+}
+
+/// v1.11：import で複数のファイルからなるプログラムの診断を出す。`file` の付いた診断はそのファイルの source で表示する。
+fn emit_files(ds: &[Diagnostic], files: &[(String, Vec<u8>)]) {
+    for d in ds {
+        let (label, src) = match d.file.as_deref().and_then(|f| files.iter().find(|(n, _)| n == f)) {
+            Some((n, b)) => (n.as_str(), b.as_slice()),
+            None => files.first().map_or(("<program>", &[][..]), |(n, b)| (n.as_str(), b.as_slice())),
+        };
+        emit_in(std::slice::from_ref(d), label, src);
     }
 }
 
@@ -89,7 +107,7 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
             }
             AstCompile::Result(r) => compiled(r, path, &data),
         }
-    } else {
+    } else if path == "-" {
         match compile(&data, &sp) {
             SourceCompile::SourceBoundaryFailure => {
                 envelope("SourceBoundaryFailure", "InvalidSourceEncoding");
@@ -97,7 +115,61 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
             }
             SourceCompile::Result(r) => compiled(r, path, &data),
         }
+    } else {
+        // v1.11：import をたどって一つのプログラムにまとめて検査する（import がなければ今までどおり）
+        match compile_path(path, &sp)? {
+            (SourceCompile::SourceBoundaryFailure, _) => {
+                envelope("SourceBoundaryFailure", "InvalidSourceEncoding");
+                None
+            }
+            (SourceCompile::Result(r), files) => {
+                emit_files(r.errors(), &files);
+                emit_files(r.warnings(), &files);
+                match r {
+                    CompileResult::Accepted { program, .. } => Some(program),
+                    _ => None,
+                }
+            }
+        }
     })
+}
+
+/// v1.11：`tlvm ast` 用。import があればまとめたプログラムを、なければ `parse_file` の結果を返す。
+fn parse_merged_file(path: &str, as_ast: bool) -> Result<Option<Program>, String> {
+    use tlvm::imports::{parse_merged, resolve, FsLoader, Resolved};
+    if as_ast || path.ends_with(".json") || path == "-" {
+        return parse_file(path, as_ast);
+    }
+    let data = read(path)?;
+    let sp = StaticProfile::default();
+    let rel = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    match resolve(path, &rel, &data, &mut FsLoader::new(path), &sp) {
+        Resolved::Single => parse_file(path, as_ast),
+        Resolved::Merged(m) => match parse_merged(&m, &sp) {
+            Ok(p) => {
+                // 展開の誤りもファイルに戻して出す
+                if needs_expansion(&p) {
+                    if let Err(d) = expand(&p) {
+                        emit_files(&m.attribute(d), &m.files);
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(p))
+            }
+            Err(d) => {
+                emit_files(&d, &m.files);
+                Ok(None)
+            }
+        },
+        Resolved::Rejected { errors, files } => {
+            emit_files(&errors, &files);
+            Ok(None)
+        }
+        Resolved::SourceBoundaryFailure { .. } => {
+            envelope("SourceBoundaryFailure", "InvalidSourceEncoding");
+            Ok(None)
+        }
+    }
 }
 
 fn parse_file(path: &str, as_ast: bool) -> Result<Option<Program>, String> {
@@ -365,6 +437,29 @@ fn real_main() -> Result<ExitCode, String> {
             None => Ok(usage()),
         };
     }
+    // v1.12：repl と lsp
+    match args.first().map(String::as_str) {
+        Some("repl") => {
+            use std::io::IsTerminal;
+            let file = match &args[1..] {
+                [] => None,
+                [f] if !f.starts_with("--") => Some(f.as_str()),
+                _ => return Ok(usage()),
+            };
+            let prompt = std::io::stdin().is_terminal();
+            let code = tlvm::repl::repl(file, &mut std::io::stdin().lock(), &mut std::io::stdout().lock(), prompt).map_err(|e| e.to_string())?;
+            return Ok(ExitCode::from(code as u8));
+        }
+        Some("lsp") => {
+            // editor が付ける --stdio は受け付けて無視する（通信は常に標準入出力）
+            if args[1..].iter().any(|a| a != "--stdio") {
+                return Ok(usage());
+            }
+            let code = tlvm::lsp::serve(&mut std::io::stdin().lock(), &mut std::io::stdout().lock()).map_err(|e| e.to_string())?;
+            return Ok(ExitCode::from(code as u8));
+        }
+        _ => {}
+    }
     let flags: Vec<&str> = args.iter().filter(|a| a.starts_with("--")).map(|s| s.as_str()).collect();
     let pos: Vec<&str> = args.iter().filter(|a| !a.starts_with("--")).map(|s| s.as_str()).collect();
     let known = ["--ast", "--stats", "--plain", "--human", "--canonical"];
@@ -398,7 +493,8 @@ fn real_main() -> Result<ExitCode, String> {
         ["fmt", file] => match parse_file(file, as_ast)? {
             // v1.1：レコード（v1.4：直和型と match、v1.5：map など、v1.6：loop）を含むプログラムは検証済み formatter の対象外。
             // 診断用 formatter で整形する
-            Some(p) if needs_glue(&p) => {
+            // v1.11：import の行を含むファイルも（検証済み formatter は import を知らない）。整形するのは与えたファイルだけ
+            Some(p) if needs_glue(&p) || !p.imports.is_empty() => {
                 print!("{}", format_program(&p));
                 Ok(ExitCode::SUCCESS)
             }
@@ -426,7 +522,8 @@ fn real_main() -> Result<ExitCode, String> {
             }
             None => Ok(ExitCode::from(1)),
         },
-        ["ast", file] => match parse_file(file, as_ast)? {
+        // v1.11：import があれば、まとめたプログラムを出す
+        ["ast", file] => match parse_merged_file(file, as_ast)? {
             // v1.1：AST transport にレコード（v1.4：直和型と match）の形と文脈キーワードの変数名はないので、
             // 展開・付け替えしたものを出す（v1.5 の map など・v1.6 の loop は AST transport の tag があるのでそのまま出す）
             Some(p) if needs_expansion(&p) => match expand(&p) {

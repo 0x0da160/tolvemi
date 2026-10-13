@@ -7,12 +7,13 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 58] = [
+pub const KEYWORDS: [&str; 68] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
     "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
-    "sort_by", "loop", "div",
+    "sort_by", "loop", "div", "dict", "dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys",
+    "dict_values", "dict_entries", "dict_from",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -23,6 +24,10 @@ pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
         "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "div" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
         "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char" | "to_string" | "parse_int" => 1,
+        // v1.9：辞書の操作（`dict::lower_op` が fold などに書き換える）
+        "dict_put" => 3,
+        "dict_get" | "dict_remove" | "dict_has" => 2,
+        "dict_size" | "dict_keys" | "dict_values" | "dict_entries" | "dict_from" => 1,
         _ => return None,
     })
 }
@@ -80,6 +85,11 @@ pub enum TyTag {
     Pair,
     /// v1.4：`Result<T, E>`
     Result,
+    /// v1.9：`Dict<K, V>`（型検査の後で `List<Pair<K, V>>` に書き換える。`dict` モジュール）
+    Dict,
+    /// v1.10：型引数 `T`（総称の関数・型の宣言の中だけ。単相化の後には残らない。`generics` モジュール）。
+    /// 名前は `TypeNode::name`（意味論上の型では `Ty::param_name`）
+    Param,
     Error,
 }
 
@@ -94,6 +104,8 @@ impl TyTag {
             TyTag::Option => "Option",
             TyTag::Pair => "Pair",
             TyTag::Result => "Result",
+            TyTag::Dict => "Dict",
+            TyTag::Param => "Param",
             TyTag::Error => "Error",
         }
     }
@@ -113,7 +125,7 @@ impl TyTag {
     pub fn arity(self) -> usize {
         match self {
             TyTag::List | TyTag::Option => 1,
-            TyTag::Pair | TyTag::Result => 2,
+            TyTag::Pair | TyTag::Result | TyTag::Dict => 2,
             _ => 0,
         }
     }
@@ -154,6 +166,21 @@ pub const REC: &str = "rec";
 /// v1.6：上限つき反復 `loop(init, max, |s| e)` の名前。
 pub const LOOP: &str = "loop";
 
+/// v1.9：辞書の型の名前（予約語ではない。型の位置で直後が `<` のときだけ `Dict<K, V>`）。
+pub const DICT_TYPE: &str = "Dict";
+
+/// v1.9：空の辞書 `dict<K, V>()` の名前。
+pub const DICT_NEW: &str = "dict";
+
+/// v1.9：辞書の操作（組み込み関数の形。`dict::lower_op` が fold などに書き換える）。
+pub const DICT_OPS: [&str; 9] =
+    ["dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys", "dict_values", "dict_entries", "dict_from"];
+
+/// v1.9：辞書の名前（`dict` と操作）か。
+pub fn is_dict_word(s: &str) -> bool {
+    s == DICT_NEW || DICT_OPS.contains(&s)
+}
+
 /// ラムダを取る特殊形式の名前（v1.5 の 6 語と v1.6 の `loop`）。直後が `(` のときだけ特殊形式。
 pub fn is_lambda_form(s: &str) -> bool {
     HofOp::from_name(s).is_some() || s == LOOP
@@ -180,13 +207,61 @@ impl TypeNode {
     pub fn is_string(&self) -> bool {
         self.tag == TyTag::List && self.args[0].tag == TyTag::Char && self.args[0].name.is_none()
     }
+    /// v1.10：型引数 `name` の node。
+    pub fn param(name: &str, meta: Meta) -> TypeNode {
+        TypeNode { name: Some(name.to_string()), ..TypeNode::new(TyTag::Param, vec![], meta) }
+    }
+    /// v1.10：レコード型・直和型の名前（展開前。型引数 `T` は含まない）か。
+    pub fn is_named(&self) -> bool {
+        self.name.is_some() && self.tag != TyTag::Param
+    }
+    /// v1.10：型引数を含むか。
+    pub fn has_params(&self) -> bool {
+        self.tag == TyTag::Param || self.args.iter().any(TypeNode::has_params)
+    }
+    /// v1.10：型引数を置き換える（`f` が None を返す型引数は残す）。置き換えた node に名前（レコード型・直和型の
+    /// label）が付いていれば、置き換え後の node に移す（一つの field のレコード `type Box<T> = { v: T }` の展開は
+    /// 型引数そのものに名前が付く）。
+    pub fn subst(&self, f: &dyn Fn(&str) -> Option<TypeNode>) -> TypeNode {
+        if self.tag == TyTag::Param {
+            return match self.name.as_deref().and_then(f) {
+                Some(mut r) => {
+                    if self.label.0.is_some() {
+                        r.label = self.label.clone();
+                    }
+                    r
+                }
+                None => self.clone(),
+            };
+        }
+        if !self.has_params() {
+            return self.clone();
+        }
+        TypeNode { args: self.args.iter().map(|a| a.subst(f)).collect(), ..self.clone() }
+    }
+}
+
+/// v1.10：宣言の型引数 `<T, U>` の一つ（名前は大文字で始まる）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeParam {
+    pub name: String,
+    pub span: Sp,
 }
 
 /// レコード型の名前と field 名（宣言順）。
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RecordInfo {
     pub name: String,
     pub fields: Vec<String>,
+    /// v1.10：型引数（総称のレコード型のとき）と、型引数を含む展開後の型（表示で `Box<Int>` の型引数を復元する）
+    pub generic: Option<Generic>,
+}
+
+/// v1.10：総称のレコード型・直和型の型引数の名前と、型引数を含む展開後の型（型引数はすべてこの型に現れる）。
+#[derive(Debug, Clone)]
+pub struct Generic {
+    pub params: Vec<String>,
+    pub template: TypeNode,
 }
 
 /// v1.4：ユーザー定義の直和型の名前と variant（宣言順。名前と中身の数）。
@@ -196,6 +271,8 @@ pub struct SumInfo {
     pub variants: Vec<(String, usize)>,
     /// variant が一つで中身が一つのとき、その中身の型に付いていた名前（型全体の名前で上書きされるので別に持つ）
     pub inner: Label,
+    /// v1.10：総称の直和型の型引数と展開後の型
+    pub generic: Option<Generic>,
 }
 
 /// 型に付く名前（レコード型か直和型）。
@@ -210,6 +287,13 @@ impl Named {
         match self {
             Named::Record(r) => &r.name,
             Named::Sum(s) => &s.name,
+        }
+    }
+    /// v1.10：総称の型なら型引数と展開後の型。
+    pub fn generic(&self) -> Option<&Generic> {
+        match self {
+            Named::Record(r) => r.generic.as_ref(),
+            Named::Sum(s) => s.generic.as_ref(),
         }
     }
 }
@@ -238,7 +322,8 @@ pub enum ExprKind {
     Some(Box<Expr>),
     None(TypeNode),
     Pair(Box<Expr>, Box<Expr>),
-    Call { callee: String, args: Vec<Expr>, builtin: bool, callee_span: Sp },
+    /// v1.10：`type_args` は明示した型引数 `f<Int>(x)`（書かなければ空。総称の関数なら型検査で推論する）
+    Call { callee: String, args: Vec<Expr>, builtin: bool, callee_span: Sp, type_args: Vec<TypeNode> },
     Let { name: String, name_span: Sp, value: Box<Expr>, body: Box<Expr> },
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Fold { list: Box<Expr>, init: Box<Expr>, acc: String, acc_span: Sp, item: String, item_span: Sp, body: Box<Expr> },
@@ -266,6 +351,8 @@ pub enum ExprKind {
     Hof { op: HofOp, list: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
     /// v1.6：`loop(init, max, |binder| body)`（`binder` は body の中でだけ見える）
     Loop { init: Box<Expr>, max: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
+    /// v1.9：空の辞書 `dict<K, V>()`（型は `Dict<K, V>` の型 node）
+    DictNew(TypeNode),
 }
 
 /// v1.4：`match` の一つの枝。
@@ -397,6 +484,10 @@ pub struct FnDecl {
     pub rec: bool,
     /// v1.7：印 `rec` の span（source から読んだときだけ。比較対象外）
     pub rec_span: Sp,
+    /// v1.10：型引数 `fn f<T, U>(...)`（なければ空）
+    pub type_params: Vec<TypeParam>,
+    /// v1.10：総称の直和型の構築子のために展開で作った関数なら、その構築子の名前（診断の表示用。未使用の警告を出さない）
+    pub ctor: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -420,6 +511,8 @@ pub enum Decl {
 pub struct SumDecl {
     pub name: String,
     pub name_span: Sp,
+    /// v1.10：型引数 `type Tree<T> = ...`
+    pub type_params: Vec<TypeParam>,
     pub variants: Vec<VariantDecl>,
     pub meta: Meta,
 }
@@ -435,6 +528,8 @@ pub struct VariantDecl {
 pub struct TypeDecl {
     pub name: String,
     pub name_span: Sp,
+    /// v1.10：型引数 `type Box<T> = { ... }`
+    pub type_params: Vec<TypeParam>,
     pub fields: Vec<FieldDecl>,
     pub meta: Meta,
 }
@@ -450,6 +545,17 @@ pub struct FieldDecl {
 pub struct Program {
     pub declarations: Vec<Decl>,
     pub meta: Meta,
+    /// v1.11：先頭の `import "path.tlvm"`（宣言より前）。ファイルからの検査（`api::compile_files`）が解決して
+    /// 一つのプログラムにまとめる。source の文字列だけを受け取る API では E-IMPORT-UNSUPPORTED
+    pub imports: Vec<ImportDecl>,
+}
+
+/// v1.11：`import "path.tlvm"`。`path` は復号した文字列、`span` は `import` から文字列リテラルの終わりまで。
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportDecl {
+    pub path: String,
+    pub path_span: Sp,
+    pub span: Sp,
 }
 
 impl Program {
@@ -488,6 +594,10 @@ struct TyNode {
     args: Vec<Ty>,
     depth: usize,
     label: Label,
+    /// v1.10：型引数（tag が Param のとき）の名前
+    pname: Option<Arc<str>>,
+    /// v1.10：型引数を含むか
+    params: bool,
 }
 
 /// 単相型。共有 DAG で表し、深さはキャッシュする。ErrorType は深さ0。
@@ -497,11 +607,82 @@ pub struct Ty(Arc<TyNode>);
 impl Ty {
     pub fn new(tag: TyTag, args: Vec<Ty>) -> Ty {
         let depth = if tag == TyTag::Error { 0 } else { 1 + args.iter().map(|a| a.depth()).max().unwrap_or(0) };
-        Ty(Arc::new(TyNode { tag, args, depth, label: Label::default() }))
+        let params = args.iter().any(|a| a.has_params());
+        Ty(Arc::new(TyNode { tag, args, depth, label: Label::default(), pname: None, params }))
+    }
+    /// v1.10：型引数 `name`（総称の関数の本体では、どの型にも使える操作だけが通る不透明な型）。
+    pub fn param(name: &str) -> Ty {
+        Ty(Arc::new(TyNode { tag: TyTag::Param, args: vec![], depth: 1, label: Label::default(), pname: Some(name.into()), params: true }))
+    }
+    /// v1.10：型引数の名前（型引数でなければ None）。
+    pub fn param_name(&self) -> Option<&str> {
+        self.0.pname.as_deref()
+    }
+    /// v1.10：型引数を含むか。
+    pub fn has_params(&self) -> bool {
+        self.0.params
+    }
+    /// v1.10：型に付いた名前（レコード型・直和型。単相化で型を構文に戻すとき用）
+    pub fn label(&self) -> Label {
+        self.0.label.clone()
+    }
+    /// v1.10：型引数を置き換える（`f` が None を返す型引数は残す）。名前（label）は保つ。置き換えた型引数に
+    /// 名前が付いていれば置き換え後の型に移す（`TypeNode::subst` と同じ）。
+    pub fn subst(&self, f: &dyn Fn(&str) -> Option<Ty>) -> Ty {
+        if !self.0.params {
+            return self.clone();
+        }
+        if let Some(n) = &self.0.pname {
+            return match f(n) {
+                Some(r) if self.0.label.0.is_some() => r.labeled(self.0.label.clone()),
+                Some(r) => r,
+                None => self.clone(),
+            };
+        }
+        let t = Ty::new(self.0.tag, self.0.args.iter().map(|a| a.subst(f)).collect());
+        if self.0.label.0.is_some() {
+            t.labeled(self.0.label.clone())
+        } else {
+            t
+        }
+    }
+    /// v1.10：`pattern` の型引数を `self` の対応する部分に束縛する（一方向の照合。`self` の型引数は定数として扱う）。
+    /// 形が違うか、同じ型引数に違う型が当たれば None。束縛は `out` に足す（既にある束縛とも照合する）。
+    pub fn bind(pattern: &Ty, target: &Ty, out: &mut Vec<(Arc<str>, Ty)>) -> Option<()> {
+        // 展開前の名前が残った部分（表示用の展開後の型の一部）は何にでも合う
+        if pattern.0.tag == TyTag::Error {
+            return Some(());
+        }
+        if let Some(n) = &pattern.0.pname {
+            return match out.iter().find(|(m, _)| m == n) {
+                Some((_, t)) => (t == target).then_some(()),
+                None => {
+                    out.push((n.clone(), target.clone()));
+                    Some(())
+                }
+            };
+        }
+        if !pattern.0.params {
+            return (pattern == target).then_some(());
+        }
+        if pattern.0.tag != target.0.tag || pattern.0.args.len() != target.0.args.len() {
+            return None;
+        }
+        for (p, t) in pattern.0.args.iter().zip(&target.0.args) {
+            Ty::bind(p, t, out)?;
+        }
+        Some(())
     }
     /// レコード名を付けた型（等価性は変わらない）。
     pub fn labeled(&self, label: Label) -> Ty {
-        Ty(Arc::new(TyNode { tag: self.0.tag, args: self.0.args.clone(), depth: self.0.depth, label }))
+        Ty(Arc::new(TyNode {
+            tag: self.0.tag,
+            args: self.0.args.clone(),
+            depth: self.0.depth,
+            label,
+            pname: self.0.pname.clone(),
+            params: self.0.params,
+        }))
     }
     /// レコード名を外した型。
     pub fn unlabeled(&self) -> Ty {
@@ -555,6 +736,10 @@ impl Ty {
     pub fn result(a: Ty, b: Ty) -> Ty {
         Ty::new(TyTag::Result, vec![a, b])
     }
+    /// v1.9：`Dict<K, V>`
+    pub fn dict(k: Ty, v: Ty) -> Ty {
+        Ty::new(TyTag::Dict, vec![k, v])
+    }
     pub fn tag(&self) -> TyTag {
         self.0.tag
     }
@@ -571,7 +756,11 @@ impl Ty {
         self.0.tag == TyTag::Error
     }
     pub fn of(node: &TypeNode) -> Ty {
-        let t = Ty::new(node.tag, node.args.iter().map(Ty::of).collect());
+        let t = if node.tag == TyTag::Param {
+            Ty::param(node.name.as_deref().unwrap_or("?"))
+        } else {
+            Ty::new(node.tag, node.args.iter().map(Ty::of).collect())
+        };
         if node.label.0.is_some() {
             t.labeled(node.label.clone())
         } else {
@@ -591,6 +780,36 @@ impl Ty {
             } else {
                 out.push('…');
                 *budget = 0;
+                return;
+            }
+            // v1.10：総称の型は、展開後の型と照合して型引数を復元する（`Box<Int>`）
+            if let Some(g) = r.generic() {
+                let mut b = vec![];
+                let found = Ty::bind(&Ty::of(&g.template), &self.unlabeled(), &mut b).is_some();
+                out.push('<');
+                for (i, p) in g.params.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    match b.iter().find(|(n, _)| &**n == p.as_str()) {
+                        Some((_, t)) if found => t.write_limited(out, budget),
+                        _ => out.push('?'),
+                    }
+                    if *budget == 0 {
+                        return;
+                    }
+                }
+                out.push('>');
+            }
+            return;
+        }
+        if let Some(n) = &self.0.pname {
+            if n.len() > *budget {
+                out.push('…');
+                *budget = 0;
+            } else {
+                out.push_str(n);
+                *budget -= n.len();
             }
             return;
         }
@@ -620,7 +839,8 @@ impl Ty {
 
 impl PartialEq for Ty {
     fn eq(&self, other: &Ty) -> bool {
-        Arc::ptr_eq(&self.0, &other.0) || (self.0.tag == other.0.tag && self.0.args == other.0.args)
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.tag == other.0.tag && self.0.pname == other.0.pname && self.0.args == other.0.args)
     }
 }
 

@@ -8,7 +8,7 @@
 * [名前解決とスコープ](names-and-scoping.md) - トップレベル一意性、非再帰 let、シャドー禁止、前方参照
 * [entry と到達可能性](entry-and-reachability.md) - entry 検査の name/entry phase 分割と W-UNUSED-FUNCTION
 * [呼出しグラフと DAG](call-graph.md) - 自己辺を含む全循環の拒否と rank 構成（v1.7 の rec fn へ入る辺は除く）
-* [型規則](typing.md) - 単相の注釈、if/let/fold 規則、arity 検査と ErrorType 回復
-* [組込み関数](builtins.md) - 14個の組込みの型規則スキームと意味（v1.5 の map・filter・any・all・find・sort_by、v1.6 の loop、v1.8 の div を含む）
+* [型規則](typing.md) - 単相の注釈、if/let/fold 規則、arity 検査と ErrorType 回復（v1.10 の型引数と単相化を含む）
+* [組込み関数](builtins.md) - 14個の組込みの型規則スキームと意味（v1.5 の map・filter・any・all・find・sort_by、v1.6 の loop、v1.8 の div、v1.9 の辞書の操作を含む）
 * [動的意味論](dynamic-semantics.md) - 左から右の call-by-value、let・if・fold の評価
-* [プログラム例](examples.md) - 偶数の合計、正の値の抽出、v1 で書けない例
+* [プログラム例](examples.md) - 偶数の合計、正の値の抽出、v1 で書けない例（v1.11 の import の例を含む）

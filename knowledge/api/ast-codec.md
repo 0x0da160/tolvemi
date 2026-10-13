@@ -28,7 +28,7 @@ sources:
 | node | keys／fields |
 |---|---|
 | program | `codec`, `declarations`（codec は固定 `"ast_codec_v1"`） |
-| fn | `tag`, `name`, `params`, `return_type`, `body`、v1.7（この処理系の拡張）：省略できる `rec`（boolean。省略は false。encoder は true のときだけ `body` の後に出す） |
+| fn | `tag`, `name`, `params`, `return_type`, `body`、v1.7（この処理系の拡張）：省略できる `rec`（boolean。省略は false。encoder は true のときだけ `body` の後に出す）、v1.10：省略できる `type_params`（大文字で始まる識別子の配列。総称の関数にだけ出す） |
 | entry | `tag`, `name` |
 | param | `name`, `type`（tag なし） |
 | type int／bool／unit | `tag` |
@@ -48,6 +48,10 @@ sources:
 | expr fold | `tag`, `list`, `init`, `acc`, `item`, `body` |
 | expr map／filter／any／all／find／sort_by（v1.5、この処理系の拡張） | `tag`, `list`, `binder`, `body` |
 | expr loop（v1.6、この処理系の拡張） | `tag`, `init`, `max`, `binder`, `body` |
+| type dict（v1.9、この処理系の拡張） | `tag`, `key`, `value` |
+| expr dict（v1.9、この処理系の拡張。空の辞書） | `tag`, `key_type`, `value_type`。操作 `dict_get` などは `call` |
+| type param（v1.10、この処理系の拡張） | `tag`, `name`（型引数の名前） |
+| expr call の `type_args`（v1.10、この処理系の拡張） | 省略できる型の配列（明示した型引数。明示したときだけ出す）。レコード型・直和型の宣言は transport にないので、`tlvm ast` は展開したもの（構築子のための総称の関数を含む）を出す |
 
 - `callee` は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。
 - 識別子は decode 後の文字列全体が IDENT に一致し予約語でないこと（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])` と `not.enum`）。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]

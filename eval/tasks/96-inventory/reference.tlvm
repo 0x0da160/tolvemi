@@ -1,0 +1,7 @@
+// The inventory is a Dict from item to quantity: dict_put keeps an existing item in place,
+// dict_remove drops it, and dict_entries lists the pairs in insertion order.
+fn solve(ops: List<Pair<String, Int>>) -> List<Pair<String, Int>> =
+  dict_entries(fold(ops, dict<String, Int>(), |inv, op|
+    let q = add(match_option(dict_get(inv, fst(op)), 0, |c| c), snd(op)) in
+    if(eq(q, 0), dict_remove(inv, fst(op)), dict_put(inv, fst(op), q))))
+entry solve
