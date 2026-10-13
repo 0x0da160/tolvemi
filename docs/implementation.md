@@ -93,11 +93,13 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
+| `recursive.rs` | v1.14 差分 §3 | 再帰する直和型の書き換え（項を長さの前置きつきの `List<Int>` に符号化し、構築を `*_new` の呼び出し、`match` を番号による `if` の連鎖、項の取り出しを `rec_at`・`rec_take`・`rec_drop` に書き換える。型の区別のため、型ごとの印を付けた写しも作る（受理の判定は両方の写しを検証済みの部品が行う）。`sums::expand` より前に行う。未検証の接着部分） |
 | `hof.rs` | v1.5 差分 §2、v1.6 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by`・`loop` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
 | `dict.rs` | v1.9 差分 §2 | 辞書の操作の書き換え（`hof.rs` の走査から呼ばれ、型検査が残した鍵と値の型を使う）と、型の `Dict<K, V>` を `List<Pair<K, V>>` にする `erase`。未検証の接着部分 |
 | `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
 | `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
-| `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
+| `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_input` で読み、`decode_input_e` で値にして `run_checked` に渡す） |
+| `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |

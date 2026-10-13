@@ -1,0 +1,13 @@
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+rec fn insert(t: Tree, x: Int) -> Tree =
+  match t {
+    Leaf => Node(Leaf, x, Leaf),
+    Node(l, v, r) => if(lt(x, v), Node(insert(l, x), v, r), if(lt(v, x), Node(l, v, insert(r, x)), t))
+  }
+
+rec fn height(t: Tree) -> Int =
+  match t { Leaf => 0, Node(l, _, r) => add(1, max(height(l), height(r))) }
+
+fn solve(xs: List<Int>) -> Int = height(fold(xs, Leaf, |t, x| insert(t, x)))
+entry solve

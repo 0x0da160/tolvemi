@@ -28,7 +28,8 @@ fn bits(n: &BigInt) -> u64 {
     n.magnitude().bits()
 }
 
-fn input_bits_over(v: &V, limit: u64) -> Option<u64> {
+/// 入力の整数の bit 長が limit を超えるなら、その bit 長（`exec` の辞書の入力も同じ検査を通す）。
+pub(crate) fn input_bits_over(v: &V, limit: u64) -> Option<u64> {
     let mut stack = vec![v.clone()];
     while let Some(x) = stack.pop() {
         match &*x {

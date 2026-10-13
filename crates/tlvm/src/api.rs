@@ -14,6 +14,7 @@ use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
 use crate::records;
+use crate::recursive;
 use crate::sums;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
@@ -163,18 +164,11 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             // v1.1：レコードを展開し、検証済み部品には fst／snd に書き換えたプログラムの整形ソースを渡す。
             // v1.4：直和型と match も同じく展開し、ok／err・match_result などに書き換えたものを渡す。
             // v1.5：map などは型検査の後に fold などへ書き換える（v1.6 の loop も）
-            match expand(&p) {
-                Err(d) => SourceCompile::Result(result(d, None)),
-                Ok(px) => {
-                    // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
-                    let (o, pm) = generics::check(&px, source.len(), profile);
-                    // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
-                    // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
-                    let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
-                    let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
-                    let r = result(o.diagnostics.clone(), Some(o));
-                    SourceCompile::Result(cross_check_at(&text, r, profile, at))
-                }
+            // v1.14：再帰する型のあるプログラムは、印つきの写しを先に検査してから印なしの写しを検査する
+            if recursive::has_recursive(&p) {
+                SourceCompile::Result(compile_recursive(&p, source.len(), profile))
+            } else {
+                SourceCompile::Result(compile_expanded(&p, source.len(), profile, false))
             }
         }
         Parsed::Program(p) => {
@@ -186,9 +180,38 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
     }
 }
 
+/// 展開から検証済み部品の検査までの一通り。`tagged` は再帰する型の印つきの写し（v1.14）。
+fn compile_expanded(p: &Program, len: usize, profile: &StaticProfile, tagged: bool) -> CompileResult {
+    match expand_with(p, tagged) {
+        Err(d) => result(d, None),
+        Ok(px) => {
+            // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
+            let (o, pm) = generics::check(&px, len, profile);
+            // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
+            // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
+            let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
+            let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
+            let r = result(o.diagnostics.clone(), Some(o));
+            cross_check_at(&text, r, profile, at)
+        }
+    }
+}
+
+/// v1.14：再帰する型は、印つきの写し（型ごとに違う印を値に付けた同じプログラム）を先に検査する。区別は、ここで
+/// 検証済みの部品が判定する。受理されたら、印なしの写し（`List<Int>` の符号化）を検査して実行する。
+fn compile_recursive(p: &Program, len: usize, profile: &StaticProfile) -> CompileResult {
+    match compile_expanded(p, len, profile, true) {
+        CompileResult::Rejected { errors, warnings, work } => {
+            let names = recursive::tagged_names(p);
+            CompileResult::Rejected { errors: recursive::show_names(errors, &names), warnings, work }
+        }
+        CompileResult::Accepted { .. } => compile_expanded(p, len, profile, false),
+    }
+}
+
 /// レコード（v1.1）か直和型・match（v1.4）、型引数（v1.10）を含み、検査の前に展開が要るか。
 pub fn needs_expansion(p: &Program) -> bool {
-    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p)
+    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p) || recursive::has_recursive(p)
 }
 
 /// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop・
@@ -201,7 +224,14 @@ pub fn needs_glue(p: &Program) -> bool {
 /// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。総称の関数も残る（型検査の後で
 /// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
+    expand_with(p, false)
+}
+
+/// `tagged` は再帰する型の印つきの写し（v1.14。`compile_recursive` が使う）。
+fn expand_with(p: &Program, tagged: bool) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
     let p = if generics::has_generics(p) { generics::resolve(p)? } else { p.clone() };
+    // v1.14：再帰する直和型は List<Int>（印つきの写しでは印の付いた型）に書き換える（再帰しない直和型の展開より前）
+    let p = if recursive::has_recursive(&p) { recursive::expand(&p, tagged)? } else { p };
     let p = if sums::has_sums(&p) { sums::expand(&p)? } else { p };
     if records::has_records(&p) {
         records::expand(&p)

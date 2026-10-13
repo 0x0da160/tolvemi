@@ -296,7 +296,8 @@ fn sum_diagnostics() {
     assert_eq!(c("fn f(s: Shape) -> Int = match s { Rect(a, a) => a, _ => 0 }"), ["E-NAME-DUPLICATE-BINDER"]);
     assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(s) => s, _ => 0 }"), ["E-NAME-SHADOW"]);
     // 再帰型・宣言前の型・未知の型
-    assert_eq!(codes("type L = Nil | Cons(Int, L) fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
+    // v1.14：自分自身を項に含む型は再帰する型として受理する（tests/recursive.rs）
+    assert!(codes("type L = Nil | Cons(Int, L) fn f(s: Int) -> Int = 1 entry f").is_empty());
     assert_eq!(codes("type S = A(P) | B type P = { x: Int } fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
     assert_eq!(codes("type S = A(Foo) | B fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
     assert_eq!(codes("type S = A | B type S = C fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-DUPLICATE-TYPE"]);

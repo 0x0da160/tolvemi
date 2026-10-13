@@ -13,7 +13,9 @@
 //!                             String は標準入力の全文、List<String> はコマンドライン引数、
 //!                             Pair<List<String>, String> はその両方。出力が String ならそのまま標準出力へ。
 //!                             出力が Result<String, String> なら ok(s) は s を標準出力へ（終了コード 0）、
-//!                             err(s) は s を標準エラーへ（終了コード 1）
+//!                             err(s) は s を標準エラーへ（終了コード 1）。
+//!                             v1.13：Dict<String, String>・Dict<String, Int> は標準入力の行（key TAB value）の辞書
+//!                             （規則は `tlvm::lines`）。行の誤りは InputBoundaryFailure（行番号つき）、復号の拒否は診断
 //!
 //! 診断は一行一 JSON object で stderr へ、結果は stdout へ出す。
 //!
@@ -271,16 +273,14 @@ fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> R
 
 /// プログラムをコマンドとして実行する（v1.3 の入出力ランタイム。検証されていない接着部分）。
 ///
-/// 入力（標準入力の全文とコマンドライン引数）を plain JSON にして、`run --plain` と同じく検証済みの
-/// 復号器で読み、検証済みの評価器で実行する。出力が String なら、その文字列をそのまま標準出力に書く。
+/// 入力（標準入力の全文、コマンドライン引数、または v1.13 の標準入力の行の辞書）を検証済みの復号器で読み、
+/// 検証済みの評価器で実行する（辞書は `run --plain` と同じく普通の JSON を経由する）。出力が String なら、
+/// その文字列をそのまま標準出力に書く。
 fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
-    use tlvm::runtime::{exec, exec_input, ExecInput, ExecResult};
+    use tlvm::runtime::{exec, exec_input, ExecInput, ExecResult, ENTRY_SHAPES};
     let Some(p) = compile_file(file, false)? else { return Ok(ExitCode::from(1)) };
     let Some(shape) = exec_input(&p) else {
-        envelope(
-            "UnsupportedEntry",
-            &format!("exec の entry の入力型は String、List<String>、Pair<List<String>, String> のどれか（この entry は {}）", p.input_type),
-        );
+        envelope("UnsupportedEntry", &format!("exec の entry の入力型は {ENTRY_SHAPES} のどれか（この entry は {}）", p.input_type));
         return Ok(ExitCode::from(64));
     };
     let stdin = if shape == ExecInput::Args {
@@ -308,6 +308,16 @@ fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
             let mut err = std::io::stderr().lock();
             err.write_all(o.as_bytes()).map_err(|e| e.to_string())?;
             err.flush().map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(1))
+        }
+        // v1.13：標準入力の行の形が合わない（run の InputBoundaryFailure と同じ envelope と終了コード）
+        ExecResult::InputBoundaryFailure(reason) => {
+            envelope("InputBoundaryFailure", &reason);
+            Ok(ExitCode::from(1))
+        }
+        // v1.13：辞書の復号の診断。span は標準入力の上の位置（`run` の診断と同じ形）
+        ExecResult::InputInvalid(ds) => {
+            emit_in(&ds, "<stdin>", stdin.as_bytes());
             Ok(ExitCode::from(1))
         }
         ExecResult::Stopped(RunResult::ResourceExhausted { kind, observed, limit }) => {

@@ -65,6 +65,12 @@ T, A, B ::= Int | Bool | Unit
 `List<Pair<K, V>>` へ書き換えてから検証済み部品に渡す。値 JSON は `List<Pair<K, V>>` と同じ、plain JSON は
 `[key, value]` の配列の配列（`[["a", 1], ["b", 2]]`）。入力に同じ鍵が二度あれば `E-INPUT-DICT-DUPLICATE-KEY`。
 `eq` は辞書を挿入順も含めて比べる。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+v1.13：`tlvm exec` の entry の入力は `Dict<String, String>` と `Dict<String, Int>` も使える。標準入力の行（`鍵<TAB>値`）を
+plain JSON の `[["鍵", "値"], ...]` にして同じ経路で読む（[v1.13 差分仕様](../../spec/lptl-v1.13/LPTL_v1.13_delta.md)）。
+v1.14：自分自身を項に含む直和型（再帰する型）は、実行では整数の列 `List<Int>` として扱う（型の区別は、型ごとの印を付けた写しを検査して行う）。値は構築子の番号、そのあとに
+項ごとの `[長さ] ++ 中身` が並ぶ（`Leaf` は `[0]`、`Node(Leaf, 3, Leaf)` は `[1, 1, 0, 1, 3, 1, 0]`）。項の型は Int、Bool、
+再帰する型だけ。異なる再帰する型どうしは型検査で区別され、混ぜると拒否される。型エラーの文面は型の名前（`Tree`）で出る。詳細は
+[v1.14 差分仕様](../../spec/lptl-v1.14/LPTL_v1.14_delta.md)。
 
 # v1.10 の追加：型引数（総称）
 

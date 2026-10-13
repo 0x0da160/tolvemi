@@ -56,6 +56,8 @@ sources:
 | `E-MATCH-DUPLICATE` | name | v1.4：同じ場合の枝が二つある |
 | `E-MATCH-UNREACHABLE` | name | v1.4：`_` の後の枝、または全部の場合を書いた後の `_` |
 | `E-MATCH-MIXED` | name | v1.4：一つの `match` に違う型の pattern が混ざっている |
+| `E-REC-FIELD-TYPE` | name | v1.14：再帰する型の構築子の中身が `Int`、`Bool`、再帰する型そのもの以外（[v1.14 差分仕様](../../spec/lptl-v1.14/LPTL_v1.14_delta.md) §2） |
+| `E-REC-TYPE-PARAM` | name | v1.14：再帰する型に型引数を付けた宣言（総称の再帰する型は未対応） |
 | `E-TYPE-MATCH-SCRUTINEE`、`E-TYPE-MATCH-BRANCH` | typecheck | `match_option`／`match_result`／`match` の対象の型が違う、枝の型が違う |
 | `E-PARSE-EXPECTED-LAMBDA` | parse | v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by` の第 2 引数が一つの binder のラムダ `\|x\| e` でない（関数名だけ、ラムダの頭がない式、binder が二つ、第 2 引数がない。修復ヒント付き） |
 | `E-TYPE-HOF-LIST` | typecheck | v1.5：`map` などの第 1 引数がリストでない |
@@ -101,7 +103,7 @@ sources:
 | `W-UNUSED-FUNCTION` | warnings | 未到達関数 |
 | `E-INPUT-JSON-SYNTAX`、`-STRING-SCALAR`、`-DUPLICATE-KEY` | input-parse | 入力 JSON transport |
 | `E-INPUT-FIELD-TYPE`、`-MISSING-FIELD`、`-TAG`、`-UNKNOWN-FIELD`、`-INTEGER` | input-decode | 入力値 |
-| `E-INPUT-DICT-DUPLICATE-KEY` | input-decode | v1.9：入力の辞書に同じ鍵が二度ある（plain JSON・値 JSON とも） |
+| `E-INPUT-DICT-DUPLICATE-KEY` | input-decode | v1.9：入力の辞書に同じ鍵が二度ある（plain JSON・値 JSON とも）。v1.13：`tlvm exec` の標準入力の行にも（[v1.13 差分仕様](../../spec/lptl-v1.13/LPTL_v1.13_delta.md)） |
 | `E-LIMIT-INPUT-JSON-BYTES` | input-boundary | 入力 bytes 上限 |
 | `E-LIMIT-INPUT-JSON-DEPTH` | input-parse | 入力 JSON 深さ |
 | `E-LIMIT-INPUT-VALUE-DEPTH`、`-VALUE-NODES`、`-INTEGER-DIGITS` | input-decode | 入力値上限 |

@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.11), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.14), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.11)
+# Tolvemi (LPTL v1.14)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -172,10 +172,43 @@ entry solve
 - Cover every case exactly once, or end with `_ => e` for the rest. A missing case, a repeated case, or an arm after
   `_` is an error. The names bound by a pattern are visible only in that arm and must not shadow other names.
 - Constructor names are unique in the program and differ from function, variable and type names. A sum type may
-  use types declared above it (no recursive types).
+  use types declared above it. A type that refers to itself is a recursive type (next section).
 - `match` works on `Result` and `Option` too; `match_result` and `match_option` are the same thing written as calls.
 - In JSON inputs and outputs a `Result` is `{"ok": v}` or `{"err": e}`, and a sum value is the constructor name
   with its fields in an array: `{"Rect": [2, 3]}`, `{"Empty": []}`.
+
+## Recursive sum types: a tree is a list of integers underneath
+
+A sum type may refer to itself, directly or through another sum type declared in the program. Its constructor
+fields must be `Int`, `Bool`, or the recursive type itself; `String`, `List`, records, `Option`, `Result` and other
+sum types are not allowed in those fields, and a recursive type takes no type parameters.
+
+```tlvm
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+// Insert keeps the tree ordered; a value already in the tree is not added again.
+rec fn insert(t: Tree, x: Int) -> Tree =
+  match t {
+    Leaf => Node(Leaf, x, Leaf),
+    Node(l, v, r) => if(lt(x, v), Node(insert(l, x), v, r), if(lt(v, x), Node(l, v, insert(r, x)), t))
+  }
+
+rec fn height(t: Tree) -> Int =
+  match t { Leaf => 0, Node(l, _, r) => add(1, max(height(l), height(r))) }
+
+fn solve(xs: List<Int>) -> Int = height(fold(xs, Leaf, |t, x| insert(t, x)))
+entry solve
+```
+
+- A function that recurses over the type is a `rec fn`, as for any recursion, so a program that has one is not
+  guaranteed to terminate (`"terminates":false`). `match` works as for other sum types: one arm per constructor
+  or a final `_`, with flat field names (no nested patterns).
+- `eq(a, b)` compares two trees structurally.
+- Two different recursive types never mix: a tree passed where another type is expected, or a `List<Int>` passed
+  where a tree is expected, is a type error (`E-TYPE-ARG`) that names the type, such as `Tree`.
+- As an entry input or output, a tree is its list of integers: the constructor number first, then each field as
+  its length followed by its value. So `Leaf` is `[0]` and `Node(Leaf, 3, Leaf)` is `[1, 1, 0, 1, 3, 1, 0]`.
+  `tlvm exec` does not take a tree as its input.
 
 ## Recursion: rec fn, only when fold and loop do not fit
 
@@ -367,8 +400,12 @@ entry words
 ## Programs as commands
 
 `tlvm exec prog.tlvm ARGS...` runs a program as a command. The entry's input type says what it receives:
-`String` gets all of standard input, `List<String>` gets the command-line arguments, and
-`Pair<List<String>, String>` gets both. If the output type is `String` it is written to standard output exactly
+`String` gets all of standard input, `List<String>` gets the command-line arguments, `Pair<List<String>, String>`
+gets both, and `Dict<String, String>` or `Dict<String, Int>` gets standard input as a table: each line is a key, a TAB,
+and a value. The key is everything before the first TAB and may not be empty; the value may not contain a TAB; an
+empty line is skipped; an `Int` value must be a plain decimal such as `-42` (an optional `-` and digits with no leading zero, so
+`-0` and `+1` are errors). A repeated key
+is an error. If the output type is `String` it is written to standard output exactly
 (add `"\n"` yourself where you want line breaks). If it is `Result<String, String>`, `ok(s)` writes `s` to standard
 output (exit code 0) and `err(s)` writes `s` to standard error (exit code 1). Any other output is printed as JSON.
 

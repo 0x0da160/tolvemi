@@ -1,0 +1,15 @@
+{
+  "id": "99-bst_height",
+  "title": "Height of a binary search tree",
+  "category": "recursive",
+  "prompt": "The input is a list of integers. Insert the values one by one, in order, into a binary search tree: a value less than a node's value goes into its left subtree, a value greater than it goes into its right subtree, and a value equal to a node's value is not inserted again. Output the height of the tree: the number of nodes on the longest path from the root down to a leaf. An empty tree has height 0, and a single node has height 1.",
+  "input_type": "List<Int>",
+  "output_type": "Int",
+  "examples": [
+    {"input": [3, 1, 2], "expected": 3},
+    {"input": [], "expected": 0},
+    {"input": [5, 5, 5], "expected": 1},
+    {"input": [2, 1, 3], "expected": 2},
+    {"input": [1, 2, 3, 4], "expected": 4}
+  ]
+}
