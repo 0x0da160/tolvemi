@@ -1,0 +1,9 @@
+// The state is the part of n not yet written and the digits written so far (least significant digit taken first,
+// so consing builds the list most significant first). Stop once nothing is left and at least one digit is written.
+fn digits(b: Int, n: Int) -> List<Int> =
+  match_option(loop(pair(n, list<Int>()), 200, |s|
+    if(if(eq(fst(s), 0), lt(0, length(snd(s))), false), none<Pair<Int, List<Int>>>(),
+      some(pair(match_option(div(fst(s), b), 0, |q| q), cons(match_option(mod(fst(s), b), 0, |r| r), snd(s)))))),
+    list<Int>(), |s| snd(s))
+fn solve(inp: Pair<Int, List<Int>>) -> List<List<Int>> = map(snd(inp), |n| digits(fst(inp), n))
+entry solve

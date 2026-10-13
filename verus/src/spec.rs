@@ -84,6 +84,8 @@ pub enum Builtin {
     Le,
     Eq,
     Mod,
+    /// v1.8：正の除数に対する床除算の商
+    Div,
     Fst,
     Snd,
     Cons,
@@ -169,7 +171,7 @@ pub open spec fn builtin_type(b: Builtin, ts: Seq<Ty>) -> Option<Ty> {
             if ts.len() == 2 && ts[0] == Ty::Int && ts[1] == Ty::Int { Some(Ty::Bool) } else { None }
         },
         Builtin::Eq => if ts.len() == 2 && ts[0] == ts[1] { Some(Ty::Bool) } else { None },
-        Builtin::Mod => {
+        Builtin::Mod | Builtin::Div => {
             if ts.len() == 2 && ts[0] == Ty::Int && ts[1] == Ty::Int {
                 Some(Ty::Option(Box::new(Ty::Int)))
             } else {
@@ -367,7 +369,7 @@ pub enum ResSeq {
     OutOfFuel,
 }
 
-/// 組込みの意味（§7.4）。mod は正の除数に対する非負剰余。
+/// 組込みの意味（§7.4）。mod は正の除数に対する非負剰余、div（v1.8）は正の除数に対する床除算の商。
 pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
     if vs.len() == 2 {
         match (b, vs[0], vs[1]) {
@@ -379,6 +381,11 @@ pub open spec fn apply(b: Builtin, vs: Seq<Val>) -> Res {
             (Builtin::Eq, x, y) => Res::Done(Val::Bool(x == y)),
             (Builtin::Mod, Val::Int(x), Val::Int(y)) => if y > 0 {
                 Res::Done(Val::Some(Box::new(Val::Int(x % y))))
+            } else {
+                Res::Done(Val::None)
+            },
+            (Builtin::Div, Val::Int(x), Val::Int(y)) => if y > 0 {
+                Res::Done(Val::Some(Box::new(Val::Int(x / y))))
             } else {
                 Res::Done(Val::None)
             },

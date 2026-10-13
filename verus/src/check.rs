@@ -132,7 +132,7 @@ pub fn builtin_ty(b: Builtin, ts: &Vec<Ty>) -> (r: Option<Ty>)
         } else {
             None
         },
-        Builtin::Mod => {
+        Builtin::Mod | Builtin::Div => {
             if n == 2 && ty_eq(&ts[0], &Ty::Int) && ty_eq(&ts[1], &Ty::Int) {
                 Some(Ty::Option(Box::new(Ty::Int)))
             } else {

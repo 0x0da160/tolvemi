@@ -323,6 +323,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Neg)
         } else if c3e(w, 'm', 'o', 'd') {
             Some(Kw::Mod)
+        } else if c3e(w, 'd', 'i', 'v') {
+            Some(Kw::Div)
         } else if c3e(w, 'f', 's', 't') {
             Some(Kw::Fst)
         } else if c3e(w, 's', 'n', 'd') {
@@ -1290,6 +1292,7 @@ fn builtin_of(k: Kw) -> (r: Option<Builtin>)
         Kw::Le => Some(Builtin::Le),
         Kw::Eq => Some(Builtin::Eq),
         Kw::Mod => Some(Builtin::Mod),
+        Kw::Div => Some(Builtin::Div),
         Kw::Fst => Some(Builtin::Fst),
         Kw::Snd => Some(Builtin::Snd),
         Kw::Cons => Some(Builtin::Cons),
@@ -2166,6 +2169,7 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
         Kw::Le => push2(out, 'l', 'e'),
         Kw::Eq => push2(out, 'e', 'q'),
         Kw::Mod => push3(out, 'm', 'o', 'd'),
+        Kw::Div => push3(out, 'd', 'i', 'v'),
         Kw::Fst => push3(out, 'f', 's', 't'),
         Kw::Snd => push3(out, 's', 'n', 'd'),
         Kw::Cons => push4(out, 'c', 'o', 'n', 's'),
@@ -2487,6 +2491,7 @@ fn push_let(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
+#[verifier::rlimit(60)]
 fn push_fold(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Fold,
@@ -2622,6 +2627,7 @@ fn builtin_kw(b: Builtin) -> (k: Kw)
         Builtin::Le => Kw::Le,
         Builtin::Eq => Kw::Eq,
         Builtin::Mod => Kw::Mod,
+        Builtin::Div => Kw::Div,
         Builtin::Fst => Kw::Fst,
         Builtin::Snd => Kw::Snd,
         Builtin::Cons => Kw::Cons,

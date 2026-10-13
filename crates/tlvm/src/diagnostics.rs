@@ -409,6 +409,12 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 span,
                 "one char between single quotes, such as 'a' or '\\n'; a sequence of chars is a string literal \"...\"".into(),
             )),
+            // v1.8：演算子は無い。`/` には割り算の組み込み関数を示す（`//` は行コメント）
+            "E-LEX-UNEXPECTED-CHARACTER" if d.actual.as_deref() == Some("/") => Some((
+                "replace_expression",
+                span,
+                "there are no operators: integer division is div(a, b), which returns Option<Int> (none when b <= 0); a line comment starts with //".into(),
+            )),
             "E-LEX-CONTROL-CHAR-IN-LITERAL" => {
                 Some(("replace_expression", span, "escape \\n, \\t or \\r; other control chars cannot be written".into()))
             }

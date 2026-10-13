@@ -945,6 +945,14 @@ impl Machine {
                         self.allocate(None)?;
                         Ok(Rc::new(Value::Some(r)))
                     },
+                    Builtin::Div => {
+                        if !y.is_positive() {
+                            return Ok(Rc::new(Value::None));
+                        }
+                        let r = self.int(x.div_pos(y))?;
+                        self.allocate(None)?;
+                        Ok(Rc::new(Value::Some(r)))
+                    },
                     _ => Err(Stop::Fault),
                 },
                 _ => Err(Stop::Fault),

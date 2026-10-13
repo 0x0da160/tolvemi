@@ -50,6 +50,7 @@ library = "num-bigint 0.4"
 trusted = [
   "from_u64、copy、add、sub、mul、neg、lt、le、eq、is_positive の数学的意味",
   "mod_pos：正の除数に対する床剰余（= Euclid 剰余）",
+  "div_pos：正の除数に対する床除算の商（= Euclid 商。v1.8 の div。num-integer の div_floor）",
   "to_dec、to_dec_chars：to_string が正準十進表記 int_dec を返すこと",
   "bits：IntegerBits 上限の判定にだけ使い、証明には現れない",
   "to_u32：値が 0〜u32::MAX なら Some（v1.2 の char(n) と入力の文字の復号で、スカラー値の範囲判定の前に使う）",

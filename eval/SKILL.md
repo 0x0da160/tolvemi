@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.7), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.8), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.7)
+# Tolvemi (LPTL v1.8)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -72,6 +72,7 @@ second and third arguments of `match_result`. There are no lambdas, closures or 
 | `lt(a, b)`, `le(a, b)` | `Int, Int -> Bool` | a < b, a <= b |
 | `eq(a, b)` | `A, A -> Bool` | structural equality on any type (both sides must have the same type) |
 | `mod(a, b)` | `Int, Int -> Option<Int>` | `some(r)` with `0 <= r < b` when `b > 0`, otherwise `none<Int>()`. `mod(-3, 2) = some(1)` |
+| `div(a, b)` | `Int, Int -> Option<Int>` | `some(q)`, the quotient rounded down, when `b > 0`, otherwise `none<Int>()`. Paired with `mod`: `a = q * b + r`. `div(7, 2) = some(3)`, `div(-7, 2) = some(-4)` |
 | `fst(p)`, `snd(p)` | `Pair<A, B> -> A` / `B` | components of a pair |
 | `cons(x, xs)` | `A, List<A> -> List<A>` | prepend |
 | `concat(xs, ys)` | `List<A>, List<A> -> List<A>` | append |
@@ -97,7 +98,7 @@ Strings are lists of characters, so the list builtins and `fold` work on them di
 `length(s)`, `reverse(s)`, `eq(s, "yes")`, `contains(s, ' ')`, `uncons(s)`, `fold(s, 0, |n, c| ...)`, `filter(s, |c| ...)`.
 
 There are no operators (`+`, `<`, `==`, `&&`, ...): write `add(a, b)`, `lt(a, b)`, `eq(a, b)`, `if(a, b, false)`.
-There is no division, `head`, `tail`, indexing, `abs`, `not`, `and` or `or`; build
+There is no `head`, `tail`, indexing, `abs`, `not`, `and` or `or`; build
 them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `match_option` gives head and tail).
 
 ## Option: unwrap it with match_option
@@ -107,6 +108,7 @@ them from `fold`, `if`, `match_option` and the builtins above (`uncons` plus `ma
 - First element with a default: `match_option(uncons(xs), 0, |c| fst(c))`.
 - Use a `mod` result: `match_option(mod(x, k), 0, |r| add(r, 1))`. Divisibility still works by comparison:
   `eq(mod(x, k), some(0))`.
+- Halve: `match_option(div(n, 2), 0, |h| h)` (the default is never used when the divisor is a positive literal).
 - Remember a value seen during a fold: keep an `Option<T>` in the accumulator (`none<Int>()` at the start, `some(x)`
   once found) and unwrap it with `match_option` when you need it.
 
@@ -192,7 +194,7 @@ entry solve
 
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
   Pair Char String Result true false unit let in if fold match_option match_result`.
-- `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod fst snd cons concat reverse
+- `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod div fst snd cons concat reverse
   length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by loop` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
   `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration, and `rec`
@@ -336,7 +338,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 
 | Code | Usual cause |
 |---|---|
-| `E-LEX-UNEXPECTED-CHARACTER` | an operator such as `+`, `-`, `*`, `/` (operators do not exist) |
+| `E-LEX-UNEXPECTED-CHARACTER` | an operator such as `+`, `-`, `*`, `/` (operators do not exist; for `/` write `div(a, b)`, which returns `Option<Int>`) |
 | `E-PARSE-UNEXPECTED-TOKEN` | extra tokens after a complete expression, such as `x == 1` |
 | `E-PARSE-EXPECTED-TOKEN` / `E-PARSE-EXPECTED-EXPR` | missing `,` or `)`, or a malformed special form |
 | `E-PARSE-EXPECTED-IDENT` | a reserved word used as a name, or a builtin name used as a function name |

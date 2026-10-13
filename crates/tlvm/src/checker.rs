@@ -10,9 +10,9 @@ use std::collections::{HashMap, HashSet};
 
 // ======================================================================= name
 
-const BUILTINS: [&str; 24] = [
+const BUILTINS: [&str; 25] = [
     "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons",
-    "min", "max", "range", "contains", "sort", "code", "char", "to_string", "parse_int",
+    "min", "max", "range", "contains", "sort", "code", "char", "to_string", "parse_int", "div",
 ];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
@@ -815,7 +815,7 @@ impl<'a> TypeChecker<'a> {
         }
         let int = Ty::int();
         match name {
-            "add" | "sub" | "mul" | "lt" | "le" | "mod" | "min" | "max" | "range" => {
+            "add" | "sub" | "mul" | "lt" | "le" | "mod" | "div" | "min" | "max" | "range" => {
                 need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
                 need!(self.equal(&ts[1], &int, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &int, &ts[1]);
                 if !ok {
@@ -827,7 +827,7 @@ impl<'a> TypeChecker<'a> {
                         let inner = self.build(Ty::int(), m)?;
                         self.build(Ty::list(inner), m)
                     }
-                    "mod" => {
+                    "mod" | "div" => {
                         let inner = self.build(Ty::int(), m)?;
                         self.build(Ty::option(inner), m)
                     }

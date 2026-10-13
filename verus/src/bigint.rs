@@ -157,6 +157,17 @@ impl Int {
         Int { n: self.n.mod_floor(&o.n) }
     }
 
+    /// 正の除数に対する床除算の商（v1.8 の div）。正の除数では Euclid 除算（Verus の `/`）と一致する。
+    #[verifier::external_body]
+    pub fn div_pos(&self, o: &Int) -> (r: Int)
+        requires
+            o@ > 0,
+        ensures
+            r@ == self@ / o@,
+    {
+        Int { n: self.n.div_floor(&o.n) }
+    }
+
     /// 正準十進表記。num-bigint の `to_string` がこれを満たすことは信頼仮定。
     #[verifier::external_body]
     pub fn to_dec(&self) -> (r: String)
