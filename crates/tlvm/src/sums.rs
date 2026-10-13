@@ -103,7 +103,7 @@ fn payload_type(fields: &[TypeNode], meta: Meta) -> TypeNode {
 }
 
 /// `Ctor(...)` の形の説明（中身の数だけ `_`）。
-fn pattern_text(name: &str, m: usize) -> String {
+pub(crate) fn pattern_text(name: &str, m: usize) -> String {
     if m == 0 {
         name.to_string()
     } else {

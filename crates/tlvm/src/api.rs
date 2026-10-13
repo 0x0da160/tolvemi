@@ -14,6 +14,7 @@ use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
 use crate::profiles::*;
 use crate::records;
+use crate::recursive;
 use crate::sums;
 use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
@@ -188,7 +189,7 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
 
 /// レコード（v1.1）か直和型・match（v1.4）、型引数（v1.10）を含み、検査の前に展開が要るか。
 pub fn needs_expansion(p: &Program) -> bool {
-    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p)
+    sums::has_sums(p) || records::has_records(p) || generics::has_generics(p) || recursive::has_recursive(p)
 }
 
 /// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop・
@@ -202,6 +203,8 @@ pub fn needs_glue(p: &Program) -> bool {
 /// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
     let p = if generics::has_generics(p) { generics::resolve(p)? } else { p.clone() };
+    // v1.14：再帰する直和型は List<Int> に書き換える（再帰しない直和型の展開より前）
+    let p = if recursive::has_recursive(&p) { recursive::expand(&p)? } else { p };
     let p = if sums::has_sums(&p) { sums::expand(&p)? } else { p };
     if records::has_records(&p) {
         records::expand(&p)

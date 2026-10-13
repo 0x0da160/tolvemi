@@ -23,6 +23,7 @@ pub mod parser;
 pub mod plain;
 pub mod profiles;
 pub mod records;
+pub mod recursive;
 pub mod repl;
 pub mod runtime;
 pub mod softnames;

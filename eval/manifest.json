@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "806d8b8d29f61210118d870b2e27c7250d0b3055f6460100966ed5f0472285ba",
-    "bytes": 27183
+    "sha256": "d8f7b4d56757f8647adf71e6d0a94daab301f7cb85e4ec209fb25fdf7e6bf078",
+    "bytes": 28962
   },
-  "task_set_sha256": "85ddd9d33e532944604e01886531e06b5a7cd2eee6432157acafc167527226cb",
-  "tasks": 98,
-  "hidden_cases": 2940,
+  "task_set_sha256": "5f44f50a1dbd7cbd01fad6af93f93e5fab61193e40c4ed4f377b7b1e7e36954a",
+  "tasks": 99,
+  "hidden_cases": 2970,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -400,6 +400,10 @@
     "tasks/98-adjacent_pairs/task.json": "dcc35db4470a6a28dea8cc1b1351df065c86f72edc5eb460dc78a46ce94a15a2",
     "tasks/98-adjacent_pairs/hidden.json": "cf4638b58f745ae313ab4031c3cfc2761a2379d1cb26734974b94b259f58b055",
     "tasks/98-adjacent_pairs/reference.tlvm": "d9f8305e262227e7426afffde3c99177f4b04ae21b42172216ebd86902de28a1",
-    "tasks/98-adjacent_pairs/reference.py": "481d321f22bafe25fbd1935d26c396ddc1689f6aabf8c536d1b639ec3ff6101d"
+    "tasks/98-adjacent_pairs/reference.py": "481d321f22bafe25fbd1935d26c396ddc1689f6aabf8c536d1b639ec3ff6101d",
+    "tasks/99-bst_height/task.json": "041eaf389f305bb6f0b1d0e0ba33f570f5efbd5aa0a4fba0c85c1ad69bb48df6",
+    "tasks/99-bst_height/hidden.json": "150cf46b4441122fab698bce6263adf2e67e9e5407177f0f2b470b8162d73d22",
+    "tasks/99-bst_height/reference.tlvm": "394b6889a650e104bfac1c1090dc34823217d5aed4a71a05807b73e525fad4a4",
+    "tasks/99-bst_height/reference.py": "f3da44e4e56ac1d2e8532d898427d3fc5a75d4933b00da35bd4607f50c86a646"
   }
 }

@@ -95,6 +95,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-MATCH-DUPLICATE" => "同じ場合の枝が二つあります",
         "E-MATCH-UNREACHABLE" => "届かない枝です（`_` の後の枝、または全部の場合を書いた後の `_`）",
         "E-MATCH-MIXED" => "一つの match に違う型の pattern が混ざっています",
+        "E-REC-FIELD-TYPE" => "再帰する型の構築子の中身は Int、Bool、または再帰する型そのものだけです",
+        "E-REC-TYPE-PARAM" => "再帰する型に型引数は付けられません（総称の再帰する型は未対応です）",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
         "E-TYPE-GENERIC-UNKNOWN-PARAM" => "宣言されていない型引数です（型引数は関数・型の名前の後の <T, ...> で宣言します）",
         "E-TYPE-GENERIC-ARITY" => "型引数の数が宣言と違います",
