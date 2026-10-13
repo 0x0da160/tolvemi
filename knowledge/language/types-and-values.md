@@ -65,6 +65,8 @@ T, A, B ::= Int | Bool | Unit
 `List<Pair<K, V>>` へ書き換えてから検証済み部品に渡す。値 JSON は `List<Pair<K, V>>` と同じ、plain JSON は
 `[key, value]` の配列の配列（`[["a", 1], ["b", 2]]`）。入力に同じ鍵が二度あれば `E-INPUT-DICT-DUPLICATE-KEY`。
 `eq` は辞書を挿入順も含めて比べる。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+v1.13：`tlvm exec` の entry の入力は `Dict<String, String>` と `Dict<String, Int>` も使える。標準入力の行（`鍵<TAB>値`）を
+plain JSON の `[["鍵", "値"], ...]` にして同じ経路で読む（[v1.13 差分仕様](../../spec/lptl-v1.13/LPTL_v1.13_delta.md)）。
 
 # v1.10 の追加：型引数（総称）
 

@@ -367,8 +367,12 @@ entry words
 ## Programs as commands
 
 `tlvm exec prog.tlvm ARGS...` runs a program as a command. The entry's input type says what it receives:
-`String` gets all of standard input, `List<String>` gets the command-line arguments, and
-`Pair<List<String>, String>` gets both. If the output type is `String` it is written to standard output exactly
+`String` gets all of standard input, `List<String>` gets the command-line arguments, `Pair<List<String>, String>`
+gets both, and `Dict<String, String>` or `Dict<String, Int>` gets standard input as a table: each line is a key, a TAB,
+and a value. The key is everything before the first TAB and may not be empty; the value may not contain a TAB; an
+empty line is skipped; an `Int` value must be a plain decimal such as `-42` (an optional `-` and digits with no leading zero, so
+`-0` and `+1` are errors). A repeated key
+is an error. If the output type is `String` it is written to standard output exactly
 (add `"\n"` yourself where you want line breaks). If it is `Result<String, String>`, `ok(s)` writes `s` to standard
 output (exit code 0) and `err(s)` writes `s` to standard error (exit code 1). Any other output is printed as JSON.
 

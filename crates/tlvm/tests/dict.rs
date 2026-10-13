@@ -367,11 +367,11 @@ entry solve
         let o = c.wait_with_output().unwrap();
         assert_eq!(String::from_utf8(o.stdout).unwrap(), "to=2\nbe=2\nor=1\nnot=1\n");
     });
-    // Dict は exec の入力型にはならない
-    with_file("fn solve(d: Dict<String, Int>) -> String = \"\"\nentry solve\n", "tlvm", |p| {
+    // v1.13：鍵が String の辞書は exec の入力型になる（exec_dict.rs）。鍵が String でない辞書は入力型にならない
+    with_file("fn solve(d: Dict<Int, String>) -> String = \"\"\nentry solve\n", "tlvm", |p| {
         let (code, _, err) = tlvm(&["exec", p]);
         assert_eq!(code, 64);
-        assert!(err.contains("UnsupportedEntry") && err.contains("Dict<String, Int>"), "{err}");
+        assert!(err.contains("UnsupportedEntry") && err.contains("Dict<Int, String>"), "{err}");
     });
 }
 

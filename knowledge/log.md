@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-13
+* **v1.13**: `tlvm exec` の entry の入力に `Dict<String, String>`・`Dict<String, Int>` を加えた。標準入力の行（`鍵<TAB>値`）を普通の JSON の配列にして `run --plain` と同じ経路で読む（[v1.13 差分仕様](../spec/lptl-v1.13/LPTL_v1.13_delta.md)。言語は変えない）。型と値のページ・診断コード表に追記した。
 * **v1.12**: 対話的な道具 `tlvm repl` と `tlvm lsp`（[v1.12 差分仕様](../spec/lptl-v1.12/LPTL_v1.12_delta.md)。言語は変えない）を、API とコーデックに [対話的な道具](api/tooling.md) のページとして加えた。
 * **v1.11**: ほかの source ファイルの `import`（[v1.11 差分仕様](../spec/lptl-v1.11/LPTL_v1.11_delta.md)）を、字句・文法・名前・entry と到達可能性・正準フォーマット・例の各ページと診断コード表、診断 schema（省略できる `file`）、診断の段階（`import`）、静的プロファイル（ファイル数）に追記した。
 * **v1.10**: ユーザー定義の型引数（総称の関数・レコード型・直和型と単相化。[v1.10 差分仕様](../spec/lptl-v1.10/LPTL_v1.10_delta.md)）を、型と値・字句・文法・型規則・名前・動的意味論・正準フォーマット・例の各ページと診断コード表、AST codec の表に追記した。

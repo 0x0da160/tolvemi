@@ -17,6 +17,7 @@ pub mod generics;
 pub mod hof;
 pub mod imports;
 pub mod lexer;
+pub mod lines;
 pub mod lsp;
 pub mod parser;
 pub mod plain;

@@ -105,6 +105,7 @@ glue = [
   "crates/tlvm/src/main.rs：tlvm test の期待値との照合（出力の正準 JSON の文字列比較）",
   "crates/tlvm/src/records.rs：v1.1 のレコード型の展開（pair の入れ子と fst／snd への書き換え。検証済み部品は書き換え後の整形ソースを検査・実行する）",
   "crates/tlvm/src/runtime.rs、main.rs の exec：v1.3 の tlvm exec。entry の入力型から渡すもの（標準入力・引数）を選び、標準入力の UTF-8 を検査し、検証済みの io（テキストと値の変換）と run_checked で実行し、出力の文字の番号を文字にして書く。終了コードへの写像",
+  "crates/tlvm/src/lines.rs、runtime.rs、main.rs の exec：v1.13 の辞書の入力（entry の入力型 Dict<String, String> または Dict<String, Int>）。標準入力を UTF-8 の行に分け（改行で区切り、行末の CR を一つ取り、長さ 0 の行は読まない）、各行の最初の TAB より前を鍵・後を値として、鍵が空でないこと、値に TAB がないこと、Int の値が正規の表記であることを検査し、普通の JSON の配列 [[\"鍵\",\"値\"], ...] を作る。行の誤りは InputBoundaryFailure（行番号つき）で拒否する。その JSON は run --plain と同じ api::decode_plain_input（plain.rs の対応表、診断付きの復号器と検証済みの復号器の突き合わせ、鍵の重複の拒否、資源上限）で読み、検証済みの decode_input_e で値にして run_checked に渡す。診断の span を、生成した JSON の bytes から標準入力のもとの行の範囲に直す写像と、行の形の検査、JSON の作り方は検証されていない。作り方が誤って鍵と値を取り違えれば、意図と違う辞書を実行することになり保証の外（検査・実行されるのは作った辞書の値そのもの）",
   "crates/tlvm/src/softnames.rs：tlvm ast の出力で、文脈キーワードの変数名を AST transport の識別子に付け替える（α 変換。検査・実行には使わない）",
   "crates/tlvm/src/main.rs：レコードを含むプログラムの fmt（診断用 formatter の出力をそのまま出す）",
   "crates/tlvm/src/sums.rs：v1.4 のユーザー定義の直和型と match の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。検証済み部品は書き換え後の整形ソースを検査・実行する）。直和型・match を含むプログラムの fmt も診断用 formatter の出力をそのまま出す",

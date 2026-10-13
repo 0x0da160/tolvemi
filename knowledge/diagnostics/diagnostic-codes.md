@@ -101,7 +101,7 @@ sources:
 | `W-UNUSED-FUNCTION` | warnings | 未到達関数 |
 | `E-INPUT-JSON-SYNTAX`、`-STRING-SCALAR`、`-DUPLICATE-KEY` | input-parse | 入力 JSON transport |
 | `E-INPUT-FIELD-TYPE`、`-MISSING-FIELD`、`-TAG`、`-UNKNOWN-FIELD`、`-INTEGER` | input-decode | 入力値 |
-| `E-INPUT-DICT-DUPLICATE-KEY` | input-decode | v1.9：入力の辞書に同じ鍵が二度ある（plain JSON・値 JSON とも） |
+| `E-INPUT-DICT-DUPLICATE-KEY` | input-decode | v1.9：入力の辞書に同じ鍵が二度ある（plain JSON・値 JSON とも）。v1.13：`tlvm exec` の標準入力の行にも（[v1.13 差分仕様](../../spec/lptl-v1.13/LPTL_v1.13_delta.md)） |
 | `E-LIMIT-INPUT-JSON-BYTES` | input-boundary | 入力 bytes 上限 |
 | `E-LIMIT-INPUT-JSON-DEPTH` | input-parse | 入力 JSON 深さ |
 | `E-LIMIT-INPUT-VALUE-DEPTH`、`-VALUE-NODES`、`-INTEGER-DIGITS` | input-decode | 入力値上限 |
