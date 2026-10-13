@@ -45,13 +45,25 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 
 回答済みの決定は DECISION 行で記録します。未回答の項目は「未決定」と書きます（2026-10-13 時点）。
 
-- DECISION-1（範囲）：設計書の核を v1 とする（route A）。レコード、直和、match、型引数、再帰、Char・String・Result、div、dict、Option 消去は v1 の外。
-- DECISION-2（拡張の扱い）：検証済みの仕様（verus/）は据え置き、v1 の判定が拡張を拒否する。G0 の「後続の Option 消去候補と混在させない」の文言は、凍結時に改める。
+- DECISION-1（範囲）：設計書の核を v1 とする（route A）。レコード、直和、match、型引数、再帰、Char・String・Result、div、dict、Option 消去は v1 の外。【DECISION-4 により置き換え】
+- DECISION-2（拡張の扱い）：検証済みの仕様（verus/）は据え置き、v1 の判定が拡張を拒否する。【DECISION-4 により置き換え】G0 の「後続の Option 消去候補と混在させない」は option_fold を指し、DECISION-4 のあとも有効。
 - DECISION-3（凍結の条件）：Verus で証明が要る G0 の項目を満たしてから凍結する。G1〜G4 を凍結の条件に含めるかは未決定。
+- DECISION-4（範囲）：実装済みの機能（v1.1〜v1.16）をすべて v1 に含める。非目標は実装と照合して改めた（設計書 2.2 節、2.3 節）。option_fold は実装がないため v1 の外。DECISION-1 と DECISION-2 を置き換える。
 
-未決定（推奨つき）：D2 予約語は設計書の 33 語。D3 括弧は山括弧。D4 Char・Result・String・div は v1 の外。D5 作業量・Admission・実行の trace は適合試験の glue。D6 証明の代わりに適合試験は使わず、未証明は明記。D7 v1 モードは厳格に拒否。D8 実行の trace は設計書どおり。D9 補助の行は G0 の必須から外す。D10 SKILL.md は「仕様と照合する」と書き直す。D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。D12 設計書の 1330・1332 行は v1 の対象外と記録。
+未決定（推奨つき）：
+- D2 字句表は実装の 68 語（`crates/tlvm/src/syntax.rs` の KEYWORDS）。うち 19 語は予約語、49 語は文脈キーワード（変数名などに使える。`SOFT_KEYWORDS`）。`rec`・`match`・`import`・`type` は字句表に入らず、位置で判定する。設計書の 33 語は古い。
+- D3 括弧は山括弧。実装は `list<Int>` と `none<Int>()` を受理し、`list[Int]` は E-PARSE-EXPECTED-TOKEN で拒否する。
+- D4 は DECISION-4 で決定：Char・String・Result・div を v1 に含める。
+- D5 作業量・Admission・実行の trace は適合試験の glue。
+- D6 証明の代わりに適合試験は使わず、未証明は明記。※DECISION-3 と矛盾する。未証明の G0 項目を残したまま凍結するかを決める必要がある。
+- D7 v1 の判定は実装済みの拡張タグを受理する。「厳格に拒否」から変更（DECISION-4 による）。
+- D8 実行の trace は設計書どおり。
+- D9 補助の行は G0 の必須から外す。
+- D10 SKILL.md は「仕様と照合する」と書き直す。
+- D11 spec_version は凍結時に決める（候補は lptl-v1.0.0）。
+- D12 設計書の 1330・1332 行（型検査の cutoff、AST の重複 key）は実装のある規則なので v1 の対象とする。「対象外」から変更（DECISION-4 による）。
 
-このコンテナでは github.com が拒否されるため、Verus は入っていません。証明が要る項目は、その許可のあとに進めます。
+このコンテナでは github.com への接続が 403 で拒否されるため、Verus（GitHub のリリース）を取得できません。証明は、github.com の許可のあとに進めます。
 
 # 設計状態として明示している境界
 
