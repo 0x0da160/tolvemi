@@ -21,6 +21,7 @@ files = [
 notes = [
   "名前は name phase で解決済みとし、変数と binder は nat、関数は添字で表す",
   "呼出しグラフの DAG 性はランク証明書 Prog::rank と型付け条件 rank[callee] < rank[caller] で表す",
+  "v1.7：Prog::rec（関数ごとの rec の印）。印のある関数への呼出しはランクの条件を免除する。印の列は未検証の接着部分が作る（落とせば拒否、余計に付ければ停止の保証を失うだけ）",
   "資源上限（steps、AllocatedNodes、IntegerBits）は spec 層に含まない。燃料は停止性のための抽象",
   "出力の正準 JSON は json.rs の enc で定める",
   "表面構文は syntax.rs の lex（字句）と parse（EBNF、式と型の入れ子の深さ上限つき）で、正準整形は fds で定める",
@@ -35,7 +36,7 @@ version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
 command = "cd verus && cargo verus focus -- --triggers-mode silent"
-result = "622 verified, 0 errors"
+result = "626 verified, 0 errors"
 assume = []
 admit = []
 # external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
@@ -61,16 +62,16 @@ trusted = [
 "3.resolver" = "resolve::resolve（関数名の一意性、entry の存在と一引数、変数の scope）、resolve::rx_scoped（解決後の変数は scope 内）。resolve_e は spec と一致"
 "4.typechecker" = "check::ty_of は spec の ty_expr と一致する型を返す。builtin_ty は builtin_type と一致する"
 "4.builtin-soundness" = "proof::apply_sound（組込みの型規則と意味の整合）"
-"5.dag" = "check::check_prog が真なら wf。wf は呼出し先のランクが真に小さいことを含む（ランク列は未検証の Tarjan が作るが、ここで検査する）"
-"6.type-safety" = "proof::total, proof::entry_total"
-"6.termination" = "proof::entry_total（整形式プログラムの entry はある燃料で Done になる）"
+"5.dag" = "check::check_prog が真なら wf。wf は呼出し先のランクが真に小さいか呼出し先に rec の印があることを含む（ランク列と印は未検証の接着部分が作るが、ここで検査する）"
+"6.type-safety" = "proof::total, proof::entry_total（no_rec のとき）。proof::sound, sound_args, sound_fold, entry_sound（型保存：ある燃料で値が出ればその値は型を持つ。rec があっても成り立つ）"
+"6.termination" = "proof::entry_total（整形式で no_rec のプログラムの entry はある燃料で Done になる）"
 "6.determinism" = "proof::eval_deterministic, proof::entry_deterministic"
-"6.central" = "pipeline::run_checked（返した値は spec の唯一の結果で、出力型を持つ）"
+"6.central" = "pipeline::run_checked（返した値は spec の唯一の結果で、出力型を持つ。整形式のすべてのプログラムで。Fault にならないことは no_rec のときだけ）"
 "7.fuel-monotonicity" = "proof::mono, proof::mono_args, proof::mono_fold"
-"8.refinement" = "eval::Machine::eval が値を返せば spec でも同じ値に評価される（evals_to）。Fault を返すのは spec が行き詰まる（bigstep::fails）ときだけで、run_checked は整形式のプログラムと型の合う入力で Fault にならないことを保証する。exec 評価器の停止性も Verus が検査"
+"8.refinement" = "eval::Machine::eval が値を返せば spec でも同じ値に評価される（evals_to）。Fault を返すのは spec が行き詰まる（bigstep::fails）ときだけで、run_checked は整形式で no_rec のプログラムと型の合う入力で Fault にならないことを保証する。exec 評価器の停止性も Verus が検査"
 "9.output" = "json::encode は spec の enc どおり。json::roundtrip で dec(enc(v)) == v、json::dec_typed で復号値は型を持つ"
 "9.input" = "input_proof::input_typed（復号した値は型を持つ）、input_nodup（受理した JSON に重複キーは無い）、input_roundtrip（型付き値の正準 JSON は受理されて元の値に戻る）。input_exec::jparse_e、decode_input_e は spec と一致"
-"10.failure-separation" = "pipeline::compile_source は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が None のときだけ。pipeline::run_input_json は復号の拒否（spec の input_val が None のときだけ）と実行を分け、実行は Fault で終わらない"
+"10.failure-separation" = "pipeline::compile_source は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が None のときだけ。pipeline::run_input_json は復号の拒否（spec の input_val が None のときだけ）と実行を分け、no_rec なら実行は Fault で終わらない"
 "mod" = "proof::mod_bounds（正の除数で 0 <= x mod y < y）"
 "non-vacuity" = "proof::example_wf（wf が充足可能な具体例）"
 
@@ -108,6 +109,7 @@ glue = [
   "crates/tlvm/src/sums.rs：v1.4 のユーザー定義の直和型と match の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。検証済み部品は書き換え後の整形ソースを検査・実行する）。直和型・match を含むプログラムの fmt も診断用 formatter の出力をそのまま出す",
   "crates/tlvm/src/hof.rs：v1.5 の map・filter・any・all・find・sort_by の書き換え（型検査の後に fold・reverse・cons・if・match_option・let の組み合わせへ。sort_by は fold による安定な挿入整列。検証済み部品は書き換え後の整形ソースを検査・実行する）。これを含むプログラムの fmt も診断用 formatter の出力をそのまま出す。api.rs は、検証済みの構文規則では普通の名前であるこの 6 語が呼び出し・宣言の名前の位置にあるとき、構文・名前の誤拒否の突き合わせを省く。v1.6 の loop も同じ（range(0, max) 上の fold と match_result・match_option に書き換える。状態は Result<S, S>）",
   "crates/tlvm/src/runtime.rs、main.rs の exec：v1.4 の出力型 Result<String, String> の ok／err を標準出力・標準エラーと終了コード 0／1 に写す",
+  "crates/tlvm/src/parser.rs、checker.rs、api.rs：v1.7 の rec fn。診断用 parser が印 rec を読み（span を記録）、checker.rs が印のある関数へ入る辺を除いた呼出しグラフでランクを作る（印のない呼出し先は rank[callee] < rank[caller]）。api.rs は検証済み parser・formatter に渡すテキストから印を外し（source は印の span を同じ長さの空白に置き換え、書き換え後・AST のプログラムは印を外して整形）、関数ごとの印の列を検証済みプログラムの関数と同じ宣言順で compile_source に渡す。印を落とせば検証済み型検査が循環として拒否し（E-INTERNAL-VERIFIED-MISMATCH）、余計に付ければ停止の保証の主張（tlvm check の terminates）を誤るだけで、返した値の型と一意性の保証は残る。terminates は印のある関数がないときだけ true",
 ]
 unsafe = []
 tests = "cargo test --release（回帰テスト）。検証済み部品に切り替える前の処理系との差分テスト（型付きプログラム 400 件、字句・名前を壊したプログラム 2900 件、入力 JSON 4000 件）で出力・診断・終了コードが一致"

@@ -4,6 +4,8 @@
 //! 名前は exec 層の name phase で解決済みとし、変数・binder は `nat`、関数は
 //! `Prog::funcs` の添字で表す。呼出しグラフが DAG であることは、各関数に付けた
 //! ランク証明書 `Prog::rank` と「呼出し先のランクは真に小さい」という型付け条件で表す。
+//! v1.7：`rec` の印をつけた関数（`Prog::rec`）への呼出しはランクの条件を免除する（上限なしの
+//! 再帰を許す）。印のある関数がない（`no_rec`）ときだけ、呼出しグラフは DAG になる。
 
 use vstd::prelude::*;
 
@@ -145,7 +147,14 @@ pub struct Prog {
     pub funcs: Seq<Func>,
     /// DAG のランク証明書（§5.4）。呼出し先は真に小さいランクを持つ。
     pub rank: Seq<nat>,
+    /// v1.7：関数ごとの `rec` の印。印のある関数への呼出しはランクを下げなくてよい。
+    pub rec: Seq<bool>,
     pub entry: nat,
+}
+
+/// v1.7：印 `rec` のある関数がない（停止性の定理 `total` の前提）。
+pub open spec fn no_rec(p: Prog) -> bool {
+    forall|g: int| 0 <= g < p.rec.len() ==> !#[trigger] p.rec[g]
 }
 
 // ------------------------------------------------------------------ 型付け（§6）
@@ -256,7 +265,7 @@ pub open spec fn ty_expr(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr) -> Option<
             None => None,
         },
         Expr::Call(g, es) => match ty_args(p, r, ctx, es, 0) {
-            Some(ts) => if g < p.funcs.len() && g < p.rank.len() && p.rank[g as int] < r
+            Some(ts) => if g < p.funcs.len() && g < p.rank.len() && (p.rank[g as int] < r || (g < p.rec.len() && p.rec[g as int]))
                 && ts.len() == p.funcs[g as int].params.len()
                 && forall|k: int| 0 <= k < ts.len() ==> #[trigger] ts[k] == p.funcs[g as int].params[k].1 {
                 Some(p.funcs[g as int].ret)
@@ -330,9 +339,10 @@ pub open spec fn ty_args(p: Prog, r: nat, ctx: Map<nat, Ty>, es: Seq<Expr>, i: n
     }
 }
 
-/// 整形式プログラム：全関数が型付き、呼出しはランクを下げ、entry は一引数。
+/// 整形式プログラム：全関数が型付き、呼出しはランクを下げる（呼出し先が `rec` なら免除）、entry は一引数。
 pub open spec fn wf(p: Prog) -> bool {
     &&& p.rank.len() == p.funcs.len()
+    &&& p.rec.len() == p.funcs.len()
     &&& p.entry < p.funcs.len()
     &&& p.funcs[p.entry as int].params.len() == 1
     &&& forall|g: int| 0 <= g < p.funcs.len() ==> #[trigger] ty_expr(

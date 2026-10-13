@@ -1,7 +1,7 @@
 ---
 type: Language Specification
 title: 文法と宣言終端
-description: LPTL の表面文法（EBNF）と、完成した式の直後の fn・entry・EOF だけを宣言終端とする規則。演算子構文はなく全てが前置形式である。
+description: LPTL の表面文法（EBNF）と、完成した式の直後の fn・entry・EOF だけを宣言終端とする規則（v1.7 の rec fn を含む）。演算子構文はなく全てが前置形式である。
 tags: [lptl, grammar, ebnf, parser]
 status: draft
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
@@ -125,5 +125,16 @@ expr      ::= ... | "loop" "(" expr "," expr "," "|" IDENT "|" expr ")"
 - 第 3 引数は一つの binder のラムダ `|s| e` に限る。関数名だけ、ラムダの頭がない式、binder が二つ、第 3 引数がない
   （`loop(init, max)`）は `E-PARSE-EXPECTED-LAMBDA`（修復ヒント付き）。
 - 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/hof.rs` が `fold` などに書き換えてから渡す。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+
+# v1.7 の追加：rec fn
+
+```ebnf
+top_decl  ::= ... | "rec" function_def
+```
+
+- `rec` は文脈キーワードで、宣言の先頭で直後が `fn` のときだけ印。それ以外の位置では普通の名前（変数・引数・束縛・field・関数の名前に使える）。
+- 宣言の終端の規則は、次の token が `fn`、`entry`、`type`（宣言の先頭）、EOF に加えて、直後が `fn` か `entry` の `rec` でもよい。
+- `rec entry f` は `E-PARSE-REC-ENTRY`（修復ヒント付き：`rec` を消す）。
+- 検証済み部品の構文にはなく、接着部分が印を外したテキストと関数ごとの印の列を渡す。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

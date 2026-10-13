@@ -22,8 +22,10 @@ const EXPR_TAGS: &[&str] = &[
     "ok", "err", "match_result", "map", "filter", "any", "all", "find", "sort_by", "loop",
 ];
 
-fn decl_fields(tag: &str) -> &'static [(&'static str, JKind)] {
+/// v1.7：`fn` の `rec`（真偽値）は省略できる（省略は false。v1.6 までの AST JSON はそのまま読める）。
+fn decl_fields(tag: &str, rec: bool) -> &'static [(&'static str, JKind)] {
     match tag {
+        "fn" if rec => &[("name", S), ("params", A), ("return_type", O), ("body", O), ("rec", B)],
         "fn" => &[("name", S), ("params", A), ("return_type", O), ("body", O)],
         _ => &[("name", S)],
     }
@@ -200,7 +202,7 @@ impl Schema<'_> {
 
     fn decl(&self, n: &JNode) -> R {
         let tag = self.header(n, DECL_TAGS)?;
-        self.keys(n, decl_fields(tag), true)?;
+        self.keys(n, decl_fields(tag, n.get("rec").is_some()), true)?;
         self.ident(n.get("name").unwrap())?;
         if tag == "fn" {
             for p in &n.get("params").unwrap().items {
@@ -329,6 +331,8 @@ impl Builder {
                 return_type: ret,
                 body,
                 meta: Meta::new(d.span(), i),
+                rec: d.get("rec").is_some_and(|r| r.boolean),
+                rec_span: Sp::default(),
             }));
         }
         Ok(Program { declarations: decls, meta: Meta::new(n.span(), idx) })

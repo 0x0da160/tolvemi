@@ -80,4 +80,9 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 予約語に `loop` を加えた（計 57 語）。文脈キーワードで、変数・引数・束縛・field の名前に使える。関数名と entry の名前には
 使えない（`E-PARSE-EXPECTED-IDENT`）。`tlvm ast` は変数名の `loop` を `loop_kw` などに付け替える。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
 
+# v1.7 の追加：rec
+
+`rec` は予約語ではない（予約語は 57 語のまま）。宣言の先頭で直後が `fn` のときだけ関数の印として働き、それ以外では
+IDENT（変数・引数・束縛・field・関数の名前、AST transport の識別子にも使える）。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

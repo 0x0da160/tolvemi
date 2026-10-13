@@ -1,13 +1,13 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.6), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.7), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.6)
+# Tolvemi (LPTL v1.7)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
-terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no general
-recursion and no exceptions. The language is deliberately small: if something is not listed here, it does not exist.
+without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
+unmarked recursion and no exceptions. The language is deliberately small: if something is not listed here, it does not exist.
 
 ## Program shape
 
@@ -23,7 +23,8 @@ entry sum_even
 ```
 
 - `fn name(p1: T1, p2: T2, ...) -> R = expr`. A function body is a single expression.
-- Functions may call other functions, but the call graph must be acyclic: no recursion, direct or mutual.
+- Functions may call other functions, but the call graph must be acyclic: no recursion, direct or mutual, unless the
+  function is marked `rec fn` (below).
 - The entry function takes exactly one parameter. Several inputs arrive packed in `Pair`s.
 - Comments start with `//` and run to the end of the line. Outside comments and string or char literals, the source must be ASCII.
 
@@ -166,6 +167,27 @@ entry solve
 - In JSON inputs and outputs a `Result` is `{"ok": v}` or `{"err": e}`, and a sum value is the constructor name
   with its fields in an array: `{"Rect": [2, 3]}`, `{"Empty": []}`.
 
+## Recursion: rec fn, only when fold and loop do not fit
+
+Prefer `fold` (over a list), `map` / `filter` / ... and `loop` (repeat a step): they always terminate. When the
+problem is naturally recursive and neither fits, such as reading nested structure out of a list of tokens, mark the
+function `rec fn`. A `rec fn` may call itself and other `rec fn`s (mutual recursion: mark every function on the
+cycle). Calls into `rec fn`s are exempt from the acyclic rule; calls between unmarked functions are not.
+
+```tlvm
+// Greatest common divisor by Euclid's algorithm.
+rec fn gcd(a: Int, b: Int) -> Int = match mod(a, b) { some(r) => if(eq(r, 0), b, gcd(b, r)), none => a }
+fn solve(p: Pair<Int, Int>) -> Int = gcd(fst(p), snd(p))
+entry solve
+```
+
+- `rec` goes only before `fn`, never before `entry` (`E-PARSE-REC-ENTRY`). It is not a reserved word: `rec` is still
+  fine as a variable, parameter, binder or field name.
+- Every recursive call must be on a smaller problem (a shorter list, a smaller number) with a base case checked first.
+  Termination is no longer guaranteed: `tlvm check` reports `"terminates": false`, and a runaway recursion is stopped
+  by the step or depth limit instead of returning a value.
+- There are no recursive types; recurse over a `List` (take it apart with `uncons`) or over numbers.
+
 ## Names and scoping
 
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
@@ -173,7 +195,8 @@ entry solve
 - `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod fst snd cons concat reverse
   length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by loop` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
-  `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration.
+  `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration, and `rec`
+  is an ordinary name except directly before `fn` at the start of a declaration.
 - No shadowing: a `let` name, a `fold`, `map`-style or `loop` binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
@@ -244,6 +267,25 @@ fn next_power(n: Int) -> Int =
 entry next_power
 ```
 
+Reading nested structure from a flat list (a recursive descent parser): a `rec fn` that consumes the tokens of one
+item and returns its value together with the tokens left after it, as a `Pair`.
+
+```tlvm
+// Sum of a nested list written as tokens: "(" starts a list, ")" ends it, anything else is an integer.
+// Returns the sum of the items up to the closing ")" (or the end) and the tokens after it.
+rec fn items(ts: List<String>) -> Pair<Int, List<String>> =
+  match uncons(ts) {
+    none => pair(0, ts),
+    some(p) =>
+      if(eq(fst(p), ")"), pair(0, snd(p)),
+        let item = if(eq(fst(p), "("), items(snd(p)), pair(match parse_int(fst(p)) { some(n) => n, none => 0 }, snd(p))) in
+        let rest = items(snd(item)) in
+        pair(add(fst(item), fst(rest)), snd(rest)))
+  }
+fn solve(ts: List<String>) -> Int = fst(items(ts))
+entry solve
+```
+
 Before answering, check: every `(` is closed (count them in deep nesting), every `let` has its `in`, every
 `none<T>()` and `list<T>(...)` names its type, no binder reuses a name already in scope, and no name is a
 reserved word (`in`, `if`, `let` and `fold` are the usual slips).
@@ -301,7 +343,8 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-PARSE-EXPECTED-TYPE` | a missing or invalid type in `list<T>(...)` / `none<T>()` |
 | `E-NAME-UNBOUND-VARIABLE` / `E-NAME-UNKNOWN-FUNCTION` | a typo, or a function that does not exist (e.g. `head`, `abs`) |
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
-| `E-CYCLE-CALL` | recursion |
+| `E-CYCLE-CALL` | a recursive call (direct or mutual) between functions not marked `rec`: rewrite with `fold` / `loop`, or mark every function on the cycle `rec fn` |
+| `E-PARSE-REC-ENTRY` | `rec entry f`: `rec` marks a function declaration (`rec fn f ...`), never the `entry` line |
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |
 | `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option (`match_result` on a non-Result, `match` on a value of another type), or branches of different types |
 | `E-MATCH-MISSING` / `E-MATCH-DUPLICATE` / `E-MATCH-UNREACHABLE` | a `match` without an arm for some case (the repair lists them), a case twice, or an arm after `_` |

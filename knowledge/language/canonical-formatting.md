@@ -59,4 +59,9 @@ sources:
 `loop(EXPR, EXPR, |X| EXPR)`。これを含むプログラムも検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の
 出力を出す。
 
+# v1.7 の追加
+
+`rec fn NAME(...) -> T = EXPR`（`rec` と `fn` の間は空白一つ）。検証済み formatter は `rec` を知らないので、`tlvm fmt` は
+印を外したものを検証済み formatter で照合し、印を付けて出す（レコードなどを含むときは診断用 formatter の出力）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -1,7 +1,7 @@
 ---
 type: Language Specification
 title: 呼出しグラフと DAG
-description: ユーザー関数の呼出しグラフは自己辺を含む全循環を拒否する DAG でなければならず、fold 本体や非選択枝の call も辺に含めて rank を構成する。
+description: ユーザー関数の呼出しグラフは自己辺を含む全循環を拒否する DAG でなければならず、fold 本体や非選択枝の call も辺に含めて rank を構成する。v1.7 では rec fn へ入る辺を除いて検査する。
 tags: [lptl, call-graph, dag, termination]
 status: draft
 generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
@@ -41,5 +41,15 @@ f -> g ならば rank(g) < rank(f)
 - cycle error があっても typecheck と entry は実行する（name error の場合と異なる）。
 
 例：fold 内から現在関数を呼ぶ → `E-CYCLE-CALL`。
+
+# v1.7 の追加：rec fn
+
+- `rec fn` の印のある関数へ入る辺を除いたグラフが DAG であればよい。印のある関数は自分自身や他の関数（印のある関数を含む）を
+  呼べる。印のない関数だけの循環は従来どおり `E-CYCLE-CALL`。
+- 修復ヒント（source API）：`insert_text`（循環にある最初の関数の宣言の先頭）で、循環にある関数すべてに `rec ` を付けること。
+  歩数に上限があるなら fold・loop を勧める。
+- rank は除いた後のグラフで作る（呼出し先のない関数を 0、その他を印のない呼出し先の `1 + max(rank)`）。印のない呼出し先は
+  `rank(g) < rank(f)`、印のある呼出し先は免除。未使用の警告（W-UNUSED-FUNCTION）の到達可能性は除く前の全ての辺で決める。
+- `rec fn` を含むプログラムは停止を保証しない（[停止性の証明](../guarantees/termination-proof.md) は印のない場合だけ）。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

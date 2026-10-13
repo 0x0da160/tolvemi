@@ -3,7 +3,8 @@
 //! `check_prog` が真を返したなら spec の整形式条件 `wf` が成り立つ。`wf` は呼出し先の
 //! ランクが真に小さいことを含むので、ランク列は呼出しグラフが DAG であることの証明書になる。
 //! ランク列そのものは crates/tlvm の未検証の Tarjan 実装が作るが、ここで検査するので
-//! その正しさを信頼する必要はない。
+//! その正しさを信頼する必要はない。v1.7：`rec` の印のある関数への呼出しはランクの条件を
+//! 免除する（印も未検証の接着部分が作る。印を落とせば拒否、余計に付ければ停止の保証を失うだけ）。
 
 use crate::bigint::Int;
 use crate::ir::*;
@@ -305,7 +306,7 @@ pub fn ty_of(p: &EProg, r: usize, ctx: &mut Vec<(usize, Ty)>, e: &EExpr) -> (res
         },
         EExpr::Call(g, es) => {
             let ts = ty_list_of(p, r, ctx, es)?;
-            if *g >= p.funcs.len() || *g >= p.rank.len() || p.rank[*g] >= r {
+            if *g >= p.funcs.len() || *g >= p.rank.len() || (p.rank[*g] >= r && !(*g < p.rec.len() && p.rec[*g])) {
                 return None;
             }
             let f = &p.funcs[*g];
@@ -542,7 +543,7 @@ pub fn check_prog(p: &EProg) -> (ok: bool)
         ok ==> wf(view_prog(*p)),
 {
     let ghost pp = view_prog(*p);
-    if p.rank.len() != p.funcs.len() || p.entry >= p.funcs.len() || p.funcs[p.entry].params.len() != 1 {
+    if p.rank.len() != p.funcs.len() || p.rec.len() != p.funcs.len() || p.entry >= p.funcs.len() || p.funcs[p.entry].params.len() != 1 {
         return false;
     }
     let mut g = 0;
@@ -550,6 +551,7 @@ pub fn check_prog(p: &EProg) -> (ok: bool)
         invariant
             pp == view_prog(*p),
             p.rank@.len() == p.funcs@.len(),
+            p.rec@.len() == p.funcs@.len(),
             g <= p.funcs@.len(),
             forall|h: int|
                 0 <= h < g ==> #[trigger] ty_expr(

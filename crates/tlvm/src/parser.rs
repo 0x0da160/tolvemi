@@ -69,6 +69,15 @@ fn is_type_kw(t: &Token) -> bool {
     t.kind == TokKind::Ident && t.text == "type"
 }
 
+/// v1.7：宣言の先頭の `rec` で、直後が `fn`（印）か `entry`（E-PARSE-REC-ENTRY）か。
+/// `rec` は予約語ではないので、それ以外の位置では普通の名前。
+fn is_rec_at(toks: &[Token], i: usize) -> bool {
+    let t = &toks[i];
+    t.kind == TokKind::Ident
+        && t.text == REC
+        && toks.get(i + 1).is_some_and(|n| n.is_kw("fn") || n.is_kw("entry"))
+}
+
 pub const CTOR_EXPECTED: &str = "constructor name starting with an uppercase letter";
 pub const PATTERN_EXPECTED: &str = "pattern: Ctor, Ctor(x, ...), ok(x), err(e), some(x), none or _";
 /// v1.5：`map(xs, ...)` などの第 2 引数にラムダがない
@@ -181,12 +190,12 @@ impl Parser {
 
     fn at_decl_end(&self) -> bool {
         let t = self.peek(0);
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t)
+        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, self.pos)
     }
 
     fn is_sync(&self, i: usize) -> bool {
         let t = &self.toks[i];
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t)
+        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, i)
     }
 
     pub fn parse_program(mut self) -> ParseOutcome {
@@ -203,6 +212,18 @@ impl Parser {
             }
             let r = if self.peek(0).is_kw("fn") {
                 self.parse_fn().map(Decl::Fn)
+            } else if is_rec_at(&self.toks, self.pos) {
+                // v1.7：`rec fn`。`rec entry` は書けない
+                if self.peek(1).is_kw("entry") {
+                    Err(Fail::Parse { code: "E-PARSE-REC-ENTRY", index: self.pos, expected: Some("fn"), at: None })
+                } else {
+                    let m = self.advance();
+                    self.parse_fn().map(|mut f| {
+                        f.rec = true;
+                        f.rec_span = Sp(m.start, m.end);
+                        Decl::Fn(f)
+                    })
+                }
             } else if self.peek(0).is_kw("entry") {
                 self.parse_entry().map(Decl::Entry)
             } else if is_type_kw(self.peek(0)) {
@@ -294,6 +315,8 @@ impl Parser {
             return_type: ret,
             body,
             meta: Meta::new((kw.start, self.prev_end), idx),
+            rec: false,
+            rec_span: Sp::default(),
         })
     }
 

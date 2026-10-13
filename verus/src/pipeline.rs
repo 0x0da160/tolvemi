@@ -2,7 +2,8 @@
 //!
 //! `run_checked` は、検証済み型検査器でプログラムが整形式であることと、入力値が entry の
 //! 入力型を持つことを確かめてから、検証済み評価器で実行する。値を返したなら、それは
-//! spec の評価が返す唯一の値で、entry の出力型を持つ。
+//! spec の評価が返す唯一の値で、entry の出力型を持つ（v1.7：`rec` の印があっても成り立つ。
+//! 定理 `sound`）。Fault で終わらないこと（停止性 `entry_total` から）は `no_rec` のときだけ保証する。
 
 use crate::check::*;
 use crate::eval::*;
@@ -45,7 +46,7 @@ pub fn run_checked(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Checked)
         r is Ran ==> val_type(view_val(*input), view_prog(*p).funcs[p.entry as int].params[0].1),
         r matches Checked::Ran(Ok(w), _, _) ==> is_entry_result(view_prog(*p), view_val(*input), view_val(*w))
             && val_type(view_val(*w), view_prog(*p).funcs[p.entry as int].ret),
-        r matches Checked::Ran(res, _, _) ==> !is_fault(res),
+        no_rec(view_prog(*p)) ==> (r matches Checked::Ran(res, _, _) ==> !is_fault(res)),
 {
     if !check_prog(p) {
         return Checked::NotWellFormed;
@@ -62,8 +63,8 @@ pub fn run_checked(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Checked)
     }
     let (res, steps, alloc) = run(p, input, lim);
     proof {
-        if is_fault(res) {
-            // 整形式のプログラムに型の合う入力を与えると、ある燃料で Done になる（entry_total）。
+        if is_fault(res) && no_rec(pp) {
+            // 整形式で印 rec のないプログラムに型の合う入力を与えると、ある燃料で Done になる（entry_total）。
             entry_total(pp, iv);
             let (n1, w1) = choose|n1: nat, w1: Val|
                 #![trigger eval_entry(pp, n1, iv), val_type(w1, pp.funcs[pp.entry as int].ret)]
@@ -71,13 +72,10 @@ pub fn run_checked(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Checked)
             assert(eval_entry(pp, n1, iv) is Done);
         }
         if res is Ok {
+            // 値の型は sound（停止性を使わない）、一意性は決定性から。
             let w = vv(res->Ok_0);
             let n0 = choose|n: nat| #[trigger] eval_entry(pp, n, iv) == Res::Done(w);
-            entry_total(pp, iv);
-            let (n1, w1) = choose|n1: nat, w1: Val|
-                #![trigger eval_entry(pp, n1, iv), val_type(w1, pp.funcs[pp.entry as int].ret)]
-                eval_entry(pp, n1, iv) == Res::Done(w1) && val_type(w1, pp.funcs[pp.entry as int].ret);
-            entry_deterministic(pp, n0, n1, iv);
+            entry_sound(pp, n0, iv, w);
             assert forall|n: nat| #[trigger] eval_entry(pp, n, iv) is Done implies eval_entry(pp, n, iv) == Res::Done(w) by {
                 entry_deterministic(pp, n0, n, iv);
             }
@@ -106,7 +104,7 @@ pub fn run_checked_json(p: &EProg, input: Rc<Value>, lim: Limits) -> (r: Output)
                 w,
                 view_prog(*p).funcs[p.entry as int].ret,
             ) && o@ == enc(w) && dec(o@, 0, view_prog(*p).funcs[p.entry as int].ret) == Some((w, o@.len() as int)),
-        r matches Output::Ran(res, _, _) ==> !is_fault(res),
+        no_rec(view_prog(*p)) ==> (r matches Output::Ran(res, _, _) ==> !is_fault(res)),
 {
     let ghost iv = vv(input);
     match run_checked(p, input, lim) {
@@ -146,7 +144,7 @@ pub open spec fn in_ty(p: EProg) -> Ty {
 
 /// 入力 JSON 文書を検証済みの復号器で読み、検証済み評価器で実行する。
 /// - 復号の拒否と実行の失敗は別の結果に分かれ、復号を拒否するのは spec の `input_val` が None のときだけ。
-/// - 実行が Fault（spec の行き詰まり）で終わることはない。
+/// - `rec` の印のある関数がなければ、実行が Fault（spec の行き詰まり）で終わることはない。
 /// - 出力 o は、復号した入力に対する spec の唯一の結果 w の正準 JSON。
 pub fn run_input_json(p: &EProg, text: &Vec<char>, d: usize, lim: Limits) -> (r: InputRun)
     requires
@@ -155,7 +153,7 @@ pub fn run_input_json(p: &EProg, text: &Vec<char>, d: usize, lim: Limits) -> (r:
     ensures
         r is InputRejected ==> wf(view_prog(*p)) && input_val(text@, d as nat, in_ty(*p)) is None,
         r is Ran ==> wf(view_prog(*p)) && input_val(text@, d as nat, in_ty(*p)) is Some,
-        r matches InputRun::Ran(res, _, _) ==> !is_fault(res),
+        no_rec(view_prog(*p)) ==> (r matches InputRun::Ran(res, _, _) ==> !is_fault(res)),
         r matches InputRun::Ran(Ok(o), _, _) ==> exists|w: Val|
             #![trigger is_entry_result(view_prog(*p), input_val(text@, d as nat, in_ty(*p))->Some_0, w)]
             is_entry_result(view_prog(*p), input_val(text@, d as nat, in_ty(*p))->Some_0, w) && val_type(
@@ -217,7 +215,8 @@ pub enum Compiled {
 
 /// 検証済みの lexer・parser・名前解決・型検査を通して実行可能プログラムを作る。
 /// rank は呼出しグラフのランク（未検証の Tarjan が作る）で、ここで検査する。
-pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>) -> (r: Compiled)
+/// rec は関数ごとの `rec` の印（v1.7。これも未検証の接着部分が作る）。
+pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>, rec: Vec<bool>) -> (r: Compiled)
     requires
         src@.len() < 0x1000_0000,
     ensures
@@ -225,7 +224,7 @@ pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>) ->
         r is NameRejected ==> parse(src@, d as nat, td as nat) is Some && source_prog(src@, d as nat, td as nat) is None,
         r matches Compiled::Accepted(p) ==> source_prog(src@, d as nat, td as nat) == Some(
             (view_prog(p).funcs, view_prog(p).entry),
-        ) && wf(view_prog(p)),
+        ) && wf(view_prog(p)) && view_prog(p).rec == rec@,
 {
     let sp = match parse_e(src, d, td) {
         Some(sp) => sp,
@@ -235,7 +234,7 @@ pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>) ->
         Some(r) => r,
         None => return Compiled::NameRejected,
     };
-    let p = EProg { funcs, rank, entry };
+    let p = EProg { funcs, rank, rec, entry };
     proof {
         assert(view_prog(p).funcs =~= vfuncs(p.funcs@));
     }

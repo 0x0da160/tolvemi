@@ -1,6 +1,7 @@
 //! tlvm コマンド。
 //!
-//!   tlvm check FILE           静的検査（.tlvm source、.json は ast_codec_v1）
+//!   tlvm check FILE           静的検査（.tlvm source、.json は ast_codec_v1）。結果の terminates は
+//!                             `rec fn` がなければ true（停止を保証）、あれば false（v1.7）
 //!   tlvm run FILE INPUT       検査・入力 decode・実行（INPUT は JSON 文字列、@path、- は stdin）
 //!   tlvm fmt FILE             正準ソースを出力
 //!   tlvm ast FILE             ast_codec_v1 JSON を出力
@@ -376,12 +377,20 @@ fn real_main() -> Result<ExitCode, String> {
     match pos.as_slice() {
         ["check", file] => match compile_file(file, as_ast)? {
             Some(p) => {
+                // v1.7：terminates は `rec fn` がないとき true（停止を証明済み）。あれば false（止まらない再帰は資源上限で打ち切る）
                 println!(
-                    "{{\"result\":\"Accepted\",\"entry\":{},\"input_type\":{},\"output_type\":{}}}",
+                    "{{\"result\":\"Accepted\",\"entry\":{},\"input_type\":{},\"output_type\":{},\"terminates\":{}}}",
                     json_string(&p.entry),
                     json_string(&p.input_type.to_string()),
-                    json_string(&p.output_type.to_string())
+                    json_string(&p.output_type.to_string()),
+                    p.terminates()
                 );
+                if HUMAN.load(Ordering::Relaxed) && !p.terminates() {
+                    eprintln!(
+                        "note: termination is not guaranteed: rec fn {} may recurse without bound (a runaway run stops at the steps or depth limit)",
+                        p.rec_functions().join(", ")
+                    );
+                }
                 Ok(ExitCode::SUCCESS)
             }
             None => Ok(ExitCode::from(1)),
@@ -396,15 +405,17 @@ fn real_main() -> Result<ExitCode, String> {
             Some(p) => {
                 // 正準ソースは検証済み formatter が出す。source なら元の source を、AST なら診断用
                 // formatter の出力を検証済み parser に通し、診断用 formatter の結果と照合する。
+                // v1.7：検証済み formatter は `rec` を知らないので、印を外したもので照合し、印を付けた整形を出す
                 let text = format_program(&p);
+                let bare = format_program(&p.unmarked());
                 let src = if as_ast || file.ends_with(".json") {
-                    text.clone()
+                    bare.clone()
                 } else {
-                    String::from_utf8(read(file)?).map_err(|e| e.to_string())?
+                    without_rec_markers(&String::from_utf8(read(file)?).map_err(|e| e.to_string())?, &p)
                 };
                 match canonical(&src, &StaticProfile::default()) {
-                    Some(o) if o == text => {
-                        print!("{o}");
+                    Some(o) if o == bare => {
+                        print!("{text}");
                         Ok(ExitCode::SUCCESS)
                     }
                     _ => {

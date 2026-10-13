@@ -39,6 +39,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-PARSE-STRING-TYPE" => "List<Char> は String と書きます",
         "E-PARSE-EXPECTED-PATTERN" => "match の枝には pattern（構築子、ok(x)、err(e)、some(x)、none、_）が必要です",
         "E-PARSE-EXPECTED-LAMBDA" => "map・filter・any・all・find・sort_by の第 2 引数と loop の第 3 引数は一つの binder のラムダ |x| e でなければなりません",
+        "E-PARSE-REC-ENTRY" => "entry には rec を付けられません（rec は関数の宣言 rec fn に付けます）",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
@@ -339,6 +340,12 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 "replace_identifier",
                 span,
                 "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty".into(),
+            )),
+            // v1.7：`rec entry`
+            "E-PARSE-REC-ENTRY" => Some((
+                "delete_span",
+                span,
+                "delete 'rec': entry only names the function to run; if that function recurses, mark its declaration as rec fn".into(),
             )),
             // v1.5：map などの第 2 引数
             "E-PARSE-EXPECTED-LAMBDA" => Some(lambda_repair(span, exp.as_deref(), d.actual.as_deref(), source)),

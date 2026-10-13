@@ -148,6 +148,9 @@ impl HofOp {
     }
 }
 
+/// v1.7：関数の印 `rec`（文脈キーワード。最上位で直後が `fn` のときだけ印。予約語ではない）。
+pub const REC: &str = "rec";
+
 /// v1.6：上限つき反復 `loop(init, max, |s| e)` の名前。
 pub const LOOP: &str = "loop";
 
@@ -390,6 +393,10 @@ pub struct FnDecl {
     pub return_type: TypeNode,
     pub body: Expr,
     pub meta: Meta,
+    /// v1.7：`rec fn` の印（上限なしの再帰を許す。停止は保証しない）
+    pub rec: bool,
+    /// v1.7：印 `rec` の span（source から読んだときだけ。比較対象外）
+    pub rec_span: Sp,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -451,6 +458,20 @@ impl Program {
             Decl::Fn(f) => Some(f),
             _ => None,
         })
+    }
+    /// v1.7：`rec` の印のある関数があるか（あれば停止は保証されない）。
+    pub fn has_rec(&self) -> bool {
+        self.functions().any(|f| f.rec)
+    }
+    /// v1.7：印 `rec` を外したプログラム（検証済み部品に渡す整形ソース用。印は別に渡す）。
+    pub fn unmarked(&self) -> Program {
+        let mut p = self.clone();
+        for d in &mut p.declarations {
+            if let Decl::Fn(f) = d {
+                f.rec = false;
+            }
+        }
+        p
     }
     pub fn entries(&self) -> impl Iterator<Item = &EntryDecl> {
         self.declarations.iter().filter_map(|d| match d {

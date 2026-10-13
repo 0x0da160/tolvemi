@@ -89,6 +89,8 @@ pub struct EFunc {
 pub struct EProg {
     pub funcs: Vec<EFunc>,
     pub rank: Vec<usize>,
+    /// v1.7：関数ごとの `rec` の印
+    pub rec: Vec<bool>,
     pub entry: usize,
 }
 
@@ -104,6 +106,7 @@ pub open spec fn view_prog(p: EProg) -> Prog {
     Prog {
         funcs: Seq::new(p.funcs@.len(), |i: int| view_func(p.funcs@[i])),
         rank: Seq::new(p.rank@.len(), |i: int| p.rank@[i] as nat),
+        rec: p.rec@,
         entry: p.entry as nat,
     }
 }

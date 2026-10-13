@@ -82,6 +82,12 @@ impl Program {
         self.inner.output_type()
     }
 
+    /// 停止が保証されるか（v1.7：`rec fn` がなければ True。あれば False で、止まらない再帰は資源上限で打ち切る）。
+    #[getter]
+    fn terminates(&self) -> bool {
+        self.inner.terminates()
+    }
+
     /// 受理時の warning（診断の dict の list）。
     #[getter]
     fn warnings<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {

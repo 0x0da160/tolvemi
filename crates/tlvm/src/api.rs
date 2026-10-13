@@ -132,7 +132,8 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
                 Err(d) => SourceCompile::Result(result(d, None)),
                 Ok(px) => {
                     let o = check_program(&px, source.len(), profile);
-                    let text = format_program(&lower(&hof::lower(&px, &o.hof)));
+                    // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
+                    let text = format_program(&lower(&hof::lower(&px, &o.hof)).unmarked());
                     let r = result(o.diagnostics.clone(), Some(o));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
@@ -141,8 +142,8 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
         Parsed::Program(p) => {
             let o = check_program(&p, source.len(), profile);
             let r = result(o.diagnostics.clone(), Some(o));
-            let text = std::str::from_utf8(source).unwrap_or("");
-            SourceCompile::Result(cross_check(text, r, profile))
+            let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), &p);
+            SourceCompile::Result(cross_check(&text, r, profile))
         }
     }
 }
@@ -175,6 +176,21 @@ pub fn lower(px: &Program) -> Program {
 }
 
 // ---------------------------------------------------------------- 検証済み部品による確認
+
+/// v1.7：source から印 `rec`（`rec fn` の `rec`。parser が記録した span）を同じ長さの空白に置き換える。
+/// 検証済み parser は `rec` を知らないので、印を外した source を読ませ、印の列は `compile_source` に別に渡す。
+/// 変数名などの `rec` は印ではないのでそのまま残る。
+pub fn without_rec_markers(source: &str, p: &Program) -> String {
+    let mut b = source.as_bytes().to_vec();
+    for f in p.functions().filter(|f| f.rec) {
+        let (s, e) = f.rec_span.t();
+        if e <= b.len() && &b[s..e] == crate::syntax::REC.as_bytes() {
+            b[s..e].fill(b' ');
+        }
+    }
+    // `rec` は ASCII なので UTF-8 のまま
+    String::from_utf8(b).unwrap_or_default()
+}
 
 /// 検証済み parser に渡す式・型の入れ子の深さ上限。診断用 parser の上限（structural-limits）より
 /// 大きく取り、診断用 parser が受理したものを深さの数え方の違いで拒否しないようにする。
@@ -210,7 +226,9 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
         CompileResult::Accepted { mut program, warnings, work } => {
             let rank: Vec<usize> =
                 program.program.functions().map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX)).collect();
-            match compile_source(&chars, d, td, rank) {
+            // v1.7：関数ごとの印 `rec`（検証済みプログラムの関数と同じ宣言順）
+            let rec: Vec<bool> = program.program.functions().map(|f| f.rec).collect();
+            match compile_source(&chars, d, td, rank, rec) {
                 Compiled::Accepted(p) => {
                     program.verified = Some(Arc::new(VerifiedProgram(p)));
                     CompileResult::Accepted { program, warnings, work }
@@ -293,7 +311,12 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             let o = check_program(&p, data.len(), profile);
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）。
             // v1.5：map など（v1.6 の loop も）は fold などに書き換えてから整形する
-            let text = if hof::has_hof(&p) { format_program(&hof::lower(&p, &o.hof)) } else { format_program(&p) };
+            // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
+            let text = if hof::has_hof(&p) {
+                format_program(&hof::lower(&p, &o.hof).unmarked())
+            } else {
+                format_program(&p.unmarked())
+            };
             let r = result(o.diagnostics.clone(), Some(o));
             AstCompile::Result(without_repairs(cross_check(&text, r, profile)))
         }

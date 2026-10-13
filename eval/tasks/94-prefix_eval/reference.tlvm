@@ -1,0 +1,16 @@
+// ev reads one expression from the front of the tokens and returns its value and the tokens after it.
+// An operator reads its left operand, then its right operand from what the left one left over.
+rec fn ev(ts: List<String>) -> Pair<Int, List<String>> =
+  match uncons(ts) {
+    none => pair(0, list<String>()),
+    some(p) => let t = fst(p) in let rest = snd(p) in
+      match parse_int(t) {
+        some(n) => pair(n, rest),
+        none =>
+          let a = ev(rest) in
+          let b = ev(snd(a)) in
+          pair(if(eq(t, "+"), add(fst(a), fst(b)), if(eq(t, "-"), sub(fst(a), fst(b)), mul(fst(a), fst(b)))), snd(b))
+      }
+  }
+fn solve(ts: List<String>) -> Int = fst(ev(ts))
+entry solve
