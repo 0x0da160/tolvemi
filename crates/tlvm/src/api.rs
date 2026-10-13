@@ -337,7 +337,7 @@ fn cross_check_at(text: &str, r: CompileResult, profile: &StaticProfile, at: cra
                 Compiled::ParseRejected => match expr_depth_needed(&chars, td) {
                     // 書き換えた式が検証済み parser の式の深さの上限を超えた（式の深さの上限を超えた入力の診断）
                     Some(need) => {
-                        let mut d = Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-EXPR-DEPTH", at)
+                        let mut d = Diagnostic::error("structural-limits", "E-LIMIT-STATIC-EXPR-DEPTH", at)
                             .exp(profile.expr_depth.to_string())
                             .act(need.to_string());
                         if at != (0, 0) {

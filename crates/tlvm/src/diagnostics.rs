@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 pub type Span = (usize, usize);
 
-pub const PHASE_ORDER: [&str; 12] = [
+pub const PHASE_ORDER: [&str; 20] = [
     "source-boundary",
     "lex",
     "lexical-limits",
@@ -17,6 +17,16 @@ pub const PHASE_ORDER: [&str; 12] = [
     "semantic-limits",
     "entry",
     "warnings",
+    // 入力・AST・内部の段階（§9.3a）は、既存の段階の後に置く。
+    "input-boundary",
+    "input-parse",
+    "input-decode",
+    "ast-boundary",
+    "ast-parse",
+    "ast-schema",
+    "internal",
+    // 件数上限の一件は並べ替えの後に末尾へ付く（limit）。
+    "diagnostic-limit",
 ];
 
 pub const MAX_PER_SEVERITY: usize = 32;
