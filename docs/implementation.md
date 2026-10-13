@@ -9,8 +9,9 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 [v1.5 の差分](../spec/lptl-v1.5/LPTL_v1.5_delta.md) の `map`・`filter`・`any`・`all`・`find`・`sort_by` は、診断用の検査器が
 型を検査した後に `hof.rs` が `fold`・`reverse`・`cons`・`if`・`match_option`・`let` の組み合わせへ書き換え（`sort_by` は
 fold による安定な挿入整列）、検証済み部品は書き換え後のプログラムを検査・実行します。
-[v1.6 の差分](../spec/lptl-v1.6/LPTL_v1.6_delta.md) の `loop(init, max, |s| e)` も同じく `hof.rs` が、状態を `Result<S, S>`
-（ok = 続行中、err = 止まった）で持つ `range(0, max)` 上の `fold` と `match_result`・`match_option` に書き換えます。
+[v1.6 の差分](../spec/lptl-v1.6/LPTL_v1.6_delta.md) の `loop(init, max, |s| e)` も同じく `hof.rs` が、状態を
+`pair(評価した回数, Result<S, S>)`（ok = 続行中、err = 止まった）で持つ、`range(0, 16)` を辿る `fold` の 16 段の入れ子と
+`match_result`・`match_option` に書き換えます（手間は実際の歩数に比例。v1.8 で `range(0, max)` 1 段から改めた）。
 [v1.8 の差分](../spec/lptl-v1.8/LPTL_v1.8_delta.md) の整数の割り算 `div(a, b)` は `mod` と同じ経路で検証済み部品が直接扱います
 （spec の `Builtin::Div`、`apply_sound` の場合、キーワード表、exec は信頼する多倍長整数の `div_pos`）。
 

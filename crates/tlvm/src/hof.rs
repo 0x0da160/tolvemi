@@ -20,15 +20,28 @@
 //!                                 pair(fst(st), pair(cons(y, fst(snd(st))), false)))))) in
 //!                         reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r))))))
 //! loop(init, max, |s| e)
-//!   => match_result(
-//!        fold(range(0, max), ok<S, S>(init), |acc, i|
-//!          match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))),
+//!   => let m = max in let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
+//!      match_result(snd(
+//!        fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(init)), |a1, i1|      -- 段 1（1 要素 = 16^15 歩）
+//!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), nil), a1, |a2, i2|
+//!            ...                                                            -- 段 2〜15（1 要素 = 16^(16-j) 歩）
+//!              let n = min(16, sub(m, fst(a15))) in                         -- 段 16：n 歩
+//!              let res = fold(range(0, n), snd(a15), |acc, i|
+//!                match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))) in
+//!              pair(match_result(res, |x| add(fst(a15), n), |x| m), res)
+//!            ...)),
 //!        |r| none<S>(), |d| some(d))
 //! ```
 //!
-//! `loop` の状態は `Result<S, S>`（ok = 続行中、err = 止まった）。止まった後の歩では本体を評価せず、
-//! `max` 回の歩を終えても ok のままなら `none<S>()`。`max <= 0` なら `range(0, max)` が空なので本体を評価しない。
-//! s はユーザーの binder（外側の名前をシャドーしないことは名前の検査で確かめてある）。
+//! `loop` の状態は `pair(c, Result<S, S>)`。c は本体を評価した回数（止まったときは m にする）、ok = 続行中、
+//! err = 止まった。一番内側の段は v1.6 当初の書き換えと同じ fold を高々 16 歩ずつ進める（止まった後の歩では本体を
+//! 評価しない）。外側の 15 段は、残りの歩 `m - c` がその段の 1 要素の受け持ち（16^(16-j)）より多ければ 16 要素の
+//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空の `nil` を辿る。
+//! 本体の評価はちょうど `min(m, 止まるまでの回数)` 回で、手間はそれに比例する歩と、止まった後に各段で残る高々 15 要素
+//! （m が 16^k 以下なら高々 k 段）の比較で済む（以前の `fold(range(0, max), ...)` は max に比例した）。
+//! 受け持てる歩は 16^16 = 2^64 回までで、それより大きい max でも 2^64 回で打ち切るが、どの実行上限（step 数）も
+//! 2^64 より小さいので観測できない。`max <= 0` なら段 2 から `nil` を辿るので本体を評価しない。
+//! s はユーザーの binder（外側の名前をシャドーしないことは名前の検査で確かめてある）。本体はソースに一度だけ現れる。
 //!
 //! `sort_by` は安定な挿入整列：整列済みの acc を小さい方から見て、鍵が e の鍵より大きい最初の要素の前に e を
 //! 入れる（等しい鍵の要素の後ろに入るので、元の順が保たれる）。内側の fold は `cons(e, acc)` を走査し、最初の反復で
@@ -231,11 +244,17 @@ impl Lower<'_> {
     }
 }
 
+/// v1.6：`loop` の書き換えで入れ子にする fold の段数と、各段の 1 要素が受け持つ歩の数の比。
+/// 本体を評価できる回数の上限は LOOP_BASE^LOOP_LEVELS = 16^16 = 2^64 で、どの実行上限（step 数）よりも大きい。
+pub const LOOP_BASE: u64 = 16;
+pub const LOOP_LEVELS: u32 = 16;
+
 impl Lower<'_> {
-    /// v1.6：`loop(init, max, |s| e)`（`st` は状態の型 S）。
+    /// v1.6：`loop(init, max, |s| e)`（`st` は状態の型 S）。段の構成はモジュールの説明を参照。
     fn loop_(&mut self, m: Meta, init: Expr, max: Expr, s: String, body: Expr, st: &Ty) -> Expr {
         let k = B { m };
-        let (acc, i, s2, d, r) = (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+        let int = |n: u64| k.ex(ExprKind::Int(n.into()));
+        let (mx, rg, one) = (self.fresh(), self.fresh(), self.fresh());
         let rt = type_node(&Ty::result(st.clone(), st.clone()), m);
         let inj = |ok: bool, v: Expr| k.ex(ExprKind::Inj { ok, ty: rt.clone(), value: Box::new(v) });
         let match_result = |scrutinee: Expr, okb: &str, on_ok: Expr, errb: &str, on_err: Expr| {
@@ -249,7 +268,14 @@ impl Lower<'_> {
                 on_err: Box::new(on_err),
             })
         };
-        // 1 歩：本体が some(s2) なら続け、none なら今の状態で止まる
+        let fst = |e: Expr| k.call("fst", vec![e]);
+        let snd = |e: Expr| k.call("snd", vec![e]);
+        // 外側の段（LOOP_LEVELS - 1 段）の acc と item（外側から順）
+        let outer: Vec<(String, String)> = (1..LOOP_LEVELS).map(|_| (self.fresh(), self.fresh())).collect();
+        let (a, _) = &outer[outer.len() - 1];
+        // 一番内側の段：n = min(LOOP_BASE, max - c) 歩を v1.6 当初の形の fold で進める（c >= max なら n <= 0 で何もしない）
+        let (n, acc, i, s2, d, res, x, nil) =
+            (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
         let step = k.ex(ExprKind::Match {
             scrutinee: Box::new(body),
             on_none: Box::new(inj(false, k.var(&s))),
@@ -257,10 +283,38 @@ impl Lower<'_> {
             binder_span: m.span,
             on_some: Box::new(inj(true, k.var(&s2))),
         });
-        let fold_body = match_result(k.var(&acc), &s, step, &d, inj(false, k.var(&d)));
-        let steps = k.call("range", vec![k.ex(ExprKind::Int(0.into())), max]);
-        let run = k.fold(steps, inj(true, init), &acc, &i, fold_body);
-        match_result(run, &r, k.none(st), &d, k.ex(ExprKind::Some(Box::new(k.var(&d)))))
+        let chunk = k.fold(
+            k.call("range", vec![int(0), k.var(&n)]),
+            snd(k.var(a)),
+            &acc,
+            &i,
+            match_result(k.var(&acc), &s, step, &d, inj(false, k.var(&d))),
+        );
+        // 止まったら c = max（それ以降、外側の段は残りの歩ごとに比較 1 回と空の fold で終わる）
+        let counted = k.pair(match_result(k.var(&res), &x, k.call("add", vec![fst(k.var(a)), k.var(&n)]), &x, k.var(&mx)), k.var(&res));
+        let remaining = |a: &str| k.call("sub", vec![k.var(&mx), fst(k.var(a))]);
+        let mut inner = k.let_(&n, k.call("min", vec![int(LOOP_BASE), remaining(a)]), k.let_(&res, chunk, counted));
+        for j in (0..outer.len()).rev() {
+            let (a, i) = &outer[j];
+            // この段の 1 要素は LOOP_BASE^(LOOP_LEVELS - 1 - j) 歩を受け持つ。残りがそれより多ければ LOOP_BASE 要素、
+            // そうでなければ 1 要素を辿る。外側の段の状態で c >= max なら（止まったか max 回評価した）空のリストを辿る
+            let width = int(LOOP_BASE.pow(LOOP_LEVELS - 1 - j as u32));
+            inner = if j == 0 {
+                let list = k.if_(k.call("lt", vec![width, k.var(&mx)]), k.var(&rg), k.var(&one));
+                k.fold(list, k.pair(int(0), inj(true, init.clone())), a, i, inner)
+            } else {
+                let prev = &outer[j - 1].0;
+                let list = k.if_(k.call("lt", vec![width, remaining(prev)]), k.var(&rg), k.var(&one));
+                let guarded = k.if_(k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]), list, k.var(&nil));
+                k.fold(guarded, k.var(prev), a, i, inner)
+            };
+        }
+        let r = self.fresh();
+        let result = match_result(snd(inner), &r, k.none(st), &d, k.ex(ExprKind::Some(Box::new(k.var(&d)))));
+        let full = k.call("range", vec![int(0), int(LOOP_BASE)]);
+        let single = k.call("range", vec![int(0), int(1)]);
+        let empty = k.empty(&Ty::int());
+        k.let_(&mx, max, k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))))
     }
 }
 

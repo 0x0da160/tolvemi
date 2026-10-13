@@ -218,25 +218,43 @@ entry solve
     assert!(d.repair.as_ref().unwrap().constraint.contains("loop"), "{d:?}");
 }
 
+/// DOUBLING の書き換え後の本体（hof.rs の LOOP_BASE = 16、LOOP_LEVELS = 16）。外側の 15 段のうち段 j の 1 要素は
+/// 16^(15-j) 歩を受け持ち、残りの歩がそれより多ければ range(0, 16)（hof2）、そうでなければ range(0, 1)（hof3）を辿る。
+/// 2 段目からは、止まったか max 回評価した後（c >= max）は空のリスト（hof41）を辿る。
+/// 一番内側の段は min(16, max - c) 歩を v1.6 当初の形の fold で進める。本体は一度だけ現れる。
+fn doubling_lowered() -> String {
+    let mut inner = "let hof34 = min(16, sub(hof1, fst(hof32))) in let hof39 = fold(range(0, hof34), snd(hof32), |hof35, hof36| match_result(hof35, |x| match_option(if(lt(x, 1000), some(mul(x, 2)), none<Int>()), err<Int, Int>(x), |hof37| ok<Int, Int>(hof37)), |hof38| err<Int, Int>(hof38))) in pair(match_result(hof39, |hof40| add(fst(hof32), hof34), |hof40| hof1), hof39)".to_string();
+    for j in (0..15u32).rev() {
+        let (a, i) = (4 + 2 * j, 5 + 2 * j);
+        let width = 16u64.pow(15 - j);
+        inner = if j == 0 {
+            format!("fold(if(lt({width}, hof1), hof2, hof3), pair(0, ok<Int, Int>(1)), |hof{a}, hof{i}| {inner})")
+        } else {
+            let p = a - 2;
+            format!("fold(if(lt(fst(hof{p}), hof1), if(lt({width}, sub(hof1, fst(hof{p}))), hof2, hof3), hof41), hof{p}, |hof{a}, hof{i}| {inner})")
+        };
+    }
+    format!("let hof1 = n in let hof2 = range(0, 16) in let hof3 = range(0, 1) in let hof41 = list<Int>() in match_result(snd({inner}), |hof42| none<Int>(), |hof38| some(hof38))")
+}
+
 #[test]
 fn lowering_uses_fold_and_passes_verified_formatter() {
     let text = lowered(DOUBLING);
     assert!(!text.contains("loop("), "{text}");
-    assert!(
-        text.contains(
-            "match_result(fold(range(0, n), ok<Int, Int>(1), |hof1, hof2| match_result(hof1, |x| match_option(if(lt(x, 1000), some(mul(x, 2)), none<Int>()), err<Int, Int>(x), |hof3| ok<Int, Int>(hof3)), |hof4| err<Int, Int>(hof4))), |hof5| none<Int>(), |hof4| some(hof4))"
-        ),
-        "{text}"
-    );
+    assert_eq!(text, format!("fn f(n: Int) -> Option<Int> = {}\nentry f\n", doubling_lowered()));
     assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
     // 入れ子でも本体はソースに一度だけ現れる（書き換え後のソースは入れ子の深さに比例する大きさ）
-    let mut body = "none<Int>()".to_string();
-    for i in (1..=12).rev() {
-        body = format!("loop(s{}, 3, |s{i}| {body})", i - 1);
-    }
-    let deep = format!("fn f(s0: Int) -> Option<Int> = {body} entry f");
+    let nest = |depth: usize| {
+        let mut body = "none<Int>()".to_string();
+        for i in (1..=depth).rev() {
+            body = format!("loop(s{}, 3, |s{i}| {body})", i - 1);
+        }
+        format!("fn f(s0: Int) -> Option<Int> = {body} entry f")
+    };
+    let deep = nest(12);
     let text = lowered(&deep);
-    assert!(text.len() < 40 * deep.len(), "{} vs {}", text.len(), deep.len());
+    let half = lowered(&nest(6)).len();
+    assert!(text.len() < 2 * half + 1000 && text.len() < 3000 * 12, "{} vs {half}", text.len());
     assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
     // 一番内側の loop は some、その外は本体が some のままなので none、…と交互になり、12 段目の外側は none
     assert_eq!(run(&deep, "0"), "null");
@@ -252,6 +270,99 @@ entry f
     assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
     assert_eq!(run(mixed, r#"{"a": 3, "b": 100}"#), r#"{"a":10,"b":100}"#);
     assert_eq!(run(mixed, r#"{"a": 3, "b": 7}"#), "null");
+}
+
+// ---------------------------------------------------------------- 手間（v1.8 で修正。問題 95）
+
+/// plain JSON で実行した（出力、step 数）。
+fn run_stats(src: &str, input: &str) -> (String, u64) {
+    with_file(src, "tlvm", |p| {
+        let (code, out, err) = tlvm(&["run", p, input, "--plain", "--stats"]);
+        assert_eq!(code, 0, "{out}{err}");
+        let value = out.trim_end().to_string();
+        let stats = err.trim_end();
+        let steps = stats.split("\"steps\":").nth(1).unwrap().split([',', '}']).next().unwrap().parse().unwrap();
+        (value, steps)
+    })
+}
+
+/// 状態 x を 0 から 1 ずつ増やし、x = t で本体が none を返す（本体の評価は t + 1 回）。入力は [max, t]。
+const COUNT: &str = "fn f(p: Pair<Int, Int>) -> Option<Int> = loop(0, fst(p), |x| if(lt(x, snd(p)), some(add(x, 1)), none<Int>())) entry f";
+
+#[test]
+fn cost_follows_iterations_not_max() {
+    // 上限 10^12 でも 40 歩で止まれば手間は小さい（以前は range(0, max) を作って資源を使い切った）
+    let (v, steps) = run_stats(COUNT, "[1000000000000, 40]");
+    assert_eq!(v, "40");
+    assert!(steps < 5_000, "{steps}");
+    // 上限が 2^64 を超えても同じ（16^16 = 2^64 回の評価には、どの実行上限でも届かない）
+    let (v, steps) = run_stats(COUNT, "[1000000000000000000000000, 3]");
+    assert_eq!(v, "3");
+    assert!(steps < 5_000, "{steps}");
+    // 上限が小さければ固定の手間も小さい
+    let (v, steps) = run_stats(COUNT, "[1, 0]");
+    assert_eq!(v, "0");
+    assert!(steps < 1_000, "{steps}");
+    // 上限まで回るときの 1 歩あたりの手間は、range(0, max) を辿る fold と同程度
+    let (v, steps) = run_stats(COUNT, "[100000, 100000]");
+    assert_eq!(v, "null");
+    assert!(steps < 30 * 100_000, "{steps}");
+    // 問題 95：n を b 進の桁に分ける（上限 n + 1、実際は約 40 歩）
+    let digits = "fn quot(n: Int, b: Int) -> Int = match_option(div(n, b), 0, |q| q)
+fn rem(n: Int, b: Int) -> Int = match_option(mod(n, b), 0, |r| r)
+fn step(s: Pair<Int, List<Int>>, b: Int) -> Option<Pair<Int, List<Int>>> =
+  if(eq(fst(s), 0), none<Pair<Int, List<Int>>>(), some(pair(quot(fst(s), b), cons(rem(fst(s), b), snd(s)))))
+fn digits(n: Int, b: Int) -> List<Int> =
+  if(eq(n, 0), list<Int>(0), match_option(loop(pair(n, list<Int>()), add(n, 1), |s| step(s, b)), list<Int>(), |s| snd(s)))
+fn solve(x: Pair<Int, List<Int>>) -> List<List<Int>> = map(snd(x), |n| digits(n, fst(x)))
+entry solve
+";
+    // map の中の loop：30 要素それぞれ上限は約 10^12
+    let ns: Vec<String> = (0..30).map(|i| (999_999_999_989u64 + i).to_string()).collect();
+    let (v, steps) = run_stats(digits, &format!("[2, [{}]]", ns.join(", ")));
+    let bits = |n: u64| format!("[{}]", format!("{n:b}").chars().map(|c| c.to_string()).collect::<Vec<_>>().join(","));
+    let want: Vec<String> = (0..30).map(|i| bits(999_999_999_989 + i)).collect();
+    assert_eq!(v, format!("[{}]", want.join(",")));
+    assert!(steps < 1_000_000, "{steps}");
+    assert_eq!(run(digits, "[16, [1000000000000, 0, 255]]"), "[[14,8,13,4,10,5,1,0,0,0],[0],[15,15]]");
+}
+
+#[test]
+fn exact_max_boundaries() {
+    // 段の境目（16、16^2、16^3）の前後で、本体をちょうど max 回まで評価する：
+    // t < max なら t + 1 回目の本体で止まって some(t)、t >= max なら max 回で止まらず none
+    let src = "fn f(ps: List<Pair<Int, Int>>) -> List<Option<Int>> =
+  map(ps, |p| loop(0, fst(p), |x| if(lt(x, snd(p)), some(add(x, 1)), none<Int>())))
+entry f
+";
+    let mut cases = vec![];
+    let mut expected = vec![];
+    for max in [1i64, 2, 3, 15, 16, 17, 31, 32, 33, 255, 256, 257, 4095, 4096, 4097] {
+        for t in [max - 2, max - 1, max, max + 1].into_iter().filter(|t| *t >= 0) {
+            cases.push(format!("[{max}, {t}]"));
+            expected.push(if t < max { t.to_string() } else { "null".to_string() });
+        }
+    }
+    assert_eq!(run(src, &format!("[{}]", cases.join(", "))), format!("[{}]", expected.join(",")));
+    // max <= 0 は本体を評価しない
+    assert_eq!(run(src, "[[0, 0], [-1, 0], [-100000000000000000000, 5]]"), "[null,null,null]");
+}
+
+#[test]
+fn nested_loops_pass_static_limits() {
+    // 3 段の入れ子で、どれも上限は 10^12（書き換え後も検証済み parser の深さの上限に収まる）
+    let src = "fn f(n: Int) -> Option<Int> =
+  loop(0, 1000000000000, |a| if(lt(a, n), match_option(loop(0, 1000000000000, |b| if(lt(b, n),
+    match_option(loop(0, 1000000000000, |c| if(lt(c, n), some(add(c, 1)), none<Int>())), none<Int>(), |c| some(add(b, c))),
+    none<Int>())), none<Int>(), |b| some(add(a, b))), none<Int>()))
+entry f
+";
+    assert!(matches!(compiled(src), CompileResult::Accepted { .. }));
+    // 各段は n + 1 回目の本体で止まる：b は 0, n, 2n, …（n 未満の間だけ進む）
+    assert_eq!(run(src, "3"), "3");
+    assert_eq!(run(src, "5"), "5");
+    let text = lowered(src);
+    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
 }
 
 // ---------------------------------------------------------------- 診断
