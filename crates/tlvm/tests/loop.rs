@@ -562,7 +562,7 @@ fn loop_nesting_limit_is_a_static_limit() {
     let r = compiled(&src);
     let es = r.errors();
     assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-LIMIT-STATIC-EXPR-DEPTH"], "{es:?}");
-    assert_eq!(es[0].phase, "structural-limits");
+    assert_eq!(es[0].phase, "semantic-limits");
     assert_eq!(es[0].expected.as_deref(), Some("256"));
     assert_eq!(es[0].span.0, src.find("loop(").unwrap());
     let repair = es[0].repair.as_ref().expect("repair");

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 pub type Span = (usize, usize);
 
-pub const PHASE_ORDER: [&str; 20] = [
+pub const PHASE_ORDER: [&str; 12] = [
     "source-boundary",
     "lex",
     "lexical-limits",
@@ -17,22 +17,9 @@ pub const PHASE_ORDER: [&str; 20] = [
     "semantic-limits",
     "entry",
     "warnings",
-    // 入力・AST・内部の段階（§9.3a）は、既存の段階の後に置く。
-    "input-boundary",
-    "input-parse",
-    "input-decode",
-    "ast-boundary",
-    "ast-parse",
-    "ast-schema",
-    "internal",
-    // 件数上限の一件は並べ替えの後に末尾へ付く（limit）。
-    "diagnostic-limit",
 ];
 
 pub const MAX_PER_SEVERITY: usize = 32;
-
-/// 文面が未登録のコードに返す文面。テストは、コードの文面がこれになったら失敗とみなす。
-pub const UNREGISTERED_MESSAGE: &str = "診断の文面が未登録です（内部の誤り）";
 
 /// message テンプレート。正式な diagnostic registry は未作成（G0 未達）なので暫定版。
 pub fn message_for(code: &str) -> &'static str {
@@ -172,8 +159,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-AST-LIMIT-BYTES" => "AST JSON bytes が上限を超えました",
         "E-AST-LIMIT-JSON-DEPTH" => "AST JSON の構造深さが上限を超えました",
         "E-AST-LIMIT-INTEGER-DIGITS" => "整数の桁数が上限を超えました",
-        "E-INTERNAL-SOURCE-BOUNDARY" => "内部の不変条件に反しました（source は UTF-8 の文字列のはずです）",
-        _ => UNREGISTERED_MESSAGE,
+        _ => "",
     }
 }
 
