@@ -1,0 +1,13 @@
+{
+  "id": "98-adjacent_pairs",
+  "title": "Adjacent pairs of two lists",
+  "category": "generic",
+  "prompt": "The input is a pair (words, nums). Output a pair (a, b). a is the list of the consecutive pairs of words, in order, each as the pair (earlier, later). b is the list of the consecutive pairs of nums, in the same way. A list with fewer than two elements has no consecutive pairs.",
+  "input_type": "Pair<List<String>, List<Int>>",
+  "output_type": "Pair<List<Pair<String, String>>, List<Pair<Int, Int>>>",
+  "examples": [
+    {"input": [["ann", "bob", "cy"], [3, 4, -1, 5]], "expected": [[["ann", "bob"], ["bob", "cy"]], [[3, 4], [4, -1], [-1, 5]]]},
+    {"input": [[], [7]], "expected": [[], []]},
+    {"input": [["dee"], []], "expected": [[], []]}
+  ]
+}

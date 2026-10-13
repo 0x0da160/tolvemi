@@ -115,10 +115,14 @@ entry の入力型・出力型に、型引数を入れた総称の型（`Box<Int
 ## 4. LLM での確認
 
 この機能を使う問題 1 つ（97-batches：総称の補助関数 `chunk<T>` を `String` と `Int` の二つの型で使い、`zip<A, B>` で両方の結果を
-組み合わせて出力する）を評価セットに加えた。LLM での実行は未実施（§5）。
+組み合わせて出力する）を評価セットに加えた。型引数を実際に書かせる問題として、98-adjacent_pairs（総称の `pairwise<T>` を
+`List<String>` と `List<Int>` の二つの型で使い、それぞれの隣り合う組を出力する）も加えた。LLM での確認は §5。
 
 ## 5. 結果
 
 - 検証済みの中核（`verus/`）は変更なし。`cargo test --release --locked` は 166 件すべて成功（`crates/tlvm/tests/generics.rs` の 22 件を含む）。
 - 実行 `20261013T064419Z-claude-cli`（Haiku・effort low・1 回）：97-batches は 1 ラウンド目で正解（1/1）。ただし回答は型引数を使わず、
-  レコードと `fold` で 1 回の走査にまとめて解いた（問題が型引数を必要としなかった）。型引数を実際に書かせる確認はできていない。
+  レコードと `fold` で 1 回の走査にまとめて解いた（問題が型引数を必要としなかった）。
+- 実行 `20261013T111635Z-claude-cli`（Haiku・effort low・1 回、`--tasks 98-adjacent_pairs --rounds 3`）：98-adjacent_pairs は
+  1 ラウンド目で正解（隠しテスト 30/30）。回答は `fn adjacent<T>` の型引数の付いた補助関数を書き、`List<String>` と `List<Int>` の
+  二つの型で使った。型引数の記法を実際に使わせられたのは、この 1 回の確認による（回数はまだ少ない）。

@@ -67,6 +67,30 @@ pub fn has_hof(p: &Program) -> bool {
     p.functions().any(|f| ex(&f.body))
 }
 
+/// 入れ子の loop の最も深い連鎖の段数と、その連鎖で一番外側の loop の span（loop を含まないプログラムは None）。
+/// 書き換えの前の構文木で数える（式の深さの上限を超えた診断の位置に使う）。
+pub fn deepest_loop_nest(p: &Program) -> Option<(usize, crate::diagnostics::Span)> {
+    fn walk(e: &Expr) -> (usize, Option<crate::diagnostics::Span>) {
+        let (mut d, mut s) = (0, None);
+        for c in e.children() {
+            let (cd, cs) = walk(c);
+            if cd > d {
+                d = cd;
+                s = cs;
+            }
+        }
+        if matches!(e.kind, ExprKind::Loop { .. }) {
+            (d + 1, Some(e.meta.span()))
+        } else {
+            (d, s)
+        }
+    }
+    p.functions()
+        .map(|f| walk(&f.body))
+        .filter_map(|(d, s)| s.map(|s| (d, s)))
+        .max_by_key(|(d, _)| *d)
+}
+
 /// プログラム中の名前（関数名、引数、変数、束縛、呼び出し先）。
 fn collect(e: &Expr, out: &mut HashSet<String>) {
     match &e.kind {

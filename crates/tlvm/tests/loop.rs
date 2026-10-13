@@ -537,3 +537,39 @@ entry solve
         assert_eq!(exec(b"1\n"), "0\n");
     });
 }
+
+// ---------------------------------------------------------------- 入れ子の上限（式の深さ）
+
+/// `depth` 段の入れ子の loop。各段の本体は `wrap` が受け取る内側の式（引数は `s{i}`）で作る。
+fn nested_with(depth: usize, wrap: impl Fn(usize, &str) -> String) -> String {
+    let mut e = "none<Int>()".to_string();
+    for i in (1..=depth).rev() {
+        e = format!("loop(s{}, 3, |s{i}| {})", i - 1, wrap(i, &e));
+    }
+    format!("fn f(s0: Int) -> Option<Int> = {e} entry f")
+}
+
+fn nested(depth: usize) -> String {
+    nested_with(depth, |_, inner| inner.to_string())
+}
+
+#[test]
+fn loop_nesting_limit_is_a_static_limit() {
+    // 本体が loop だけなら 19 段まで受理され、20 段は検証済み部品との食い違い（E-INTERNAL-VERIFIED-MISMATCH）ではなく
+    // 式の深さの上限の診断になる。位置は一番外側の loop、修復の案は fold か rec fn
+    assert!(matches!(compiled(&nested(19)), CompileResult::Accepted { .. }));
+    let src = nested(20);
+    let r = compiled(&src);
+    let es = r.errors();
+    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-LIMIT-STATIC-EXPR-DEPTH"], "{es:?}");
+    assert_eq!(es[0].phase, "semantic-limits");
+    assert_eq!(es[0].expected.as_deref(), Some("256"));
+    assert_eq!(es[0].span.0, src.find("loop(").unwrap());
+    let repair = es[0].repair.as_ref().expect("repair");
+    assert!(repair.constraint.contains("fold") && repair.constraint.contains("rec fn"), "{}", repair.constraint);
+    // 段ごとに if を挟むと、同じ段数でも書き換え後の式が深くなり、上限は 18 段と 19 段の間になる
+    let wrap = |i: usize, inner: &str| format!("if(lt(s{i}, 0), some(add(s{i}, 1)), {inner})");
+    assert!(matches!(compiled(&nested_with(18, wrap)), CompileResult::Accepted { .. }));
+    assert_eq!(codes(&nested_with(19, wrap)), ["E-LIMIT-STATIC-EXPR-DEPTH"]);
+    assert_eq!(codes(&nested_with(20, wrap)), ["E-LIMIT-STATIC-EXPR-DEPTH"]);
+}

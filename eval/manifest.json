@@ -4,9 +4,9 @@
     "sha256": "1b4278fe8e91ad1f72402b9462ea29db2496ce882de63b8396532bd875bdea66",
     "bytes": 26780
   },
-  "task_set_sha256": "55016e9b2c7e8a9cf400b554d338f5a5c82d4c9613edcd8eca8a3e8ebee2c53a",
-  "tasks": 97,
-  "hidden_cases": 2910,
+  "task_set_sha256": "85ddd9d33e532944604e01886531e06b5a7cd2eee6432157acafc167527226cb",
+  "tasks": 98,
+  "hidden_cases": 2940,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -396,6 +396,10 @@
     "tasks/97-batches/task.json": "2d0d35dd115b89e651e78e7299a974c8975f4d2ff62e26878107dc2b45d90c17",
     "tasks/97-batches/hidden.json": "5e3516d2f2b0e59ceac63da20e970ec61182d6e079e4348ef08ed6378e3e1ff4",
     "tasks/97-batches/reference.tlvm": "c358748aa23c65daec9567d9d6af4433354d22e9aba4b7cdaf5a90e7fd6d06b9",
-    "tasks/97-batches/reference.py": "08d135fdae8960c56be7e181e7cd844f28325ede4bf251b4dfd25c2109ca59c1"
+    "tasks/97-batches/reference.py": "08d135fdae8960c56be7e181e7cd844f28325ede4bf251b4dfd25c2109ca59c1",
+    "tasks/98-adjacent_pairs/task.json": "dcc35db4470a6a28dea8cc1b1351df065c86f72edc5eb460dc78a46ce94a15a2",
+    "tasks/98-adjacent_pairs/hidden.json": "cf4638b58f745ae313ab4031c3cfc2761a2379d1cb26734974b94b259f58b055",
+    "tasks/98-adjacent_pairs/reference.tlvm": "d9f8305e262227e7426afffde3c99177f4b04ae21b42172216ebd86902de28a1",
+    "tasks/98-adjacent_pairs/reference.py": "481d321f22bafe25fbd1935d26c396ddc1689f6aabf8c536d1b639ec3ff6101d"
   }
 }
