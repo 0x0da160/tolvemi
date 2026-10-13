@@ -150,7 +150,7 @@ v1 の `Option<T>` は、部分性を言語エラーではなく値へ写すた�
 
 - `some(e)`、`none<T>()`、`mod` により生成できる。
 - `let`、`pair`、`list` 等で保存・伝達できる。
-- `eq` により、`none<T>()` または有限個の既知 payload を持つ `some(c)` と比較できる。
+- `eq` により、他の値と同じ構造的等値で比較できる（§7.4）。
 - `match_option(e, e_none, |x| e_some)` により、`some` の payload を局所 binder `x` へ束縛して取り出せる（v1.1）。`x` は `e_some` の中でだけ見え、`e` と `e_none` からは見えない。
 - `uncons(xs)` は `Option<Pair<A, List<A>>>` を返す組込みである（v1.1）。空なら `none`、そうでなければ先頭と残りの組を `some` で包む。
 
@@ -689,6 +689,35 @@ LPTL Int は正規十進文字列。JSON number は使用しない。以下は�
 {"tag":"pair","left":{"tag":"int","value":"1"},"right":{"tag":"bool","value":true}}
 ```
 
+v1.1〜v1.15 の型と値の追加は次の形で書く。
+
+- 文字は `{"tag":"char","value":"<十進の番号>"}`。文字列は文字のリストの値 JSON である。復号はスカラー値でない番号を `E-INPUT-CHAR` で拒否する（v1.2）。
+- `Result` は `{"tag":"ok","value":V}`、`{"tag":"err","value":V}`（v1.4）。
+- `Dict<K, V>` は `List<Pair<K, V>>` の値 JSON と同じ。入力で同じ鍵が二度あれば `E-INPUT-DICT-DUPLICATE-KEY` で拒否する（v1.9）。
+- レコードと直和の値 JSON は、展開後の pair と `ok`／`err` の入れ子である（§3.2）。名義の型は展開後の値と同じである（v1.15）。
+- 再帰する直和型の入出力は v1.14 §5 による。`run` では整数の列、`exec` の入力は未対応である。
+
+### 9.2a 普通の JSON（plain JSON）
+
+`tlvm run --plain` などホスト向けの形式は、型ごとに値 JSON と一対一に対応する便宜の層である。規範の外にあり、変換は検証されていない（接着部分 `plain.rs`）。変換後の値 JSON は検証済みの復号器が読むので、受け取る値の型は保たれる。
+
+| 型 | plain JSON |
+|---|---|
+| `Int` | 整数の JSON number。正規形の十進文字列も受理する。出力は number |
+| `Bool` | `true`、`false` |
+| `Unit` | `null` |
+| `Char` | 1 文字の JSON 文字列 |
+| `String` | JSON 文字列 |
+| `List<T>` | 配列（`T` が `Char` なら `String` と同じ） |
+| `Pair<A, B>` | 二要素の配列 `[a, b]` |
+| `Option<T>` | `none` は `null`、`some(v)` は `v` の plain JSON。ただし `T` が `Unit` か `Option` なら `{"some": v}` |
+| `Result<T, E>` | `{"ok": v}`、`{"err": e}` |
+| `Dict<K, V>` | `[key, value]` の配列の配列（挿入順）。入力で鍵が重なれば拒否する |
+| レコード | field 名を key にした object |
+| 直和型 | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
+
+再帰する直和型の plain JSON は、値の符号化の整数の配列である（v1.14 §5）。
+
 ---
 
 ### 9.3 受理規則と正準出力
@@ -928,7 +957,7 @@ LLM は候補生成・修復器であって、信頼実行主体ではない。�
 
 ### 12.2 Skill
 
-`SKILL.md` は仕様から生成・照合し、ハッシュとトークン数を固定する。v1 Skill は、`Option` に一般 payload 消去がないことを明記し、`uncons` や `match_option` を使わせない。
+`SKILL.md` は仕様から生成・照合し、ハッシュとトークン数を固定する。v1 Skill は、`Option` に `option_fold` がないことを明記し、`match_option` と `uncons` の書き方を仕様どおりに示す（v1.1）。
 
 含めるのは最小文法、型、組込み規則、`let`・`fold`・`Pair`・`cons`／`reverse` の例、禁止事項、出力形式、主要診断コードである。最終評価の解法・近傍例・手書き例外規則は含めない。
 
@@ -1120,7 +1149,7 @@ v1.0.0 の凍結は、G0 から G4 までのすべてを満たした後に行う
 
 本書は、非再帰letと有限リスト構築、診断phase、AST transport、資源cutoff、入力値Admission、scalar検査、予算終了、hash用途の契約を定義する設計案である。固定した記述と、将来spec・registry・実装・証明・実験で照合する条件を区別する。
 
-本版では、Option payload 消去がないという表現力上の境界を隠さない。この制限を明示することで、実装、Verus 証明、Skill、ベンチマーク、LLM の期待能力が同じ言語を対象にする。`match_option` と `uncons` は有用だが、後続の独立拡張版で一体的に審査する。
+本版では、Option の payload を取り出す手段に `option_fold` がないという表現力上の境界を隠さない。payload は `match_option` の枝の中でだけ使える（v1.1）。この制限を明示することで、実装、Verus 証明、Skill、ベンチマーク、LLM の期待能力が同じ言語を対象にする。
 
 LLMに対する優位性は未測定である。v1は、その検証に向けて構文、診断、資源、codec、実験条件を明示し、規範specへの追跡・適合確認を要求する高保証DSLの候補である。文書で手順を選択したことを、実装の決定性や実験の識別可能性が確認済みという意味にしない。
 
@@ -1218,8 +1247,8 @@ ErrorTypeとのEqual／Headは0イベントで二次診断を出さない。必�
 | `fn f(x: Unit) -> Int = 0` | 1 | 1 | 1 | 3 |
 | `fn f(x: Unit) -> Int = add(1, 2)` | 3 | 3 | 3 | 9 |
 | `fn f(x: Unit) -> Option<Int> = some(0)` | 2 | 2 | 2 | 6 |
-| `fn f(x: Unit) -> List<Int> = list[Int](1, 2)` | 3 | 3 | 4 | 10 |
-| `fn f(x: Unit) -> Option<Int> = none[Int]` | 1 | 1 | 2 | 4 |
+| `fn f(x: Unit) -> List<Int> = list<Int>(1, 2)` | 3 | 3 | 4 | 10 |
+| `fn f(x: Unit) -> Option<Int> = none<Int>()` | 1 | 1 | 2 | 4 |
 
 G0では、この論理traceをspecと参照型検査器へ写し、通常型違反、ErrorType回復、深さ／仕事量cutoffを含むfixtureで照合する。本書の規則記述を、参照検査器の実装・証明・適合確認の完了と読み替えない。
 
@@ -1244,6 +1273,16 @@ Admission indexは成功イベントごとに一つ増える論理indexとする
 AST APIでは第19.3節のtransport検査を全て通過した後、物理AST全体を作成する前に、program→declarations入力順の前順Admissionを発行する。子の順はfnでparams→return_type→body、paramでtype、型はelementまたはleft→right、式は第19.2節の子field順・配列入力順とする。paramにはtagはないが一nodeとして計上する。AST cutoff主spanは対象object全体。SurfaceとASTの正常入力は同じ構文ASTについて同じAdmission列・node数・深さを持つ。Surfaceの不正構文にだけ存在する失敗試行をAST APIへ合成しない。
 
 G0では完成ASTとの一致、不完全構文、破棄された親、同期で飛ばすtoken、guard同時超過をfixture化する。この論理契約の記述はparser実装・証明完了の証跡ではない。
+
+### 18.1c v1.1〜v1.16 の追加分の計数（未了）
+
+§18.1a の論理イベントと §18.3 の参照イベントは、v1 の核（v1.0 の組込みと構文）に対して定めている。次の追加分には、まだ規則を定めていない。
+
+- 型検査：レコードの展開後の pair と `ok`／`err` の入れ子、直和型の構築と `match` の書換え後の型、`Char`、`String`、`Result`、`Dict`、`match_option`、`match_result`、`loop`、ラムダを取る組込み（`map` など）、`uncons`、`div`、`min`、`max`、`range`、`contains`、`sort`、`dict_*`、総称の単相化。
+- 実行：上の組込みと書換えの割当ノード数、整数の bit 数、評価遷移数。
+- 上の数値は、接着部分の書換え後のプログラムに対して trace fixture で固定する。その固定まで、これらに数値を与えない。
+
+v1.1〜v1.16 の追加分を含めた計数は、G0 の未達項目である。
 
 ### 18.2 入力と AST transport
 
@@ -1318,14 +1357,19 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 
 | node | keys／fields |
 |---|---|
-| program | `codec`, `declarations`。codec は固定 string、declarations は fn／entry 配列 |
-| fn | `tag`, `name`, `params`, `return_type`, `body` |
+| program | `codec`, `declarations`。codec は固定 string `ast_codec_v1`、declarations は fn／entry 配列 |
+| fn | `tag`, `name`, `params`, `return_type`, `body`。任意：`rec`（boolean。省略は false。v1.7）、`type_params`（大文字で始まる名前の配列。省略は型引数なし。v1.10） |
 | entry | `tag`, `name` |
 | param | `name`, `type` |
-| type int／bool／unit | `tag` |
+| type int／bool／unit／char／string | `tag` |
 | type list／option | `tag`, `element`（type） |
 | type pair | `tag`, `left`, `right`（type） |
+| type result | `tag`, `ok`, `err`（type。v1.4） |
+| type dict | `tag`, `key`, `value`（type。v1.9） |
+| type param | `tag`, `name`（型引数の名前。v1.10） |
 | expr int | `tag`, `value`（正規十進 string） |
+| expr char | `tag`, `value`（スカラー値の十進 string。v1.2） |
+| expr string | `tag`, `value`（文字列の値。JSON 文字列の規則。v1.2） |
 | expr bool | `tag`, `value`（JSON boolean） |
 | expr unit | `tag` |
 | expr var | `tag`, `name` |
@@ -1333,14 +1377,20 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 | expr some | `tag`, `value`（expr） |
 | expr none | `tag`, `element_type` |
 | expr pair | `tag`, `left`, `right`（expr） |
-| expr call | `tag`, `callee`, `args`（expr 配列） |
+| expr call | `tag`, `callee`（名前 string）, `args`（expr 配列） |
 | expr let | `tag`, `name`, `value`, `body`（expr） |
 | expr if | `tag`, `condition`, `then`, `else`（expr） |
 | expr fold | `tag`, `list`, `init`, `acc`, `item`, `body` |
+| expr match_option | `tag`, `scrutinee`, `on_none`, `binder`, `on_some`（v1.1） |
+| expr ok／err | `tag`, `ok_type`, `err_type`, `value`（type、type、expr。v1.4） |
+| expr match_result | `tag`, `scrutinee`, `ok_binder`, `on_ok`, `err_binder`, `on_err`（v1.4） |
+| expr map／filter／any／all／find／sort_by | `tag`, `list`, `binder`, `body`（v1.5） |
+| expr loop | `tag`, `init`, `max`, `binder`, `body`（v1.6） |
+| expr dict | `tag`, `key_type`, `value_type`（空の辞書。v1.9） |
 
-callee は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。
+callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee と args だけを持つ。型引数を明示する呼出し（`f<Int>(x)`）と構築子（`Leaf<Int>()`）の AST 表現は、この表にない。その扱いは G0 の未達項目である。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。
 
-`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。
+`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。現在の `ast_codec_v1.schema.json` は v1 の基本の形だけを表し、上の v1.x の node を含まない。v1.x の node を含む schema の作成と、その bytes・SHA-256 の再記録は G0 の未達項目である（§20.4）。
 
 重複キー、バイト数、JSON深さ、UTF-8、不対surrogate、整数桁上限、元byte span、正準キー順、共通静的検査は JSON Schema 単体では保証されず、strict parser、コンパイラ、encoderが別途実施する。schema validator のエラー出力順を第19.3節の規範的診断順に代用しない。
 
@@ -1451,9 +1501,9 @@ schema適合と静的受理は別である。次の入力は構造検査を通�
 | 通常callの実引数不足・過剰 | 解決済みcallならtypecheckで `E-ARITY-*` |
 | 未定義の合法callee名 | nameで `E-NAME-UNKNOWN-FUNCTION` |
 | foldの `acc` と `item` が同名 | nameでbinder重複を拒否 |
-| `callee: "uncons"` | 合法なユーザー関数名として解決。組込みとしては扱わない |
+| `callee: "uncons"` | 組込みとして解決する（v1.1）。文脈キーワードなので、同名の関数は宣言できない |
 
-`uncons` は第4.2節の予約語集合に含めない。従って同名の合法ユーザー関数を定義・呼び出すことは可能だが、Option payload消去や組込みの安全リスト分解を提供するものではない。将来の独立拡張で組込みとして導入する場合は、予約語・名前互換性への影響も審査する。
+`uncons` は予約語ではなく文脈キーワードである（第4.2節）。直後が `(` のときだけ組込みとして働き、引数は一つの `List<A>` であり、結果は `Option<Pair<A, List<A>>>` である（v1.1）。`uncons` という名前の関数は宣言できない。Option の payload を一般に消去する組込みではない。
 
 G0では、実schema、strict parser、文書の文字列条件が同じ受理集合を持つことを照合する。schemaファイルのハッシュとvalidatorの実装・版・設定を記録する。実体が提示されていないファイルのハッシュは unavailable とし、回帰用の再構成物のハッシュで埋めない。同梱schemaの内容識別と限定検査の範囲は第20.4–20.5節に定義する。
 
@@ -1489,7 +1539,7 @@ G0では、実schema、strict parser、文書の文字列条件が同じ受理�
 | AST識別子 `"\u0078"`／`"x\n"` | 前者はdecode後 `x` として受理、後者は E-AST-IDENTIFIER |
 | AST `declarations: []` | schema適合。共通検査で E-ENTRY-MISSING |
 | AST foldのaccとitemが同名 | schema適合。共通nameでbinder重複を拒否 |
-| AST `callee="uncons"`、同名fn定義なし／あり | 前者は E-NAME-UNKNOWN-FUNCTION、後者は通常ユーザーcallとして共通検査 |
+| AST `callee="uncons"`、引数一つ | 組込みとして解決する。引数の個数が違えば通常の組込みの arity 診断 |
 | AST call に余分な通常実引数 | transport成功、typecheckで E-ARITY-* |
 | AST some node に valueなし | E-AST-MISSING-FIELD |
 | input int の value が JSON number | E-INPUT-*、Intとして受理しない |
