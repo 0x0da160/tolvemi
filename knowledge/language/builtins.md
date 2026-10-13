@@ -113,4 +113,20 @@ b <= 0 なら div(a,b) = none[Int]
 組込みで（spec の `Builtin::Div`、`apply_sound` の場合）、exec は信頼する多倍長整数の `div_pos`（num-integer の `div_floor`）
 を使う。`div` は文脈キーワード（変数名などに使え、関数名には使えない）。詳細は [v1.8 差分仕様](../../spec/lptl-v1.8/LPTL_v1.8_delta.md)。
 
+# v1.9 の追加：辞書の操作
+
+| 形 | 型 | 意味 |
+|---|---|---|
+| `dict<K, V>()` | `Dict<K, V>` | 空の辞書 |
+| `dict_get(d, k)` | `Dict<K, V> × K -> Option<V>` | k の値（なければ none） |
+| `dict_put(d, k, v)` | `Dict<K, V> × K × V -> Dict<K, V>` | k があればその位置で値を置き換え、なければ末尾に足す |
+| `dict_remove(d, k)` | `Dict<K, V> × K -> Dict<K, V>` | k を除く |
+| `dict_has(d, k)` | `Dict<K, V> × K -> Bool` | k があるか |
+| `dict_size(d)` | `Dict<K, V> -> Int` | 鍵の数 |
+| `dict_keys(d)`、`dict_values(d)`、`dict_entries(d)` | `-> List<K>`／`List<V>`／`List<Pair<K, V>>` | 挿入順 |
+| `dict_from(xs)` | `List<Pair<K, V>> -> Dict<K, V>` | 前から順に `dict_put`（同じ鍵は後の値、位置は最初） |
+
+鍵は `eq` と同じ構造的等価性で比べる。どれも全域で、型検査の後に `fold`・`eq`・`reverse`・`cons`・`let` などへ
+書き換える（`crates/tlvm/src/dict.rs`。どの操作も辞書の大きさに対して O(n)、`dict_from` は O(n²)）。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -35,6 +35,8 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Some(v) => format!("some({})", format_expr(v)),
         ExprKind::None(t) => format!("none<{}>()", format_type(t)),
         ExprKind::Pair(a, b) => format!("pair({}, {})", format_expr(a), format_expr(b)),
+        // v1.9：`dict<K, V>()`
+        ExprKind::DictNew(t) => format!("dict<{}, {}>()", format_type(&t.args[0]), format_type(&t.args[1])),
         ExprKind::Call { callee, args, .. } => format!("{}({})", callee, join(args)),
         ExprKind::Let { name, value, body, .. } => format!("let {} = {} in {}", name, format_expr(value), format_expr(body)),
         ExprKind::If(c, t, f) => format!("if({}, {}, {})", format_expr(c), format_expr(t), format_expr(f)),
@@ -159,6 +161,13 @@ fn type_json(t: &TypeNode, out: &mut String) {
             out.push_str(",\"right\":");
             type_json(&t.args[1], out);
         }
+        // v1.9：`{"tag":"dict","key":...,"value":...}`
+        TyTag::Dict => {
+            out.push_str(",\"key\":");
+            type_json(&t.args[0], out);
+            out.push_str(",\"value\":");
+            type_json(&t.args[1], out);
+        }
         TyTag::Result => {
             out.push_str(",\"ok\":");
             type_json(&t.args[0], out);
@@ -226,6 +235,14 @@ fn expr_json(e: &Expr, out: &mut String) {
         ExprKind::None(t) => {
             out.push_str("{\"tag\":\"none\",\"element_type\":");
             type_json(t, out);
+            out.push('}');
+        }
+        // v1.9：`{"tag":"dict","key_type":...,"value_type":...}`
+        ExprKind::DictNew(t) => {
+            out.push_str("{\"tag\":\"dict\",\"key_type\":");
+            type_json(&t.args[0], out);
+            out.push_str(",\"value_type\":");
+            type_json(&t.args[1], out);
             out.push('}');
         }
         ExprKind::Pair(a, b) => {

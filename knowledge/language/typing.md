@@ -106,4 +106,22 @@ found に e の型）。init が ErrorType なら本体の型の診断は出さ�
 `rec` の印のある関数へ入る辺を除いたグラフが DAG であればよい（[呼出しグラフと DAG](call-graph.md)）。
 検証済みの型付け条件は「`rank[g] < r` または `rec[g]`」。詳細は [v1.7 差分仕様](../../spec/lptl-v1.7/LPTL_v1.7_delta.md)。
 
+# v1.9 の追加：辞書
+
+```text
+dict<K, V>()        : Dict<K, V>
+dict_get(d, k)      : Option<V>          iff d : Dict<K, V>, k : K
+dict_put(d, k, v)   : Dict<K, V>         iff d : Dict<K, V>, k : K, v : V
+dict_remove(d, k)   : Dict<K, V>         iff d : Dict<K, V>, k : K
+dict_has(d, k)      : Bool               iff d : Dict<K, V>, k : K
+dict_size(d)        : Int                iff d : Dict<K, V>
+dict_keys(d)        : List<K>            iff d : Dict<K, V>      （dict_values は List<V>）
+dict_entries(d)     : List<Pair<K, V>>   iff d : Dict<K, V>
+dict_from(xs)       : Dict<K, V>         iff xs : List<Pair<K, V>>
+```
+
+`Dict<K, V>` と `List<Pair<K, V>>` は別の型（等価性は tag で決まる）。第 1 引数が辞書でなければ `E-TYPE-DICT-ARG`、
+`dict_from` の引数が pair のリストでなければ `E-TYPE-DICT-FROM`、鍵・値の型が違えば `E-TYPE-ARG`。辞書を `fold`・`map`
+などに渡すと既存の `E-TYPE-FOLD-LIST`・`E-TYPE-HOF-LIST`（修復ヒントで `dict_entries` などを示す）。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

@@ -1,0 +1,13 @@
+{
+  "id": "96-inventory",
+  "title": "Inventory updates",
+  "category": "dict",
+  "prompt": "The input is a list of (item, change) pairs, applied in order to an inventory that starts empty. Add each change to the item's quantity (an item not in the inventory has quantity 0). Quantities may become negative. An item whose quantity becomes 0 is removed from the inventory; if it later gets a non-zero quantity again, it counts as newly added. Return the final inventory as (item, quantity) pairs, ordered by when each item was added (an item whose quantity changes but stays non-zero keeps its place).",
+  "input_type": "List<Pair<String, Int>>",
+  "output_type": "List<Pair<String, Int>>",
+  "examples": [
+    {"input": [["apple", 3], ["pear", 2], ["apple", -1]], "expected": [["apple", 2], ["pear", 2]]},
+    {"input": [["fig", 1], ["kiwi", 4], ["fig", -1], ["lime", 2], ["fig", 5]], "expected": [["kiwi", 4], ["lime", 2], ["fig", 5]]},
+    {"input": [["plum", 0], ["date", -2]], "expected": [["date", -2]]}
+  ]
+}

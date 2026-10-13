@@ -21,7 +21,7 @@ pub fn has_records(p: &Program) -> bool {
         match &e.kind {
             ExprKind::Record { .. } | ExprKind::Field { .. } => true,
             ExprKind::List { element_type, .. } if ty(element_type) => true,
-            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } if ty(t) => true,
+            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } | ExprKind::DictNew(t) if ty(t) => true,
             _ => e.children().into_iter().any(ex),
         }
     }
@@ -129,6 +129,7 @@ impl Env {
                 ExprKind::List { element_type: self.ty(element_type), items: items.iter().map(|x| self.expr(x)).collect() }
             }
             ExprKind::None(t) => ExprKind::None(self.ty(t)),
+            ExprKind::DictNew(t) => ExprKind::DictNew(self.ty(t)),
             ExprKind::Some(v) => ExprKind::Some(Box::new(self.expr(v))),
             ExprKind::Pair(a, b) => ExprKind::Pair(Box::new(self.expr(a)), Box::new(self.expr(b))),
             ExprKind::Call { callee, args, builtin, callee_span } => ExprKind::Call {

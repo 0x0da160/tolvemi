@@ -50,6 +50,8 @@
 //! x はユーザーの binder で、外側に x を束縛するものはないのでシャドーされることはない。
 //! acc・e・st・y・r・ke などの導入する名前（`hof1` など）は、プログラム中のどの名前とも重ならない。
 //!
+//! v1.9 の辞書の操作（`dict_get` など）と空の辞書 `dict<K, V>()` も同じ走査で書き換える（形は `dict` モジュール）。
+//!
 //! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は書き換え後の
 //! プログラムを検査・実行するので、停止性・型安全性・決定性は書き換え後のプログラムについて成り立つ。
 
@@ -95,50 +97,50 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
 }
 
 /// 意味論上の型を構文上の型にする（書き換えで書く `list<A>()`、`none<A>()` 用）。
-fn type_node(t: &Ty, meta: Meta) -> TypeNode {
+pub(crate) fn type_node(t: &Ty, meta: Meta) -> TypeNode {
     TypeNode::new(t.tag(), t.args().iter().map(|a| type_node(a, meta)).collect(), meta)
 }
 
-struct Lower<'a> {
+pub(crate) struct Lower<'a> {
     types: &'a HofTypes,
     taken: HashSet<String>,
     fresh: usize,
 }
 
 /// 書き換えで作る式（span と node index は元の `map` などのもの）。
-struct B {
-    m: Meta,
+pub(crate) struct B {
+    pub(crate) m: Meta,
 }
 
 impl B {
-    fn ex(&self, kind: ExprKind) -> Expr {
+    pub(crate) fn ex(&self, kind: ExprKind) -> Expr {
         Expr { kind, meta: self.m }
     }
-    fn var(&self, n: &str) -> Expr {
+    pub(crate) fn var(&self, n: &str) -> Expr {
         self.ex(ExprKind::Var(n.to_string()))
     }
-    fn call(&self, f: &str, args: Vec<Expr>) -> Expr {
+    pub(crate) fn call(&self, f: &str, args: Vec<Expr>) -> Expr {
         self.ex(ExprKind::Call { callee: f.into(), args, builtin: true, callee_span: self.m.span })
     }
-    fn if_(&self, c: Expr, t: Expr, f: Expr) -> Expr {
+    pub(crate) fn if_(&self, c: Expr, t: Expr, f: Expr) -> Expr {
         self.ex(ExprKind::If(Box::new(c), Box::new(t), Box::new(f)))
     }
-    fn pair(&self, a: Expr, b: Expr) -> Expr {
+    pub(crate) fn pair(&self, a: Expr, b: Expr) -> Expr {
         self.ex(ExprKind::Pair(Box::new(a), Box::new(b)))
     }
-    fn bool(&self, b: bool) -> Expr {
+    pub(crate) fn bool(&self, b: bool) -> Expr {
         self.ex(ExprKind::Bool(b))
     }
-    fn empty(&self, t: &Ty) -> Expr {
+    pub(crate) fn empty(&self, t: &Ty) -> Expr {
         self.ex(ExprKind::List { element_type: type_node(t, self.m), items: vec![] })
     }
-    fn none(&self, t: &Ty) -> Expr {
+    pub(crate) fn none(&self, t: &Ty) -> Expr {
         self.ex(ExprKind::None(type_node(t, self.m)))
     }
-    fn let_(&self, name: &str, value: Expr, body: Expr) -> Expr {
+    pub(crate) fn let_(&self, name: &str, value: Expr, body: Expr) -> Expr {
         self.ex(ExprKind::Let { name: name.into(), name_span: self.m.span, value: Box::new(value), body: Box::new(body) })
     }
-    fn fold(&self, list: Expr, init: Expr, acc: &str, item: &str, body: Expr) -> Expr {
+    pub(crate) fn fold(&self, list: Expr, init: Expr, acc: &str, item: &str, body: Expr) -> Expr {
         self.ex(ExprKind::Fold {
             list: Box::new(list),
             init: Box::new(init),
@@ -152,7 +154,7 @@ impl B {
 }
 
 impl Lower<'_> {
-    fn fresh(&mut self) -> String {
+    pub(crate) fn fresh(&mut self) -> String {
         loop {
             self.fresh += 1;
             let n = format!("hof{}", self.fresh);
@@ -168,11 +170,19 @@ impl Lower<'_> {
         for c in out.children_mut() {
             *c = self.expr(c);
         }
+        // v1.9：空の辞書（型は node に書いてある）
+        if let ExprKind::DictNew(t) = &out.kind {
+            return crate::dict::lower_new(t, e.meta);
+        }
         // 型が無いのは検査で拒否したプログラムだけ（そのまま残す。検証済み parser は受理しない）
         let Some((a, b)) = self.types.get(&e.meta.index).cloned() else {
             return out;
         };
         let (op, list, binder, body) = match out.kind {
+            // v1.9：辞書の操作（a、b は鍵と値の型）
+            ExprKind::Call { callee, args, builtin: true, .. } if DICT_OPS.contains(&callee.as_str()) => {
+                return self.dict_op(e.meta, &callee, args, &a, &b);
+            }
             ExprKind::Hof { op, list, binder, body, .. } => (op, list, binder, body),
             ExprKind::Loop { init, max, binder, body, .. } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
             _ => return out,

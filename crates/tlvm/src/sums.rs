@@ -274,6 +274,7 @@ impl Env {
                 items: items.iter().map(|x| self.expr(x)).collect(),
             },
             ExprKind::None(t) => ExprKind::None(self.ty(t, usize::MAX)),
+            ExprKind::DictNew(t) => ExprKind::DictNew(self.ty(t, usize::MAX)),
             ExprKind::Inj { ok, ty, value } => {
                 ExprKind::Inj { ok: *ok, ty: self.ty(ty, usize::MAX), value: Box::new(self.expr(value)) }
             }

@@ -91,6 +91,17 @@ class RunTest(unittest.TestCase):
         self.assertEqual(d.run([-7, 2]), -4)
         self.assertIsNone(d.run([7, 0]))
 
+    def test_dict(self):
+        # v1.9：Dict<K, V> は [key, value] の配列の配列（挿入順）。鍵が重なる入力は InputError
+        p = tlvm.compile(
+            "fn f(d: Dict<String, Int>) -> Dict<String, Int> = dict_put(dict_remove(d, \"a\"), \"z\", dict_size(d))\nentry f\n"
+        )
+        self.assertEqual(p.input_type, "Dict<String, Int>")
+        self.assertEqual(p.run([["a", 1], ["b", 2]]), [["b", 2], ["z", 2]])
+        with self.assertRaises(tlvm.InputError) as cm:
+            p.run([["a", 1], ["a", 2]])
+        self.assertEqual(cm.exception.diagnostics[0]["code"], "E-INPUT-DICT-DUPLICATE-KEY")
+
     def test_input_error(self):
         p = tlvm.compile(SUM)
         for bad in ([1, True], {"a": 1}, 1.5, "x"):

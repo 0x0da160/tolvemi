@@ -556,6 +556,17 @@ impl Parser {
 
     fn parse_type(&mut self, depth: usize) -> R<TypeNode> {
         let tok = self.peek(0).clone();
+        if tok.kind == TokKind::Ident && tok.text == DICT_TYPE && self.peek(1).is_punct("<") {
+            // v1.9：`Dict<K, V>`。`Dict` は予約語でなく、直後が `<` のときだけ辞書の型（レコード型の名前は型引数を取らない）
+            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            self.advance();
+            self.expect("<")?;
+            let k = self.parse_type(depth + 1)?;
+            self.expect(",")?;
+            let v = self.parse_type(depth + 1)?;
+            self.expect(">")?;
+            return Ok(TypeNode::new(TyTag::Dict, vec![k, v], Meta::new((tok.start, self.prev_end), idx)));
+        }
         if tok.kind == TokKind::Ident {
             // v1.1：レコード型の名前
             let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
@@ -738,6 +749,23 @@ impl Parser {
                     let items = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
                     kind = ExprKind::List { element_type: ty, items };
+                }
+                // v1.9：空の辞書 `dict<K, V>()`
+                DICT_NEW => {
+                    idx = self.adm.admit(sp, simple)?;
+                    self.advance();
+                    self.expect("<")?;
+                    let k = self.parse_type(1)?;
+                    self.expect(",")?;
+                    let v = self.parse_type(1)?;
+                    self.expect(">")?;
+                    let ty = TypeNode::new(TyTag::Dict, vec![k, v], Meta::new((start, self.prev_end), idx));
+                    if !self.peek(0).is_punct("(") {
+                        return self.perr("E-PARSE-EXPECTED-TOKEN", "()");
+                    }
+                    self.advance();
+                    self.expect(")")?;
+                    kind = ExprKind::DictNew(ty);
                 }
                 "some" => {
                     idx = self.adm.admit(sp, simple)?;

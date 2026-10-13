@@ -64,4 +64,9 @@ sources:
 `rec fn NAME(...) -> T = EXPR`（`rec` と `fn` の間は空白一つ）。検証済み formatter は `rec` を知らないので、`tlvm fmt` は
 印を外したものを検証済み formatter で照合し、印を付けて出す（レコードなどを含むときは診断用 formatter の出力）。
 
+# v1.9 の追加
+
+型は `Dict<T, T>`、空の辞書は `dict<T, T>()`、操作は組み込み関数の呼び出しと同じ形。これを含むプログラムも検証済み
+formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

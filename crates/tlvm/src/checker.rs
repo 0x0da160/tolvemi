@@ -45,7 +45,7 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
             ExprKind::Call { callee, args, builtin, callee_span } => {
                 if !builtin && !known.contains(callee.as_str()) {
                     let hof = HofOp::ALL.map(HofOp::name);
-                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof).chain([LOOP]), 3);
+                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof).chain([LOOP]).chain(DICT_OPS), 3);
                     let constraint = if near.is_empty() {
                         "name of a defined function or builtin".to_string()
                     } else {
@@ -345,6 +345,7 @@ type TcR<T> = Result<T, Diagnostic>;
 
 /// v1.5：`map` などの node（論理 node index）ごとの（要素の型 A、本体の型）。`hof::lower` が使う。
 /// v1.6：`loop` の node は（状態の型 S、本体の型 Option<S>）。
+/// v1.9：辞書の操作（`dict_get` などの呼び出し）の node は（鍵の型 K、値の型 V）。
 pub type HofTypes = HashMap<usize, (Ty, Ty)>;
 
 pub struct TypeChecker<'a> {
@@ -465,6 +466,8 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             ExprKind::None(t) => self.build(Ty::option(Ty::of(t)), m),
+            // v1.9：`dict<K, V>()` は Dict<K, V>
+            ExprKind::DictNew(t) => self.build(Ty::of(t), m),
             ExprKind::Some(v) => {
                 let t = self.expr(v)?;
                 if t.is_error() {
@@ -917,6 +920,51 @@ impl<'a> TypeChecker<'a> {
                 }
                 let i = self.build(Ty::int(), m)?;
                 self.build(Ty::option(i), m)
+            }
+            // v1.9：辞書の操作
+            "dict_from" => {
+                // 引数は List<Pair<K, V>>
+                let shape = match (self.head(&ts[0], TyTag::List, &args[0].meta)?, ok) {
+                    (Some(true), true) => self.head(&ts[0].arg(0), TyTag::Pair, &args[0].meta)?,
+                    (r, _) => r,
+                };
+                need!(shape, "E-TYPE-DICT-FROM", &args[0].meta, "List<Pair<K, V>>", &ts[0]);
+                if !ok {
+                    return Ok(Ty::error());
+                }
+                let (k, v) = (ts[0].arg(0).arg(0), ts[0].arg(0).arg(1));
+                self.hof.insert(m.index, (k.clone(), v.clone()));
+                self.build(Ty::dict(k, v), m)
+            }
+            _ if DICT_OPS.contains(&name) => {
+                let h = need!(self.head(&ts[0], TyTag::Dict, &args[0].meta)?, "E-TYPE-DICT-ARG", &args[0].meta, "Dict<K, V>", &ts[0]);
+                if h != Some(true) {
+                    return Ok(Ty::error());
+                }
+                let (k, v) = (ts[0].arg(0), ts[0].arg(1));
+                // 鍵（dict_get・dict_put・dict_remove・dict_has の第 2 引数）と値（dict_put の第 3 引数）
+                if args.len() >= 2 {
+                    need!(self.equal(&ts[1], &k, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &k, &ts[1]);
+                }
+                if args.len() == 3 {
+                    need!(self.equal(&ts[2], &v, &args[2].meta)?, "E-TYPE-ARG", &args[2].meta, &v, &ts[2]);
+                }
+                if !ok {
+                    return Ok(Ty::error());
+                }
+                self.hof.insert(m.index, (k.clone(), v.clone()));
+                match name {
+                    "dict_get" => self.build(Ty::option(v), m),
+                    "dict_put" | "dict_remove" => Ok(ts[0].clone()),
+                    "dict_has" => self.build(Ty::bool(), m),
+                    "dict_size" => self.build(Ty::int(), m),
+                    "dict_keys" => self.build(Ty::list(k), m),
+                    "dict_values" => self.build(Ty::list(v), m),
+                    _ => {
+                        let p = self.build(Ty::pair(k, v), m)?;
+                        self.build(Ty::list(p), m)
+                    }
+                }
             }
             _ => unreachable!("unknown builtin {name}"),
         }

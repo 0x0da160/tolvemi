@@ -14,6 +14,10 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 `match_result`・`match_option` に書き換えます（手間は実際の歩数に比例。v1.8 で `range(0, max)` 1 段から改めた）。
 [v1.8 の差分](../spec/lptl-v1.8/LPTL_v1.8_delta.md) の整数の割り算 `div(a, b)` は `mod` と同じ経路で検証済み部品が直接扱います
 （spec の `Builtin::Div`、`apply_sound` の場合、キーワード表、exec は信頼する多倍長整数の `div_pos`）。
+[v1.9 の差分](../spec/lptl-v1.9/LPTL_v1.9_delta.md) の辞書 `Dict<K, V>` は、診断用の検査器が `List<Pair<K, V>>` とは別の型として
+検査した後、`dict.rs`（走査は `hof.rs` と共有）が各操作を `fold`・`eq`・`reverse`・`cons`・`let` などに書き換え、型の
+`Dict<K, V>` を `List<Pair<K, V>>` に置き換えます（挿入順で鍵が相異なる列。どの操作も O(n)）。検証済み部品は書き換え後の
+プログラムを検査・実行します。入力の辞書の鍵の重複は接着部分（`values.rs`・`plain.rs`）が拒否します。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -74,6 +78,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
 | `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
 | `hof.rs` | v1.5 差分 §2、v1.6 差分 §2 | `map`・`filter`・`any`・`all`・`find`・`sort_by`・`loop` の書き換え（型検査が残した要素と本体の型を使い、fold などにする。導入する名前はプログラム中の名前と重ならない。未検証の接着部分） |
+| `dict.rs` | v1.9 差分 §2 | 辞書の操作の書き換え（`hof.rs` の走査から呼ばれ、型検査が残した鍵と値の型を使う）と、型の `Dict<K, V>` を `List<Pair<K, V>>` にする `erase`。未検証の接着部分 |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
@@ -199,6 +204,8 @@ registry が決まったら差し替える前提です。
   | `E-CYCLE-CALL`（v1.7） | `insert_text`（循環にある最初の関数の宣言の先頭） | 循環にある関数すべてに `rec ` を付けること（停止は保証されなくなる。歩数に上限があるなら fold・loop を勧める） |
   | `E-PARSE-REC-ENTRY`（v1.7） | `delete_span`（`rec`） | `rec` を消す。entry の関数が再帰するならその宣言を `rec fn` にする |
   | `E-LEX-UNEXPECTED-CHARACTER`（`/` のとき。v1.8） | `replace_expression` | 演算子は無く、整数の割り算は `div(a, b)`（`Option<Int>`、`b <= 0` なら none）、行コメントは `//` |
+  | `E-TYPE-DICT-ARG`、`E-TYPE-DICT-FROM`（v1.9） | `replace_expression` | 辞書（`List<Pair<K, V>>` なら `dict_from(xs)`）／pair のリスト（既に辞書ならそのまま） |
+  | `E-TYPE-FOLD-LIST`・`E-TYPE-HOF-LIST`・`E-TYPE-EXPECTED-LIST`（実際が辞書のとき。v1.9） | `replace_expression` | `dict_entries(d)`・`dict_keys(d)`・`dict_values(d)` |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
 - host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
@@ -225,6 +232,7 @@ registry が決まったら差し替える前提です。
   | レコード型 | field 名を key にした object |
   | `Result<T, E>`（v1.4） | `{"ok": v}`、`{"err": e}` |
   | 直和型（v1.4） | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
+  | `Dict<K, V>`（v1.9） | `[key, value]` の配列の配列（挿入順。`[["a", 1], ["b", 2]]`）。鍵が重なる入力は `E-INPUT-DICT-DUPLICATE-KEY`（値 JSON でも同じ） |
 
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。

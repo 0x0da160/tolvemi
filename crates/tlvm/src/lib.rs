@@ -9,6 +9,7 @@ pub mod api;
 pub mod ast_codec;
 pub mod checker;
 pub mod diagnostics;
+pub mod dict;
 pub mod embed;
 pub mod evaluator;
 pub mod formatter;

@@ -5,6 +5,7 @@ use crate::checker::{check_program, CheckOutcome, TypedProgram, VerifiedProgram,
 use crate::diagnostics::{finalize, suggest_repairs, Diagnostic};
 use crate::plain::{canonical_profile, decode_plain, PlainDecode};
 use crate::evaluator::{self, RunResult};
+use crate::dict;
 use crate::hof;
 use crate::lexer::lex;
 use crate::parser::{ParseOutcome, Parser};
@@ -133,7 +134,8 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
                 Ok(px) => {
                     let o = check_program(&px, source.len(), profile);
                     // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
-                    let text = format_program(&lower(&hof::lower(&px, &o.hof)).unmarked());
+                    // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
+                    let text = format_program(&dict::erase(&lower(&hof::lower(&px, &o.hof))).unmarked());
                     let r = result(o.diagnostics.clone(), Some(o));
                     SourceCompile::Result(cross_check(&text, r, profile))
                 }
@@ -153,10 +155,10 @@ pub fn needs_expansion(p: &Program) -> bool {
     sums::has_sums(p) || records::has_records(p)
 }
 
-/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop の書き換え）。
-/// こうしたプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
+/// 検証済み部品に渡す前に書き換えが要るか（レコード・直和型・match の展開か、v1.5 の map など・v1.6 の loop・
+/// v1.9 の辞書の書き換え）。こうしたプログラムは検証済み formatter の対象外で、`tlvm fmt` は診断用 formatter の出力を出す。
 pub fn needs_glue(p: &Program) -> bool {
-    needs_expansion(p) || hof::has_hof(p)
+    needs_expansion(p) || hof::has_hof(p) || dict::has_dict(p)
 }
 
 /// 直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
@@ -265,15 +267,16 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
     }
 }
 
-/// v1.5：map などの 6 語（v1.6 の `loop` も）が呼び出し・宣言の名前の位置（直後が `(`、直前が `fn`・`entry`）にあるか。
-/// 検証済みの構文規則ではこれらは普通の名前なので、`map(xs, f)` や `fn find(...)` を受理しうる。
-/// 診断用 parser はそれらを拒否する（`E-PARSE-EXPECTED-LAMBDA`、`E-PARSE-EXPECTED-IDENT`）ので、
-/// その場合は誤拒否の確かめを省く。
+/// v1.5：map などの 6 語（v1.6 の `loop`、v1.9 の `dict` と `dict_get` なども）が呼び出し・宣言の名前の位置
+/// （直後が `(` か `<`、直前が `fn`・`entry`）にあるか。検証済みの構文規則ではこれらは普通の名前なので、
+/// `map(xs, f)` や `fn find(...)` を受理しうる。診断用 parser はそれらを拒否する（`E-PARSE-EXPECTED-LAMBDA`、
+/// `E-PARSE-EXPECTED-IDENT` など）ので、その場合は誤拒否の確かめを省く。
 fn hof_word_called(text: &str, profile: &StaticProfile) -> bool {
     let Ok(toks) = lex(text.as_bytes(), profile) else { return false };
     toks.iter().enumerate().any(|(i, t)| {
-        crate::syntax::is_lambda_form(&t.text)
-            && (toks.get(i + 1).is_some_and(|n| n.is_punct("("))
+        let dict = crate::syntax::is_dict_word(&t.text);
+        (crate::syntax::is_lambda_form(&t.text) || dict)
+            && (toks.get(i + 1).is_some_and(|n| n.is_punct("(") || (dict && n.is_punct("<")))
                 || (i > 0 && (toks[i - 1].is_kw("fn") || toks[i - 1].is_kw("entry"))))
     })
 }
@@ -312,8 +315,9 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             // AST は正準ソースに整形してから検証済み部品に通す（整形は診断用 formatter）。
             // v1.5：map など（v1.6 の loop も）は fold などに書き換えてから整形する
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
-            let text = if hof::has_hof(&p) {
-                format_program(&hof::lower(&p, &o.hof).unmarked())
+            // v1.9：辞書も同じく書き換え、型の Dict<K, V> を List<Pair<K, V>> にする
+            let text = if hof::has_hof(&p) || dict::has_dict(&p) {
+                format_program(&dict::erase(&hof::lower(&p, &o.hof)).unmarked())
             } else {
                 format_program(&p.unmarked())
             };

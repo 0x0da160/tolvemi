@@ -91,4 +91,12 @@ IDENT（変数・引数・束縛・field・関数の名前、AST transport の�
 名前には使えない（`E-PARSE-EXPECTED-IDENT`）。検証済みの lexer・parser・formatter のキーワード表にも入っている。演算子 `/` は
 引き続き `E-LEX-UNEXPECTED-CHARACTER` で、修復ヒントが `div(a, b)` を示す。詳細は [v1.8 差分仕様](../../spec/lptl-v1.8/LPTL_v1.8_delta.md)。
 
+# v1.9 の追加：辞書
+
+予約語に `dict`、`dict_get`、`dict_put`、`dict_remove`、`dict_has`、`dict_size`、`dict_keys`、`dict_values`、`dict_entries`、
+`dict_from` を加えた（計 68 語）。10 語とも文脈キーワードで、変数・引数・束縛・field の名前に使える。関数名と entry の名前には
+使えない（`E-PARSE-EXPECTED-IDENT`）。AST transport の識別子にも使えないので、`tlvm ast` は `dict_kw` などに付け替える。
+型の `Dict` は予約語ではなく IDENT で、型の位置で直後が `<` のときだけ辞書の型（レコード型の名前にも使える）。
+検証済み部品のキーワード表には入れない（書き換え後のソースには現れない）。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

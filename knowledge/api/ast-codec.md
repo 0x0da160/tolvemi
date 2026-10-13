@@ -48,6 +48,8 @@ sources:
 | expr fold | `tag`, `list`, `init`, `acc`, `item`, `body` |
 | expr map／filter／any／all／find／sort_by（v1.5、この処理系の拡張） | `tag`, `list`, `binder`, `body` |
 | expr loop（v1.6、この処理系の拡張） | `tag`, `init`, `max`, `binder`, `body` |
+| type dict（v1.9、この処理系の拡張） | `tag`, `key`, `value` |
+| expr dict（v1.9、この処理系の拡張。空の辞書） | `tag`, `key_type`, `value_type`。操作 `dict_get` などは `call` |
 
 - `callee` は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。
 - 識別子は decode 後の文字列全体が IDENT に一致し予約語でないこと（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])` と `not.enum`）。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]

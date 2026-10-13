@@ -97,4 +97,15 @@ rec fn odd(n: Int) -> Bool = if(eq(n, 0), false, even(sub(n, 1)))
 
 入力 `[12, 18]` で 6。`tlvm check` は `"terminates":false` と報告する。
 
+# v1.9 の例
+
+```text
+// 語の出現回数（初めて現れた順）
+fn count(ws: List<String>) -> List<Pair<String, Int>> =
+  dict_entries(fold(ws, dict<String, Int>(), |d, w| dict_put(d, w, add(match_option(dict_get(d, w), 0, |n| n), 1))))
+entry count
+```
+
+入力 `["to", "be", "or", "to", "be"]` で `[["to", 2], ["be", 2], ["or", 1]]`。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

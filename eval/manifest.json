@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "ccc2d09caa61a79417b43fdd2985fa8a07bd3d07cbce06c6e96ae8961c6d3c42",
-    "bytes": 21999
+    "sha256": "cd7df74af275af4ab45328251d530ec2c09443c23c6cf347b1bbd0ff56b2f3f9",
+    "bytes": 23891
   },
-  "task_set_sha256": "2155d2e13b4a98cea07d9363d3929f98ccc029e5441c4d0626e6ab178efcfcdc",
-  "tasks": 95,
-  "hidden_cases": 2850,
+  "task_set_sha256": "0ac2e273b14b992ff1e50a1a7047ffa4b129eb7b18c61562a3aafc1f1dbb0568",
+  "tasks": 96,
+  "hidden_cases": 2880,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -388,6 +388,10 @@
     "tasks/95-base_digits/task.json": "7d2ad903701cc29007c6a587375b7204377f346bb99d04e414784bfb4ee2741d",
     "tasks/95-base_digits/hidden.json": "f12382cd560dbdd1c53bd88ff59dc07c09b0f7ea7209bd84edec6e682b95fb3b",
     "tasks/95-base_digits/reference.tlvm": "1f96eef60cab714129c629b1956509246f27e8720923af8ac15558f58652e792",
-    "tasks/95-base_digits/reference.py": "38dcc51245d0d562a8fa8e87b5cd8fd569f80bd27cf142417deecaf0c0ef7d61"
+    "tasks/95-base_digits/reference.py": "38dcc51245d0d562a8fa8e87b5cd8fd569f80bd27cf142417deecaf0c0ef7d61",
+    "tasks/96-inventory/task.json": "dc9a4c1f75318661ffe136f39d2d53c9aab40c51113355fab9471bc062f94c51",
+    "tasks/96-inventory/hidden.json": "18ce1c732511db40145a8d5db984ad9a08e77d26b47de5b02cf50d9d2f749962",
+    "tasks/96-inventory/reference.tlvm": "673b290f136814a1b62e832d3a3bf081db5b6383aac9ad14f5febf5bdf7a46af",
+    "tasks/96-inventory/reference.py": "d8b00cf2ed35383ffeea6c951af16a4efbc24a6aeae10a464e26164243ac1acb"
   }
 }

@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.8), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.9), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.8)
+# Tolvemi (LPTL v1.9)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 without `rec fn` (below) terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no
@@ -41,9 +41,11 @@ entry sum_even
 | `Result<T, E>` | `ok<T, E>(e)` (success), `err<T, E>(e)` (failure); both type arguments are always written |
 | `Char` | a Unicode character: `'a'`, `'"'`, `'\''`, `'\n'` |
 | `String` | text: `"hello"`, `""`, `"say \"hi\"\n"`. A `String` **is** a `List<Char>`, but the type is always written `String` (`List<Char>` is rejected) |
+| `Dict<K, V>` | a dictionary from keys `K` (any type, compared like `eq`) to values `V`, in insertion order: `dict<K, V>()` is the empty one; build it with `dict_put` / `dict_from` (below) |
 
 Escapes in literals: `\\`, `\n`, `\t`, `\r`, and the literal's own quote (`\"` in strings, `\'` in chars). Nothing else.
-In JSON inputs and outputs, a `String` is a JSON string and a `Char` is a one-character JSON string.
+In JSON inputs and outputs, a `String` is a JSON string, a `Char` is a one-character JSON string, and a `Dict` is an
+array of `[key, value]` arrays in insertion order.
 There are no floats, type variables or generics. Records and sum types (below) are the only user-defined types.
 Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
@@ -92,6 +94,12 @@ second and third arguments of `match_result`. There are no lambdas, closures or 
 | `any(xs, \|x\| p)`, `all(xs, \|x\| p)` | `List<A> -> Bool` | some / every element satisfies `p` (`all` of an empty list is true); stop at the answer |
 | `find(xs, \|x\| p)` | `List<A> -> Option<A>` | the first element satisfying `p`, or `none` |
 | `sort_by(xs, \|x\| k)` | `List<A> -> List<A>` | ascending by the `Int` key `k`; equal keys keep their order (descending: `\|x\| neg(k)`) |
+| `dict_get(d, k)` | `Dict<K, V>, K -> Option<V>` | the value of key `k`, or `none` |
+| `dict_put(d, k, v)` | `Dict<K, V>, K, V -> Dict<K, V>` | `d` with `k` set to `v`: an existing key keeps its place, a new key goes last |
+| `dict_remove(d, k)`, `dict_has(d, k)` | `-> Dict<K, V>` / `Bool` | `d` without key `k` (unchanged if absent) / whether `k` is a key |
+| `dict_size(d)` | `Dict<K, V> -> Int` | number of keys |
+| `dict_keys(d)`, `dict_values(d)`, `dict_entries(d)` | `-> List<K>` / `List<V>` / `List<Pair<K, V>>` | in insertion order. A `Dict` is not a `List`: use these to `fold` or `map` over it |
+| `dict_from(xs)` | `List<Pair<K, V>> -> Dict<K, V>` | `dict_put` each pair in order (a later equal key replaces the value, keeping the first place) |
 | `loop(init, max, \|s\| e)` | `S, Int -> Option<S>` | repeat a step on a state: start with `s = init`; `e : Option<S>` returns `some(next)` to continue or `none<S>()` to stop. Result: `some(s)` with the state at the stop, or `none<S>()` if `e` was evaluated `max` times without stopping (`max <= 0`: `none`, `e` never evaluated) |
 
 Strings are lists of characters, so the list builtins and `fold` work on them directly: `concat("ab", "c")`,
@@ -195,10 +203,11 @@ entry solve
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
   Pair Char String Result true false unit let in if fold match_option match_result`.
 - `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod div fst snd cons concat reverse
-  length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by loop` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
+  length uncons min max range contains sort code char to_string parse_int map filter any all find sort_by loop dict`
+  and the `dict_*` operations may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
   `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration, and `rec`
-  is an ordinary name except directly before `fn` at the start of a declaration.
+  is an ordinary name except directly before `fn` at the start of a declaration. `Dict` is a type only when followed by `<`.
 - No shadowing: a `let` name, a `fold`, `map`-style or `loop` binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
@@ -257,6 +266,17 @@ fn step(s: Scan, x: Int) -> Scan =
 
 fn solve(xs: List<Int>) -> Int = fold(xs, Scan { prev: none<Int>(), best: 0 }, |s, x| step(s, x)).best
 entry solve
+```
+
+Counting or grouping by key: a `Dict` in a `fold`. Read the old value with `dict_get` (a default for a missing key
+via `match_option`) and write it back with `dict_put`. Each operation scans the dict, so this is quadratic: fine for
+hundreds of entries.
+
+```tlvm
+// How often each word occurs, in order of first appearance: ["to", "be", "or", "to", "be"] gives [["to", 2], ["be", 2], ["or", 1]].
+fn count(ws: List<String>) -> List<Pair<String, Int>> =
+  dict_entries(fold(ws, dict<String, Int>(), |d, w| dict_put(d, w, add(match_option(dict_get(d, w), 0, |n| n), 1))))
+entry count
 ```
 
 Repeating until a condition holds (no list to walk): `loop` with an upper bound on the number of steps. The step
@@ -355,6 +375,7 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-SUM-DUPLICATE-CTOR` / `E-SUM-NAME-CONFLICT` | a constructor declared twice, or also used as a function, variable or type name |
 | `E-PARSE-EXPECTED-LAMBDA` | the second argument of `map` / `filter` / `any` / `all` / `find` / `sort_by`, or the third argument of `loop`, is not `\|x\| e` (e.g. a bare function name, or `\|acc, x\|`) |
 | `E-TYPE-LOOP-MAX` / `E-TYPE-LOOP-BODY` | the bound of `loop` is not an `Int`, or its step is not `Option<S>` where `S` is the type of `init` (return `some(next)` / `none<S>()`, not the bare state) |
+| `E-TYPE-DICT-ARG` / `E-TYPE-DICT-FROM` | a `dict_*` operation on something that is not a `Dict` (convert a `List<Pair<K, V>>` with `dict_from`), or `dict_from` of something that is not a `List<Pair<K, V>>` |
 | `E-PARSE-EXPECTED-PATTERN` | something other than a pattern before `=>` in a `match` arm |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |

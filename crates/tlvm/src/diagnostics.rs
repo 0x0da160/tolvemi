@@ -70,6 +70,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-HOF-BODY" => "ラムダの本体の型が違います（filter・any・all・find は Bool、sort_by は Int）",
         "E-TYPE-LOOP-MAX" => "loop の第 2 引数（反復の上限）は Int でなければなりません",
         "E-TYPE-LOOP-BODY" => "loop の本体の型は Option<S>（S は初期値の型）でなければなりません",
+        "E-TYPE-DICT-ARG" => "dict_get・dict_put・dict_remove・dict_has・dict_size・dict_keys・dict_values・dict_entries の第 1 引数は Dict でなければなりません",
+        "E-TYPE-DICT-FROM" => "dict_from の引数は (鍵, 値) の pair のリスト List<Pair<K, V>> でなければなりません",
         "E-TYPE-FIELD-ACCESS" => "field を参照する式の型が、その field を持つレコード型ではありません",
         "E-RECORD-UNKNOWN-TYPE" => "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
@@ -109,6 +111,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-INPUT-TAG" => "入力値の tag が期待型と一致しません",
         "E-INPUT-UNKNOWN-FIELD" => "入力値に未知のキーがあります",
         "E-INPUT-INTEGER" => "入力整数が正規形ではありません",
+        "E-INPUT-DICT-DUPLICATE-KEY" => "入力の辞書（Dict）に同じ鍵が二度あります",
         "E-INPUT-CHAR" => "入力の文字が Unicode scalar value ではありません",
         "E-LIMIT-INPUT-JSON-BYTES" => "入力 JSON bytes が上限を超えました",
         "E-LIMIT-INPUT-JSON-DEPTH" => "入力 JSON の構造深さが上限を超えました",
@@ -317,13 +320,41 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
             | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS"
-            | "E-TYPE-HOF-BODY" | "E-TYPE-LOOP-BODY" | "E-TYPE-LOOP-MAX" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
+            | "E-TYPE-HOF-BODY" | "E-TYPE-LOOP-BODY" | "E-TYPE-LOOP-MAX" => exp.map(|t| {
+                // v1.9：Dict と List<Pair<K, V>> の取り違えには変換の操作を示す
+                let act = d.actual.as_deref().unwrap_or("");
+                let how = if t.starts_with("Dict<") && act.starts_with("List<Pair<") {
+                    " (dict_from(xs) makes a Dict from a List of pairs)"
+                } else if t.starts_with("List<Pair<") && act.starts_with("Dict<") {
+                    " (dict_entries(d) gives the pairs of a Dict in insertion order)"
+                } else {
+                    ""
+                };
+                ("replace_expression", span, format!("expression of type {t}{how}"))
+            }),
             "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, match exp.as_deref() {
                 Some("Result") => "expression of type Result<..., ...>".to_string(),
                 Some("Option") | None => "expression of type Option<...>".to_string(),
                 Some(t) => format!("expression of type {t}"),
             })),
+            // v1.9：辞書をリストとして使ったときは、リストを取り出す操作を示す
+            "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" | "E-TYPE-HOF-LIST" if d.actual.as_deref().is_some_and(|a| a.starts_with("Dict<")) => Some((
+                "replace_expression",
+                span,
+                "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)".into(),
+            )),
             "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" | "E-TYPE-HOF-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
+            // v1.9：辞書の操作の第 1 引数
+            "E-TYPE-DICT-ARG" => Some(("replace_expression", span, match d.actual.as_deref() {
+                Some(a) if a.starts_with("List<Pair<") => {
+                    "expression of type Dict<K, V>: dict_from(xs) makes a Dict from a List<Pair<K, V>> (a later pair replaces the value of an earlier equal key)".to_string()
+                }
+                _ => "expression of type Dict<K, V>, such as dict<K, V>() (empty), dict_put(d, k, v) or dict_from(pairs)".to_string(),
+            })),
+            "E-TYPE-DICT-FROM" => Some(("replace_expression", span, match d.actual.as_deref() {
+                Some(a) if a.starts_with("Dict<") => "expression of type List<Pair<K, V>>: this is already a Dict, so use it without dict_from".to_string(),
+                _ => "expression of type List<Pair<K, V>>, such as map(xs, |x| pair(key, value))".to_string(),
+            })),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
             "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),
             "E-NAME-SHADOW" | "E-NAME-DUPLICATE-BINDER" | "E-NAME-DUPLICATE-PARAM" => {
@@ -368,10 +399,10 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 (Some("<"), Some("(")) => Some((
                     "insert_text",
                     (span.0, span.0),
-                    "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>()".into(),
+                    "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>(), dict<K, V>()".into(),
                 )),
                 (Some("=>"), _) => Some(("insert_text", (span.0, span.0), "'=>' between the pattern and the arm's expression".into())),
-                (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
+                (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T> or dict<K, V>, as in none<Int>() or dict<String, Int>()".into())),
                 // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
                 // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
                 (Some(")"), Some("," | "in" | "fn" | "entry" | "type" | "EOF")) => open_paren(source, span.0).map(|(at, what)| {
@@ -391,7 +422,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             "E-PARSE-EXPECTED-TYPE" => Some((
                 "replace_type",
                 span,
-                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | a declared type name".into(),
+                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name".into(),
             )),
             "E-PARSE-STRING-TYPE" => Some(("replace_type", span, "String".into())),
             "E-LEX-INVALID-ESCAPE" => Some((

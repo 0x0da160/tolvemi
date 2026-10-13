@@ -7,12 +7,13 @@ use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
-pub const KEYWORDS: [&str; 58] = [
+pub const KEYWORDS: [&str; 68] = [
     "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
     "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
     "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
     "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
-    "sort_by", "loop", "div",
+    "sort_by", "loop", "div", "dict", "dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys",
+    "dict_values", "dict_entries", "dict_from",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -23,6 +24,10 @@ pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
         "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "div" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
         "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char" | "to_string" | "parse_int" => 1,
+        // v1.9：辞書の操作（`dict::lower_op` が fold などに書き換える）
+        "dict_put" => 3,
+        "dict_get" | "dict_remove" | "dict_has" => 2,
+        "dict_size" | "dict_keys" | "dict_values" | "dict_entries" | "dict_from" => 1,
         _ => return None,
     })
 }
@@ -80,6 +85,8 @@ pub enum TyTag {
     Pair,
     /// v1.4：`Result<T, E>`
     Result,
+    /// v1.9：`Dict<K, V>`（型検査の後で `List<Pair<K, V>>` に書き換える。`dict` モジュール）
+    Dict,
     Error,
 }
 
@@ -94,6 +101,7 @@ impl TyTag {
             TyTag::Option => "Option",
             TyTag::Pair => "Pair",
             TyTag::Result => "Result",
+            TyTag::Dict => "Dict",
             TyTag::Error => "Error",
         }
     }
@@ -113,7 +121,7 @@ impl TyTag {
     pub fn arity(self) -> usize {
         match self {
             TyTag::List | TyTag::Option => 1,
-            TyTag::Pair | TyTag::Result => 2,
+            TyTag::Pair | TyTag::Result | TyTag::Dict => 2,
             _ => 0,
         }
     }
@@ -153,6 +161,21 @@ pub const REC: &str = "rec";
 
 /// v1.6：上限つき反復 `loop(init, max, |s| e)` の名前。
 pub const LOOP: &str = "loop";
+
+/// v1.9：辞書の型の名前（予約語ではない。型の位置で直後が `<` のときだけ `Dict<K, V>`）。
+pub const DICT_TYPE: &str = "Dict";
+
+/// v1.9：空の辞書 `dict<K, V>()` の名前。
+pub const DICT_NEW: &str = "dict";
+
+/// v1.9：辞書の操作（組み込み関数の形。`dict::lower_op` が fold などに書き換える）。
+pub const DICT_OPS: [&str; 9] =
+    ["dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys", "dict_values", "dict_entries", "dict_from"];
+
+/// v1.9：辞書の名前（`dict` と操作）か。
+pub fn is_dict_word(s: &str) -> bool {
+    s == DICT_NEW || DICT_OPS.contains(&s)
+}
 
 /// ラムダを取る特殊形式の名前（v1.5 の 6 語と v1.6 の `loop`）。直後が `(` のときだけ特殊形式。
 pub fn is_lambda_form(s: &str) -> bool {
@@ -266,6 +289,8 @@ pub enum ExprKind {
     Hof { op: HofOp, list: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
     /// v1.6：`loop(init, max, |binder| body)`（`binder` は body の中でだけ見える）
     Loop { init: Box<Expr>, max: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
+    /// v1.9：空の辞書 `dict<K, V>()`（型は `Dict<K, V>` の型 node）
+    DictNew(TypeNode),
 }
 
 /// v1.4：`match` の一つの枝。
@@ -554,6 +579,10 @@ impl Ty {
     }
     pub fn result(a: Ty, b: Ty) -> Ty {
         Ty::new(TyTag::Result, vec![a, b])
+    }
+    /// v1.9：`Dict<K, V>`
+    pub fn dict(k: Ty, v: Ty) -> Ty {
+        Ty::new(TyTag::Dict, vec![k, v])
     }
     pub fn tag(&self) -> TyTag {
         self.0.tag

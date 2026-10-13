@@ -58,4 +58,12 @@ T, A, B ::= Int | Bool | Unit
 値 JSON は展開後の形、plain JSON は `{"Rect": [2, 3]}`、`{"Empty": []}`（variant 名を key に、中身を配列に）。
 再帰する型は作れない（型名は使う前に宣言する）。
 
+# v1.9 の追加：辞書 Dict
+
+型 `Dict<K, V>`（K は任意の型）を加えた。値は鍵が相異なる `(鍵, 値)` の列で、挿入順を保つ（Python の dict と同じ）。
+空の辞書は `dict<K, V>()`（型引数を二つとも書く）。`List<Pair<K, V>>` とは別の型で、型検査の後に
+`List<Pair<K, V>>` へ書き換えてから検証済み部品に渡す。値 JSON は `List<Pair<K, V>>` と同じ、plain JSON は
+`[key, value]` の配列の配列（`[["a", 1], ["b", 2]]`）。入力に同じ鍵が二度あれば `E-INPUT-DICT-DUPLICATE-KEY`。
+`eq` は辞書を挿入順も含めて比べる。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

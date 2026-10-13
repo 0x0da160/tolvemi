@@ -14,12 +14,14 @@ const PARAM_FIELDS: &[(&str, JKind)] = &[("name", S), ("type", O)];
 const DECL_TAGS: &[&str] = &["fn", "entry"];
 /// v1.2：`char`、`string`（`String` は一つの node。`list` の要素に `char` は書けない）
 /// v1.4：`result`（型）、`ok`・`err`・`match_result`（式）
-const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result"];
+/// v1.9：`dict`（型。key、value）
+const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result", "dict"];
 /// v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by`（式。list、binder、body）
 /// v1.6：`loop`（式。init、max、binder、body）
+/// v1.9：`dict`（空の辞書。key_type、value_type）。辞書の操作は `call`（callee が `dict_get` など）
 const EXPR_TAGS: &[&str] = &[
     "int", "char", "string", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option",
-    "ok", "err", "match_result", "map", "filter", "any", "all", "find", "sort_by", "loop",
+    "ok", "err", "match_result", "map", "filter", "any", "all", "find", "sort_by", "loop", "dict",
 ];
 
 /// v1.7：`fn` の `rec`（真偽値）は省略できる（省略は false。v1.6 までの AST JSON はそのまま読める）。
@@ -36,6 +38,7 @@ fn type_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "list" | "option" => &[("element", O)],
         "pair" => &[("left", O), ("right", O)],
         "result" => &[("ok", O), ("err", O)],
+        "dict" => &[("key", O), ("value", O)],
         _ => &[],
     }
 }
@@ -58,6 +61,7 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "match_result" => &[("scrutinee", O), ("ok_binder", S), ("on_ok", O), ("err_binder", S), ("on_err", O)],
         "map" | "filter" | "any" | "all" | "find" | "sort_by" => &[("list", O), ("binder", S), ("body", O)],
         "loop" => &[("init", O), ("max", O), ("binder", S), ("body", O)],
+        "dict" => &[("key_type", O), ("value_type", O)],
         _ => &[],
     }
 }
@@ -71,6 +75,7 @@ fn type_tag(tag: &str) -> TyTag {
         "list" => TyTag::List,
         "option" => TyTag::Option,
         "result" => TyTag::Result,
+        "dict" => TyTag::Dict,
         _ => TyTag::Pair,
     }
 }
@@ -275,7 +280,7 @@ impl Schema<'_> {
                     }
                 }
                 (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => self.ident(c)?,
-                (_, "element_type" | "ok_type" | "err_type") => self.ty(c)?,
+                (_, "element_type" | "ok_type" | "err_type" | "key_type" | "value_type") => self.ty(c)?,
                 (_, "items" | "args") => {
                     for x in &c.items {
                         self.expr(x)?;
@@ -381,6 +386,11 @@ impl Builder {
                 ExprKind::List { element_type: ty, items }
             }
             "some" => ExprKind::Some(Box::new(self.expr(g("value"), d + 1, ld, fd)?)),
+            "dict" => {
+                let k = self.ty(g("key_type"), 1)?;
+                let v = self.ty(g("value_type"), 1)?;
+                ExprKind::DictNew(TypeNode::new(TyTag::Dict, vec![k, v], Meta::new(n.span(), i)))
+            }
             "none" => ExprKind::None(self.ty(g("element_type"), 1)?),
             "pair" => {
                 let a = self.expr(g("left"), d + 1, ld, fd)?;

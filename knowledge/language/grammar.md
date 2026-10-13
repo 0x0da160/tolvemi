@@ -49,6 +49,21 @@ lambda       ::= "|" IDENT "," IDENT "|" expr
 arguments    ::= expr { "," expr }
 ```
 
+# v1.9 の追加：辞書
+
+```ebnf
+type      ::= ... | "Dict" "<" type "," type ">"
+expr      ::= ... | "dict" "<" type "," type ">" "(" ")"
+            | dict_op "(" expr ("," expr)* ")"
+dict_op   ::= "dict_get" | "dict_put" | "dict_remove" | "dict_has" | "dict_size"
+            | "dict_keys" | "dict_values" | "dict_entries" | "dict_from"
+```
+
+- `Dict` は型の位置で直後が `<` のときだけ辞書の型。型引数のない `Dict` はレコード型の名前として読む。
+- `dict` は直後が `<`、操作は直後が `(` のときだけ組み込み（それ以外の位置では変数の参照）。操作の引数の数は組み込み関数と
+  同じく型検査で調べる（`E-ARITY-BUILTIN`）。
+- 検証済み部品の構文にはなく、型検査の後に `crates/tlvm/src/dict.rs` が書き換えてから渡す。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
+
 [^lptl-design]
 
 # 構文上の要点
