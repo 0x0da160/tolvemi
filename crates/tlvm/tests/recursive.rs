@@ -188,11 +188,48 @@ fn names_and_arms_are_checked_as_for_sums() {
 }
 
 #[test]
-fn a_recursive_type_is_a_list_of_int_in_type_errors() {
+fn type_errors_name_the_recursive_type() {
     let src = format!("{TREE}fn f(t: Tree) -> Int = add(t, 1)\nentry f\n");
     let r = compiled(&src);
     assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(r.errors()[0].actual.as_deref(), Some("Tree"));
+}
+
+#[test]
+fn a_list_of_int_is_not_a_tree() {
+    // 木の値を整数の列として渡すと、型検査で拒否される（v1.14 の既知の制限を解消した）
+    let src = format!("{TREE}fn size(t: Tree) -> Int = match t {{ Leaf => 0, _ => 1 }}\nfn f(xs: List<Int>) -> Int = size(xs)\nentry f\n");
+    let r = compiled(&src);
+    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("List<Int>"));
+}
+
+#[test]
+fn different_recursive_types_do_not_mix() {
+    let src = format!("{TREE}type Chain = End | Link(Chain)\nfn size(t: Tree) -> Int = match t {{ Leaf => 0, _ => 1 }}\nfn f(c: Chain) -> Int = size(c)\nentry f\n");
+    let r = compiled(&src);
+    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
+    assert_eq!(r.errors()[0].actual.as_deref(), Some("Chain"));
+}
+
+#[test]
+fn types_of_the_same_shape_do_not_mix() {
+    let src = "type A = X(A) | Ea\ntype B = Y(B) | Eb\nfn f(a: A) -> Int = match a { X(_) => 1, Ea => 0 }\nfn g(b: B) -> Int = f(b)\nentry g\n";
+    let r = compiled(src);
+    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(r.errors()[0].expected.as_deref(), Some("A"));
+    assert_eq!(r.errors()[0].actual.as_deref(), Some("B"));
+}
+
+#[test]
+fn match_on_another_recursive_type_is_rejected() {
+    let src = format!("{TREE}type Chain = End | Link(Chain)\nfn f(c: Chain) -> Int = match c {{ Leaf => 0, _ => 1 }}\nentry f\n");
+    let r = compiled(&src);
+    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
+    assert_eq!(r.errors()[0].actual.as_deref(), Some("Chain"));
 }
 
 #[test]

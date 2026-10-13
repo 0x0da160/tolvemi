@@ -204,8 +204,8 @@ entry solve
   guaranteed to terminate (`"terminates":false`). `match` works as for other sum types: one arm per constructor
   or a final `_`, with flat field names (no nested patterns).
 - `eq(a, b)` compares two trees structurally.
-- Inside the checker a value of a recursive type is a `List<Int>`, so type errors show `List<Int>`, and any
-  `List<Int>` is accepted where a tree is expected. Do not rely on the type checker to tell two such types apart.
+- Two different recursive types never mix: a tree passed where another type is expected, or a `List<Int>` passed
+  where a tree is expected, is a type error (`E-TYPE-ARG`) that names the type, such as `Tree`.
 - As an entry input or output, a tree is its list of integers: the constructor number first, then each field as
   its length followed by its value. So `Leaf` is `[0]` and `Node(Leaf, 3, Leaf)` is `[1, 1, 0, 1, 3, 1, 0]`.
   `tlvm exec` does not take a tree as its input.

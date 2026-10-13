@@ -89,16 +89,17 @@ pub fn has_recursive(p: &Program) -> bool {
 enum Kind {
     Int,
     Bool,
-    Rec,
+    /// 再帰する型（その番号）の値
+    Rec(usize),
 }
 
 /// 中身の型を符号化できるか（Int、Bool、再帰する型そのもの）。
-fn kind_of(t: &TypeNode, rec: &HashSet<String>) -> Option<Kind> {
+fn kind_of(t: &TypeNode, idx: &HashMap<String, usize>) -> Option<Kind> {
     if t.tag == TyTag::Param || !t.args.is_empty() {
         return None;
     }
     match &t.name {
-        Some(n) => rec.contains(n).then_some(Kind::Rec),
+        Some(n) => idx.get(n).map(|r| Kind::Rec(*r)),
         None => match t.tag {
             TyTag::Int => Some(Kind::Int),
             TyTag::Bool => Some(Kind::Bool),
@@ -111,6 +112,8 @@ fn kind_of(t: &TypeNode, rec: &HashSet<String>) -> Option<Kind> {
 struct Variant {
     name: String,
     kinds: Vec<Kind>,
+    /// 型の番号（印の段数）
+    ty: usize,
     /// 宣言の形（`Node(Tree, Int, Tree)`。診断用）
     sig: String,
     /// 構築の関数の名前
@@ -121,6 +124,12 @@ struct Variant {
 
 struct Env {
     rec: HashSet<String>,
+    /// 再帰する型の名前 → 番号（宣言の順。印の段数になる）
+    idx: HashMap<String, usize>,
+    /// 印つきの写しを作るか（型の区別を検証済みの部品に検査させる。実行は印なしの写し）
+    tagged: bool,
+    /// 番号 → 印つきの写しで中身を取り出す補助関数の名前
+    flat: Vec<String>,
     /// 全ての直和型の構築子の名前（再帰しない型のものも。混ざった pattern の診断に使う）
     all_ctors: HashSet<String>,
     /// 再帰する型の名前 → 項（宣言の順）
@@ -136,7 +145,9 @@ struct Env {
     fns: Vec<FnDecl>,
 }
 
-pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
+/// 再帰する型を `List<Int>` の符号化に書き換える。`tagged` のときは、型ごとに違う印を値に付けた写しを作る
+/// （印の型どうしは違う型なので、型検査で再帰する型どうしを区別できる）。実行するのは印なしの写しである。
+pub fn expand(p: &Program, tagged: bool) -> Result<Program, Vec<Diagnostic>> {
     let all_ctors = p
         .declarations
         .iter()
@@ -146,8 +157,13 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
         })
         .flatten()
         .collect();
+    let rec = recursive_names(p);
+    let idx = type_index(p, &rec);
     let mut env = Env {
-        rec: recursive_names(p),
+        rec,
+        idx,
+        tagged,
+        flat: vec![],
         all_ctors,
         tys: HashMap::new(),
         ctors: HashMap::new(),
@@ -161,6 +177,14 @@ pub fn expand(p: &Program) -> Result<Program, Vec<Diagnostic>> {
     env.at = env.name("rec_at");
     env.take = env.name("rec_take");
     env.drop = env.name("rec_drop");
+    if tagged {
+        let mut names: Vec<(usize, String)> = env.idx.iter().map(|(n, r)| (*r, n.clone())).collect();
+        names.sort();
+        for (_, n) in names {
+            let f = env.name(&format!("{}_flat", n.to_ascii_lowercase()));
+            env.flat.push(f);
+        }
+    }
     env.declare(p);
     env.binder_conflicts(p);
     env.helpers();
@@ -208,6 +232,78 @@ fn int_node(m: Meta) -> TypeNode {
 
 fn list_int_node(m: Meta) -> TypeNode {
     TypeNode::new(TyTag::List, vec![int_node(m)], m)
+}
+
+/// 再帰する型の番号 `r` の印の型：`Pair<Unit, Unit>` を r 段入れ子にしたもの。段数が違えば別の型になる。
+fn tag_ty(r: usize, m: Meta) -> TypeNode {
+    let unit = || TypeNode::new(TyTag::Unit, vec![], m);
+    let mut t = TypeNode::new(TyTag::Pair, vec![unit(), unit()], m);
+    for _ in 0..r {
+        t = TypeNode::new(TyTag::Pair, vec![unit(), t], m);
+    }
+    t
+}
+
+/// 再帰する型の名前 → 番号（宣言の順）。
+fn type_index(p: &Program, rec: &HashSet<String>) -> HashMap<String, usize> {
+    let mut idx: HashMap<String, usize> = HashMap::new();
+    for d in &p.declarations {
+        if let Decl::Sum(s) = d {
+            if rec.contains(&s.name) {
+                let n = idx.len();
+                idx.entry(s.name.clone()).or_insert(n);
+            }
+        }
+    }
+    idx
+}
+
+/// 印つきの写しの型を診断に書く形と、それが指す再帰する型の名前の組（番号の順）。
+pub fn tagged_names(p: &Program) -> Vec<(String, String)> {
+    let idx = type_index(p, &recursive_names(p));
+    let mut names: Vec<(usize, String)> = idx.into_iter().map(|(n, r)| (r, n)).collect();
+    names.sort();
+    names.into_iter().map(|(r, n)| (tagged_text(r), n)).collect()
+}
+
+/// 番号 `r` の印つきの型を診断に書く形：`Pair<Pair<Unit, Unit>, List<Int>>`（`tag_ty(r)` の書き方）。
+fn tagged_text(r: usize) -> String {
+    let mut tag = "Pair<Unit, Unit>".to_string();
+    for _ in 0..r {
+        tag = format!("Pair<Unit, {tag}>");
+    }
+    format!("Pair<{tag}, List<Int>>")
+}
+
+/// 診断の文面の印つきの型を、それが指す再帰する型の名前に直す（利用者が書いた型で読めるように）。
+pub fn show_names(mut errors: Vec<Diagnostic>, names: &[(String, String)]) -> Vec<Diagnostic> {
+    let fix = |s: &mut String| {
+        for (text, name) in names {
+            *s = s.replace(text.as_str(), name);
+        }
+    };
+    for d in &mut errors {
+        if let Some(e) = d.expected.as_mut() {
+            fix(e);
+        }
+        if let Some(a) = d.actual.as_mut() {
+            fix(a);
+        }
+        fix(&mut d.message);
+        if let Some(r) = d.repair.as_mut() {
+            fix(&mut r.constraint);
+        }
+    }
+    errors
+}
+
+/// 番号 `r` の印の値（`tag_ty(r)` の型）。
+fn tag_val(r: usize, m: Meta) -> Expr {
+    let mut v = pair(ex(ExprKind::Unit, m), ex(ExprKind::Unit, m), m);
+    for _ in 0..r {
+        v = pair(ex(ExprKind::Unit, m), v, m);
+    }
+    v
 }
 
 fn int(n: usize, m: Meta) -> Expr {
@@ -282,6 +378,34 @@ impl Env {
         fresh(&mut self.taken, base)
     }
 
+    /// 再帰する型の値の型：印なしなら `List<Int>`、印つきなら `Pair<印, List<Int>>`。
+    fn rec_node(&self, r: usize, m: Meta) -> TypeNode {
+        if self.tagged {
+            TypeNode::new(TyTag::Pair, vec![tag_ty(r, m), list_int_node(m)], m)
+        } else {
+            list_int_node(m)
+        }
+    }
+
+    /// 項の値を、印つきの写しでは番号 `r` の印を付けて返す（印なしの写しでは、そのまま）。
+    fn wrap(&self, r: usize, e: Expr, m: Meta) -> Expr {
+        if self.tagged {
+            pair(tag_val(r, m), e, m)
+        } else {
+            e
+        }
+    }
+
+    /// 再帰する型の値から中身の列を取り出す。印つきの写しでは、番号 `r` の印の型の引数だけを受け取る補助関数を通す。
+    /// これで、別の再帰する型の値を渡すと型検査で拒否される。
+    fn unwrap(&self, r: usize, e: Expr, m: Meta) -> Expr {
+        if self.tagged {
+            call(&self.flat[r], vec![e], m)
+        } else {
+            e
+        }
+    }
+
     fn push(&mut self, d: Diagnostic) {
         self.diags.push(d);
     }
@@ -342,7 +466,7 @@ impl Env {
                 }
                 let mut kinds = vec![];
                 for f in &v.fields {
-                    match kind_of(f, &self.rec) {
+                    match kind_of(f, &self.idx) {
                         Some(kd) => kinds.push(kd),
                         None if generic => kinds.push(Kind::Int),
                         None => {
@@ -368,7 +492,7 @@ impl Env {
                 };
                 let func = self.name(&format!("{}_new", v.name.to_ascii_lowercase()));
                 self.ctors.entry(v.name.clone()).or_insert_with(|| (s.name.clone(), k));
-                variants.push(Variant { name: v.name.clone(), kinds, sig, func, meta: s.meta, span: v.name_span });
+                variants.push(Variant { name: v.name.clone(), kinds, sig, func, ty: self.idx[&s.name], meta: s.meta, span: v.name_span });
             }
             self.tys.insert(s.name.clone(), variants.clone());
             for (k, v) in variants.iter().enumerate() {
@@ -440,7 +564,7 @@ impl Env {
             let ty = match kd {
                 Kind::Int => int_node(m),
                 Kind::Bool => TypeNode::new(TyTag::Bool, vec![], m),
-                Kind::Rec => list_int_node(m),
+                Kind::Rec(r) => self.rec_node(*r, m),
             };
             args.push(var(&pn, m));
             params.push((pn, ty));
@@ -452,7 +576,10 @@ impl Env {
             .map(|(kd, a)| match kd {
                 Kind::Int => list(vec![int(1, m), a.clone()], m),
                 Kind::Bool => list(vec![int(1, m), if_(a.clone(), int(1, m), int(0, m), m)], m),
-                Kind::Rec => builtin("concat", vec![list(vec![builtin("length", vec![a.clone()], m)], m), a.clone()], m),
+                Kind::Rec(r) => {
+                    let d = self.unwrap(*r, a.clone(), m);
+                    builtin("concat", vec![list(vec![builtin("length", vec![d.clone()], m)], m), d], m)
+                }
             })
             .collect();
         let mut rest: Option<Expr> = None;
@@ -467,7 +594,8 @@ impl Env {
             None => tag,
             Some(r) => builtin("concat", vec![tag, r], m),
         };
-        let mut f = func(&v.func, params, list_int_node(m), body, m);
+        let body = self.wrap(v.ty, body, m);
+        let mut f = func(&v.func, params, self.rec_node(v.ty, m), body, m);
         f.name_span = v.span;
         f.ctor = Some(v.name.clone());
         f
@@ -516,17 +644,25 @@ impl Env {
         let body = fold(one, int(0, m), &acc, &item, var(&item, m), m);
         let f = func(&at, vec![(xs, list_int_node(m)), (i, int_node(m))], int_node(m), body, m);
         self.fns.push(f);
+        // 印つきの写し：印の型の値から中身の列を取り出す（引数の型で印を確かめる）
+        for r in 0..self.flat.len() {
+            let v = self.name("v");
+            let ty = self.rec_node(r, m);
+            let body = builtin("snd", vec![var(&v, m)], m);
+            let f = func(&self.flat[r].clone(), vec![(v, ty)], list_int_node(m), body, m);
+            self.fns.push(f);
+        }
     }
 
-    /// 再帰する型の node を `List<Int>` に置き換える（型引数は書けない）。
+    /// 再帰する型の node を、その値の型（印なしなら `List<Int>`、印つきなら印の付いた型）に置き換える（型引数は書けない）。
     fn rty(&mut self, t: &TypeNode) -> TypeNode {
         if t.tag != TyTag::Param {
             if let Some(n) = &t.name {
-                if self.rec.contains(n) {
+                if let Some(r) = self.idx.get(n).copied() {
                     if !t.args.is_empty() {
                         arity_error(&mut self.diags, n, &[], t.args.len(), t.meta);
                     }
-                    return list_int_node(t.meta);
+                    return self.rec_node(r, t.meta);
                 }
             }
         }
@@ -547,7 +683,8 @@ impl Env {
                     self.arity(n, 0, false, m.span.t(), m.index, false);
                     return ex(ExprKind::Unit, m);
                 }
-                list(vec![int(k, m)], m)
+                let r = self.tys[&ty][k].ty;
+                self.wrap(r, list(vec![int(k, m)], m), m)
             }
             ExprKind::Call { callee, args, builtin: false, callee_span, type_args } if self.ctors.contains_key(callee) => {
                 let args: Vec<Expr> = args.iter().map(|a| self.expr(a)).collect();
@@ -727,7 +864,8 @@ impl Env {
         }
         let head = call(&self.at.clone(), vec![var(&sv, m), int(0, m)], m);
         let out = let_(&tv, m.span, head, out, m);
-        let_(&sv, m.span, scrut, out, m)
+        let r = self.idx[&ty];
+        let_(&sv, m.span, self.unwrap(r, scrut, m), out, m)
     }
 
     /// 項 `k` の枝の本体。項の中身を、長さの前置きに従って順に取り出して束縛し、その中で `body` を書く。
@@ -755,7 +893,7 @@ impl Env {
                     let value = match kinds[j] {
                         Kind::Int => call(&at, vec![var(&data, m), int(0, m)], m),
                         Kind::Bool => builtin("eq", vec![call(&at, vec![var(&data, m), int(0, m)], m), int(1, m)], m),
-                        Kind::Rec => var(&data, m),
+                        Kind::Rec(r) => self.wrap(r, var(&data, m), m),
                     };
                     lets.push((bind, bind_span, value));
                 }
