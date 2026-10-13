@@ -37,7 +37,7 @@ fn input_bits_over(v: &V, limit: u64) -> Option<u64> {
                     return Some(bits(n));
                 }
             }
-            Value::Some(a) => stack.push(a.clone()),
+            Value::Some(a) | Value::Ok(a) | Value::Err(a) => stack.push(a.clone()),
             Value::Pair(a, b) | Value::Cons(a, b) => {
                 stack.push(b.clone());
                 stack.push(a.clone());

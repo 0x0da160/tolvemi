@@ -2,6 +2,9 @@
 
 plain JSON は tlvm の `--plain` と同じ対応（crates/tlvm/src/plain.rs）。評価タスクでは
 `Option<Unit>` や `Option<Option<T>>` を使わないので、`{"some": v}` の形は扱わない。
+`Result<T, E>`（v1.4）は plain JSON でも Python でも `{"ok": v}` か `{"err": e}`（key 一つの dict）。
+ユーザー定義の型（レコード・直和型）は型の文字列だけでは宣言が分からないので、タスクの入出力には使わない
+（プログラムの中で宣言して使う）。
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ def parse_type(s: str) -> Type:
             a = ty()
             expect(">")
             return (name, a)
-        if name == "Pair":
+        if name in ("Pair", "Result"):
             expect("<")
             a = ty()
             expect(",")
@@ -96,7 +99,18 @@ def lptl_literal(v: Any, t: Type) -> str:
         return f"none<{show_type(t[1])}>()" if v is None else f"some({lptl_literal(v, t[1])})"
     if k == "Pair":
         return f"pair({lptl_literal(v[0], t[1])}, {lptl_literal(v[1], t[2])})"
+    if k == "Result":
+        tag, x = _result_parts(v)
+        return f"{tag}<{show_type(t[1])}, {show_type(t[2])}>({lptl_literal(x, t[1] if tag == 'ok' else t[2])})"
     raise ValueError(t)
+
+
+def _result_parts(v: Any) -> tuple[str, Any]:
+    """`{"ok": v}` / `{"err": e}` の（tag、中身）。"""
+    if not isinstance(v, dict) or len(v) != 1 or next(iter(v)) not in ("ok", "err"):
+        raise TypeError('expected {"ok": v} or {"err": e}')
+    tag = next(iter(v))
+    return tag, v[tag]
 
 
 def to_python(v: Any, t: Type) -> Any:
@@ -111,6 +125,9 @@ def to_python(v: Any, t: Type) -> Any:
         return None if v is None else to_python(v, t[1])
     if k == "Unit":
         return None
+    if k == "Result":
+        tag, x = _result_parts(v)
+        return {tag: to_python(x, t[1] if tag == "ok" else t[2])}
     return v
 
 
@@ -152,6 +169,9 @@ def from_python(v: Any, t: Type) -> Any:
     if k == "Option":
         _check_nullable(t)
         return None if v is None else from_python(v, t[1])
+    if k == "Result":
+        tag, x = _result_parts(v)
+        return {tag: from_python(x, t[1] if tag == "ok" else t[2])}
     raise ValueError(t)
 
 
@@ -184,4 +204,8 @@ class Gen:
         if k == "Option":
             _check_nullable(t)
             return None if rng.random() < 0.3 else self.value(t[1], rng, depth + 1)
+        if k == "Result":
+            if rng.random() < 0.5:
+                return {"ok": self.value(t[1], rng, depth + 1)}
+            return {"err": self.value(t[2], rng, depth + 1)}
         raise ValueError(t)

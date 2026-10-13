@@ -1,0 +1,13 @@
+{
+  "id": "89-shapes_area",
+  "title": "Total area of shapes",
+  "category": "sum",
+  "prompt": "The input is a list of shape descriptions, each a pair of a name and a list of integer dimensions. A description is valid when it is \"circle\" with exactly one dimension r (area 3*r*r), \"rect\" with exactly two dimensions w and h (area w*h), or \"square\" with exactly one dimension s (area s*s). Any other description (another name, or the wrong number of dimensions) is invalid. Return pair(total area of the valid shapes, number of invalid descriptions).",
+  "input_type": "List<Pair<String, List<Int>>>",
+  "output_type": "Pair<Int, Int>",
+  "examples": [
+    {"input": [["circle", [2]], ["rect", [2, 5]], ["square", [3]]], "expected": [31, 0]},
+    {"input": [["rect", [4]], ["tri", [1, 2]], ["square", [1]]], "expected": [1, 2]},
+    {"input": [], "expected": [0, 0]}
+  ]
+}

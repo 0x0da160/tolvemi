@@ -2,7 +2,10 @@
 
 LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_design_v1.md)）§11 の層分離に沿って、
 処理系を Rust で、数学的仕様と証明と検証済みの実行部品を Verus で書いています。
-言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、組み込み関数 `min`・`max`・`range`・`contains`・`sort`、値の型引数の山括弧、レコード型）と [v1.2 の差分](../spec/lptl-v1.2/LPTL_v1.2_delta.md)（文字と文字列、そのリテラル、組み込み関数 `code`・`char`・`to_string`・`parse_int`）を加えたものです。spec 層と証明は、レコード型を除く v1.2 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は書き換え後のプログラムを検査・実行します。組み込み関数名を使った変数名（文脈キーワード）は検証済みの構文規則が直接受け付けます。
+言語は v1 に [v1.1 の差分](../spec/lptl-v1.1/LPTL_v1.1_delta.md)（`match_option` と `uncons`、組み込み関数 `min`・`max`・`range`・`contains`・`sort`、値の型引数の山括弧、レコード型）と [v1.2 の差分](../spec/lptl-v1.2/LPTL_v1.2_delta.md)（文字と文字列、そのリテラル、組み込み関数 `code`・`char`・`to_string`・`parse_int`）を加えたものです。spec 層と証明は、レコード型を除く v1.2 の言語に対するものです。レコード型は `records.rs` が pair の入れ子に展開し、検証済み部品は書き換え後のプログラムを検査・実行します。
+[v1.4 の差分](../spec/lptl-v1.4/LPTL_v1.4_delta.md) の `Result<T, E>`、`ok`／`err`、`match_result` は検証済み部品が直接扱います。
+ユーザー定義の直和型と `match` は `sums.rs` が `ok`／`err` の入れ子と `match_result`／`match_option`、`fst`／`snd` の
+`let` に書き換え（網羅性などの診断もここで出す）、検証済み部品は書き換え後のプログラムを検査・実行します。組み込み関数名を使った変数名（文脈キーワード）は検証済みの構文規則が直接受け付けます。
 
 | 設計書の層 | 場所 | 内容 |
 |---|---|---|
@@ -56,6 +59,8 @@ LPTL 設計方針 v1（[`spec/lptl-v1/LPTL_design_v1.md`](../spec/lptl-v1/LPTL_d
 | `api.rs` | §9.1 | `compile`／`compile_ast`／`decode_input`／`run`、検証済み部品との突き合わせ |
 | `plain.rs` | — | 普通の JSON と値 JSON の相互変換（設計書の外側の便宜。下の節） |
 | `records.rs` | v1.1 差分 §1b | レコード型の展開（pair の入れ子と fst／snd への書き換え。未検証の接着部分） |
+| `sums.rs` | v1.4 差分 §3 | 直和型と `match` の展開（ok／err の入れ子、match_result／match_option と fst／snd の let への書き換え、網羅性の検査。未検証の接着部分） |
+| `runtime.rs` | v1.3 差分、v1.4 差分 §4 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像） |
 | `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test`、`--plain`、`--human` |
@@ -196,6 +201,8 @@ registry が決まったら差し替える前提です。
   | `List<T>`／`Pair<A, B>` | 配列／二要素の配列 |
   | `Option<T>` | `none` は `null`、`some(v)` は v。T が `Unit` か `Option` のときだけ `{"some": v}` |
   | レコード型 | field 名を key にした object |
+  | `Result<T, E>`（v1.4） | `{"ok": v}`、`{"err": e}` |
+  | 直和型（v1.4） | variant 名を key にし、中身を配列にした object（`{"Rect": [2, 3]}`、`{"Empty": []}`） |
 
   入力の上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数え、診断の span も
   plain JSON の bytes 上の位置です。

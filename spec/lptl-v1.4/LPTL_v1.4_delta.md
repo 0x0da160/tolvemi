@@ -78,4 +78,11 @@ bind    ::= IDENT | "_"
 
 ## 6. LLM での確認
 
-直和型を使う少数の問題を Haiku（effort low）で各 1 回解かせる（§7 に結果を書く）。
+`eval/tasks/89-shapes_area`、`90-parse_config`（カテゴリ `sum`）を Haiku（effort low）で各 1 回解かせ、2 問とも初回で
+全テストを通した（2026-10-13）。Haiku は `Result`・`ok`・`match_result` を使い、ユーザー定義の直和型と `match` は
+使わなかった（`fold` と `if` で書いた）。
+
+## 7. 検証の結果
+
+検証済み部品は全体で 622 件の検証を通した（`assume`・`admit` なし）。§3 の展開と `match` の書き換えは検証されていない
+接着部分で、§2 の保証は書き換え後のプログラムについて成り立つ（レコードと同じ扱い）。

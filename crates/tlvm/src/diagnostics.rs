@@ -37,12 +37,13 @@ pub fn message_for(code: &str) -> &'static str {
         "E-PARSE-EXPECTED-IDENT" => "識別子が必要です（予約語は使えません）",
         "E-PARSE-EXPECTED-EXPR" => "式が必要です",
         "E-PARSE-STRING-TYPE" => "List<Char> は String と書きます",
+        "E-PARSE-EXPECTED-PATTERN" => "match の枝には pattern（構築子、ok(x)、err(e)、some(x)、none、_）が必要です",
         "E-PARSE-RECOVERY-LIMIT" => "parse error が多すぎるため解析を打ち切りました",
         "E-NAME-UNKNOWN-FUNCTION" => "未定義の関数です",
         "E-NAME-UNBOUND-VARIABLE" => "未束縛の変数です",
         "E-NAME-DUPLICATE-FUNCTION" => "同名のトップレベル関数が既に定義されています",
         "E-NAME-DUPLICATE-PARAM" => "同名の引数が既にあります",
-        "E-NAME-DUPLICATE-BINDER" => "fold の acc と item は相異なる名前でなければなりません",
+        "E-NAME-DUPLICATE-BINDER" => "fold の acc と item、match の一つの枝の束縛は相異なる名前でなければなりません",
         "E-NAME-SHADOW" => "外側の変数をシャドーする束縛は書けません",
         "E-ENTRY-UNKNOWN" => "entry が未定義の関数を指しています",
         "E-ENTRY-MISSING" => "entry 宣言がありません",
@@ -61,8 +62,8 @@ pub fn message_for(code: &str) -> &'static str {
         "E-TYPE-IF-BRANCH" => "if の両分岐は同じ型でなければなりません",
         "E-TYPE-FOLD-LIST" => "fold の第1引数は List でなければなりません",
         "E-TYPE-FOLD-BODY" => "fold 本体の型は初期値の型と一致しなければなりません",
-        "E-TYPE-MATCH-SCRUTINEE" => "match_option の第1引数は Option でなければなりません",
-        "E-TYPE-MATCH-BRANCH" => "match_option の両分岐は同じ型でなければなりません",
+        "E-TYPE-MATCH-SCRUTINEE" => "分解する値の型が合いません（match_option は Option、match_result は Result、match は pattern の直和型・Result・Option）",
+        "E-TYPE-MATCH-BRANCH" => "match_option・match_result・match の分岐はすべて同じ型でなければなりません",
         "E-TYPE-FIELD-ACCESS" => "field を参照する式の型が、その field を持つレコード型ではありません",
         "E-RECORD-UNKNOWN-TYPE" => "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
@@ -70,6 +71,14 @@ pub fn message_for(code: &str) -> &'static str {
         "E-RECORD-MISSING-FIELD" => "レコードの構築に書かれていない field があります",
         "E-RECORD-DUPLICATE-TYPE" => "同じ名前のレコード型が二度宣言されています",
         "E-RECORD-FIELD-CONFLICT" => "field 名は別のレコード型の field と重なってはいけません",
+        "E-SUM-DUPLICATE-CTOR" => "構築子の名前が重複しています（構築子の名前はプログラム全体で一意）",
+        "E-SUM-UNKNOWN-CTOR" => "宣言されていない構築子です",
+        "E-SUM-CTOR-ARITY" => "構築・pattern の中身の数が宣言と違います",
+        "E-SUM-NAME-CONFLICT" => "構築子と同じ名前の関数・変数・型は使えません",
+        "E-MATCH-MISSING" => "match に足りない場合があります",
+        "E-MATCH-DUPLICATE" => "同じ場合の枝が二つあります",
+        "E-MATCH-UNREACHABLE" => "届かない枝です（`_` の後の枝、または全部の場合を書いた後の `_`）",
+        "E-MATCH-MIXED" => "一つの match に違う型の pattern が混ざっています",
         "E-TYPE-RETURN" => "関数本体の型が宣言した戻り型と一致しません",
         "E-LIMIT-STATIC-SOURCE-BYTES" => "source bytes が上限を超えました",
         "E-LIMIT-STATIC-TOKENS" => "token 数が上限を超えました",
@@ -302,7 +311,11 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
         let r: Option<(&'static str, Span, String)> = match d.code {
             "E-TYPE-RETURN" | "E-TYPE-ARG" | "E-TYPE-LIST-ITEM" | "E-TYPE-IF-CONDITION" | "E-TYPE-IF-BRANCH"
             | "E-TYPE-FOLD-BODY" | "E-TYPE-EQ-OPERANDS" | "E-TYPE-MATCH-BRANCH" | "E-TYPE-FIELD-ACCESS" => exp.map(|t| ("replace_expression", span, format!("expression of type {t}"))),
-            "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, "expression of type Option<...>".into())),
+            "E-TYPE-MATCH-SCRUTINEE" => Some(("replace_expression", span, match exp.as_deref() {
+                Some("Result") => "expression of type Result<..., ...>".to_string(),
+                Some("Option") | None => "expression of type Option<...>".to_string(),
+                Some(t) => format!("expression of type {t}"),
+            })),
             "E-TYPE-FOLD-LIST" | "E-TYPE-EXPECTED-LIST" => Some(("replace_expression", span, "expression of type List<...>".into())),
             "E-TYPE-FST-ARG" | "E-TYPE-SND-ARG" => Some(("replace_expression", span, "expression of type Pair<..., ...>".into())),
             "E-ARITY-USER" | "E-ARITY-BUILTIN" => exp.map(|n| ("replace_expression", span, format!("call with {n}"))),
@@ -315,6 +328,17 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                 Some(("replace_expression", span, "canonical integer literal (no '+', no leading zeros, no -0)".into()))
             }
             // 予約語を名前に使ったときだけ書き換え先を示す。それ以外（回復後の連鎖など）は位置が当てにならない
+            // v1.4：構築子の名前は大文字で始まる
+            "E-PARSE-EXPECTED-IDENT" if exp.as_deref() == Some(crate::parser::CTOR_EXPECTED) => Some((
+                "replace_identifier",
+                span,
+                "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty".into(),
+            )),
+            "E-PARSE-EXPECTED-PATTERN" => Some((
+                "replace_expression",
+                span,
+                "pattern: Ctor, Ctor(x, y) (one name or _ per field), ok(x), err(e), some(x), none, or _ for the remaining cases".into(),
+            )),
             "E-PARSE-EXPECTED-IDENT" => d.actual.as_deref().filter(|w| crate::syntax::is_keyword(w)).map(|w| {
                 ("replace_identifier", span, format!("'{w}' is a reserved word; use another name such as {w}_ here and at every use"))
             }),
@@ -325,6 +349,13 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
                     span,
                     "type arguments use angle brackets: list<T>(...) and none<T>()".into(),
                 )),
+                // v1.4：ok／err は型引数を二つとも書く
+                (Some("<"), Some("(")) => Some((
+                    "insert_text",
+                    (span.0, span.0),
+                    "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>()".into(),
+                )),
+                (Some("=>"), _) => Some(("insert_text", (span.0, span.0), "'=>' between the pattern and the arm's expression".into())),
                 (Some("()"), _) => Some(("insert_text", (span.0, span.0), "() after none<T>, as in none<Int>()".into())),
                 // 括弧の過不足：この位置で閉じようとしている開き括弧の位置を示す。引数の途中で別の token が
                 // 来た場合（`add(x 1)` の区切り忘れなど）は、欠けたものが一意に決まらないので出さない
@@ -345,7 +376,7 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             "E-PARSE-EXPECTED-TYPE" => Some((
                 "replace_type",
                 span,
-                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B>".into(),
+                "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | a declared type name".into(),
             )),
             "E-PARSE-STRING-TYPE" => Some(("replace_type", span, "String".into())),
             "E-LEX-INVALID-ESCAPE" => Some((

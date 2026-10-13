@@ -293,6 +293,12 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             }
             return Err(Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("-"));
         }
+        // v1.4：`match` の枝の `=>`（検証済み lexer にはない。`match` は検証済み部品へ渡す前に書き換える）
+        if b == b'=' && i + 1 < n && src[i + 1] == b'>' {
+            push!(TokKind::Punct, i, i + 2);
+            i += 2;
+            continue;
+        }
         if b"()[]<>,:=|.{}".contains(&b) {
             push!(TokKind::Punct, i, i + 1);
             i += 1;

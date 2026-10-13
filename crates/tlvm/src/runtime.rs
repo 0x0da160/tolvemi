@@ -9,6 +9,8 @@
 //! | `Pair<List<String>, String>` | 引数と標準入力の全文 |
 //!
 //! 出力が `String` ならその文字列をそのまま、それ以外は plain JSON を一行で標準出力に書く。
+//! v1.4：出力が `Result<String, String>` なら、`ok(s)` は s をそのまま標準出力に（終了コード 0）、
+//! `err(s)` は s をそのまま標準エラーに書く（終了コード 1）。
 //! テキストと値の変換（`tlvm_verified::io`）と実行（`pipeline::run_checked`）は検証済み部品が行う。
 //! ここにあるのは入力の形の選択と、結果を `ExecResult` に写す接着部分だけである（`trust-boundary.toml`）。
 
@@ -51,6 +53,8 @@ pub fn exec_input(p: &TypedProgram) -> Option<ExecInput> {
 pub enum ExecResult {
     /// 標準出力に書く内容（String の出力はそのまま、それ以外は plain JSON と改行）
     Output(String),
+    /// v1.4：出力型 `Result<String, String>` の `err(s)`。s を標準エラーに書き、終了コード 1 で終わる
+    Failure(String),
     /// 実行の打ち切りなど（`run` と同じ envelope）
     Stopped(RunResult),
 }
@@ -105,10 +109,30 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
         Checked::Ran(Err(Stop::HostDepth), _, _) => stopped(RunResult::HostAborted("eval-depth".into())),
         Checked::Ran(Err(Stop::Fault), _, _) => stopped(RunResult::InternalFault("stuck".into())),
         Checked::Ran(Ok(w), _, _) => {
+            let text = |v: &Rc<EV>| -> Option<String> {
+                // 出力型 String の値の文字はスカラー値（検証済み：val_type）
+                text_codes(v).map(|cs| cs.into_iter().map(|c| char::from_u32(c).unwrap_or('\u{FFFD}')).collect())
+            };
+            let mut failed = false;
             let out = if p.output_type == Ty::string() {
-                match text_codes(&w) {
-                    // 出力型 String の値の文字はスカラー値（検証済み：val_type）
-                    Some(cs) => cs.into_iter().map(|c| char::from_u32(c).unwrap_or('\u{FFFD}')).collect(),
+                match text(&w) {
+                    Some(s) => s,
+                    None => {
+                        release(w);
+                        return stopped(RunResult::InternalFault("output-not-text".into()));
+                    }
+                }
+            } else if p.output_type == Ty::result(Ty::string(), Ty::string()) {
+                let inner = match &*w {
+                    EV::Ok(x) => Some(text(x)),
+                    EV::Err(x) => {
+                        failed = true;
+                        Some(text(x))
+                    }
+                    _ => None,
+                };
+                match inner.flatten() {
+                    Some(s) => s,
                     None => {
                         release(w);
                         return stopped(RunResult::InternalFault("output-not-text".into()));
@@ -123,7 +147,7 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
             if out.len() as u64 > prof.output_bytes {
                 return stopped(RunResult::ResourceExhausted { kind: "OutputBytes", observed: prof.output_bytes + 1, limit: prof.output_bytes });
             }
-            Ok(ExecResult::Output(out))
+            Ok(if failed { ExecResult::Failure(out) } else { ExecResult::Output(out) })
         }
     }
 }

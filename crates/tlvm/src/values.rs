@@ -27,6 +27,9 @@ pub enum Value {
     Pair(V, V),
     Nil,
     Cons(V, V),
+    /// v1.4：Result の値
+    Ok(V),
+    Err(V),
 }
 
 /// 共有参照。Drop は反復で行う。
@@ -63,7 +66,7 @@ impl Drop for V {
         while let Some(rc) = stack.pop() {
             if let Ok(v) = Arc::try_unwrap(rc) {
                 match v {
-                    Value::Some(mut a) => stack.extend(a.0.take()),
+                    Value::Some(mut a) | Value::Ok(mut a) | Value::Err(mut a) => stack.extend(a.0.take()),
                     Value::Pair(mut a, mut b) | Value::Cons(mut a, mut b) => {
                         stack.extend(a.0.take());
                         stack.extend(b.0.take());
@@ -136,6 +139,11 @@ pub fn encode_value(v: &V) -> String {
                 stack.push(Piece::Lit("}"));
                 stack.push(Piece::Val(a));
             }
+            Value::Ok(a) | Value::Err(a) => {
+                out.push_str(if matches!(&**x, Value::Ok(_)) { "{\"tag\":\"ok\",\"value\":" } else { "{\"tag\":\"err\",\"value\":" });
+                stack.push(Piece::Lit("}"));
+                stack.push(Piece::Val(a));
+            }
             Value::Pair(a, b) => {
                 out.push_str("{\"tag\":\"pair\",\"left\":");
                 stack.push(Piece::Lit("}"));
@@ -193,7 +201,7 @@ fn fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "int" | "char" => &[("value", JKind::String)],
         "bool" => &[("value", JKind::Boolean)],
         "list" => &[("items", JKind::Array)],
-        "some" => &[("value", JKind::Object)],
+        "some" | "ok" | "err" => &[("value", JKind::Object)],
         "pair" => &[("left", JKind::Object), ("right", JKind::Object)],
         _ => &[],
     }
@@ -208,6 +216,7 @@ fn tags_for(t: &Ty) -> &'static [&'static str] {
         TyTag::List => &["list"],
         TyTag::Option => &["some", "none"],
         TyTag::Pair => &["pair"],
+        TyTag::Result => &["ok", "err"],
         TyTag::Error => &[],
     }
 }
@@ -240,6 +249,7 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
         TyTag::List => VTy::List(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Option => VTy::Option(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Pair => VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
+        TyTag::Result => VTy::Result(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
         TyTag::Error => return None,
     })
 }
@@ -301,7 +311,7 @@ pub fn release(v: Rc<EV>) {
     while let Some(rc) = stack.pop() {
         if let Ok(x) = Rc::try_unwrap(rc) {
             match x {
-                EV::Some(a) => stack.push(a),
+                EV::Some(a) | EV::Ok(a) | EV::Err(a) => stack.push(a),
                 EV::Pair(a, b) | EV::Cons(a, b) => {
                     stack.push(a);
                     stack.push(b);
@@ -414,6 +424,8 @@ impl Decoder<'_> {
             "unit" => V::new(Value::Unit),
             "none" => V::new(Value::None),
             "some" => V::new(Value::Some(self.value(n.get("value").unwrap(), &t.arg(0), depth + 1)?)),
+            "ok" => V::new(Value::Ok(self.value(n.get("value").unwrap(), &t.arg(0), depth + 1)?)),
+            "err" => V::new(Value::Err(self.value(n.get("value").unwrap(), &t.arg(1), depth + 1)?)),
             "pair" => {
                 let l = self.value(n.get("left").unwrap(), &t.arg(0), depth + 1)?;
                 let r = self.value(n.get("right").unwrap(), &t.arg(1), depth + 1)?;

@@ -1,12 +1,12 @@
 {
   "skill": {
     "path": "SKILL.md",
-    "sha256": "9dd95ef706fe2ca23671b2a57583f2b81cfc704b7a9ba67980843eab73abf819",
-    "bytes": 13525
+    "sha256": "45e8939ca9cd96793689d4d40e82df8c77f36d73b30fbde5e5df7c5c4c273ed4",
+    "bytes": 17069
   },
-  "task_set_sha256": "f5f21e4b1ab6621c6f4f6f7374a1b9c001036917270c17f3dccf87bca71609d1",
-  "tasks": 88,
-  "hidden_cases": 2640,
+  "task_set_sha256": "8c6d3071e6d960b65989530ca144357e89d2d0ac55eeec8e116db7c652cc4787",
+  "tasks": 90,
+  "hidden_cases": 2700,
   "out_of_scope": 5,
   "files": {
     "tasks/01-sum/task.json": "1cee907e8e599314b872b3a5b552314d425a33ca10191db95ef9950d883d9cf0",
@@ -360,6 +360,14 @@
     "tasks/88-grep_lines/task.json": "183ce7e093dd1db67b900ac43a848a20549090a9c8d47e64d02cee6f59f80057",
     "tasks/88-grep_lines/hidden.json": "6128ae447794bf47d2deb0c2676030b81304d5383cc37c8a6d24babbc2613156",
     "tasks/88-grep_lines/reference.tlvm": "8182be586b1715343a03b83ba08f8cf450a9d442a22a70032c6212bba7b330fc",
-    "tasks/88-grep_lines/reference.py": "eab9ab0b9d03b34be144134b24f01c7f2a2d9ca02abfe965a132d8c34ec2898b"
+    "tasks/88-grep_lines/reference.py": "eab9ab0b9d03b34be144134b24f01c7f2a2d9ca02abfe965a132d8c34ec2898b",
+    "tasks/89-shapes_area/task.json": "a21633cec475ccf60cefb8dbeb576d8e387d716493953efc4badeee90dc36cb3",
+    "tasks/89-shapes_area/hidden.json": "9fdc98f1c646589cf5ddf17efc5ba8710f96aefbc2064183ddd44770090ff838",
+    "tasks/89-shapes_area/reference.tlvm": "e1b98b25d88d964085d1bdc15ed9a7d3cccf9274d4b08ff496e16e4ebfeaffec",
+    "tasks/89-shapes_area/reference.py": "01a15815abf03203c6699ee268dec0e8083442e2d1965825f5d329f64ce39380",
+    "tasks/90-parse_config/task.json": "21c1ea417153309d5a69681fb11c43b41cd1feb08c587b7f838509c94a22bc7f",
+    "tasks/90-parse_config/hidden.json": "8d0ff82d6d04aa1f12e9e955a0d0d671a2721bcdda405d8745f977542d86cf51",
+    "tasks/90-parse_config/reference.tlvm": "6f20e4003354f48d69c617858130ad90454ce5b7ffefc534ee16a9d8e4a43df3",
+    "tasks/90-parse_config/reference.py": "47705bc0b0c71548f358def2124acd204d940b4849e4adf25a59d3e05031585d"
   }
 }

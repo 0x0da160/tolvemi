@@ -60,4 +60,12 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 0x20 未満の文字は生では書けない。非 ASCII 文字はリテラルの中でだけ書ける。予約語に `Char`、`String`、`code`、`char`、
 `to_string`、`parse_int` を加えた（後ろの 4 語は文脈キーワード）。詳細は [v1.2 差分仕様](../../spec/lptl-v1.2/LPTL_v1.2_delta.md)。
 
+
+# v1.4 の追加：Result と match
+
+予約語に `Result`、`match_result` を加えた。`ok`、`err` は文脈キーワード（直後が `<` のときだけ構築子で、変数名などに
+使える）。`match` と `type` は予約語ではなく、式の先頭の `match e {` と宣言の先頭の `type` でだけキーワードとして働く。
+`match` の枝の `=>` は診断用 lexer だけが一つの token として読む（検証済み部品には `match` を書き換えてから渡す）。
+直和型の構築子の名前は大文字で始まる IDENT。詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

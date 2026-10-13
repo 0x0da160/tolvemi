@@ -1,0 +1,29 @@
+type Shape = Circle(Int) | Rect(Int, Int) | Square(Int)
+
+fn area(s: Shape) -> Int =
+  match s { Circle(r) => mul(3, mul(r, r)), Rect(w, h) => mul(w, h), Square(a) => mul(a, a) }
+
+// The dimensions as a list of exactly one / two numbers.
+fn one(dims: List<Int>) -> Option<Int> =
+  match uncons(dims) { some(h) => if(eq(snd(h), list<Int>()), some(fst(h)), none<Int>()), none => none<Int>() }
+
+fn two(dims: List<Int>) -> Option<Pair<Int, Int>> =
+  match uncons(dims) {
+    some(h) => match one(snd(h)) { some(b) => some(pair(fst(h), b)), none => none<Pair<Int, Int>>() },
+    none => none<Pair<Int, Int>>()
+  }
+
+fn parse(d: Pair<String, List<Int>>) -> Option<Shape> =
+  let name = fst(d) in
+  if(eq(name, "circle"), match one(snd(d)) { some(r) => some(Circle(r)), none => none<Shape>() },
+  if(eq(name, "square"), match one(snd(d)) { some(a) => some(Square(a)), none => none<Shape>() },
+  if(eq(name, "rect"), match two(snd(d)) { some(p) => some(Rect(fst(p), snd(p))), none => none<Shape>() },
+  none<Shape>())))
+
+fn solve(xs: List<Pair<String, List<Int>>>) -> Pair<Int, Int> =
+  fold(xs, pair(0, 0), |acc, d|
+    match parse(d) {
+      some(s) => pair(add(fst(acc), area(s)), snd(acc)),
+      none => pair(fst(acc), add(snd(acc), 1))
+    })
+entry solve

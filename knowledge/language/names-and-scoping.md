@@ -32,4 +32,15 @@ sources:
 
 entry 名の解決は [entry と到達可能性](entry-and-reachability.md) を参照。
 
+
+# v1.4 の追加：match_result、構築子、match
+
+- `match_result(m, |x| a, |y| b)` の x と y はそれぞれの枝でだけ見え、外側の可視変数をシャドーできない（x と y は同じ
+  名前でもよい）。
+- 直和型の構築子の名前はプログラム全体で一意（`E-SUM-DUPLICATE-CTOR`）で、関数・変数・型と同じ名前は使えない
+  （`E-SUM-NAME-CONFLICT`）。知らない構築子は `E-SUM-UNKNOWN-CTOR`、中身の数の違いは `E-SUM-CTOR-ARITY`。
+- `match` の pattern が束縛する名前はその枝でだけ見え、外側の名前をシャドーできず、一つの枝の中で相異なる（`_` は束縛しない）。
+- `match` は全部の場合を一度ずつ書くか最後の `_` で残りをまとめる。足りない場合 `E-MATCH-MISSING`、重複
+  `E-MATCH-DUPLICATE`、届かない枝 `E-MATCH-UNREACHABLE`、型の違う pattern の混在 `E-MATCH-MIXED`（いずれも name phase）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

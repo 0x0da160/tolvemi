@@ -1,9 +1,9 @@
 ---
 name: tolvemi-lptl
-description: Write programs in Tolvemi (LPTL v1.3), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
+description: Write programs in Tolvemi (LPTL v1.4), a small pure, total, statically typed language over finite data. Use when asked to write or fix a .tlvm program.
 ---
 
-# Tolvemi (LPTL v1.3)
+# Tolvemi (LPTL v1.4)
 
 Tolvemi is a small language for pure, total, deterministic computation over finite data. Every accepted program
 terminates and returns exactly one value of its declared type. Programs do no I/O themselves (a command-line runner feeds them text, below), and there is no mutation, no general
@@ -37,12 +37,13 @@ entry sum_even
 | `List<T>` | `list<T>(e1, e2, ...)`; the empty list is `list<T>()` (the element type is always written) |
 | `Option<T>` | `some(e)`, `none<T>()` (the payload type is always written) |
 | `Pair<A, B>` | `pair(a, b)` |
+| `Result<T, E>` | `ok<T, E>(e)` (success), `err<T, E>(e)` (failure); both type arguments are always written |
 | `Char` | a Unicode character: `'a'`, `'"'`, `'\''`, `'\n'` |
 | `String` | text: `"hello"`, `""`, `"say \"hi\"\n"`. A `String` **is** a `List<Char>`, but the type is always written `String` (`List<Char>` is rejected) |
 
 Escapes in literals: `\\`, `\n`, `\t`, `\r`, and the literal's own quote (`\"` in strings, `\'` in chars). Nothing else.
 In JSON inputs and outputs, a `String` is a JSON string and a `Char` is a one-character JSON string.
-There are no floats, type variables or generics. Records (below) are the only user-defined types.
+There are no floats, type variables or generics. Records and sum types (below) are the only user-defined types.
 Type arguments are always written in angle brackets, as in types; square brackets `[` `]` never appear in source.
 
 ## Expressions
@@ -53,10 +54,13 @@ Type arguments are always written in angle brackets, as in types; square bracket
 | `if(c, e_then, e_else)` | `c` must be `Bool`; both branches must have the same type |
 | `fold(xs, init, \|acc, x\| body)` | left fold over list `xs`: `acc` starts as `init`; for each element `x`, the new `acc` is `body`. The result is the final `acc`. `body` must have the same type as `init` |
 | `match_option(o, e_none, \|v\| e_some)` | `o` must be an `Option<T>`. If `o` is `none`, the result is `e_none`; if it is `some(x)`, the result is `e_some` with `v` bound to `x`. Only the chosen branch is evaluated; both branches must have the same type |
+| `match_result(r, \|v\| e_ok, \|e\| e_err)` | `r` must be a `Result<T, E>`. If it is `ok(x)`, the result is `e_ok` with `v` bound to `x`; if it is `err(y)`, `e_err` with `e` bound to `y`. Only the chosen branch is evaluated; both branches must have the same type |
+| `match e { P => e1, ... }` | case analysis on a sum type, a `Result` or an `Option` (below) |
 | `f(e1, ..., en)` | call a builtin or a user function (all arguments are evaluated first) |
 
 `|acc, x| body` is only allowed as the third argument of `fold`, and `|v| e` only as the third argument of
-`match_option`. There are no lambdas, closures or first-class functions anywhere else.
+`match_option` and the second and third arguments of `match_result`. There are no lambdas, closures or first-class
+functions anywhere else.
 
 ## Builtins (the complete list)
 
@@ -119,14 +123,52 @@ entry solve
 - A record type may use record types declared above it (no recursive types).
 - Record inputs and outputs are JSON objects keyed by field name.
 
+## Sum types and match: one of several shapes
+
+Declare a sum type at the top level, before its first use. Each variant is a constructor name starting with an
+uppercase letter, with or without fields. Build a value by calling the constructor (`Circle(5)`, `Rect(2, 3)`, and
+plain `Empty` without parentheses), and take it apart with `match`:
+
+```tlvm
+type Shape = Circle(Int) | Rect(Int, Int) | Empty
+
+fn area(s: Shape) -> Int =
+  match s { Circle(r) => mul(3, mul(r, r)), Rect(w, h) => mul(w, h), Empty => 0 }
+
+fn square(n: Int) -> Shape = if(lt(0, n), Rect(n, n), Empty)
+
+// The largest shape; a failure is a value too.
+fn largest(xs: List<Shape>) -> Result<Shape, String> =
+  match uncons(xs) {
+    none => err<Shape, String>("no shapes"),
+    some(h) => ok<Shape, String>(fold(snd(h), fst(h), |best, s| if(lt(area(best), area(s)), s, best)))
+  }
+
+fn solve(sizes: List<Int>) -> Result<Int, String> =
+  let shapes = fold(sizes, list<Shape>(), |acc, n| cons(square(n), acc)) in
+  match_result(largest(shapes), |s| ok<Int, String>(area(s)), |e| err<Int, String>(e))
+entry solve
+```
+
+- `match` patterns: `Ctor`, `Ctor(a, b)` (one name or `_` per field), `ok(v)`, `err(e)`, `some(v)`, `none`, and `_`.
+  All arms of one `match` are for the same type; every arm must have the same result type.
+- Cover every case exactly once, or end with `_ => e` for the rest. A missing case, a repeated case, or an arm after
+  `_` is an error. The names bound by a pattern are visible only in that arm and must not shadow other names.
+- Constructor names are unique in the program and differ from function, variable and type names. A sum type may
+  use types declared above it (no recursive types).
+- `match` works on `Result` and `Option` too; `match_result` and `match_option` are the same thing written as calls.
+- In JSON inputs and outputs a `Result` is `{"ok": v}` or `{"err": e}`, and a sum value is the constructor name
+  with its fields in an array: `{"Rect": [2, 3]}`, `{"Empty": []}`.
+
 ## Names and scoping
 
 - All names are ASCII identifiers. Reserved words, never usable as names: `fn Int Bool Unit List Option
-  Pair Char String true false unit let in if fold match_option`.
-- `entry` and the builtin and constructor names `list some none pair add sub mul neg lt le eq mod fst snd cons concat reverse
+  Pair Char String Result true false unit let in if fold match_option match_result`.
+- `entry` and the builtin and constructor names `list some none pair ok err add sub mul neg lt le eq mod fst snd cons concat reverse
   length uncons min max range contains sort code char to_string parse_int` may be used as variable, parameter, binder and field names (`|pair| fst(pair)`, `length: Int`).
   `|acc, entry|` is fine. Followed by `(` or `<` they are always the builtin, so they cannot be function names.
-- No shadowing: a `let` name, a `fold` binder or a `match_option` binder must not reuse any name that is already in
+  `match` and `type` are ordinary names except at the start of a `match` expression or a type declaration.
+- No shadowing: a `let` name, a `fold` binder, a `match_option` / `match_result` binder or a `match` pattern name must not reuse any name that is already in
   scope (including function parameters and outer binders). The two `fold` binders must differ from each other.
 - Function names must be unique.
 
@@ -216,7 +258,8 @@ entry words
 `tlvm exec prog.tlvm ARGS...` runs a program as a command. The entry's input type says what it receives:
 `String` gets all of standard input, `List<String>` gets the command-line arguments, and
 `Pair<List<String>, String>` gets both. If the output type is `String` it is written to standard output exactly
-(add `"\n"` yourself where you want line breaks); any other output is printed as JSON.
+(add `"\n"` yourself where you want line breaks). If it is `Result<String, String>`, `ok(s)` writes `s` to standard
+output (exit code 0) and `err(s)` writes `s` to standard error (exit code 1). Any other output is printed as JSON.
 
 ```tlvm
 // Number each line of standard input: "1: first", "2: second", ...
@@ -247,7 +290,12 @@ The checker reports errors as `file:line:col: error[CODE]: message (expected ...
 | `E-NAME-SHADOW` | a `let` / `fold` binder reuses a name already in scope |
 | `E-CYCLE-CALL` | recursion |
 | `E-ARITY-BUILTIN` / `E-ARITY-USER` | wrong number of arguments |
-| `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option, or branches of different types |
+| `E-TYPE-MATCH-SCRUTINEE` / `E-TYPE-MATCH-BRANCH` | `match_option` on a non-Option (`match_result` on a non-Result, `match` on a value of another type), or branches of different types |
+| `E-MATCH-MISSING` / `E-MATCH-DUPLICATE` / `E-MATCH-UNREACHABLE` | a `match` without an arm for some case (the repair lists them), a case twice, or an arm after `_` |
+| `E-MATCH-MIXED` | patterns of different types in one `match` (e.g. `Circle(r)` and `ok(v)`) |
+| `E-SUM-UNKNOWN-CTOR` / `E-SUM-CTOR-ARITY` | a misspelt constructor, or the wrong number of fields (`Empty()` for a constructor without fields) |
+| `E-SUM-DUPLICATE-CTOR` / `E-SUM-NAME-CONFLICT` | a constructor declared twice, or also used as a function, variable or type name |
+| `E-PARSE-EXPECTED-PATTERN` | something other than a pattern before `=>` in a `match` arm |
 | `E-TYPE-*` | a type mismatch; `expected` and `found` show both types |
 | `E-PARSE-STRING-TYPE` | `List<Char>` written as a type; write `String` |
 | `E-LEX-INVALID-ESCAPE` / `E-LEX-UNTERMINATED-STRING` / `E-LEX-INVALID-CHAR-LITERAL` | a bad escape, a string without its closing `"`, or a char literal that is not exactly one character |

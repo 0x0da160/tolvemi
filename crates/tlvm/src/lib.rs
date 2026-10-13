@@ -20,6 +20,7 @@ pub mod records;
 pub mod runtime;
 pub mod softnames;
 pub mod strict_json;
+pub mod sums;
 pub mod syntax;
 pub mod values;
 

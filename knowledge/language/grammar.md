@@ -78,4 +78,27 @@ fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f
 
 parse error 時の回復規則は [診断件数と recovery](../diagnostics/limits-and-recovery.md)、正準出力は [正準フォーマット](canonical-formatting.md)。
 
+
+# v1.4 の追加：Result、直和型、match
+
+```ebnf
+type      ::= ... | "Result" "<" type "," type ">" | IDENT
+expr      ::= ... | ("ok" | "err") "<" type "," type ">" "(" expr ")"
+            | "match_result" "(" expr "," "|" IDENT "|" expr "," "|" IDENT "|" expr ")"
+            | CTOR | CTOR "(" expr ("," expr)* ")"
+            | "match" expr "{" arm ("," arm)* ","? "}"
+top_decl  ::= ... | "type" IDENT "=" variant ("|" variant)*
+variant   ::= CTOR | CTOR "(" type ("," type)* ")"
+arm       ::= pattern "=>" expr
+pattern   ::= CTOR | CTOR "(" bind ("," bind)* ")" | "ok" "(" bind ")" | "err" "(" bind ")"
+            | "some" "(" bind ")" | "none" | "_"
+bind      ::= IDENT | "_"
+```
+
+- `Result`、`ok`／`err`、`match_result` は検証済み部品の構文にある。直和型と `match` は検証されていない接着部分
+  （`crates/tlvm/src/sums.rs`）が `ok`／`err` の入れ子と `match_result`／`match_option`、`fst`／`snd` の `let` に
+  書き換えてから検証済み部品に渡す。
+- `match` の対象の位置では `Name {` をレコードの構築として読まない（`match p { ... }` の `{` は枝の始まり）。
+- 詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

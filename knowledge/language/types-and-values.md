@@ -46,4 +46,16 @@ T, A, B ::= Int | Bool | Unit
 `List<Char>` の唯一の綴りで、ソースに `List<Char>` とは書けない。値は `'a'`、`"text"`（文字のリスト）。
 値 JSON では文字は `{"tag":"char","value":"<番号>"}`、plain JSON では文字列は JSON の文字列。
 
+
+# v1.4 の追加：Result と直和型
+
+[v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md) で型 `Result<T, E>`（値は `ok(v)` か `err(e)`）を加えた。式では `ok<T, E>(x)`、`err<T, E>(x)` と
+型引数を二つとも書く。値 JSON は `{"tag":"ok","value":V}`、`{"tag":"err","value":V}`、plain JSON は `{"ok": v}`、`{"err": e}`。
+
+ユーザー定義の直和型 `type Shape = Circle(Int) | Rect(Int, Int) | Empty` は、variant が n 個（n ≥ 2）なら
+`Result<P1, Result<P2, ... Result<Pn-1, Pn>>>` の名前である（Pk は k 番目の中身の型。中身なしは `Unit`、一つはその型、
+複数は右に入れ子の `Pair`。n = 1 なら P1）。型の等価性は展開後の構造で決まり、名前は表示と plain JSON に使う。
+値 JSON は展開後の形、plain JSON は `{"Rect": [2, 3]}`、`{"Empty": []}`（variant 名を key に、中身を配列に）。
+再帰する型は作れない（型名は使う前に宣言する）。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
