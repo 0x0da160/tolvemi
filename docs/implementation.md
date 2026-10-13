@@ -46,7 +46,8 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 - `run_input_json` が入力を拒否するのは spec の `input_val` が None のときだけ。実行したなら入力は `input_val` の
   唯一の値 v で、v は entry の入力型を持つ。
 - 実行が値を返したなら、それは spec の評価 `eval_entry` が v に対して返す唯一の値 w で、出力型を持ち、出力は
-  w の正準 JSON `enc(w)`。実行が Fault（spec の行き詰まり）で終わることはない。資源上限による打ち切りは
+  w の正準 JSON `enc(w)`（型の保証は定理 `sound` による）。`rec` の印のある関数がなければ（`no_rec`）、
+  実行が Fault（spec の行き詰まり）で終わることはない（停止性 `entry_total` による）。資源上限による打ち切りは
   spec と無関係に起こりうる。
 
 ## exec 層（crates/tlvm）
@@ -92,7 +93,7 @@ cargo test --release
 | ファイル | 内容 |
 |---|---|
 | `spec.rs` | 型、値、名前解決済み AST、型付け `ty_expr`、整形式 `wf`、燃料付き評価 `eval` |
-| `proof.rs` | 停止性・型安全性 `total`／`entry_total`、燃料単調性 `mono`、決定性 `entry_deterministic`、組込みの健全性 `apply_sound` |
+| `proof.rs` | 停止性・型安全性 `total`／`entry_total`（`no_rec` が前提）、型保存 `sound`／`entry_sound`（`rec` があっても成り立つ）、燃料単調性 `mono`、決定性 `entry_deterministic`、組込みの健全性 `apply_sound` |
 | `bigstep.rs` | 燃料付き評価から導いた大ステップ規則と、行き詰まりの伝播（`fails`） |
 | `syntax.rs` | 表面構文の spec：字句 `lex`、構文 `parse`（EBNF）、token 列への印字 `tds`、正準整形 `fds` |
 | `syntax_proof.rs` | 正準整形の字句解析 `lex(fds(p)) == Some(tds(p))` |
@@ -118,12 +119,12 @@ cargo test --release
 | 2 formatter | `format_preserves`（`parse(fds(p)) == Some(p)`）、`format_idempotent`（再 parse・再整形・token 列が一致）、`surface::format_e` は spec と一致 |
 | 3 名前解決 | `resolve` は関数名の一意性・entry の存在と一引数・変数の scope を検査し、`rx_scoped` で解決後の変数は scope 内。`resolve_e` は spec と一致 |
 | 4 型検査 | `check::ty_of` は `ty_expr` と一致、`apply_sound` |
-| 5 DAG | `check_prog` が真なら `wf`（呼出し先のランクが真に小さい） |
-| 6 | `total`、`entry_total`、`entry_deterministic`、`run_checked` |
+| 5 DAG | `check_prog` が真なら `wf`（呼出し先のランクが真に小さいか、呼出し先に `rec` の印がある） |
+| 6 | `total`、`entry_total`（`no_rec` のとき）、`sound`、`entry_sound`、`entry_deterministic`、`run_checked` |
 | 7 | `mono` |
-| 8 評価器 | 返した値は spec の値（`evals_to`）。Fault を返すのは spec が行き詰まるときだけで、整形式のプログラムに型の合う入力を与えれば起きない（`run_checked` の ensures） |
+| 8 評価器 | 返した値は spec の値（`evals_to`）。Fault を返すのは spec が行き詰まるときだけで、整形式で `rec` の印のないプログラムに型の合う入力を与えれば起きない（`run_checked` の ensures） |
 | 9 JSON | 出力：`encode` は `enc` どおり、`roundtrip`、`dec_typed`。入力：`input_typed`、`input_nodup`、`input_roundtrip`、`decode_input_e` は spec と一致 |
-| 10 失敗の分離 | `compile_source` は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が失敗するときだけ。`run_input_json` は復号の拒否（spec の `input_val` が None のときだけ）と実行を分け、実行は Fault で終わらない |
+| 10 失敗の分離 | `compile_source` は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が失敗するときだけ。`run_input_json` は復号の拒否（spec の `input_val` が None のときだけ）と実行を分け、`no_rec` なら実行は Fault で終わらない |
 
 ### 検証の再現
 
@@ -136,7 +137,7 @@ git clone https://github.com/verus-lang/verus.git && cd verus/source
 source ../tools/activate && vargo build --release
 # 検証（このリポジトリの verus/ で。cargo-verus は Verus の build に含まれる）
 cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
-# => verification results:: 553 verified, 0 errors
+# => verification results:: 626 verified, 0 errors
 ```
 
 ### まだ証明していないこと

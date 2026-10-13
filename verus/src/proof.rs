@@ -4,6 +4,10 @@
 //! ある燃料で評価は必ず `Done` になり、結果は出力型を持つ。`Stuck`（型エラーによる
 //! 行き詰まり）は起きず、燃料さえ足りれば停止する。`eval_deterministic` により結果は
 //! 燃料に依らず一意。`assume` と `external_body` は使っていない。
+//!
+//! v1.7：`entry_total`（と `total`）は `rec` の印のある関数がないこと（`no_rec`）を前提にする。
+//! 印のあるプログラムにも成り立つのは型保存の定理 `sound`／`entry_sound`：ある燃料で値が
+//! 出たなら、その値は型を持つ（燃料についての帰納法で、停止性を使わない）。
 
 use crate::spec::*;
 use vstd::prelude::*;
@@ -461,10 +465,12 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
 
 /// 型の付いた式は、適合する環境で必ず値に評価され、その値は式の型を持つ。
 /// 証拠として燃料と値を返す。帰納法は（ランク、式、0）の辞書式順序。
+/// v1.7：`rec` の印のある関数があると呼出しでランクが下がらないので、`no_rec(p)` を前提にする。
 #[verifier::rlimit(100)]
 pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
     requires
         wf(p),
+        no_rec(p),
         env_ok(env, ctx),
         ty_expr(p, r, ctx, e) is Some,
     ensures
@@ -513,6 +519,8 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
             let (n1, vs) = total_args(p, r, ctx, env, es, 0);
             let ts = ty_args(p, r, ctx, es, 0)->Some_0;
             let fun = p.funcs[g as int];
+            assert(!p.rec[g as int]);
+            assert(p.rank[g as int] < r);
             assert forall|k: int| 0 <= k < vs.len() implies val_type(#[trigger] vs[k], fun.params[k].1) by {
                 assert(ts[k] == fun.params[k].1);
             }
@@ -629,6 +637,7 @@ pub proof fn total_args(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, 
 ))
     requires
         wf(p),
+        no_rec(p),
         env_ok(env, ctx),
         ty_args(p, r, ctx, es, i) is Some,
     ensures
@@ -676,6 +685,7 @@ pub proof fn total_fold(
 ) -> (res: (nat, Val))
     requires
         wf(p),
+        no_rec(p),
         env_ok(env, ctx),
         ty_expr(p, r, ctx.insert(acc, ta).insert(item, te), body) == Some(ta),
         val_type(a, ta),
@@ -701,12 +711,236 @@ pub proof fn total_fold(
     }
 }
 
+// ------------------------------------------------------------------ 型保存（v1.7）
+
+/// 型保存：整形式プログラムで、型の付いた式がある燃料で値 v に評価されたなら、v は式の型を持つ。
+/// 燃料についての帰納法なので停止性を使わず、`rec` の印のある関数があっても成り立つ。
+#[verifier::rlimit(100)]
+pub proof fn sound(p: Prog, n: nat, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr, v: Val)
+    requires
+        wf(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        eval(p, n, env, e) == Res::Done(v),
+    ensures
+        val_type(v, ty_expr(p, r, ctx, e)->Some_0),
+    decreases n,
+{
+    let f = (n - 1) as nat;
+    match e {
+        Expr::Var(x) => {
+            assert(ctx.contains_key(x));
+        },
+        Expr::List(t, es) => {
+            let vs = eval_args(p, f, env, es, 0)->Done_0;
+            sound_args(p, f, r, ctx, env, es, 0, vs);
+            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+            assert forall|i: int| 0 <= i < vs.len() implies #[trigger] val_type(vs[i], t) by {
+                assert(ts[i] == t);
+            }
+            val_type_list(vs, t);
+        },
+        Expr::Some(x) => {
+            sound(p, f, r, ctx, env, *x, eval(p, f, env, *x)->Done_0);
+        },
+        Expr::Pair(a, b) => {
+            sound(p, f, r, ctx, env, *a, eval(p, f, env, *a)->Done_0);
+            sound(p, f, r, ctx, env, *b, eval(p, f, env, *b)->Done_0);
+        },
+        Expr::Builtin(b, es) => {
+            let vs = eval_args(p, f, env, es, 0)->Done_0;
+            sound_args(p, f, r, ctx, env, es, 0, vs);
+            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+            apply_sound(b, ts, vs);
+        },
+        Expr::Call(g, es) => {
+            let vs = eval_args(p, f, env, es, 0)->Done_0;
+            sound_args(p, f, r, ctx, env, es, 0, vs);
+            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+            let fun = p.funcs[g as int];
+            assert forall|k: int| 0 <= k < vs.len() implies val_type(#[trigger] vs[k], fun.params[k].1) by {
+                assert(ts[k] == fun.params[k].1);
+            }
+            bind_ok(fun.params, vs, vs.len());
+            let ctx2 = param_ctx(fun.params, fun.params.len());
+            let env2 = bind(fun.params, vs, vs.len());
+            assert(ty_expr(p, p.rank[g as int], ctx2, fun.body) == Some(fun.ret));
+            sound(p, f, p.rank[g as int], ctx2, env2, fun.body, v);
+        },
+        Expr::Let(x, a, b) => {
+            let va = eval(p, f, env, *a)->Done_0;
+            sound(p, f, r, ctx, env, *a, va);
+            let ta = ty_expr(p, r, ctx, *a)->Some_0;
+            env_ok_insert(env, ctx, x, va, ta);
+            sound(p, f, r, ctx.insert(x, ta), env.insert(x, va), *b, v);
+        },
+        Expr::If(c, a, b) => {
+            let vc = eval(p, f, env, *c)->Done_0;
+            sound(p, f, r, ctx, env, *c, vc);
+            if vc == Val::Bool(true) {
+                sound(p, f, r, ctx, env, *a, v);
+            } else {
+                sound(p, f, r, ctx, env, *b, v);
+            }
+        },
+        Expr::Fold(xs, init, acc, item, body) => {
+            let vx = eval(p, f, env, *xs)->Done_0;
+            sound(p, f, r, ctx, env, *xs, vx);
+            let v0 = eval(p, f, env, *init)->Done_0;
+            sound(p, f, r, ctx, env, *init, v0);
+            let tx = ty_expr(p, r, ctx, *xs)->Some_0;
+            let ta = ty_expr(p, r, ctx, *init)->Some_0;
+            let te = *tx->List_0;
+            let s = vx->List_0;
+            assert(tx == Ty::List(Box::new(te)));
+            val_type_list(s, te);
+            sound_fold(p, f, r, ctx, env, acc, item, *body, ta, te, s, 0, v0, v);
+        },
+        Expr::Match(m, nb, x, sm) => {
+            let vm = eval(p, f, env, *m)->Done_0;
+            sound(p, f, r, ctx, env, *m, vm);
+            let tm = ty_expr(p, r, ctx, *m)->Some_0;
+            let te = *tm->Option_0;
+            assert(tm == Ty::Option(Box::new(te)));
+            match vm {
+                Val::Some(w) => {
+                    env_ok_insert(env, ctx, x, *w, te);
+                    sound(p, f, r, ctx.insert(x, te), env.insert(x, *w), *sm, v);
+                },
+                _ => {
+                    sound(p, f, r, ctx, env, *nb, v);
+                },
+            }
+        },
+        Expr::Inj(ok, t, u, x) => {
+            sound(p, f, r, ctx, env, *x, eval(p, f, env, *x)->Done_0);
+        },
+        Expr::MatchR(m, x, a, y, b) => {
+            let vm = eval(p, f, env, *m)->Done_0;
+            sound(p, f, r, ctx, env, *m, vm);
+            let tm = ty_expr(p, r, ctx, *m)->Some_0;
+            let tl = *tm->Result_0;
+            let tr = *tm->Result_1;
+            assert(tm == Ty::Result(Box::new(tl), Box::new(tr)));
+            match vm {
+                Val::Ok(w) => {
+                    env_ok_insert(env, ctx, x, *w, tl);
+                    sound(p, f, r, ctx.insert(x, tl), env.insert(x, *w), *a, v);
+                },
+                _ => {
+                    let w = vm->Err_0;
+                    env_ok_insert(env, ctx, y, *w, tr);
+                    sound(p, f, r, ctx.insert(y, tr), env.insert(y, *w), *b, v);
+                },
+            }
+        },
+        _ => {},
+    }
+}
+
+pub proof fn sound_args(
+    p: Prog,
+    n: nat,
+    r: nat,
+    ctx: Map<nat, Ty>,
+    env: Map<nat, Val>,
+    es: Seq<Expr>,
+    i: nat,
+    vs: Seq<Val>,
+)
+    requires
+        wf(p),
+        env_ok(env, ctx),
+        ty_args(p, r, ctx, es, i) is Some,
+        eval_args(p, n, env, es, i) == ResSeq::Done(vs),
+    ensures
+        vs.len() == ty_args(p, r, ctx, es, i)->Some_0.len(),
+        forall|k: int| 0 <= k < vs.len() ==> val_type(#[trigger] vs[k], ty_args(p, r, ctx, es, i)->Some_0[k]),
+    decreases n,
+{
+    if i < es.len() {
+        let f = (n - 1) as nat;
+        let v = eval(p, f, env, es[i as int])->Done_0;
+        sound(p, f, r, ctx, env, es[i as int], v);
+        let rest = eval_args(p, f, env, es, i + 1)->Done_0;
+        sound_args(p, f, r, ctx, env, es, i + 1, rest);
+        assert(vs == seq![v] + rest);
+        let ts = ty_args(p, r, ctx, es, i)->Some_0;
+        let t0 = ty_expr(p, r, ctx, es[i as int])->Some_0;
+        let ts1 = ty_args(p, r, ctx, es, i + 1)->Some_0;
+        assert(ts == seq![t0] + ts1);
+        assert forall|k: int| 0 <= k < vs.len() implies val_type(#[trigger] vs[k], ts[k]) by {
+            if k > 0 {
+                assert(vs[k] == rest[k - 1]);
+                assert(ts[k] == ts1[k - 1]);
+            }
+        }
+    }
+}
+
+pub proof fn sound_fold(
+    p: Prog,
+    n: nat,
+    r: nat,
+    ctx: Map<nat, Ty>,
+    env: Map<nat, Val>,
+    acc: nat,
+    item: nat,
+    body: Expr,
+    ta: Ty,
+    te: Ty,
+    items: Seq<Val>,
+    j: nat,
+    a: Val,
+    w: Val,
+)
+    requires
+        wf(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx.insert(acc, ta).insert(item, te), body) == Some(ta),
+        val_type(a, ta),
+        forall|k: int| 0 <= k < items.len() ==> val_type(#[trigger] items[k], te),
+        eval_fold(p, n, env, acc, item, body, items, j, a) == Res::Done(w),
+    ensures
+        val_type(w, ta),
+    decreases n,
+{
+    if j < items.len() {
+        let f = (n - 1) as nat;
+        let x = items[j as int];
+        env_ok_insert(env, ctx, acc, a, ta);
+        env_ok_insert(env.insert(acc, a), ctx.insert(acc, ta), item, x, te);
+        let env2 = env.insert(acc, a).insert(item, x);
+        let v = eval(p, f, env2, body)->Done_0;
+        sound(p, f, r, ctx.insert(acc, ta).insert(item, te), env2, body, v);
+        sound_fold(p, f, r, ctx, env, acc, item, body, ta, te, items, j + 1, v, w);
+    }
+}
+
+/// 整形式プログラムの entry が入力型の値に対してある燃料で値を返したなら、それは出力型を持つ。
+/// `rec` の印のある関数があっても成り立つ。
+pub proof fn entry_sound(p: Prog, n: nat, v: Val, w: Val)
+    requires
+        wf(p),
+        val_type(v, p.funcs[p.entry as int].params[0].1),
+        eval_entry(p, n, v) == Res::Done(w),
+    ensures
+        val_type(w, p.funcs[p.entry as int].ret),
+{
+    let f = p.funcs[p.entry as int];
+    bind_ok(f.params, seq![v], 1);
+    let ctx = param_ctx(f.params, f.params.len());
+    assert(ty_expr(p, p.rank[p.entry as int], ctx, f.body) == Some(f.ret));
+    sound(p, n, p.rank[p.entry as int], ctx, bind(f.params, seq![v], 1), f.body, w);
+}
+
 // ------------------------------------------------------------------ 主定理
 
-/// 整形式プログラムの entry は、入力型の任意の値に対して停止し、出力型の値を返す。
+/// 整形式で `rec` の印のある関数がないプログラムの entry は、入力型の任意の値に対して停止し、出力型の値を返す。
 pub proof fn entry_total(p: Prog, v: Val)
     requires
         wf(p),
+        no_rec(p),
         val_type(v, p.funcs[p.entry as int].params[0].1),
     ensures
         exists|n: nat, w: Val|
@@ -746,7 +980,7 @@ pub open spec fn example() -> Prog {
         body: Expr::Builtin(Builtin::Add, seq![Expr::Var(0), Expr::Var(0)]),
     };
     let main = Func { params: seq![(0nat, Ty::Int)], ret: Ty::Int, body: Expr::Call(0, seq![Expr::Var(0)]) };
-    Prog { funcs: seq![twice, main], rank: seq![0nat, 1nat], entry: 1 }
+    Prog { funcs: seq![twice, main], rank: seq![0nat, 1nat], rec: seq![false, false], entry: 1 }
 }
 
 pub proof fn example_wf()

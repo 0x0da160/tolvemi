@@ -210,7 +210,8 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
         CompileResult::Accepted { mut program, warnings, work } => {
             let rank: Vec<usize> =
                 program.program.functions().map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX)).collect();
-            match compile_source(&chars, d, td, rank) {
+            let rec = vec![false; rank.len()];
+            match compile_source(&chars, d, td, rank, rec) {
                 Compiled::Accepted(p) => {
                     program.verified = Some(Arc::new(VerifiedProgram(p)));
                     CompileResult::Accepted { program, warnings, work }
