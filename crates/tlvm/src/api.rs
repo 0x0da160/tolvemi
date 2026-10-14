@@ -189,7 +189,11 @@ fn compile_expanded(p: &Program, len: usize, profile: &StaticProfile, tagged: bo
             let (o, pm) = generics::check(&px, len, profile);
             // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
             // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
-            let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
+            let mut glued = hof::lower(&pm, &o.hof);
+            lower_in_place(&mut glued);
+            dict::erase_in_place(&mut glued);
+            glued.unmark();
+            let text = format_program(&glued);
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
             cross_check_at(&text, r, profile, at)
@@ -250,7 +254,15 @@ fn expand_with(p: &Program, tagged: bool) -> Result<Program, Vec<crate::diagnost
 
 /// 展開したプログラムを、検証済み部品が読む形（match_result、fst／snd など）に書き換える。
 pub fn lower(px: &Program) -> Program {
-    records::lower(&sums::lower(px))
+    let mut p = px.clone();
+    lower_in_place(&mut p);
+    p
+}
+
+/// `lower` と同じ。書き換えるところだけを、その場で書き換える（複製しない。整形の前の一通りに使う）。
+pub fn lower_in_place(p: &mut Program) {
+    sums::lower_in_place(p);
+    records::lower_in_place(p);
 }
 
 // ---------------------------------------------------------------- 検証済み部品による確認
@@ -329,6 +341,12 @@ fn expr_depth_needed(chars: &Vec<char>, td: usize) -> Option<usize> {
 
 /// `cross_check` と同じ。深さの超過は `at`（書き換え前の最も深い loop の入れ子の位置）に E-LIMIT-STATIC-EXPR-DEPTH で報告する。
 fn cross_check_at(text: &str, r: CompileResult, profile: &StaticProfile, at: crate::diagnostics::Span) -> CompileResult {
+    // 上限（資源・意味の上限）で打ち切った拒否は、検証済み部品の判定と比べず、そのまま返す（文字列の変換も省く）。
+    if let CompileResult::Rejected { errors, .. } = &r {
+        if errors.iter().any(|e| e.is_cutoff() || e.phase == "diagnostic-limit") {
+            return r;
+        }
+    }
     let chars: Vec<char> = text.chars().collect();
     if chars.len() >= VERIFIED_MAX_CHARS {
         return match r {
@@ -455,9 +473,14 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
             // v1.9：辞書も同じく書き換え、型の Dict<K, V> を List<Pair<K, V>> にする
             let text = if hof::has_hof(&p) || dict::has_dict(&p) {
-                format_program(&dict::erase(&hof::lower(&p, &o.hof)).unmarked())
-            } else {
+                let mut glued = hof::lower(&p, &o.hof);
+                dict::erase_in_place(&mut glued);
+                glued.unmark();
+                format_program(&glued)
+            } else if p.has_rec() {
                 format_program(&p.unmarked())
+            } else {
+                format_program(&p)
             };
             let at = hof::deepest_loop_nest(&p).map_or((0, 0), |(_, s)| s);
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);

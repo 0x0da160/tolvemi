@@ -87,8 +87,18 @@ fn rewritten_size_is_checked_on_the_ast_path() {
 
 #[test]
 fn default_limit_is_four_mebibytes() {
-    // 既定の上限は spec §18.1 の表の値（4 MiB）。大きな書換えの計測は 2 MB 強で約 2.7 秒、4.4 MB で拒否まで約 7 秒。
+    // 既定の上限は spec §18.1 の表の値（4 MiB）。
     assert_eq!(StaticProfile::default().rewritten_bytes, 4_194_304);
     // 小さなものは既定の上限の内に入る。
     assert!(outcome(&many_loops(2), &StaticProfile::default()).0);
+}
+
+#[test]
+fn default_limit_rejects_a_large_rewrite() {
+    // loop を 1600 個（書換え後は約 4.4 MB）並べた program は、既定の上限で検証済み部品に渡る前に拒否する。
+    let (ok, codes, act) = outcome(&many_loops(400), &StaticProfile::default());
+    assert!(!ok);
+    assert_eq!(codes, [CODE]);
+    let size: usize = act.expect("act は書換え後の bytes").parse().unwrap();
+    assert!(size > 4_194_304);
 }

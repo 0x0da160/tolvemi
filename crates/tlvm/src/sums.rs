@@ -21,10 +21,17 @@ use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// 直和型の宣言か `match` を一つでも含むか。
+/// 直和型の宣言か `match` を一つでも含むか。式の木は明示的な stack で見る（書換え後の深い木で再帰しない）。
 pub fn has_sums(p: &Program) -> bool {
     fn ex(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::SumMatch { .. }) || e.children().into_iter().any(ex)
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if matches!(e.kind, ExprKind::SumMatch { .. }) {
+                return true;
+            }
+            stack.extend(e.children());
+        }
+        false
     }
     p.declarations.iter().any(|d| match d {
         Decl::Sum(_) => true,
@@ -793,17 +800,26 @@ impl Lower {
         }
     }
 
-    fn expr(&mut self, e: &Expr) -> Expr {
-        if let ExprKind::SumMatch { scrutinee, arms, kind: Some(kind), .. } = &e.kind {
-            let scrutinee = self.expr(scrutinee);
-            let arms: Vec<Arm> = arms.iter().map(|a| Arm { body: self.expr(&a.body), ..a.clone() }).collect();
-            return self.lower_match(e.meta, scrutinee, &arms, kind);
+    /// `e` の中の `match` を、その場で書き換える（子を複製しない）。
+    fn rewrite(&mut self, e: &mut Expr) {
+        if let ExprKind::SumMatch { kind: Some(_), .. } = &e.kind {
+            let m = e.meta;
+            let ExprKind::SumMatch { scrutinee, mut arms, kind: Some(kind), .. } =
+                std::mem::replace(&mut e.kind, ExprKind::Var(String::new()))
+            else {
+                unreachable!("kind を確かめた直和型の match")
+            };
+            let mut scrutinee = *scrutinee;
+            self.rewrite(&mut scrutinee);
+            for a in &mut arms {
+                self.rewrite(&mut a.body);
+            }
+            *e = self.lower_match(m, scrutinee, &arms, &kind);
+            return;
         }
-        let mut out = e.clone();
-        for c in out.children_mut() {
-            *c = self.expr(c);
+        for c in e.children_mut() {
+            self.rewrite(c);
         }
-        out
     }
 
     fn lower_match(&mut self, m: Meta, scrutinee: Expr, arms: &[Arm], kind: &MatchKind) -> Expr {
@@ -954,6 +970,16 @@ impl Lower {
 /// `match` を `match_result`／`match_option`／`let` と `fst`／`snd` に書き換える（検証済み部品へ渡すソース用）。
 /// 書き換えで導入する名前（`sum1` など）はプログラム中のどの名前とも重ならない。
 pub fn lower(p: &Program) -> Program {
+    let mut out = p.clone();
+    lower_in_place(&mut out);
+    out
+}
+
+/// `lower` と同じ。直和型の `match` を含まないプログラムには何もしない（複製もしない）。
+pub fn lower_in_place(p: &mut Program) {
+    if !has_sums(p) {
+        return;
+    }
     let mut taken = HashSet::new();
     for d in &p.declarations {
         if let Decl::Fn(f) = d {
@@ -963,13 +989,9 @@ pub fn lower(p: &Program) -> Program {
         }
     }
     let mut l = Lower { taken, fresh: 0 };
-    let declarations = p
-        .declarations
-        .iter()
-        .map(|d| match d {
-            Decl::Fn(f) => Decl::Fn(FnDecl { body: l.expr(&f.body), ..f.clone() }),
-            d => d.clone(),
-        })
-        .collect();
-    Program { declarations, meta: p.meta, imports: p.imports.clone() }
+    for d in &mut p.declarations {
+        if let Decl::Fn(f) = d {
+            l.rewrite(&mut f.body);
+        }
+    }
 }

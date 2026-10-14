@@ -576,12 +576,16 @@ impl Program {
     /// v1.7：印 `rec` を外したプログラム（検証済み部品に渡す整形ソース用。印は別に渡す）。
     pub fn unmarked(&self) -> Program {
         let mut p = self.clone();
-        for d in &mut p.declarations {
+        p.unmark();
+        p
+    }
+    /// v1.7：印 `rec` を外す（その場で。`unmarked` の複製なしの版）。
+    pub fn unmark(&mut self) {
+        for d in &mut self.declarations {
             if let Decl::Fn(f) = d {
                 f.rec = false;
             }
         }
-        p
     }
     pub fn entries(&self) -> impl Iterator<Item = &EntryDecl> {
         self.declarations.iter().filter_map(|d| match d {

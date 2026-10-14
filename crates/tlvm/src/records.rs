@@ -19,14 +19,19 @@ pub fn has_records(p: &Program) -> bool {
     fn ty(t: &TypeNode) -> bool {
         t.is_named() || t.args.iter().any(ty)
     }
+    // 式の木は明示的な stack で見る（書換え後の深い木で再帰しない）
     fn ex(e: &Expr) -> bool {
-        match &e.kind {
-            ExprKind::Record { .. } | ExprKind::Field { .. } => true,
-            ExprKind::Call { type_args, .. } if type_args.iter().any(ty) => true,
-            ExprKind::List { element_type, .. } if ty(element_type) => true,
-            ExprKind::None(t) | ExprKind::Inj { ty: t, .. } | ExprKind::DictNew(t) if ty(t) => true,
-            _ => e.children().into_iter().any(ex),
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            match &e.kind {
+                ExprKind::Record { .. } | ExprKind::Field { .. } => return true,
+                ExprKind::Call { type_args, .. } if type_args.iter().any(ty) => return true,
+                ExprKind::List { element_type, .. } if ty(element_type) => return true,
+                ExprKind::None(t) | ExprKind::Inj { ty: t, .. } | ExprKind::DictNew(t) if ty(t) => return true,
+                _ => stack.extend(e.children()),
+            }
         }
+        false
     }
     p.declarations.iter().any(|d| match d {
         Decl::Type(_) => true,
@@ -485,84 +490,93 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
 
 /// field の参照を `fst`／`snd` の並びに、レコード名付きの型を素の型にする（検証済み部品へ渡すソース用）。
 pub fn lower(p: &Program) -> Program {
-    fn ex(e: &Expr) -> Expr {
-        let m = e.meta;
-        if let ExprKind::Field { expr, field_span, target: Some((rt, i, n)), .. } = &e.kind {
-            let call = |name: &str, arg: Expr| Expr {
-                kind: ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: *field_span, type_args: vec![] },
-                meta: m,
-            };
-            let mut x = ex(expr);
-            // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）
-            if nominal::is_tagged(rt) {
-                x = call("snd", x);
-            }
-            for _ in 0..*i {
-                x = call("snd", x);
-            }
-            if i + 1 < *n {
-                x = call("fst", x);
-            }
-            return x;
-        }
-        let mut out = e.clone();
-        match &mut out.kind {
-            ExprKind::List { items, .. } => items.iter_mut().for_each(|x| *x = ex(x)),
-            ExprKind::Some(v) => **v = ex(v),
-            ExprKind::Pair(a, b) => {
-                **a = ex(a);
-                **b = ex(b);
-            }
-            ExprKind::Call { args, .. } => args.iter_mut().for_each(|x| *x = ex(x)),
-            ExprKind::Let { value, body, .. } => {
-                **value = ex(value);
-                **body = ex(body);
-            }
-            ExprKind::If(c, t, f) => {
-                **c = ex(c);
-                **t = ex(t);
-                **f = ex(f);
-            }
-            ExprKind::Fold { list, init, body, .. } => {
-                **list = ex(list);
-                **init = ex(init);
-                **body = ex(body);
-            }
-            ExprKind::Hof { list, body, .. } => {
-                **list = ex(list);
-                **body = ex(body);
-            }
-            ExprKind::Loop { init, max, body, .. } => {
-                **init = ex(init);
-                **max = ex(max);
-                **body = ex(body);
-            }
-            ExprKind::Match { scrutinee, on_none, on_some, .. } => {
-                **scrutinee = ex(scrutinee);
-                **on_none = ex(on_none);
-                **on_some = ex(on_some);
-            }
-            ExprKind::Inj { value, .. } => **value = ex(value),
-            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => {
-                **scrutinee = ex(scrutinee);
-                **on_ok = ex(on_ok);
-                **on_err = ex(on_err);
-            }
-            ExprKind::SumMatch { scrutinee, arms, .. } => {
-                **scrutinee = ex(scrutinee);
-                arms.iter_mut().for_each(|a| a.body = ex(&a.body));
-            }
-            _ => {}
-        }
-        out
+    let mut out = p.clone();
+    lower_in_place(&mut out);
+    out
+}
+
+/// `lower` と同じ。field の参照を含まないプログラムには何もしない（複製もしない）。
+pub fn lower_in_place(p: &mut Program) {
+    if !has_records(p) {
+        return;
     }
-    let declarations = p
-        .declarations
-        .iter()
-        .map(|d| match d {
-            Decl::Fn(f) => Decl::Fn(FnDecl { body: ex(&f.body), ..f.clone() }),
-            d => d.clone(),
-        })
-        .collect();
-    Program { declarations, meta: p.meta, imports: p.imports.clone() }
+    for d in &mut p.declarations {
+        if let Decl::Fn(f) = d {
+            lower_expr(&mut f.body);
+        }
+    }
+}
+
+/// `e` の中の field の参照を、その場で書き換える。書き換えるのは下の形の子だけ（それ以外の node の子には入らない）。
+fn lower_expr(e: &mut Expr) {
+    let m = e.meta;
+    if let ExprKind::Field { expr, field_span, target: Some((rt, i, n)), .. } = &e.kind {
+        let (fs, tagged, i, n) = (*field_span, nominal::is_tagged(rt), *i, *n);
+        let call = |name: &str, arg: Expr| Expr {
+            kind: ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: fs, type_args: vec![] },
+            meta: m,
+        };
+        let mut x = (**expr).clone();
+        lower_expr(&mut x);
+        // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）
+        if tagged {
+            x = call("snd", x);
+        }
+        for _ in 0..i {
+            x = call("snd", x);
+        }
+        if i + 1 < n {
+            x = call("fst", x);
+        }
+        *e = x;
+        return;
+    }
+    match &mut e.kind {
+        ExprKind::List { items, .. } => items.iter_mut().for_each(lower_expr),
+        ExprKind::Some(v) => lower_expr(v),
+        ExprKind::Pair(a, b) => {
+            lower_expr(a);
+            lower_expr(b);
+        }
+        ExprKind::Call { args, .. } => args.iter_mut().for_each(lower_expr),
+        ExprKind::Let { value, body, .. } => {
+            lower_expr(value);
+            lower_expr(body);
+        }
+        ExprKind::If(c, t, f) => {
+            lower_expr(c);
+            lower_expr(t);
+            lower_expr(f);
+        }
+        ExprKind::Fold { list, init, body, .. } => {
+            lower_expr(list);
+            lower_expr(init);
+            lower_expr(body);
+        }
+        ExprKind::Hof { list, body, .. } => {
+            lower_expr(list);
+            lower_expr(body);
+        }
+        ExprKind::Loop { init, max, body, .. } => {
+            lower_expr(init);
+            lower_expr(max);
+            lower_expr(body);
+        }
+        ExprKind::Match { scrutinee, on_none, on_some, .. } => {
+            lower_expr(scrutinee);
+            lower_expr(on_none);
+            lower_expr(on_some);
+        }
+        ExprKind::Inj { value, .. } => lower_expr(value),
+        ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => {
+            lower_expr(scrutinee);
+            lower_expr(on_ok);
+            lower_expr(on_err);
+        }
+        ExprKind::SumMatch { scrutinee, arms, .. } => {
+            lower_expr(scrutinee);
+            arms.iter_mut().for_each(|a| lower_expr(&mut a.body));
+        }
+        _ => {}
+    }
 }

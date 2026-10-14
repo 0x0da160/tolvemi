@@ -134,48 +134,59 @@ impl Lower<'_> {
     }
 }
 
-/// 型の `Dict<K, V>` を `List<Pair<K, V>>` にする。
-fn erase_ty(t: &TypeNode) -> TypeNode {
-    let args: Vec<TypeNode> = t.args.iter().map(erase_ty).collect();
-    if t.tag == TyTag::Dict {
-        let entry = TypeNode::new(TyTag::Pair, args, t.meta);
-        return TypeNode::new(TyTag::List, vec![entry], t.meta);
+/// 型の `Dict<K, V>` を `List<Pair<K, V>>` にする（その場で。`Dict` を含まない型は変えない）。
+fn erase_ty(t: &mut TypeNode) {
+    for a in &mut t.args {
+        erase_ty(a);
     }
-    TypeNode { args, ..t.clone() }
+    if t.tag == TyTag::Dict {
+        let entry = TypeNode::new(TyTag::Pair, std::mem::take(&mut t.args), t.meta);
+        *t = TypeNode::new(TyTag::List, vec![entry], t.meta);
+    }
 }
 
 fn erase_expr(e: &mut Expr) {
     for c in e.children_mut() {
         erase_expr(c);
     }
+    let m = e.meta;
     match &mut e.kind {
-        ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::Inj { ty: t, .. } => *t = erase_ty(t),
+        ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::Inj { ty: t, .. } => erase_ty(t),
         // 型検査で拒否したプログラムにだけ残る（書き換えは型の付いた node だけ）
-        ExprKind::DictNew(t) => *e = lower_new(&erase_ty(t), e.meta),
-        ExprKind::Field { target: Some((t, _, _)), .. } => *t = erase_ty(t),
+        ExprKind::DictNew(t) => {
+            let mut t = t.clone();
+            erase_ty(&mut t);
+            *e = lower_new(&t, m);
+        }
+        ExprKind::Field { target: Some((t, _, _)), .. } => erase_ty(t),
         ExprKind::SumMatch { kind: Some(MatchKind::Sum { ty, fields }), .. } => {
-            *ty = erase_ty(ty);
-            fields.iter_mut().flatten().for_each(|f| *f = erase_ty(f));
+            erase_ty(ty);
+            fields.iter_mut().flatten().for_each(erase_ty);
         }
         _ => {}
     }
 }
 
 /// v1.9：プログラム中の型の `Dict<K, V>` をすべて `List<Pair<K, V>>` にする（`hof::lower` の後、検証済み部品へ渡す
-/// ソース用）。残っている `dict<K, V>()` も空のリストにする。
-pub fn erase(p: &Program) -> Program {
-    let mut out = p.clone();
-    for d in &mut out.declarations {
+/// ソース用）。残っている `dict<K, V>()` も空のリストにする。その場で書き換える（`erase` の複製なしの版）。
+pub fn erase_in_place(p: &mut Program) {
+    for d in &mut p.declarations {
         match d {
             Decl::Fn(f) => {
-                f.params.iter_mut().for_each(|q| q.ty = erase_ty(&q.ty));
-                f.return_type = erase_ty(&f.return_type);
+                f.params.iter_mut().for_each(|q| erase_ty(&mut q.ty));
+                erase_ty(&mut f.return_type);
                 erase_expr(&mut f.body);
             }
-            Decl::Type(t) => t.fields.iter_mut().for_each(|f| f.ty = erase_ty(&f.ty)),
-            Decl::Sum(s) => s.variants.iter_mut().for_each(|v| v.fields.iter_mut().for_each(|f| *f = erase_ty(f))),
+            Decl::Type(t) => t.fields.iter_mut().for_each(|f| erase_ty(&mut f.ty)),
+            Decl::Sum(s) => s.variants.iter_mut().for_each(|v| v.fields.iter_mut().for_each(erase_ty)),
             Decl::Entry(_) => {}
         }
     }
+}
+
+/// v1.9：`erase_in_place` と同じ（複製したプログラムを返す）。
+pub fn erase(p: &Program) -> Program {
+    let mut out = p.clone();
+    erase_in_place(&mut out);
     out
 }
