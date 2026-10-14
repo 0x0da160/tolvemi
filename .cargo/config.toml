@@ -1,5 +1,6 @@
 # cargo test（debug）では、深い入力の構文解析が既定の 2 MiB のテストスレッドに収まらないことがある（tests/hof.rs）。
-# テストスレッドの既定のスタックを 16 MiB にして、debug の cargo test も全件を通す。
+# テストスレッドの既定のスタックを 16 MiB にして、debug の cargo test が失敗なしで通るようにする。
+# 深さの上限に関わる検査（tests/rec.rs の 3 件）は debug では ignore し、release の CI で実行する。
 # この設定は release の cargo test にも効くが、release は 2 MiB で足りるため結果は変わらない。
 [env]
 RUST_MIN_STACK = "16777216"

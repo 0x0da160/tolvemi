@@ -196,15 +196,23 @@ entry solve
 
 // ---------------------------------------------------------------- 資源上限
 
+// debug のフレームは release より大きく、既定の 1 GiB の評価スレッドが深さの上限（400,000）に届く前に溢れる。
+// そのため debug では ignore し、release の CI で実行する。
 #[test]
-fn runaway_recursion_stops_at_resource_limits() {
-    // 深さ：止まらない再帰はホストの深さ上限で打ち切る（スタックあふれで落ちない）
+#[cfg_attr(debug_assertions, ignore = "debug では 1 GiB の評価スレッドが深さの上限より先に溢れる（release の CI で実行）")]
+fn runaway_recursion_hits_the_default_depth_limit() {
+    // 深さ：止まらない再帰はホストの既定の深さ上限で打ち切る（スタックあふれで落ちない）
     let deep = "rec fn f(n: Int) -> Int = add(f(add(n, 1)), 1)\nentry f\n";
     assert_eq!(run_code(deep, "0"), (2, r#"{"result":"HostAborted","reason":"eval-depth"}"#.to_string()));
     let tail = "rec fn f(n: Int) -> Int = f(n)\nentry f\n";
     assert_eq!(run_code(tail, "0"), (2, r#"{"result":"HostAborted","reason":"eval-depth"}"#.to_string()));
     assert_eq!(run_api(tail, &int(0), &ExecutionProfile::default()), RunResult::HostAborted("eval-depth".into()));
-    // 深さの上限を小さくしたホストでも同じ
+}
+
+#[test]
+fn runaway_recursion_stops_at_resource_limits() {
+    // 深さの上限を小さくしたホストでも同じ（debug でも実行する）
+    let tail = "rec fn f(n: Int) -> Int = f(n)\nentry f\n";
     let p = accepted(tail);
     let tv = match decode_input(&p.input_type, int(0).as_bytes(), &InputProfile::default()) {
         tlvm::DecodeResult::Decoded(tv) => tv,
@@ -220,9 +228,31 @@ fn runaway_recursion_stops_at_resource_limits() {
     let (code, out) = run_code(fib, "40");
     assert_eq!(code, 2, "{out}");
     assert!(out.starts_with(r#"{"result":"ResourceExhausted""#), "{out}");
+}
+
+// debug のフレームは release より大きく、深さ 100,000 の再帰は既定の 1 GiB の評価スレッドに収まらない。
+// そのため debug では ignore し、release の CI で実行する。
+#[test]
+#[cfg_attr(debug_assertions, ignore = "debug では深さ 100,000 の再帰が 1 GiB の評価スレッドに収まらない（release の CI で実行）")]
+fn deep_recursion_within_the_limit_is_evaluated_to_the_end() {
     // 深い（が上限内の）再帰は最後まで評価できる
     let sum = "rec fn s(n: Int) -> Int = if(le(n, 0), 0, add(n, s(sub(n, 1))))\nentry s\n";
     assert_eq!(run(sum, "100000"), "5000050000");
+}
+
+// debug のフレームは release より大きく、既定の 1 GiB の評価スレッドが深さの上限に届く前に溢れる。
+// そのため debug では ignore し、release の CI で実行する。
+#[test]
+#[cfg_attr(debug_assertions, ignore = "debug では 1 GiB の評価スレッドが深さの上限より先に溢れる（release の CI で実行）")]
+fn exec_runaway_recursion_hits_the_default_depth_limit() {
+    // exec でも止まらない再帰は深さの上限で打ち切る
+    let runaway = "rec fn f(args: List<String>) -> String = f(args)\nentry f\n";
+    with_file(runaway, "tlvm", |p| {
+        let (code, out, err) = tlvm(&["exec", p, "x"]);
+        assert_eq!(code, 2);
+        assert_eq!(out, "");
+        assert_eq!(err.trim_end(), r#"{"result":"HostAborted","reason":"eval-depth"}"#);
+    });
 }
 
 // ---------------------------------------------------------------- 診断
@@ -399,14 +429,6 @@ entry solve
         let o = child.wait_with_output().unwrap();
         assert_eq!(o.status.code(), Some(0));
         assert_eq!(String::from_utf8(o.stdout).unwrap(), "\ncba");
-    });
-    // exec でも止まらない再帰は深さの上限で打ち切る
-    let runaway = "rec fn f(args: List<String>) -> String = f(args)\nentry f\n";
-    with_file(runaway, "tlvm", |p| {
-        let (code, out, err) = tlvm(&["exec", p, "x"]);
-        assert_eq!(code, 2);
-        assert_eq!(out, "");
-        assert_eq!(err.trim_end(), r#"{"result":"HostAborted","reason":"eval-depth"}"#);
     });
     let cases = r#"[{"name": "five", "input": 5, "expected": 120}, {"input": 0, "expected": 1}]"#;
     with_file(FACT, "tlvm", |p| {
