@@ -16,6 +16,8 @@ pub struct StaticProfile {
     pub semantic_work: u64,
     /// v1.11：import で読むファイルの数（根を含む）。bytes の合計は source_bytes で抑える
     pub import_files: usize,
+    /// 書換え後のプログラムの bytes（§18.1）。型検査を通ったプログラムの、検証済み部品へ渡す文字列がこれを超えると拒否する
+    pub rewritten_bytes: usize,
 }
 
 impl Default for StaticProfile {
@@ -34,6 +36,7 @@ impl Default for StaticProfile {
             semantic_type_depth: 128,
             semantic_work: 2_000_000,
             import_files: 64,
+            rewritten_bytes: 4_194_304,
         }
     }
 }

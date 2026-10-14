@@ -191,7 +191,7 @@ fn compile_expanded(p: &Program, len: usize, profile: &StaticProfile, tagged: bo
             // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
             let text = format_program(&dict::erase(&lower(&hof::lower(&pm, &o.hof))).unmarked());
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
-            let r = result(o.diagnostics.clone(), Some(o));
+            let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
             cross_check_at(&text, r, profile, at)
         }
     }
@@ -281,6 +281,22 @@ const VERIFIED_MAX_CHARS: usize = 0x1000_0000;
 
 fn mismatch(why: &str) -> Diagnostic {
     Diagnostic::error("internal", "E-INTERNAL-VERIFIED-MISMATCH", (0, 0)).act(why)
+}
+
+/// 書換え後のプログラムの大きさの上限（§18.1）。型検査を通ったプログラムの、検証済み部品へ渡す文字列の bytes が
+/// 上限を超えれば拒否する。検証済み部品に渡す前に検査するので、上限を超える文字列は検証済み部品の検査に入らない。
+/// 型検査で拒否されたプログラムは書換えが途中までなので、大きさを測らない。
+fn check_rewritten_size(text: &str, r: CompileResult, profile: &StaticProfile) -> CompileResult {
+    match r {
+        CompileResult::Accepted { warnings, work, .. } if text.len() > profile.rewritten_bytes => CompileResult::Rejected {
+            errors: vec![Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-REWRITTEN-BYTES", (0, 0))
+                .exp(profile.rewritten_bytes.to_string())
+                .act(text.len().to_string())],
+            warnings,
+            work,
+        },
+        r => r,
+    }
 }
 
 /// 診断用の検査器（lexer・parser・checker）の判定を、検証済み部品で確かめる。
@@ -444,7 +460,7 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
                 format_program(&p.unmarked())
             };
             let at = hof::deepest_loop_nest(&p).map_or((0, 0), |(_, s)| s);
-            let r = result(o.diagnostics.clone(), Some(o));
+            let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
             AstCompile::Result(without_repairs(cross_check_at(&text, r, profile, at)))
         }
     }
