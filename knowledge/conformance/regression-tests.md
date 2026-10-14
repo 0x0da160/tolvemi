@@ -105,4 +105,6 @@ sources:
 
 - 2026-10-14：`crates/tlvm/tests/regression.rs` に `rows_20_1_boundaries` を追加した。行 18・20・24・25・26・29（AST 側）・34（33 件）・43・61・62（AST 側）の実装テストになった。`ast_transport`、`names`、`types_arity_dag` などの既存テストは変更していない。
 
+- 2026-10-14：行 35・37・48・54 を実装し、tlvm の全テスト（271 件、失敗 0）と Verus（627 verified、error 0）を通した。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

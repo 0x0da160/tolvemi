@@ -68,7 +68,7 @@ DECISION-10 は確定した（オーナーの選択、2026-10-14）。`tlvm ast`
 
 DECISION-11（§20.1 の 35・37・54、2026-10-14）：オーナーが「三行とも実装」を選んだ（推奨の「三行とも v1 から外す」は採らない）。行 35 は `HostPolicy.max_ref_slots`（既定 4,000,000）と検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` で実装し、超過は `HostAborted("ref-slots")` とする。host-policy の識別子は `tlvm-rust-host-v1` に改めた。行 37 は型比較の cache（`TypeSharing::On`）で実装し、論理 trace・仕事量・cutoff は Off と同じになる。interning は未実装である。行 54 は `eval/harness.py` の `render` と連結 arm `gen-render` で実装した。実測（G4）は行っていない。残りは [対応表](../conformance/regression-tests.md) の「残りの扱い」に記す。
 
-Verus は本コンテナでソースからビルド済み（0.2026.10.07.89f8d65、Z3 4.16.0）。リポジトリの証明（`tlvm-verified`）は実行で 626 件が検証され、error は 0 件。§11.2a の版ごとの証明は未着手。
+Verus は本コンテナでソースからビルド済み（0.2026.10.07.89f8d65、Z3 4.16.0）。リポジトリの証明（`tlvm-verified`）は実行で 627 件が検証され、error は 0 件（行 35 の参照スロット上限を加えた後、2026-10-14）。§11.2a の版ごとの証明は未着手。
 
 # 設計本文に残っている作業（G0）
 
