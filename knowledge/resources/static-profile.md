@@ -29,7 +29,10 @@ sources:
 | fold ネスト深さ | 32 | FOLD-DEPTH | structural-limits |
 | 推論された型深さ | 128 | SEMANTIC-TYPE-DEPTH | semantic-limits |
 | 型検査イベント数 | 2,000,000 | SEMANTIC-WORK | semantic-limits |
+| 書換え後のプログラムの bytes（型検査を通ったもの） | 4,194,304 | REWRITTEN-BYTES | semantic-limits |
 | import で読むファイル数（根を含む。v1.11、この処理系の拡張） | 64 | IMPORT-FILES | import |
+
+書換え後のプログラムの bytes は、型検査を通ったプログラムについて、検証済み部品へ渡す文字列（書換え・整形のあと）の bytes で数える。超えたら `E-LIMIT-STATIC-REWRITTEN-BYTES` で拒否し、exp に上限、act に実際の bytes を出す（DECISION-13）。
 
 # 数え方
 

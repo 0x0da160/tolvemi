@@ -1176,6 +1176,7 @@ LLMに対する優位性は未測定である。v1は、その検証に向けて
 | fold ネスト深さ | 32 | FOLD-DEPTH | structural-limits |
 | 推論された型深さ | 128 | SEMANTIC-TYPE-DEPTH | semantic-limits |
 | 型検査イベント数 | 2,000,000 | SEMANTIC-WORK | semantic-limits |
+| 書換え後のプログラムの bytes（型検査を通ったもの） | 4,194,304 | REWRITTEN-BYTES | semantic-limits |
 
 全コードは `E-LIMIT-STATIC-` に末尾を連結する。AST node は program、各 fn／entry、param、各型構成子、各式をそれぞれ一つと数える。lambda は fold node の binder fields であり独立 node ではない。名前 string、整数 string、配列、span は node に含めない。
 
@@ -1284,6 +1285,8 @@ G0では完成ASTとの一致、不完全構文、破棄された親、同期で
 3. **`loop` の結果型（規則 L）。** `loop(init, max, |s| e)` は init と max を検査し、max と Int を Equal で比べる（偽なら `E-TYPE-LOOP-MAX`）。次に e を検査し、e と Option<S> を Equal で比べる（偽なら `E-TYPE-LOOP-BODY`）。結果型 Option<S> の BuildType は、init・max・e がすべて正常なときだけ、この比較の後に一つ数える。
 4. **印つきの写し（規則 T、v1.15）。** 受理されたときは印なしの写しの仕事量を、拒否されたときは印つきの写しの仕事量を報告する。
 
+書換え後のプログラムの大きさは数に入らない。その大きさは §18.1 の上限 REWRITTEN-BYTES で抑え、型検査を通ったプログラムについて、検証済み部品へ渡す文字列の bytes で検査する（拒否は `E-LIMIT-STATIC-REWRITTEN-BYTES`）。
+
 参照検査器の trace fixture（`crates/tlvm/tests/counting.rs`）で固定した値は次のとおり。各 program の entry は `f` である。
 
 | 代表 program | 結果 | 合計 |
@@ -1313,7 +1316,8 @@ G0では完成ASTとの一致、不完全構文、破棄された親、同期で
 - 節点ごとの規則の全体。上の表は代表 program の値を固定したものであり、ほかの節点の規則は `docs/typecheck-counting-design.md` §4 の案の段階にあり、fixture で固定するまで規範としない。
 - 実行の参照イベント（Steps と AllocatedNodes）。書換え後の木に §18.3 を適用して数える方針だが、代表の値はまだ固定していない。
 - 整数の bit 数。`RunResult` にその値が出ておらず、取り出し方を決めていない。
-- 書換え後の大きさの上限。書換えの結果は、原文の式深さの上限内でも式深さの上限を超えることがあり（書換え後の文面で `E-LIMIT-STATIC-EXPR-DEPTH` により拒否される）、`loop` を 400 個並べた計測では書換え後の文面が原文の約 44 倍になった。この増幅を抑える静的上限は、まだ §18.1 にない。
+- 書換えの深さ。書換えの結果は、原文の式深さの上限内でも式深さの上限を超えることがあり、書換え後の文面で `E-LIMIT-STATIC-EXPR-DEPTH` により拒否される。この拒否を §18.1 に書くか、書換えの深さに上限を置くかは未定。
+- 書換えの時間。sums・records・dict の書換えと整形は書換え後の大きさに比例し、上限の検査より前に実行される。参照実装では、約 9 MB の書換えに約 16 秒かかった。上限は検証済み部品の入力を抑えるが、拒否までの時間は抑えない。
 - 再帰する直和型の補助関数の形と、印つきの写しと印なしの写しの trace の一致。どちらも fixture を追加して固定する。
 
 ### 18.2 入力と AST transport

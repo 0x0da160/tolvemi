@@ -105,6 +105,7 @@ sources:
 | `E-LIMIT-STATIC-FUNCTIONS`、`-AST-NODES`、`-TYPE-DEPTH`、`-EXPR-DEPTH`、`-LET-DEPTH`、`-FOLD-DEPTH` | structural-limits | 構造上限 |
 | `E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH`、`-SEMANTIC-WORK` | semantic-limits | 推論型深さ、型検査仕事量 |
 | `E-LIMIT-STATIC-GENERIC-INSTANCES` | semantic-limits | v1.10：単相化の複製が 256 個、型引数の大きさが型の node 256 個を超えた |
+| `E-LIMIT-STATIC-REWRITTEN-BYTES` | semantic-limits | 書換え後のプログラムの bytes が 4,194,304 を超えた（型検査を通ったプログラムだけ） |
 | `E-DIAG-LIMIT`／`W-DIAG-LIMIT` | — | 診断件数上限 |
 | `W-UNUSED-FUNCTION` | warnings | 未到達関数 |
 | `E-INPUT-JSON-SYNTAX`、`-STRING-SCALAR`、`-DUPLICATE-KEY` | input-parse | 入力 JSON transport |
