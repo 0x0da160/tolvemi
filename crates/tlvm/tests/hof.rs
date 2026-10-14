@@ -344,7 +344,8 @@ fn ast_codec_tags() {
     let xs = r#"{"tag":"var","name":"xs"}"#;
     assert!(ast_codes(&format!(r#"{{"tag":"filter","list":{xs},"binder":"x","body":{{"tag":"call","callee":"lt","args":[{{"tag":"int","value":"0"}},{x}],"type_args":[]}}}}"#)).is_empty());
     assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"body":{x}}}"#)), ["E-AST-MISSING-FIELD"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"map","body":{x}}}"#)), ["E-AST-IDENTIFIER"]);
+    // §4.2：文脈キーワードは束縛名に使える（本体で参照して型が合う）
+    assert!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"map","body":{{"tag":"var","name":"map"}}}}"#)).is_empty());
     assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"x","init":{x},"body":{x}}}"#)), ["E-AST-UNKNOWN-FIELD"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"call","callee":"map","args":[{xs}],"type_args":[]}}"#)), ["E-AST-IDENTIFIER"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"sort_by","list":{xs},"binder":"x","body":{{"tag":"bool","value":true}}}}"#)), ["E-TYPE-HOF-BODY"]);

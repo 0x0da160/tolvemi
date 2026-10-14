@@ -462,7 +462,8 @@ fn ast_codec_tag() {
     let none = r#"{"tag":"none","element_type":{"tag":"int"}}"#;
     assert!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"max":{n},"binder":"s","body":{none}}}"#)).is_empty());
     assert_eq!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"binder":"s","body":{none}}}"#)), ["E-AST-MISSING-FIELD"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"max":{n},"binder":"loop","body":{none}}}"#)), ["E-AST-IDENTIFIER"]);
+    // §4.2：文脈キーワードは束縛名に使える（本体は some(loop) で Option<Int> になる）
+    assert!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"max":{n},"binder":"loop","body":{{"tag":"some","value":{{"tag":"var","name":"loop"}}}}}}"#)).is_empty());
     assert_eq!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"max":{n},"list":{n},"binder":"s","body":{none}}}"#)), ["E-AST-UNKNOWN-FIELD"]);
     assert_eq!(ast_codes(&format!(r#"{{"tag":"loop","init":{n},"max":{n},"binder":"s","body":{n}}}"#)), ["E-TYPE-LOOP-BODY"]);
     assert_eq!(

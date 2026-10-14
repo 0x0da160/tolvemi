@@ -3,6 +3,7 @@
 use crate::diagnostics::Diagnostic;
 use crate::parser::{expr_depths, Admission, Depths};
 use crate::profiles::{AstTransportProfile, StaticProfile};
+use crate::softnames::is_soft_keyword;
 use crate::strict_json::{parse, smallest_key, JKind, JNode, JsonFailKind};
 use crate::syntax::*;
 use crate::values::is_canonical_int;
@@ -109,12 +110,20 @@ fn literal_char(s: &str) -> Option<char> {
     char::from_u32(s.parse().ok()?).filter(|c| literal_char_ok(*c))
 }
 
-pub fn is_identifier(s: &str) -> bool {
+/// 字句の形（ASCII の英数字と `_`、先頭は英字か `_`）。予約語の判定は含まない。
+fn is_name_shape(s: &str) -> bool {
     let b = s.as_bytes();
-    !b.is_empty()
-        && (b[0].is_ascii_alphabetic() || b[0] == b'_')
-        && b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
-        && !is_keyword(s)
+    !b.is_empty() && (b[0].is_ascii_alphabetic() || b[0] == b'_') && b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
+}
+
+/// 関数名、entry 名、組込みでない callee、型引数の名前。字句表の 68 語をすべて除く（§4.2）。
+pub fn is_identifier(s: &str) -> bool {
+    is_name_shape(s) && !is_keyword(s)
+}
+
+/// 変数・引数・束縛・field の名前。予約語 19 語だけを除く。文脈キーワードは使える（§4.2、Surface と同じ）。
+pub fn is_binder_name(s: &str) -> bool {
+    is_name_shape(s) && (!is_keyword(s) || is_soft_keyword(s))
 }
 
 #[derive(Debug)]
@@ -206,6 +215,14 @@ impl Schema<'_> {
         }
     }
 
+    fn binder(&self, s: &JNode) -> R {
+        if is_binder_name(&s.text) {
+            Ok(())
+        } else {
+            Err(fail("E-AST-IDENTIFIER", s.span()).exp("identifier"))
+        }
+    }
+
     fn program(&self, n: &JNode) -> R {
         if n.kind != O {
             return Err(fail("E-AST-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
@@ -250,7 +267,7 @@ impl Schema<'_> {
             return Err(fail("E-AST-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
         }
         self.keys(n, PARAM_FIELDS, false)?;
-        self.ident(n.get("name").unwrap())?;
+        self.binder(n.get("name").unwrap())?;
         self.ty(n.get("type").unwrap())
     }
 
@@ -313,7 +330,7 @@ impl Schema<'_> {
                         self.ident(c)?;
                     }
                 }
-                (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => self.ident(c)?,
+                (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => self.binder(c)?,
                 (_, "element_type" | "ok_type" | "err_type" | "key_type" | "value_type") => self.ty(c)?,
                 (_, "items" | "args") => {
                     for x in &c.items {

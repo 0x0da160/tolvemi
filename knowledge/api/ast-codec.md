@@ -27,35 +27,41 @@ sources:
 
 | node | keys／fields |
 |---|---|
-| program | `codec`, `declarations`（codec は固定 `"ast_codec_v1"`） |
-| fn | `tag`, `name`, `params`, `return_type`, `body`、v1.7（この処理系の拡張）：省略できる `rec`（boolean。省略は false。encoder は true のときだけ `body` の後に出す）、v1.10：省略できる `type_params`（大文字で始まる識別子の配列。総称の関数にだけ出す） |
+| program | `codec`, `declarations`。codec は固定 string `ast_codec_v1`、declarations は fn／entry 配列 |
+| fn | `tag`, `name`, `params`, `return_type`, `body`。任意：`rec`（boolean。省略は false。v1.7）、`type_params`（大文字で始まる名前の配列。省略は型引数なし。v1.10） |
 | entry | `tag`, `name` |
-| param | `name`, `type`（tag なし） |
-| type int／bool／unit | `tag` |
-| type list／option | `tag`, `element` |
-| type pair | `tag`, `left`, `right` |
+| param | `name`, `type` |
+| type int／bool／unit／char／string | `tag` |
+| type list／option | `tag`, `element`（type） |
+| type pair | `tag`, `left`, `right`（type） |
+| type result | `tag`, `ok`, `err`（type。v1.4） |
+| type dict | `tag`, `key`, `value`（type。v1.9） |
+| type param | `tag`, `name`（型引数の名前。v1.10） |
 | expr int | `tag`, `value`（正規十進 string） |
+| expr char | `tag`, `value`（スカラー値の十進 string。v1.2） |
+| expr string | `tag`, `value`（文字列の値。JSON 文字列の規則。v1.2） |
 | expr bool | `tag`, `value`（JSON boolean） |
 | expr unit | `tag` |
 | expr var | `tag`, `name` |
-| expr list | `tag`, `element_type`, `items` |
-| expr some | `tag`, `value` |
+| expr list | `tag`, `element_type`, `items`（expr 配列） |
+| expr some | `tag`, `value`（expr） |
 | expr none | `tag`, `element_type` |
-| expr pair | `tag`, `left`, `right` |
-| expr call | `tag`, `callee`, `args`, `type_args` |
-| expr let | `tag`, `name`, `value`, `body` |
-| expr if | `tag`, `condition`, `then`, `else` |
+| expr pair | `tag`, `left`, `right`（expr） |
+| expr call | `tag`, `callee`（名前 string）, `args`（expr 配列）, `type_args`（type 配列。明示しない call は空配列。v1.10） |
+| expr let | `tag`, `name`, `value`, `body`（expr） |
+| expr if | `tag`, `condition`, `then`, `else`（expr） |
 | expr fold | `tag`, `list`, `init`, `acc`, `item`, `body` |
-| expr map／filter／any／all／find／sort_by（v1.5、この処理系の拡張） | `tag`, `list`, `binder`, `body` |
-| expr loop（v1.6、この処理系の拡張） | `tag`, `init`, `max`, `binder`, `body` |
-| type dict（v1.9、この処理系の拡張） | `tag`, `key`, `value` |
-| expr dict（v1.9、この処理系の拡張。空の辞書） | `tag`, `key_type`, `value_type`。操作 `dict_get` などは `call` |
-| type param（v1.10、この処理系の拡張） | `tag`, `name`（型引数の名前） |
+| expr match_option | `tag`, `scrutinee`, `on_none`, `binder`, `on_some`（v1.1） |
+| expr ok／err | `tag`, `ok_type`, `err_type`, `value`（type、type、expr。v1.4） |
+| expr match_result | `tag`, `scrutinee`, `ok_binder`, `on_ok`, `err_binder`, `on_err`（v1.4） |
+| expr map／filter／any／all／find／sort_by | `tag`, `list`, `binder`, `body`（v1.5） |
+| expr loop | `tag`, `init`, `max`, `binder`, `body`（v1.6） |
+| expr dict | `tag`, `key_type`, `value_type`（空の辞書。v1.9） |
 | expr call の `type_args`（v1.10、この処理系の拡張） | 必ず出す型の配列。明示しない call は空配列。型引数を明示した構築子（`Leaf<Int>()`）は展開後の値の形で出す。レコード型・直和型の宣言は transport にないので、`tlvm ast` は展開したもの（構築子のための総称の関数を含む）を出す |
 
 - `callee` は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。
-- 識別子は decode 後の文字列全体が IDENT に一致し予約語でないこと（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])` と `not.enum`）。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]
-- 同梱 schema 実体：10,768 bytes、SHA-256 `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe`。
+- 識別子は decode 後の文字列全体が IDENT に一致すること（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])`）。変数・引数・束縛・field の名前は予約語 19 語を除き、文脈キーワードは使える（Surface と同じ。§4.2）。関数名・entry 名・組込みでない callee・型引数の名前は字句表の 68 語をすべて除く。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]
+- 同梱 schema 実体：23,525 bytes、SHA-256 `2c71a615b03345f8d457773f42b1f576666cc7b5262106abf5111e3a51047b1f`。
 
 JSON Schema 単体では重複キー、bytes、深さ、UTF-8、不対 surrogate、整数桁上限、byte span、正準キー順、共通静的検査は保証されず、strict parser・コンパイラ・encoder が別途行う。validator のエラー順を規範的診断順に代用しない。
 
@@ -96,7 +102,7 @@ header の後は **必須キー → 余分キー → 全直接 field の浅い J
 | 通常 call の実引数不足・過剰 | typecheck で `E-ARITY-*` |
 | 未定義の合法 callee 名 | name で `E-NAME-UNKNOWN-FUNCTION` |
 | fold の `acc` と `item` が同名 | name で binder 重複 |
-| `callee: "uncons"` | 合法なユーザー関数名として解決（組込みではない） |
+| `callee: "uncons"` | 組込みとして解決する（v1.1）。文脈キーワードなので、同名の関数は宣言できない |
 
 # 正準化と往復
 

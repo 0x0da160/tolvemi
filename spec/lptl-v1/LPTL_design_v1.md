@@ -1388,9 +1388,9 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 | expr loop | `tag`, `init`, `max`, `binder`, `body`（v1.6） |
 | expr dict | `tag`, `key_type`, `value_type`（空の辞書。v1.9） |
 
-callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee、args、type_args を持つ。`type_args` は型引数を明示した総称の関数の呼出し（`f<Int>(x)`）の型を書き、明示しない call では空配列を書く。構築子（`Leaf<Int>()`）は直和の宣言と同じく展開後の形で書くので、型引数は AST に現れない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。
+callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee、args、type_args を持つ。`type_args` は型引数を明示した総称の関数の呼出し（`f<Int>(x)`）の型を書き、明示しない call では空配列を書く。構築子（`Leaf<Int>()`）は直和の宣言と同じく展開後の形で書くので、型引数は AST に現れない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。変数・引数・束縛の名前は Surface と同じ規則（予約語 19 語だけを除く。§4.2）に従う。
 
-`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。同梱の schema は call の `type_args` を含む。ほかの v1.x の node（式の char、string、match_option、ok、err、match_result、map など、loop、dict、型の char、string、result、dict、param、fn の rec と type_params）と、予約語の `not.enum`（§4.2 の 19 語）はまだ反映していない。それらを含む schema の作成と、その bytes・SHA-256 の再記録は G0 の未達項目である（§20.4）。
+`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。同梱の schema は、本節の表の全 node（v1.1〜v1.16 を含む）、fn の任意の `rec` と `type_params`、識別子の除外語を含む。変数・引数・束縛・field の名前は予約語 19 語（§4.2）だけを除く。関数名・entry 名・組込みでない callee・型引数の名前は字句表の 68 語をすべて除く。文字列の値の制御文字、char の値の範囲、整数の桁上限は schema 単体では表現できないため、codec が `E-AST-LITERAL` と `E-AST-LIMIT-INTEGER-DIGITS` で検査する。schema の bytes・SHA-256 は §20.4 に記録する。
 
 重複キー、バイト数、JSON深さ、UTF-8、不対surrogate、整数桁上限、元byte span、正準キー順、共通静的検査は JSON Schema 単体では保証されず、strict parser、コンパイラ、encoderが別途実施する。schema validator のエラー出力順を第19.3節の規範的診断順に代用しない。
 
@@ -1608,7 +1608,7 @@ E-ARITY-USER と E-ARITY-BUILTIN は正式な具体コードとする。その�
 
 | 実体 | bytes | SHA-256 |
 |---|---:|---|
-| `ast_codec_v1.schema.json` | 10,768 | `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe` |
+| `ast_codec_v1.schema.json` | 23,525 | `2c71a615b03345f8d457773f42b1f576666cc7b5262106abf5111e3a51047b1f` |
 
 検査用の対照schemaは実体schemaの代用品ではない。未提示ファイルの実体・hashは推測せず、unavailableとする。
 

@@ -23,11 +23,11 @@
   "$defs": {
     "identifier": {
       "type": "string",
+      "description": "変数・引数・束縛・field の名前。予約語 19 語を除く（§4.2）。関数名・entry 名・callee は keyword も除く。",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
       "not": {
         "enum": [
           "fn",
-          "entry",
           "Int",
           "Bool",
           "Unit",
@@ -37,30 +37,90 @@
           "true",
           "false",
           "unit",
-          "list",
-          "some",
-          "none",
-          "pair",
           "let",
           "in",
           "if",
           "fold",
-          "add",
-          "sub",
-          "mul",
-          "neg",
-          "lt",
-          "le",
-          "eq",
-          "mod",
-          "fst",
-          "snd",
-          "cons",
-          "concat",
-          "reverse",
-          "length"
+          "match_option",
+          "Char",
+          "String",
+          "Result",
+          "match_result"
         ]
       }
+    },
+    "keyword": {
+      "description": "字句表の 68 語（予約語 19 語と文脈キーワード 49 語）。関数名・entry 名・組込みでない callee・型引数の名前に使えない（§4.2）。",
+      "enum": [
+        "fn",
+        "entry",
+        "Int",
+        "Bool",
+        "Unit",
+        "List",
+        "Option",
+        "Pair",
+        "true",
+        "false",
+        "unit",
+        "list",
+        "some",
+        "none",
+        "pair",
+        "let",
+        "in",
+        "if",
+        "fold",
+        "add",
+        "sub",
+        "mul",
+        "neg",
+        "lt",
+        "le",
+        "eq",
+        "mod",
+        "fst",
+        "snd",
+        "cons",
+        "concat",
+        "reverse",
+        "length",
+        "uncons",
+        "match_option",
+        "min",
+        "max",
+        "range",
+        "contains",
+        "sort",
+        "Char",
+        "String",
+        "code",
+        "char",
+        "to_string",
+        "parse_int",
+        "Result",
+        "ok",
+        "err",
+        "match_result",
+        "map",
+        "filter",
+        "any",
+        "all",
+        "find",
+        "sort_by",
+        "loop",
+        "div",
+        "dict",
+        "dict_get",
+        "dict_put",
+        "dict_remove",
+        "dict_has",
+        "dict_size",
+        "dict_keys",
+        "dict_values",
+        "dict_entries",
+        "dict_from"
+      ]
     },
     "type": {
       "oneOf": [
@@ -104,10 +164,45 @@
           "type": "object",
           "properties": {
             "tag": {
+              "const": "char"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "string"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
               "const": "list"
             },
             "element": {
-              "$ref": "#/$defs/type"
+              "$ref": "#/$defs/type",
+              "not": {
+                "type": "object",
+                "properties": {
+                  "tag": {
+                    "const": "char"
+                  }
+                },
+                "required": [
+                  "tag"
+                ]
+              }
             }
           },
           "required": [
@@ -151,6 +246,66 @@
             "right"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "result"
+            },
+            "ok": {
+              "$ref": "#/$defs/type"
+            },
+            "err": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "ok",
+            "err"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "dict"
+            },
+            "key": {
+              "$ref": "#/$defs/type"
+            },
+            "value": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "key",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "param"
+            },
+            "name": {
+              "$ref": "#/$defs/identifier",
+              "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])",
+              "not": {
+                "$ref": "#/$defs/keyword"
+              }
+            }
+          },
+          "required": [
+            "tag",
+            "name"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -174,12 +329,16 @@
       "oneOf": [
         {
           "type": "object",
+          "description": "rec（省略は false）と type_params（省略は型引数なし）は任意。allOf で許し、unevaluatedProperties で他の余分キーを拒否する。",
           "properties": {
             "tag": {
               "const": "fn"
             },
             "name": {
-              "$ref": "#/$defs/identifier"
+              "$ref": "#/$defs/identifier",
+              "not": {
+                "$ref": "#/$defs/keyword"
+              }
             },
             "params": {
               "type": "array",
@@ -201,7 +360,30 @@
             "return_type",
             "body"
           ],
-          "additionalProperties": false
+          "allOf": [
+            {
+              "properties": {
+                "rec": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "properties": {
+                "type_params": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/identifier",
+                    "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])",
+                    "not": {
+                      "$ref": "#/$defs/keyword"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
         },
         {
           "type": "object",
@@ -210,7 +392,10 @@
               "const": "entry"
             },
             "name": {
-              "$ref": "#/$defs/identifier"
+              "$ref": "#/$defs/identifier",
+              "not": {
+                "$ref": "#/$defs/keyword"
+              }
             }
           },
           "required": [
@@ -232,6 +417,39 @@
             "value": {
               "type": "string",
               "pattern": "^(0|-?[1-9][0-9]*)(?![\\s\\S])"
+            }
+          },
+          "required": [
+            "tag",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "char"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)(?![\\s\\S])"
+            }
+          },
+          "required": [
+            "tag",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
             }
           },
           "required": [
@@ -372,21 +590,44 @@
                     "add",
                     "sub",
                     "mul",
-                    "neg",
                     "lt",
                     "le",
                     "eq",
                     "mod",
-                    "fst",
-                    "snd",
+                    "div",
                     "cons",
                     "concat",
+                    "min",
+                    "max",
+                    "range",
+                    "contains",
+                    "neg",
+                    "fst",
+                    "snd",
                     "reverse",
-                    "length"
+                    "length",
+                    "uncons",
+                    "sort",
+                    "code",
+                    "char",
+                    "to_string",
+                    "parse_int",
+                    "dict_put",
+                    "dict_get",
+                    "dict_remove",
+                    "dict_has",
+                    "dict_size",
+                    "dict_keys",
+                    "dict_values",
+                    "dict_entries",
+                    "dict_from"
                   ]
                 },
                 {
-                  "$ref": "#/$defs/identifier"
+                  "$ref": "#/$defs/identifier",
+                  "not": {
+                    "$ref": "#/$defs/keyword"
+                  }
                 }
               ]
             },
@@ -488,6 +729,306 @@
             "acc",
             "item",
             "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "match_option"
+            },
+            "scrutinee": {
+              "$ref": "#/$defs/expr"
+            },
+            "on_none": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "on_some": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "scrutinee",
+            "on_none",
+            "binder",
+            "on_some"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "ok"
+            },
+            "ok_type": {
+              "$ref": "#/$defs/type"
+            },
+            "err_type": {
+              "$ref": "#/$defs/type"
+            },
+            "value": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "ok_type",
+            "err_type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "err"
+            },
+            "ok_type": {
+              "$ref": "#/$defs/type"
+            },
+            "err_type": {
+              "$ref": "#/$defs/type"
+            },
+            "value": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "ok_type",
+            "err_type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "match_result"
+            },
+            "scrutinee": {
+              "$ref": "#/$defs/expr"
+            },
+            "ok_binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "on_ok": {
+              "$ref": "#/$defs/expr"
+            },
+            "err_binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "on_err": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "scrutinee",
+            "ok_binder",
+            "on_ok",
+            "err_binder",
+            "on_err"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "map"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "filter"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "any"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "all"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "find"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "sort_by"
+            },
+            "list": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "list",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "loop"
+            },
+            "init": {
+              "$ref": "#/$defs/expr"
+            },
+            "max": {
+              "$ref": "#/$defs/expr"
+            },
+            "binder": {
+              "$ref": "#/$defs/identifier"
+            },
+            "body": {
+              "$ref": "#/$defs/expr"
+            }
+          },
+          "required": [
+            "tag",
+            "init",
+            "max",
+            "binder",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "dict"
+            },
+            "key_type": {
+              "$ref": "#/$defs/type"
+            },
+            "value_type": {
+              "$ref": "#/$defs/type"
+            }
+          },
+          "required": [
+            "tag",
+            "key_type",
+            "value_type"
           ],
           "additionalProperties": false
         }
