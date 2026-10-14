@@ -60,7 +60,7 @@ sources:
 | expr call の `type_args`（v1.10、この処理系の拡張） | 必ず出す型の配列。明示しない call は空配列。型引数を明示した構築子（`Leaf<Int>()`）は展開後の値の形で出す。レコード型・直和型の宣言は transport にないので、`tlvm ast` は展開したもの（構築子のための総称の関数を含む）を出す |
 
 - `callee` は通常 builtin 名または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。
-- 識別子は decode 後の文字列全体が IDENT に一致すること（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])`）。変数・引数・束縛・関数名・entry 名・組込みでない callee・型引数の名前は、いずれも字句表の 68 語（予約語と文脈キーワード）をすべて除く。Surface は文脈キーワードを変数・引数・束縛に使えるが、AST では使えない（§4.2）。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]
+- 識別子は decode 後の文字列全体が IDENT に一致すること（schema pattern `^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])`）。変数・引数・束縛・関数名・entry 名・組込みでない callee・型引数の名前は、いずれも字句表の 68 語（予約語と文脈キーワード）をすべて除く。Surface は文脈キーワードを変数・引数・束縛に使えるが、AST では使えない（§4.2）。`tlvm ast` は出力の変数名を `<語>_kw` に付け替える（[字句の仕様](../language/lexical-syntax.md)）。整数は `^(0|-?[1-9][0-9]*)(?![\s\S])`。否定先読みで末尾 LF を許す処理系差を塞ぐ。`"x"` は `x` として受理、`"x\n"` は拒否。[^ast-schema]
 - 同梱 schema 実体：22,699 bytes、SHA-256 `ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a`。
 
 JSON Schema 単体では重複キー、bytes、深さ、UTF-8、不対 surrogate、整数桁上限、byte span、正準キー順、共通静的検査は保証されず、strict parser・コンパイラ・encoder が別途行う。validator のエラー順を規範的診断順に代用しない。
