@@ -37,6 +37,8 @@ v1.10 の `generic`（97-batches）は、型引数を取る補助関数（`chunk
 | `lptl` | SKILL.md | tlvm の診断（`--human`：行・列、expected／found、repair）か、失敗した公開例 |
 | `lptl-nodiag` | SKILL.md | 「拒否された」という一文だけか、失敗した公開例（診断の効果を見る対照） |
 | `python` | Python の説明 | 例外のトレースバックか、失敗した公開例（同じタスク・同じテスト） |
+| `render` | SKILL.md（入力は正解 AST の JSON） | 修復はしない（一回だけ書かせる）。採点は、書かれた program の `tlvm ast` が正解 AST と一致するか |
+| `gen-render` | SKILL.md（連結） | 連結 arm。`lptl` で一回生成し、その AST（`tlvm ast`）を `render` へ渡す。採点は render の出力が生成 AST と一致するか。`render` の行とは別に報告する |
 
 1 回目が Surface モード、2 回目以降が Repair モードです。公開例が全て通るか `--rounds` 回に達したら終わり、
 各回の候補を隠しテストでも採点します。報告するのは Success@1（初回の候補が隠しテストを全て通した割合）と

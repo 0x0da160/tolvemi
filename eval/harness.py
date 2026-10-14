@@ -7,6 +7,8 @@ arm:
   lptl         SKILL.md を system に置き、LPTL で書かせる。修復時は tlvm の診断（--human）を返す
   lptl-nodiag  lptl と同じだが、修復時は「コンパイルできなかった」とだけ返す（診断の効果を見る対照）
   python       Python の solve(x) を書かせる（同じタスク・同じ公開例・同じ隠しテスト）
+  render       正解の AST（tlvm ast の JSON）を示し、同じ AST になる LPTL を一回だけ書かせる（AST 一致で採点）
+  gen-render   連結 arm。lptl で一回生成し、その AST を render へ渡す。render とは別の行に報告する
 
 backend:
   anthropic    Claude API（ANTHROPIC_API_KEY などの認証が必要）
@@ -40,10 +42,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from lptl_types import lptl_literal, parse_type, python_literal
-from runner import run_lptl, run_python
+from runner import run_ast, run_lptl, run_python
 from tasks_lib import EVAL, load_tasks
 
-ARMS = ("lptl", "lptl-nodiag", "python")
+ARMS = ("lptl", "lptl-nodiag", "python", "render", "gen-render")
 SKILL = (EVAL / "SKILL.md").read_text(encoding="utf-8")
 
 PYTHON_SYSTEM = """You write Python 3 solutions to small programming tasks.
@@ -238,7 +240,84 @@ def run_candidate(arm: str, code: str | None, cases: list[dict], task: dict) -> 
     return run(code, cases, task["input_type"], task["output_type"])
 
 
+# ---------------------------------------------------------------------------------------------- render と連結 arm（§12.3）
+
+
+def render_prompt(ast_obj) -> str:
+    return (
+        "Write an LPTL program whose abstract syntax tree is exactly the AST below. Keep every type annotation, binder, "
+        "name and declaration order, and do not change the meaning. Answer with the complete program in a single fenced "
+        "code block tagged `tlvm`.\n\n"
+        f"AST (JSON):\n```json\n{json.dumps(ast_obj, ensure_ascii=False, indent=1)}\n```"
+    )
+
+
+def render_episode(backend, task: dict, arm: str, rep: int, ast_obj, ref_ast) -> dict:
+    """Render：AST を示して一回だけ書かせ、書かれた program の AST が ref_ast と一致するかで採点する。
+    公開例と隠しテストは使わないので、集計の鍵（visible_pass、hidden_pass）には AST 一致を入れる。
+    Render には署名の検査がないので、受理されたかを signature_ok に入れる。"""
+    messages = [{"role": "user", "content": render_prompt(ast_obj)}]
+    base = {"task": task["id"], "category": task["category"], "arm": arm, "repeat": rep}
+    try:
+        resp = backend.complete(SKILL, messages, task, "render")
+    except Exception as e:  # noqa: BLE001 - API の失敗は episode の失敗として記録して続ける
+        return {**base, "rounds_used": 0, "success_at_1": False, "success_final": False,
+                "api_error": f"{type(e).__name__}: {e}", "rounds": []}
+    code = extract_code(resp["text"], "render") if resp["stop_reason"] != "refusal" else None
+    if code is None:
+        got = {"ok": False, "ast": None, "diagnostics": "No fenced code block was found in the answer."}
+    else:
+        got = run_ast(code)
+    match = got["ok"] and got["ast"] == ref_ast
+    round_log = {
+        "round": 1,
+        "stop_reason": resp["stop_reason"],
+        "model": resp["model"],
+        "fallback": resp["fallback"],
+        "usage": resp["usage"],
+        "answer": resp["text"],
+        "code": code,
+        "compile_ok": got["ok"],
+        "signature_ok": got["ok"],
+        "codes": [],
+        "diagnostics": got["diagnostics"],
+        "ast_match": match,
+        "visible_pass": match,
+        "hidden_pass": match,
+    }
+    return {**base, "rounds_used": 1, "success_at_1": match, "success_final": match, "api_error": None,
+            "rounds": [round_log]}
+
+
+def gen_render_episode(backend, task: dict, rep: int) -> dict:
+    """連結 arm（gen-render）：lptl で一回だけ生成し（修復なし）、その AST を render へ渡す。
+    採点は render の出力の AST が生成された AST と一致するか。生成の公開例・隠しテストの結果は generation_hidden_pass に残す。"""
+    gen = episode(backend, task, "lptl", 1, rep)
+    calls = [r for r in gen["rounds"] if "api_error" not in r]
+    base = {"task": task["id"], "category": task["category"], "arm": "gen-render", "repeat": rep}
+    if not calls:
+        return {**base, "rounds_used": 0, "success_at_1": False, "success_final": False,
+                "api_error": gen["api_error"], "rounds": [], "generation_hidden_pass": False}
+    first = calls[0]
+    got = run_ast(first["code"]) if first["code"] is not None else {"ok": False, "ast": None, "diagnostics": ""}
+    if not got["ok"]:
+        return {**base, "rounds_used": 1, "success_at_1": False, "success_final": False, "api_error": None,
+                "rounds": calls, "generation_hidden_pass": first["hidden_pass"]}
+    ren = render_episode(backend, task, "gen-render", rep, got["ast"], got["ast"])
+    return {**base, "rounds_used": len(calls) + len(ren["rounds"]), "success_at_1": ren["success_at_1"],
+            "success_final": ren["success_final"], "api_error": ren["api_error"], "rounds": calls + ren["rounds"],
+            "generation_hidden_pass": first["hidden_pass"]}
+
+
 def episode(backend, task: dict, arm: str, rounds: int, rep: int) -> dict:
+    if arm == "render":
+        # Render の入力は正解 AST。一回だけ書かせるので rounds は使わない
+        ref = run_ast((task["dir"] / "reference.tlvm").read_text(encoding="utf-8"))
+        if not ref["ok"]:
+            raise RuntimeError(f"{task['id']}: 参照解が tlvm ast で受理されない: {ref['diagnostics']}")
+        return render_episode(backend, task, "render", rep, ref["ast"], ref["ast"])
+    if arm == "gen-render":
+        return gen_render_episode(backend, task, rep)
     system = PYTHON_SYSTEM if arm == "python" else SKILL
     visible = [{"name": f"ex{i + 1}", **e} for i, e in enumerate(task["examples"])]
     messages = [{"role": "user", "content": task_prompt(task, arm)}]
@@ -358,6 +437,9 @@ def summary_markdown(summary: dict, config: dict) -> str:
             lines.append("- codes on failing rounds: " + ", ".join(f"`{c}` ×{n}" for c, n in s["failure_codes"]))
         if s["api_errors"] or s["refusals"] or s["fallback_rounds"]:
             lines.append(f"- api errors {s['api_errors']}, refusals {s['refusals']}, rounds served by a fallback model {s['fallback_rounds']}")
+    if "render" in summary or "gen-render" in summary:
+        lines += ["", "render は AST 一致で採点する（Success@1 と Success@R の列は AST 一致率）。gen-render は lptl の一回の生成結果を "
+                  "render へ渡す連結 arm で、render とは別の行に報告する。"]
     return "\n".join(lines) + "\n"
 
 

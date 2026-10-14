@@ -57,9 +57,9 @@ sources:
 | 32 | let の値を pair の両側で参照 → 束縛 1 回、pair 1 ノード | 対応 | `builtins_and_sharing`（割当数） | 束縛 1 回は割当数からの推定 |
 | 33 | bytes 上限超過かつ不正 UTF-8 → bytes 優先 | 部分 | `lexical_limits`、`ast_transport`（AST）；`tooling.rs`（input は有効 UTF-8 のみ） | input 側の不正 UTF-8 なし |
 | 34 | error 候補 33 件 → 通常 31 件＋E-DIAG-LIMIT | 部分 | `rows_20_1_boundaries`（33 件）、`error_limit`（40 件） | 一件 cutoff の特別選択を未検査 |
-| 35 | host の参照スロット・frame 上限 → HostAborted | 部分 | `rec.rs`（eval-depth） | 参照スロット上限が `HostPolicy` にない。stack_bytes 超過も未検査（→ 残りの扱い） |
+| 35 | host の参照スロット・frame 上限 → HostAborted | 対応 | `host_ref_slots`；`rec.rs`（eval-depth） | stack_bytes 超過は未検査 |
 | 36 | Steps・AllocatedNodes・IntegerBits・OutputBytes 超過 → ResourceExhausted | 対応 | `resource_exhausted` | - |
-| 37 | 型共有・interning・比較 cache の有無 → 同じ trace と仕事量 | 未対応 | - | 実装に切替がない（→ 残りの扱い） |
+| 37 | 型共有・interning・比較 cache の有無 → 同じ trace と仕事量 | 部分 | `sharing_replays_cached_comparisons`、`sharing_keeps_trace_work_and_cutoff`（`tests/sharing.rs`） | interning は実装していない。Ty の Arc 共有は従来のまま |
 | 38 | add 例、SemanticWork 9 と 8 | 対応 | `semantic_work_trace_fixtures`、`semantic_limits`；モデル C036, C042, C043 | - |
 | 39 | 型深さと SemanticWork の同時超過 → SEMANTIC-TYPE-DEPTH 優先 | 対応 | `semantic_limits` | 同時超過の例は一件のみ |
 | 40 | 合法な param `{"tag":"int"}` は tag 検査なしで受理 | 対応 | `ast_transport` | - |
@@ -70,13 +70,13 @@ sources:
 | 45 | some の子 unit が budget 超過 → AST-NODES が閉じ括弧欠落より先 | 対応 | `structural_limits`；モデル C044, C045 | - |
 | 46 | expr 位置の fn の parse error 後の同期（一回） | 対応 | `recovery`；モデル C046, C047 | - |
 | 47 | 未消費 token が EOF → 停止、RECOVERY-LIMIT を加算しない | 対応 | `parse_errors`；モデル C048 | - |
-| 48 | 同期で飛ばす token の node 開始 keyword → Admission 抑止、budget 非リセット | 未対応 | - | recovery_model は Admission を扱わない（→ 残りの扱い） |
+| 48 | 同期で飛ばす token の node 開始 keyword → Admission 抑止、budget 非リセット | 対応 | `recovery_admission`（診断の node_index で Admission の位置を読む） | - |
 | 49 | 524,276 字名の formatter 境界、再投入拒否 | 対応 | `formatter_boundary_fixture`；モデル C051 | - |
 | 50 | Int `10^4096`：抽象往復は成立、標準 input は桁上限で拒否 | 対応 | `input_decode`；モデル C052 | 抽象往復は証明対象 |
 | 51 | 3 失敗後 1 成功の episode、S=1、分母に 4 試行を加えない | モデルのみ | モデル C053；`eval/test_harness.py`（1 失敗後の成功） | 実装テストなし |
 | 52 | 最終候補の隠しテスト不合格 → episode 失敗、選び直さない | モデルのみ | モデル C054 | 実装テストなし |
 | 53 | 予算 B の一成分ちょうど上限・次操作禁止 → 既存の Accepted 候補を選択 | モデルのみ | モデル C082–C085 | 実装テストなし |
-| 54 | Render 正解 AST とモデル AST → 主 Render と連結 arm を別報告 | 未対応 | `eval/harness.py` の ARMS は lptl・lptl-nodiag・python のみ | 連結 arm の別報告なし（→ 残りの扱い） |
+| 54 | Render 正解 AST とモデル AST → 主 Render と連結 arm を別報告 | 対応 | `eval/test_harness.py` の `test_render_scores_the_ast`、`test_gen_render_reports_generation_and_render_apart`（別行の報告） | 実測は G4 で行う。ここではオラクルと偽のモデルで経路だけを確かめた |
 | 55 | input Pair の左に余分な key → E-INPUT-UNKNOWN-FIELD（子の Admission 前） | 対応 | `input_decode`；モデル C058 | - |
 | 56 | input Pair の深さ上限 1、子 Unit → E-LIMIT-INPUT-VALUE-DEPTH | 対応 | `input_decode`；モデル C059 | - |
 | 57 | 値の深さと node 数の同時超過 → VALUE-DEPTH 優先 | モデルのみ | モデル C060 | 既定の上限では同時超過にならない |
@@ -95,10 +95,11 @@ sources:
 
 # 残りの扱い（判断が要る行）
 
-- 行 35：設計は host の参照スロット上限を要求するが、`HostPolicy` に該当する上限がない（`crates/tlvm/src/profiles.rs`）。上限を実装するか、要件を資源 profile の定義に合わせて改めるかを決める。資源 profile interface は G0 の固定対象である。
-- 行 37：型共有・interning・比較 cache の切替が実装にないため、同じ trace と仕事量を比べる対象がない。最適化を入れる時点まで保留とするか、現状に合わせて要件を書き直すかを決める。
-- 行 48：同期で飛ばした token に Admission を発行しないことと、budget を再設定しないことの検査には、parser の Admission 記録を読むテストが要る。現状の `recovery_model` は Admission を扱わない。
-- 行 54：Render と連結 arm の別報告は、評価ハーネスに連結 arm がないため未対応。G4 の事前登録に含めるかどうかで扱いが決まる。
+判断カード（§20.1 の 35・37・54）の回答は「三行とも実装」である（2026-10-14）。それぞれ次のとおり実装した。残りは下の三点だけである。
+
+- 行 35：`HostPolicy.max_ref_slots` と、検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` を実装した。環境の束縛を積む直前に検査し、超過は `HostAborted("ref-slots")` とする。ResourceExhausted へは統合しない。stack_bytes の超過は未検査のまま残る。
+- 行 37：型比較の cache（`TypeSharing::On`）を実装した。cache は両型の Arc の address を鍵にし、再照合では覚えた論理イベント列を再生するので、trace・仕事量・cutoff は Off と同じになる。interning（構造による正準化）は実装していない。
+- 行 54：`eval/harness.py` に `render`（正解 AST を示して書かせ、`tlvm ast` の一致で採点する）と `gen-render`（連結 arm、`render` とは別行に報告する）を追加した。実測は G4 で行い、ここでは実行していない。
 
 # 更新の記録
 

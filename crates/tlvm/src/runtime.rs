@@ -112,6 +112,7 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
         integer_bits: prof.integer_bits,
         allocated_nodes: prof.allocated_nodes.min(u64::MAX - 1),
         max_depth: (host.max_eval_depth as u64).min(u64::MAX - 1),
+        max_slots: (host.max_ref_slots as u64).min(u64::MAX - 1),
     };
     let r = run_checked(&vp.0, input.clone(), lim);
     release(input);
@@ -128,6 +129,7 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
             stopped(RunResult::ResourceExhausted { kind, observed, limit })
         }
         Checked::Ran(Err(Stop::HostDepth), _, _) => stopped(RunResult::HostAborted("eval-depth".into())),
+        Checked::Ran(Err(Stop::HostSlots), _, _) => stopped(RunResult::HostAborted("ref-slots".into())),
         Checked::Ran(Err(Stop::Fault), _, _) => stopped(RunResult::InternalFault("stuck".into())),
         Checked::Ran(Ok(w), _, _) => {
             let text = |v: &Rc<EV>| -> Option<String> {

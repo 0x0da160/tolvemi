@@ -65,6 +65,19 @@ def run_lptl(source: str, cases: list[dict], input_type: str, output_type: str) 
         return {**out, "signature_ok": True, "cases": results, "all_pass": len(results) == len(cases) and all(r["result"] == "pass" for r in results)}
 
 
+def run_ast(source: str) -> dict:
+    """`tlvm ast` で表面構文を AST の JSON にする。Render と連結 arm の採点に使う。受理されなければ診断を返す。"""
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "solution.tlvm").write_text(source, encoding="utf-8")
+        p = _tlvm("ast", "solution.tlvm", cwd=d)
+    if p.returncode != 0:
+        return {"ok": False, "ast": None, "diagnostics": (p.stdout + p.stderr).strip()}
+    try:
+        return {"ok": True, "ast": json.loads(p.stdout), "diagnostics": ""}
+    except ValueError:
+        return {"ok": False, "ast": None, "diagnostics": "tlvm ast did not print JSON: " + p.stdout[:200]}
+
+
 def run_python(source: str, cases: list[dict], input_type: str, output_type: str, timeout: float = 20.0) -> dict:
     """Python の候補を別プロセスで実行する（同じ形の dict を返す。codes は例外の型名）。"""
     cases = _named(cases)

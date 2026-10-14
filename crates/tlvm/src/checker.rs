@@ -341,6 +341,40 @@ enum Ev {
     Compare,
 }
 
+impl Ev {
+    fn name(self) -> &'static str {
+        match self {
+            Ev::Visit => "visit",
+            Ev::Build => "build",
+            Ev::Compare => "compare",
+        }
+    }
+}
+
+/// v1.12：型比較の共有（比較 cache）の切替。On は比較の結果と論理イベント列を覚え、同じ対の再照合では列を再生して計数する。
+/// 論理 trace・仕事量・cutoff は Off と同じになる（§18.1a）。interning は行わない。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TypeSharing {
+    #[default]
+    Off,
+    On,
+}
+
+/// v1.12：`check_program_with` の選択。trace は試験用の論理 trace（イベント名と論理 node index）を取る。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CheckOptions {
+    pub sharing: TypeSharing,
+    pub trace: bool,
+}
+
+/// `equal` の一回分の結果。鍵の型は保持し、Arc の address が再利用されないようにする。
+struct CachedEq {
+    _a: Ty,
+    _b: Ty,
+    result: Option<bool>,
+    events: Vec<Ev>,
+}
+
 type TcR<T> = Result<T, Diagnostic>;
 
 /// v1.5：`map` などの node（論理 node index）ごとの（要素の型 A、本体の型）。`hof::lower` が使う。
@@ -369,6 +403,14 @@ pub struct TypeChecker<'a> {
     pub hof: HofTypes,
     /// v1.10：総称の関数の呼び出しの型引数
     pub inst: Instances,
+    /// v1.12：比較 cache の切替、cache（鍵は両型の address）、`equal` の中で出した論理イベント（On のときだけ記録）
+    sharing: TypeSharing,
+    cache: HashMap<(usize, usize), CachedEq>,
+    rec: Option<Vec<Ev>>,
+    /// v1.12：cache から再生した回数（試験用。論理計数には入らない）
+    pub sharing_hits: u64,
+    /// v1.12：試験用の論理 trace（None なら記録しない）
+    pub trace: Option<Vec<(&'static str, usize)>>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -381,7 +423,18 @@ impl<'a> TypeChecker<'a> {
             env: vec![],
             hof: HashMap::new(),
             inst: HashMap::new(),
+            sharing: TypeSharing::Off,
+            cache: HashMap::new(),
+            rec: None,
+            sharing_hits: 0,
+            trace: None,
         }
+    }
+
+    /// v1.12：比較 cache の切替と論理 trace の有無を決める（`new` の直後に一度だけ呼ぶ）。
+    pub fn configure(&mut self, o: CheckOptions) {
+        self.sharing = o.sharing;
+        self.trace = o.trace.then(Vec::new);
     }
 
     /// v1.10：`pat` の型引数（名前が `vars` にあるもの）を `t` の対応する部分に束縛する一方向の照合。
@@ -446,6 +499,12 @@ impl<'a> TypeChecker<'a> {
             Ev::Build => self.work.build += 1,
             Ev::Compare => self.work.compare += 1,
         }
+        if let Some(r) = self.rec.as_mut() {
+            r.push(ev);
+        }
+        if let Some(t) = self.trace.as_mut() {
+            t.push((ev.name(), node.index));
+        }
         Ok(())
     }
 
@@ -460,11 +519,34 @@ impl<'a> TypeChecker<'a> {
         Ok(ty)
     }
 
-    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。
+    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。On のときは同じ対の既知の結果を、覚えた論理イベント列の再生で返す。
     fn equal(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<Option<bool>> {
         if a.is_error() || b.is_error() {
             return Ok(None);
         }
+        if self.sharing == TypeSharing::Off {
+            return self.equal_plain(a, b, node);
+        }
+        let key = (a.addr(), b.addr());
+        if let Some((res, evs)) = self.cache.get(&key).map(|c| (c.result, c.events.clone())) {
+            self.sharing_hits += 1;
+            for ev in evs {
+                self.event(ev, node)?;
+            }
+            return Ok(res);
+        }
+        let outer = self.rec.replace(vec![]);
+        let r = self.equal_plain(a, b, node);
+        let mine = std::mem::replace(&mut self.rec, outer).unwrap_or_default();
+        if let Some(o) = self.rec.as_mut() {
+            o.extend(mine.iter().copied());
+        }
+        let res = r?;
+        self.cache.insert(key, CachedEq { _a: a.clone(), _b: b.clone(), result: res, events: mine });
+        Ok(res)
+    }
+
+    fn equal_plain(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<Option<bool>> {
         let mut todo = vec![(a.clone(), b.clone())];
         while let Some((x, y)) = todo.pop() {
             self.event(Ev::Compare, node)?;
@@ -1256,9 +1338,17 @@ pub struct CheckOutcome {
     pub hof: HofTypes,
     /// v1.10：総称の関数の呼び出しの型引数（型検査まで進んだときだけ）
     pub inst: Instances,
+    /// v1.12：試験用の論理 trace（`CheckOptions::trace` のときだけ）と、比較 cache の再生回数
+    pub trace: Option<Vec<(&'static str, usize)>>,
+    pub sharing_hits: u64,
 }
 
 pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> CheckOutcome {
+    check_program_with(prog, eof, profile, &CheckOptions::default())
+}
+
+/// v1.12：`check_program` と同じ検査を、比較 cache の切替と論理 trace の有無を選んで行う。
+pub fn check_program_with(prog: &Program, eof: usize, profile: &StaticProfile, opts: &CheckOptions) -> CheckOutcome {
     let mut out = CheckOutcome::default();
     // name
     let name_diags = check_names(prog);
@@ -1276,15 +1366,20 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
 
     // typecheck + semantic-limits
     let mut tc = TypeChecker::new(&fn_map, profile);
+    tc.configure(*opts);
     for f in &fns {
         if let Err(cutoff) = tc.check_function(f) {
             out.work = Some(tc.work);
+            out.trace = tc.trace.take();
+            out.sharing_hits = tc.sharing_hits;
             out.diagnostics.append(&mut tc.diags);
             out.diagnostics.push(cutoff);
             return out;
         }
     }
     out.work = Some(tc.work);
+    out.trace = tc.trace.take();
+    out.sharing_hits = tc.sharing_hits;
     out.diagnostics.append(&mut tc.diags);
     out.hof = std::mem::take(&mut tc.hof);
     out.inst = std::mem::take(&mut tc.inst);

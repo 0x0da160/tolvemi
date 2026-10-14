@@ -114,6 +114,33 @@ class HarnessTest(unittest.TestCase):
         md = harness.summary_markdown(s, {"run_id": "x", "backend": "oracle", "rounds": 3, "repeats": 1, "tasks": 1, "skill_sha256": "0" * 64})
         self.assertIn("| lptl | 1 |", md)
 
+    def test_render_scores_the_ast(self):
+        ep = harness.episode(harness.OracleBackend(), self.task, "render", 3, 1)
+        self.assertTrue(ep["success_final"])
+        self.assertEqual(ep["rounds_used"], 1)
+        # 受理されても AST の違う program は不合格
+        ep = harness.episode(Scripted([fenced("tlvm", "fn zz(q: Int) -> Int = q\nentry zz")]), self.task, "render", 3, 1)
+        self.assertFalse(ep["success_final"])
+        self.assertTrue(ep["rounds"][0]["compile_ok"])
+        self.assertFalse(ep["rounds"][0]["ast_match"])
+
+    def test_gen_render_reports_generation_and_render_apart(self):
+        ep = harness.episode(harness.OracleBackend(), self.task, "gen-render", 3, 1)
+        self.assertTrue(ep["success_final"])
+        self.assertTrue(ep["generation_hidden_pass"])
+        self.assertEqual(ep["rounds_used"], 2)
+        s = harness.summarize([ep, harness.episode(harness.OracleBackend(), self.task, "render", 3, 1)], 3)
+        self.assertEqual(set(s), {"gen-render", "render"})
+        md = harness.summary_markdown(s, {"run_id": "x", "backend": "oracle", "rounds": 3, "repeats": 1, "tasks": 1, "skill_sha256": "0" * 64})
+        self.assertIn("| gen-render | 1 |", md)
+
+    def test_gen_render_stops_when_generation_does_not_parse(self):
+        ep = harness.episode(Scripted([fenced("tlvm", "fn zz(q: Int) -> Int = ) entry zz")]), self.task, "gen-render", 3, 1)
+        self.assertFalse(ep["success_final"])
+        self.assertIsNone(ep["api_error"])
+        self.assertEqual(ep["rounds_used"], 1)
+        self.assertEqual(len(ep["rounds"]), 1)
+
 
 class ClaudeCliTest(unittest.TestCase):
     def test_cli_backend_repairs_through_transcript(self):

@@ -113,11 +113,13 @@ impl Default for ExecutionProfile {
 pub struct HostPolicy {
     pub id: &'static str,
     pub max_eval_depth: usize,
+    /// 参照スロット（環境の束縛の同時数）の上限。超過は HostAborted("ref-slots")
+    pub max_ref_slots: usize,
     pub stack_bytes: usize,
 }
 
 impl Default for HostPolicy {
     fn default() -> Self {
-        HostPolicy { id: "tlvm-rust-host-v0", max_eval_depth: 400_000, stack_bytes: 1 << 30 }
+        HostPolicy { id: "tlvm-rust-host-v1", max_eval_depth: 400_000, max_ref_slots: 4_000_000, stack_bytes: 1 << 30 }
     }
 }

@@ -111,6 +111,17 @@ fn recovery() {
     assert_eq!(r.errors()[0].span, (22, 24));
 }
 
+#[test]
+fn recovery_admission() {
+    // 行 48：同期で飛ばす token（let・if など node を始める keyword を含む）には Admission を発行しない。
+    // 既に発行した Admission は recovery の後も数え続ける（budget を再設定しない）。
+    // parser は消費されるので、Admission の記録は診断の node_index（その時点の adm.index）で読む。
+    // 最初の診断は fn f の五つ目の index、二つ目は飛ばした token を数えずに fn g の九つ目の index になる。
+    let r = c("fn f(x: Int) -> Int = ) let a = 1 in if(true, a, 2) fn g(x: Int) -> Int = ) entry g");
+    assert_eq!(codes(&r), ["E-PARSE-EXPECTED-EXPR"; 2]);
+    assert_eq!(r.errors().iter().map(|d| d.node_index).collect::<Vec<_>>(), [5, 9]);
+}
+
 // ------------------------------------------------------------ 字句
 
 #[test]
@@ -391,6 +402,22 @@ fn builtins_and_sharing() {
     assert_eq!((steps, alloc), (2, 0));
     let (_, steps, _) = output(run_src(SUM_EVEN, &ilist(&[1, 2, -4, 7])));
     assert_eq!(steps, 94);
+}
+
+#[test]
+fn host_ref_slots() {
+    // 行 35：参照スロット（同時に生きる環境の束縛）の上限を超えると HostAborted で止まる。ResourceExhausted には統合しない
+    let prog = accepted("fn f(x: Int) -> Int = let a = x in let b = a in b entry f");
+    let tv = match decode_input(&prog.input_type, br#"{"tag":"int","value":"5"}"#, &InputProfile::default()) {
+        DecodeResult::Decoded(tv) => tv,
+        other => panic!("decode failed: {other:?}"),
+    };
+    let go = |n: usize| run(&prog, &tv, &ExecutionProfile::default(), &HostPolicy { max_ref_slots: n, ..HostPolicy::default() });
+    // 二つ目の let は、環境の束縛が一つ（または二つ）ある状態で一つ増える。上限 0 と 1 では必ず超える
+    assert_eq!(go(0).unwrap(), RunResult::HostAborted("ref-slots".into()));
+    assert_eq!(go(1).unwrap(), RunResult::HostAborted("ref-slots".into()));
+    // 上限 3 なら、引数を環境に数えても数えなくても足りる
+    assert!(matches!(go(3).unwrap(), RunResult::Completed { .. }));
 }
 
 #[test]

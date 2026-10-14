@@ -243,7 +243,7 @@ registry が決まったら差し替える前提です。
   | `E-PKG-MANIFEST`、`E-PKG-PATH`、`E-PKG-NOT-FOUND`、`E-PKG-NAME`、`E-PKG-VERSION`、`E-PKG-UNKNOWN`（v1.16） | `replace_expression`、`replace_identifier`（名前） | `tlvm.json` の形／依存の相対パス／宣言した依存のディレクトリ／依存の名前と同じ name／固定した版と同じ version／宣言した依存の名前 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
-- host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
+- host-policy は `tlvm-rust-host-v1`（評価の入れ子深さ上限 400000、参照スロット上限 4000000（環境の束縛の同時数）、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です（参照スロットは `ref-slots`）。
   v1.7 の `rec fn` の止まらない再帰は、この深さ上限（`HostAborted` `eval-depth`）か step・割当の上限
   （`ResourceExhausted`）で終わります（スタックあふれにはならない）。
 - `tlvm check` の結果 JSON に `terminates`（v1.7）を足しました。`rec fn` がなければ true、あれば false です

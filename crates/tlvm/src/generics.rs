@@ -682,7 +682,7 @@ pub fn check(px: &Program, eof: usize, profile: &StaticProfile) -> (CheckOutcome
             let mut diagnostics = o.diagnostics;
             diagnostics.extend(o2.diagnostics.into_iter().filter(|d| d.severity == "error"));
             let typed = if diagnostics.iter().any(|d| d.severity == "error") { None } else { o2.typed };
-            let out = CheckOutcome { diagnostics, typed, work: o2.work, hof: o2.hof, inst: o2.inst };
+            let out = CheckOutcome { diagnostics, typed, work: o2.work, hof: o2.hof, inst: o2.inst, ..Default::default() };
             (out, pm)
         }
     }

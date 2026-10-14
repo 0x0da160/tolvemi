@@ -609,6 +609,11 @@ struct TyNode {
 pub struct Ty(Arc<TyNode>);
 
 impl Ty {
+    /// 比較 cache の鍵に使う共有 node の address（同じ Arc を指す型だけが同じ値になる）。
+    pub fn addr(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+
     pub fn new(tag: TyTag, args: Vec<Ty>) -> Ty {
         let depth = if tag == TyTag::Error { 0 } else { 1 + args.iter().map(|a| a.depth()).max().unwrap_or(0) };
         let params = args.iter().any(|a| a.has_params());

@@ -67,6 +67,7 @@ pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: 
         integer_bits: p.integer_bits,
         allocated_nodes: p.allocated_nodes.min(u64::MAX - 1),
         max_depth: (host.max_eval_depth as u64).min(u64::MAX - 1),
+        max_slots: (host.max_ref_slots as u64).min(u64::MAX - 1),
     };
     if input.text.len() >= 0x1000_0000 {
         return Ok(RunResult::InternalFault("input-too-long-for-verified-decoder".into()));
@@ -83,6 +84,7 @@ pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: 
             RunResult::ResourceExhausted { kind, observed, limit }
         }
         InputRun::Ran(Err(Stop::HostDepth), _, _) => RunResult::HostAborted("eval-depth".into()),
+        InputRun::Ran(Err(Stop::HostSlots), _, _) => RunResult::HostAborted("ref-slots".into()),
         // 型付きプログラムでは起きないことを証明済み（pipeline::run_input_json）
         InputRun::Ran(Err(Stop::Fault), _, _) => RunResult::InternalFault("stuck".into()),
         InputRun::Ran(Ok(out), steps, alloc) => {
