@@ -282,14 +282,12 @@ fn ast_transport() {
     for bad in ["x\\n", "x\\r", "x\\r\\n", "x\\t", " x", "\\u00e9", "x\\u2028"] {
         assert_eq!(acodes(&ident(bad)), ["E-AST-IDENTIFIER"], "{bad}");
     }
-    // §4.2：文脈キーワードは変数・引数の名前に使える。予約語 19 語は使えない
+    // §4.2・§19.2：AST の変数・引数の名前も字句表の 68 語をすべて除く（文脈キーワードも使えない）
     let named = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"identity","params":[{"name":"%s","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"%s"}},{"tag":"entry","name":"identity"}]}"#;
-    for name in ["length", "some", "uncons", "map", "dict_get"] {
-        assert_eq!(acodes(&named.replace("%s", name)), Vec::<&str>::new(), "{name}");
-    }
-    for name in ["if", "fold", "true", "match_option"] {
+    for name in ["length", "some", "uncons", "map", "entry", "if", "fold", "true", "match_option"] {
         assert_eq!(acodes(&named.replace("%s", name)), ["E-AST-IDENTIFIER"], "{name}");
     }
+    assert!(acodes(&named.replace("%s", "xs")).is_empty());
     // 組込みでも利用者関数でもない文脈キーワードは callee に使えない（専用構文）
     let some_call = IDENT.replace(r#"{"tag":"var","name":"%s"}"#, r#"{"tag":"call","callee":"some","args":[{"tag":"var","name":"x"}],"type_args":[]}"#);
     assert_eq!(acodes(&some_call), ["E-AST-IDENTIFIER"]);

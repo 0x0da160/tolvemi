@@ -23,11 +23,12 @@
   "$defs": {
     "identifier": {
       "type": "string",
-      "description": "変数・引数・束縛・field の名前。予約語 19 語を除く（§4.2）。関数名・entry 名・callee は keyword も除く。",
+      "description": "変数・引数・束縛・関数名・entry 名・組込みでない callee・型引数の名前。字句表の 68 語（予約語 19 語と文脈キーワード 49 語）をすべて除く（§4.2、AST の規則）。",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])",
       "not": {
         "enum": [
           "fn",
+          "entry",
           "Int",
           "Bool",
           "Unit",
@@ -37,90 +38,65 @@
           "true",
           "false",
           "unit",
+          "list",
+          "some",
+          "none",
+          "pair",
           "let",
           "in",
           "if",
           "fold",
+          "add",
+          "sub",
+          "mul",
+          "neg",
+          "lt",
+          "le",
+          "eq",
+          "mod",
+          "fst",
+          "snd",
+          "cons",
+          "concat",
+          "reverse",
+          "length",
+          "uncons",
           "match_option",
+          "min",
+          "max",
+          "range",
+          "contains",
+          "sort",
           "Char",
           "String",
+          "code",
+          "char",
+          "to_string",
+          "parse_int",
           "Result",
-          "match_result"
+          "ok",
+          "err",
+          "match_result",
+          "map",
+          "filter",
+          "any",
+          "all",
+          "find",
+          "sort_by",
+          "loop",
+          "div",
+          "dict",
+          "dict_get",
+          "dict_put",
+          "dict_remove",
+          "dict_has",
+          "dict_size",
+          "dict_keys",
+          "dict_values",
+          "dict_entries",
+          "dict_from"
         ]
       }
-    },
-    "keyword": {
-      "description": "字句表の 68 語（予約語 19 語と文脈キーワード 49 語）。関数名・entry 名・組込みでない callee・型引数の名前に使えない（§4.2）。",
-      "enum": [
-        "fn",
-        "entry",
-        "Int",
-        "Bool",
-        "Unit",
-        "List",
-        "Option",
-        "Pair",
-        "true",
-        "false",
-        "unit",
-        "list",
-        "some",
-        "none",
-        "pair",
-        "let",
-        "in",
-        "if",
-        "fold",
-        "add",
-        "sub",
-        "mul",
-        "neg",
-        "lt",
-        "le",
-        "eq",
-        "mod",
-        "fst",
-        "snd",
-        "cons",
-        "concat",
-        "reverse",
-        "length",
-        "uncons",
-        "match_option",
-        "min",
-        "max",
-        "range",
-        "contains",
-        "sort",
-        "Char",
-        "String",
-        "code",
-        "char",
-        "to_string",
-        "parse_int",
-        "Result",
-        "ok",
-        "err",
-        "match_result",
-        "map",
-        "filter",
-        "any",
-        "all",
-        "find",
-        "sort_by",
-        "loop",
-        "div",
-        "dict",
-        "dict_get",
-        "dict_put",
-        "dict_remove",
-        "dict_has",
-        "dict_size",
-        "dict_keys",
-        "dict_values",
-        "dict_entries",
-        "dict_from"
-      ]
     },
     "type": {
       "oneOf": [
@@ -295,10 +271,7 @@
             },
             "name": {
               "$ref": "#/$defs/identifier",
-              "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])",
-              "not": {
-                "$ref": "#/$defs/keyword"
-              }
+              "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])"
             }
           },
           "required": [
@@ -335,10 +308,7 @@
               "const": "fn"
             },
             "name": {
-              "$ref": "#/$defs/identifier",
-              "not": {
-                "$ref": "#/$defs/keyword"
-              }
+              "$ref": "#/$defs/identifier"
             },
             "params": {
               "type": "array",
@@ -374,10 +344,7 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/$defs/identifier",
-                    "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])",
-                    "not": {
-                      "$ref": "#/$defs/keyword"
-                    }
+                    "pattern": "^[A-Z][A-Za-z0-9_]*(?![\\s\\S])"
                   }
                 }
               }
@@ -392,10 +359,7 @@
               "const": "entry"
             },
             "name": {
-              "$ref": "#/$defs/identifier",
-              "not": {
-                "$ref": "#/$defs/keyword"
-              }
+              "$ref": "#/$defs/identifier"
             }
           },
           "required": [
@@ -624,10 +588,7 @@
                   ]
                 },
                 {
-                  "$ref": "#/$defs/identifier",
-                  "not": {
-                    "$ref": "#/$defs/keyword"
-                  }
+                  "$ref": "#/$defs/identifier"
                 }
               ]
             },
