@@ -1,0 +1,5 @@
+# cargo test（debug）では、深い入力の構文解析が既定の 2 MiB のテストスレッドに収まらないことがある（tests/hof.rs）。
+# テストスレッドの既定のスタックを 16 MiB にして、debug の cargo test も全件を通す。
+# この設定は release の cargo test にも効くが、release は 2 MiB で足りるため結果は変わらない。
+[env]
+RUST_MIN_STACK = "16777216"
