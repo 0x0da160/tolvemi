@@ -432,3 +432,73 @@ fn long_lists_and_deep_values() {
     let (out, _, _) = output(run_src_with(src, &ilist(&xs), &ExecutionProfile::default()));
     assert_eq!(out, r#"{"tag":"bool","value":true}"#);
 }
+
+/// §20.1 の行 18・20・24・25・26・29・34・43・61・62：AST の名前、整数、文字列、キー、診断上限の境界
+#[test]
+fn rows_20_1_boundaries() {
+    // 行 18：識別子末尾の LF・CR・CRLF・tab は、fn・entry・param・let・fold binder・callee のどこでも拒否する
+    let fn_name = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"%s","params":[],"return_type":{"tag":"int"},"body":{"tag":"int","value":"0"}},{"tag":"entry","name":"x"}]}"#;
+    let entry_name = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"int","value":"0"}},{"tag":"entry","name":"%s"}]}"#;
+    let param = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[{"name":"%s","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"int","value":"0"}},{"tag":"entry","name":"x"}]}"#;
+    let let_name = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"let","name":"%s","value":{"tag":"int","value":"0"},"body":{"tag":"int","value":"0"}}},{"tag":"entry","name":"x"}]}"#;
+    let fold_acc = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"fold","list":{"tag":"list","element_type":{"tag":"int"},"items":[]},"init":{"tag":"int","value":"0"},"acc":"%s","item":"y","body":{"tag":"int","value":"0"}}},{"tag":"entry","name":"x"}]}"#;
+    let callee = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"call","callee":"%s","args":[],"type_args":[]}},{"tag":"entry","name":"x"}]}"#;
+    for suffix in ["\\n", "\\r", "\\r\\n", "\\t"] {
+        for template in [fn_name, entry_name, param, let_name, fold_acc, callee] {
+            assert_eq!(acodes(&template.replace("%s", &format!("x{suffix}"))), ["E-AST-IDENTIFIER"], "{suffix}");
+        }
+    }
+
+    // 行 20：int の value に前後の空白・制御文字・U+2028・U+2029 があれば E-AST-INTEGER
+    let int_body = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"int","value":"%s"}},{"tag":"entry","name":"x"}]}"#;
+    for value in [" 0", "0 ", "0\\n", "0\\r", "0\\t", "0\\u2028", "0\\u2029", "\\u00a00"] {
+        assert_eq!(acodes(&int_body.replace("%s", value)), ["E-AST-INTEGER"], "{value}");
+    }
+
+    // 行 24：AST の fold で acc と item が同名なら binder 重複（共通の name phase で拒否）
+    let xs_fold = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[{"name":"xs","type":{"tag":"list","element":{"tag":"int"}}}],"return_type":{"tag":"int"},"body":{"tag":"fold","list":{"tag":"var","name":"xs"},"init":{"tag":"int","value":"0"},"acc":"a","item":"%s","body":{"tag":"var","name":"a"}}},{"tag":"entry","name":"x"}]}"#;
+    assert_eq!(acodes(&xs_fold.replace("%s", "a")), ["E-NAME-DUPLICATE-BINDER"]);
+    assert!(acodes(&xs_fold.replace("%s", "b")).is_empty());
+
+    // 行 25：AST の callee "uncons" は組込みとして個数を検査する
+    let uncons2 = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[{"name":"v","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"call","callee":"uncons","args":[{"tag":"var","name":"v"},{"tag":"var","name":"v"}],"type_args":[]}},{"tag":"entry","name":"x"}]}"#;
+    let codes_25 = acodes(uncons2);
+    assert!(codes_25.contains(&"E-ARITY-BUILTIN") && codes_25.iter().all(|c| !c.starts_with("E-AST-")), "{codes_25:?}");
+
+    // 行 26：AST の call に余分な実引数があっても transport は通り、typecheck で E-ARITY-USER になる
+    let extra = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"f","params":[{"name":"x","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"x"}},{"tag":"fn","name":"g","params":[],"return_type":{"tag":"int"},"body":{"tag":"call","callee":"f","args":[{"tag":"int","value":"1"},{"tag":"int","value":"2"}],"type_args":[]}},{"tag":"entry","name":"g"}]}"#;
+    let codes_26 = acodes(extra);
+    assert!(codes_26.contains(&"E-ARITY-USER") && codes_26.iter().all(|c| !c.starts_with("E-AST-")), "{codes_26:?}");
+
+    // 行 29：エスケープだけ違う同じ key は decode 後に同じ key なので重複として拒否する
+    assert_eq!(acodes(r#"{"codec":"ast_codec_v1","codec":"ast_codec_v1","declarations":[]}"#), ["E-AST-DUPLICATE-KEY"]);
+    assert_eq!(acodes(r#"{"codec":"ast_codec_v1","declarations":[],"declarations":[]}"#), ["E-AST-DUPLICATE-KEY"]);
+
+    // 行 34：error 候補 33 件は、通常 31 件と E-DIAG-LIMIT に切り詰める
+    let body33 = vec!["fst(unit)"; 33].join(", ");
+    let r = c(&format!("fn f(x: Unit) -> List<Int> = list<Int>({body33}) entry f"));
+    assert_eq!(r.errors().len(), 32);
+    assert_eq!(r.errors()[31].code, "E-DIAG-LIMIT");
+
+    // 行 43：必須キーの複数欠落は表の key 順の最初、余分キーの複数は decoded scalar の辞書順の最初を選ぶ
+    let missing = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","return_type":{"tag":"int"}},{"tag":"entry","name":"x"}]}"#;
+    match ast(missing) {
+        AstCompile::AstInvalid(d) => assert_eq!((d[0].code, d[0].expected.as_deref()), ("E-AST-MISSING-FIELD", Some("params"))),
+        other => panic!("{other:?}"),
+    }
+    let unknown = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"int"},"body":{"tag":"int","value":"0"},"zz":1,"aa":2},{"tag":"entry","name":"x"}]}"#;
+    match ast(unknown) {
+        AstCompile::AstInvalid(d) => assert_eq!((d[0].code, d[0].actual.as_deref()), ("E-AST-UNKNOWN-FIELD", Some("aa"))),
+        other => panic!("{other:?}"),
+    }
+
+    // 行 61・62：不対 surrogate は重複 key より先に E-AST-STRING-SCALAR。正しい surrogate escape の対は受理する
+    let lone = r#"{"codec":"ast_codec_v1","codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[],"return_type":{"tag":"string"},"body":{"tag":"string","value":"%s"}},{"tag":"entry","name":"x"}]}"#;
+    for value in ["\\ud800", "\\udc00"] {
+        assert_eq!(acodes(&lone.replace("%s", value)), ["E-AST-STRING-SCALAR"], "{value}");
+    }
+    let pair = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"x","params":[{"name":"u","type":{"tag":"unit"}}],"return_type":{"tag":"string"},"body":{"tag":"string","value":"%s"}},{"tag":"entry","name":"x"}]}"#;
+    for value in ["\\ud83d\\ude00", "😀"] {
+        assert!(acodes(&pair.replace("%s", value)).is_empty(), "{value}");
+    }
+}
