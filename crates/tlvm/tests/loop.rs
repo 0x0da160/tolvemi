@@ -433,19 +433,19 @@ fn lambda_repair_hints() {
 
 #[test]
 fn ast_codec_tag() {
-    let src = "fn f(loop: Int) -> Option<Int> = loop(loop, 10, |max| if(lt(max, 5), some(add(max, 1)), none<Int>())) entry f";
+    let src = "fn f(n: Int) -> Option<Int> = loop(n, 10, |m| if(lt(m, 5), some(add(m, 1)), none<Int>())) entry f";
     with_file(src, "tlvm", |p| {
         let (code, ast, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
-        // tag は loop、field は init・max・binder・body。文脈キーワードの変数名は付け替える
-        assert!(ast.contains(r#"{"tag":"loop","init":{"tag":"var","name":"loop_kw"},"max":{"tag":"int","value":"10"},"binder":"max_kw","body":"#), "{ast}");
+        // tag は loop、field は init・max・binder・body
+        assert!(ast.contains(r#"{"tag":"loop","init":{"tag":"var","name":"n"},"max":{"tag":"int","value":"10"},"binder":"m","body":"#), "{ast}");
         with_file(ast.trim_end(), "json", |j| {
             let (code, out, err) = tlvm(&["run", j, "2", "--plain"]);
             assert_eq!(code, 0, "{err}");
             assert_eq!(out.trim_end(), "5");
             let (code, fmt, _) = tlvm(&["fmt", j]);
             assert_eq!(code, 0);
-            assert!(fmt.contains("loop(loop_kw, 10, |max_kw| "), "{fmt}");
+            assert!(fmt.contains("loop(n, 10, |m| "), "{fmt}");
         });
     });
     let ast = |body: &str| {

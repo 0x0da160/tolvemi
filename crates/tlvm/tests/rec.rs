@@ -332,7 +332,7 @@ fn ast_round_trip() {
         CompileResult::Accepted { program, .. } => {
             assert!(!program.terminates());
             assert!(program.verified.is_some());
-            assert_eq!(tlvm::formatter::encode_ast(&program.program), json.trim_end());
+            assert_eq!(tlvm::formatter::encode_ast(&program.program).unwrap(), json.trim_end());
             assert_eq!(format_program(&program.program), EVEN_ODD);
         }
         r => panic!("{:?}", r.errors()),

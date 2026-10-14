@@ -313,12 +313,12 @@ fn lambda_repair_hints() {
 
 #[test]
 fn ast_codec_tags() {
-    let src = "fn f(any: List<Int>) -> Pair<List<Int>, Option<Int>> = pair(sort_by(any, |all| neg(all)), find(any, |x| lt(1, x))) entry f";
+    let src = "fn f(xs: List<Int>) -> Pair<List<Int>, Option<Int>> = pair(sort_by(xs, |y| neg(y)), find(xs, |x| lt(1, x))) entry f";
     with_file(src, "tlvm", |p| {
         let (code, ast, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
-        // 6 語の tag。文脈キーワードの変数名は AST transport の識別子に付け替える
-        assert!(ast.contains(r#"{"tag":"sort_by","list":{"tag":"var","name":"any_kw"},"binder":"all_kw","body":"#), "{ast}");
+        // 6 語の tag（字句表の語でない名前を使う）
+        assert!(ast.contains(r#"{"tag":"sort_by","list":{"tag":"var","name":"xs"},"binder":"y","body":"#), "{ast}");
         assert!(ast.contains(r#""tag":"find""#), "{ast}");
         with_file(ast.trim_end(), "json", |j| {
             let (code, out, err) = tlvm(&["run", j, "[3, 1, 2]", "--plain"]);
@@ -327,7 +327,7 @@ fn ast_codec_tags() {
             // AST から整形したソースも同じ
             let (code, fmt, _) = tlvm(&["fmt", j]);
             assert_eq!(code, 0);
-            assert!(fmt.contains("sort_by(any_kw, |all_kw| neg(all_kw))"), "{fmt}");
+            assert!(fmt.contains("sort_by(xs, |y| neg(y))"), "{fmt}");
         });
     });
     let ast = |body: &str| {

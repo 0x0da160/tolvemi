@@ -253,12 +253,18 @@ entry solve
     assert!(c.contains(&"E-PARSE-EXPECTED-IDENT") && !c.contains(&"E-INTERNAL-VERIFIED-MISMATCH"), "{c:?}");
     let c = codes("fn f(x: Int) -> Int = dict_lookup(x)\nentry f\n");
     assert_eq!(c, ["E-NAME-UNKNOWN-FUNCTION"]);
-    // ast は予約語の変数名を付け替える
-    let renamed = "fn solve(dict: Int) -> Int = dict_size(dict_put(dict<Int, Int>(), dict, 1))\nentry solve\n";
+    // ast は字句表の語を変数名に使ったプログラムを付け替えずに拒否する（§4.2）
+    let keyword_name = "fn solve(dict: Int) -> Int = dict_size(dict_put(dict<Int, Int>(), dict, 1))\nentry solve\n";
+    with_file(keyword_name, "tlvm", |p| {
+        let (code, _, err) = tlvm(&["ast", p]);
+        assert_eq!(code, 1);
+        assert!(err.contains("E-AST-IDENTIFIER"), "{err}");
+    });
+    let renamed = "fn solve(d: Int) -> Int = dict_size(dict_put(dict<Int, Int>(), d, 1))\nentry solve\n";
     with_file(renamed, "tlvm", |p| {
         let (code, out, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
-        assert!(out.contains("\"name\":\"dict_kw\"") && out.contains("\"callee\":\"dict_put\""), "{out}");
+        assert!(out.contains("\"name\":\"d\"") && out.contains("\"callee\":\"dict_put\""), "{out}");
     });
 }
 

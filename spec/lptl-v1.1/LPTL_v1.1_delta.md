@@ -92,7 +92,7 @@ length uncons min max range contains sort` と宣言のキーワード `entry`�
   キーワードの token を出し、式の位置で直後が `(` でも `<` でもない文脈キーワードを変数として読む。名前の位置
   （束縛・引数）は IDENT か文脈キーワードを受け取る。parser の健全性・完全性と formatter の往復の証明はこの規則で
   通っている。`tlvm ast` だけは AST transport の識別子が v1 のままなので、該当する名前をプログラム中に現れない名前
-  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。
+  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。ただし 2026-10-14 に改めた。付け替えはやめ、字句表の語を変数名に使ったプログラムは `tlvm ast` が `E-AST-IDENTIFIER` で拒否する。
 
 動機：状態の多い 24 問（§9）で、Haiku の初回失敗 5 件のうち 2 件が `length` と `pair` を名前に使ったものだった。
 

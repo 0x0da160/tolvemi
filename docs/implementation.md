@@ -102,7 +102,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
 | `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_input` で読み、`decode_input_e` で値にして `run_checked` に渡す） |
 | `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
-| `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
+| `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの一覧（49 語）と、`tlvm ast`・`encode_ast` が字句表の語を変数名に使ったプログラムを `E-AST-IDENTIFIER` で拒否する検査（検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
 | `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形。未検証の front-end |

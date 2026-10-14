@@ -109,13 +109,20 @@ fn fmt_round_trip() {
             assert_eq!(code, 0);
             assert_eq!(again, out);
         });
-        let (code, ast, _) = tlvm(&["ast", p]);
-        assert_eq!(code, 0);
-        assert!(ast.contains(r#""div""#), "{ast}");
-        match compile_ast(ast.trim_end().as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
-            AstCompile::Result(r) => assert!(r.errors().is_empty(), "{:?}", r.errors()),
-            _ => panic!("transport failure"),
-        }
+        // 字句表の語を変数名に使った AST は拒否する（§4.2）。組込みの div の呼出しは、変数名を変えれば受理される
+        let (code, ast, err) = tlvm(&["ast", p]);
+        assert_eq!(code, 1);
+        assert!(ast.is_empty() && err.contains("E-AST-IDENTIFIER"), "{err}");
+        let renamed = "fn f(d: Pair<Int, Int>) -> Option<Int> = div(fst(d), snd(d))\nentry f\n";
+        with_file(renamed, |q| {
+            let (code, ast, _) = tlvm(&["ast", q]);
+            assert_eq!(code, 0);
+            assert!(ast.contains(r#""callee":"div""#), "{ast}");
+            match compile_ast(ast.trim_end().as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+                AstCompile::Result(r) => assert!(r.errors().is_empty(), "{:?}", r.errors()),
+                _ => panic!("transport failure"),
+            }
+        });
     });
 }
 

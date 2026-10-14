@@ -284,7 +284,7 @@ fn ast_codec() {
         Parsed::Program(p) => p,
         _ => panic!("parse failed"),
     };
-    let ast = encode_ast(&p);
+    let ast = encode_ast(&p).unwrap();
     assert!(ast.contains(r#"{"tag":"string"}"#), "{ast}");
     assert!(ast.contains(r#"{"tag":"char","value":"10"}"#), "{ast}");
     assert!(ast.contains(r#"{"tag":"string","value":"é\"x"}"#), "{ast}");

@@ -271,7 +271,7 @@ fn ident(name: &str) -> String {
 #[test]
 fn ast_transport() {
     match ast(&ident("x")) {
-        AstCompile::Result(CompileResult::Accepted { program, .. }) => assert_eq!(encode_ast(&program.program), ident("x")),
+        AstCompile::Result(CompileResult::Accepted { program, .. }) => assert_eq!(encode_ast(&program.program).unwrap(), ident("x")),
         other => panic!("{other:?}"),
     }
     assert_eq!(acodes(r#"{"codec":"ast_codec_v1","codec":"ast_codec_v1","declarations":[]}"#), ["E-AST-DUPLICATE-KEY"]);
@@ -320,14 +320,14 @@ fn ast_transport() {
 fn surface_ast_roundtrip() {
     for src in [SUM_EVEN, POSITIVE] {
         let p = accepted(src);
-        let enc = encode_ast(&p.program);
+        let enc = encode_ast(&p.program).unwrap();
         let p2 = match ast(&enc) {
             AstCompile::Result(CompileResult::Accepted { program, .. }) => program,
             other => panic!("{other:?}"),
         };
         assert_eq!(p2.program, p.program);
         let p3 = accepted(&format_program(&p2.program));
-        assert_eq!(encode_ast(&p3.program), enc);
+        assert_eq!(encode_ast(&p3.program).unwrap(), enc);
     }
 }
 

@@ -136,6 +136,20 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
     })
 }
 
+/// AST の JSON を標準出力に書く。字句表の語を変数名に使っていれば、その診断を出して終了コードは 1。
+fn ast_out(p: &Program, file: &str) -> Result<ExitCode, String> {
+    match encode_ast(p) {
+        Ok(json) => {
+            println!("{json}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(ds) => {
+            emit_in(&ds, file, &read(file)?);
+            Ok(ExitCode::from(1))
+        }
+    }
+}
+
 /// v1.11：`tlvm ast` 用。import があればまとめたプログラムを、なければ `parse_file` の結果を返す。
 fn parse_merged_file(path: &str, as_ast: bool) -> Result<Option<Program>, String> {
     use tlvm::imports::{parse_merged, resolve, FsLoader, Resolved};
@@ -155,6 +169,11 @@ fn parse_merged_file(path: &str, as_ast: bool) -> Result<Option<Program>, String
                         emit_files(&m.attribute(d), &m.files);
                         return Ok(None);
                     }
+                }
+                // 字句表の語を変数名に使った箇所も、ファイルに戻して出す（encode_ast と同じ拒否）
+                if let Some(d) = tlvm::softnames::keyword_name_error(&p) {
+                    emit_files(&m.attribute(vec![d]), &m.files);
+                    return Ok(None);
                 }
                 Ok(Some(p))
             }
@@ -534,22 +553,17 @@ fn real_main() -> Result<ExitCode, String> {
         },
         // v1.11：import があれば、まとめたプログラムを出す
         ["ast", file] => match parse_merged_file(file, as_ast)? {
-            // v1.1：AST transport にレコード（v1.4：直和型と match）の形と文脈キーワードの変数名はないので、
-            // 展開・付け替えしたものを出す（v1.5 の map など・v1.6 の loop は AST transport の tag があるのでそのまま出す）
+            // v1.1：AST transport にレコード（v1.4：直和型と match）の形はないので、展開・lower したものを出す
+            // （v1.5 の map など・v1.6 の loop は AST transport の tag があるのでそのまま出す）。字句表の語を変数名に
+            // 使ったプログラムは付け替えず、encode_ast が E-AST-IDENTIFIER で拒否する（§4.2）
             Some(p) if needs_expansion(&p) => match expand(&p) {
-                Ok(px) => {
-                    println!("{}", encode_ast(&tlvm::softnames::rename(&lower(&px))));
-                    Ok(ExitCode::SUCCESS)
-                }
+                Ok(px) => ast_out(&lower(&px), file),
                 Err(d) => {
                     emit_in(&d, file, &read(file)?);
                     Ok(ExitCode::from(1))
                 }
             },
-            Some(p) => {
-                println!("{}", encode_ast(&tlvm::softnames::rename(&p)));
-                Ok(ExitCode::SUCCESS)
-            }
+            Some(p) => ast_out(&p, file),
             None => Ok(ExitCode::from(1)),
         },
         ["run", file, input] => run_cmd(file, input, as_ast, flags.contains(&"--plain"), flags.contains(&"--stats")),

@@ -1,5 +1,6 @@
 //! 正準フォーマッタ（設計書 §4.3）と ast_codec_v1 の encoder（§19.4）。
 
+use crate::diagnostics::Diagnostic;
 use crate::lexer::quote;
 use crate::syntax::*;
 
@@ -369,8 +370,12 @@ fn expr_json(e: &Expr, out: &mut String) {
 }
 
 /// 正準 AST JSON（UTF-8、最小空白、表の key 順、末尾改行なし）。名前は ASCII なので escape 不要
-/// （文字列リテラルだけは `json_string` で escape する）。
-pub fn encode_ast(p: &Program) -> String {
+/// （文字列リテラルだけは `json_string` で escape する）。字句表の語を名前に使ったプログラムは付け替えず、
+/// `E-AST-IDENTIFIER` で拒否する（§4.2）。
+pub fn encode_ast(p: &Program) -> Result<String, Vec<Diagnostic>> {
+    if let Some(d) = crate::softnames::keyword_name_error(p) {
+        return Err(vec![d]);
+    }
     let mut out = String::from("{\"codec\":\"ast_codec_v1\",\"declarations\":[");
     for (i, d) in p.declarations.iter().enumerate() {
         if i > 0 {
@@ -407,5 +412,5 @@ pub fn encode_ast(p: &Program) -> String {
         }
     }
     out.push_str("]}");
-    out
+    Ok(out)
 }
