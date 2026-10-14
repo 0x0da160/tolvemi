@@ -1275,15 +1275,46 @@ AST APIでは第19.3節のtransport検査を全て通過した後、物理AST全
 
 G0では完成ASTとの一致、不完全構文、破棄された親、同期で飛ばすtoken、guard同時超過をfixture化する。この論理契約の記述はparser実装・証明完了の証跡ではない。
 
-### 18.1c v1.1〜v1.16 の追加分の計数（未了）
+### 18.1c v1.1〜v1.16 の追加分の計数
 
-§18.1a の論理イベントと §18.3 の参照イベントは、v1 の核（v1.0 の組込みと構文）に対して定めている。次の追加分には、まだ規則を定めていない。
+§18.1a の論理イベント（VisitExpr、BuildType、CompareType）と Head・Equal の定義は、追加分にもそのまま適用する。追加分の計数は次の規則による。
 
-- 型検査：レコードの展開後の pair と `ok`／`err` の入れ子、直和型の構築と `match` の書換え後の型、`Char`、`String`、`Result`、`Dict`、`match_option`、`match_result`、`loop`、ラムダを取る組込み（`map` など）、`uncons`、`div`、`min`、`max`、`range`、`contains`、`sort`、`dict_*`、総称の単相化。
-- 実行：上の組込みと書換えの割当ノード数、整数の bit 数、評価遷移数。
-- 上の数値は、接着部分の書換え後のプログラムに対して trace fixture で固定する。その固定まで、これらに数値を与えない。
+1. **計数の木（規則 R）。** 型検査の論理仕事量は、型検査器が読む木で数える。この木は、名前の検査、型引数の解決、再帰する直和型の補助関数の追加、直和型とレコード型の展開を済ませたものであり、型検査の後の書換え（`map`・`filter`・`loop`・`dict_*` などの書換えと、`dict` 型の変換）を含まない。展開で生じた節点（`ok`・`err` の入れ子、`pair`、`Field`）は、それぞれ VisitExpr を一つ数える。
+2. **総称の関数（規則 G）。** 第一パスは全関数を宣言の形で一度検査する。総称の関数の本体は型引数を不透明な型として検査し、その中の総称の呼出しの型引数（型引数の数だけ）と戻り型の BuildType を数える。使われない総称の関数も数える。第二パスは、使われた型引数の組ごとに具体化した複製の本体だけを数え、非総称の関数は数え直さない。報告値は両パスの和であり、上限は、その和に対して各イベントの直前に検査する。
+3. **`loop` の結果型（規則 L）。** `loop(init, max, |s| e)` は init と max を検査し、max と Int を Equal で比べる（偽なら `E-TYPE-LOOP-MAX`）。次に e を検査し、e と Option<S> を Equal で比べる（偽なら `E-TYPE-LOOP-BODY`）。結果型 Option<S> の BuildType は、init・max・e がすべて正常なときだけ、この比較の後に一つ数える。
+4. **印つきの写し（規則 T、v1.15）。** 受理されたときは印なしの写しの仕事量を、拒否されたときは印つきの写しの仕事量を報告する。
 
-v1.1〜v1.16 の追加分を含めた計数は、G0 の未達項目である。
+参照検査器の trace fixture（`crates/tlvm/tests/counting.rs`）で固定した値は次のとおり。各 program の entry は `f` である。
+
+| 代表 program | 結果 | 合計 |
+|---|---|---:|
+| `fn f(x: Int) -> Int = x` | 受理 | 2 |
+| `fn f(x: List<Int>) -> List<Int> = map(x, \|y\| add(y, 1))` | 受理 | 13 |
+| `fn g<T>(x: T) -> T = x` と `fn f(x: Int) -> Int = x`（未使用の総称） | 受理 | 4 |
+| `fn f(x: Int) -> Option<Int> = loop(x, true, \|s\| none<Int>())` | 拒否（E-TYPE-LOOP-MAX） | 9 |
+| `type S = Circle(Int) \| Sq(Bool)` と `fn f(x: Int) -> S = Sq(true)` | 受理 | 8 |
+| `type P = { x: Int, y: Bool }` と `fn f(p: Int) -> P = P { x: p, y: true }` | 受理 | 8 |
+| `fn f(x: Int) -> Option<Int> = dict_get(dict_put(dict<Int, Int>(), 1, x), 1)` | 受理 | 17 |
+| `fn f(x: Option<Int>) -> Int = match_option(x, 0, \|y\| y)` | 受理 | 8 |
+| `fn f(x: List<Int>) -> Option<Pair<Int, List<Int>>> = uncons(x)` | 受理 | 10 |
+| `fn id<T>(x: T) -> T = x` と `fn f(x: Int) -> Int = id(x)`（第一パス 8、複製 2） | 受理 | 10 |
+| `fn f(x: Int) -> String = "ab"` | 受理 | 5 |
+| `fn f(x: Int) -> Option<Int> = div(x, 2)` | 受理 | 10 |
+| `fn f(x: List<Int>) -> List<Int> = sort(x)` | 受理 | 6 |
+| `fn f(x: Int) -> List<Int> = range(0, x)` | 受理 | 10 |
+| `fn f(x: List<Int>) -> Bool = contains(x, 1)` | 受理 | 8 |
+| `fn f(x: Int) -> Option<Int> = loop(x, 3, \|s\| none<Int>())` | 受理（論理 trace は 12 イベント。結果型の BuildType は最後） | 12 |
+| `fn f(x: Int) -> Option<Int> = loop(x, 3, \|s\| 0)` | 拒否（E-TYPE-LOOP-BODY）。結果型の BuildType は数えない | 8 |
+
+上の `id` の program は、上限 10 で受理し、9 と 8 と 7 で `E-LIMIT-STATIC-SEMANTIC-WORK` により拒否する。第二パスの超過は、第一パスの総計を含めた和で判定する。
+
+次は未了であり、この節は G0 の未達項目のままである。
+
+- 節点ごとの規則の全体。上の表は代表 program の値を固定したものであり、ほかの節点の規則は `docs/typecheck-counting-design.md` §4 の案の段階にあり、fixture で固定するまで規範としない。
+- 実行の参照イベント（Steps と AllocatedNodes）。書換え後の木に §18.3 を適用して数える方針だが、代表の値はまだ固定していない。
+- 整数の bit 数。`RunResult` にその値が出ておらず、取り出し方を決めていない。
+- 書換え後の大きさの上限。書換えの結果は、原文の式深さの上限内でも式深さの上限を超えることがあり（書換え後の文面で `E-LIMIT-STATIC-EXPR-DEPTH` により拒否される）、`loop` を 400 個並べた計測では書換え後の文面が原文の約 44 倍になった。この増幅を抑える静的上限は、まだ §18.1 にない。
+- 再帰する直和型の補助関数の形と、印つきの写しと印なしの写しの trace の一致。どちらも fixture を追加して固定する。
 
 ### 18.2 入力と AST transport
 

@@ -27,7 +27,7 @@ sources:
 
 | ファイル | 役割 | bytes | SHA-256 |
 |---|---|---:|---|
-| `LPTL_design_v1.md` | 設計本文 | 144,238 | `f5290a35ab614f75f609930e12117e38adf88862ce22dad81ba2d4ba2995c87d` |
+| `LPTL_design_v1.md` | 設計本文 | 148,243 | `f9d81fac817fe3f8cbca3027b129d24f75857290360c4d9cfb26b6a849d8cbb8` |
 | `LPTL_v1_verification_report.md` | 突き合わせ確認報告 | 8,730 | `a8ef7c781ad03509da868e289ea0b6aff53a009ff7e3602d22dd575c796546d0` |
 | `ast_codec_v1.schema.json` | AST schema | 22,699 | `ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a` |
 | `v1_limited_checks.py` | 限定検査コード | 13,396 | `a3c183f8870c97d2e6be7f60c0f3da7f838ca54fb5a0bed29fac4814c13791dc` |
