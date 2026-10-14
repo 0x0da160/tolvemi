@@ -102,3 +102,29 @@ fn default_limit_rejects_a_large_rewrite() {
     let size: usize = act.expect("act は書換え後の bytes").parse().unwrap();
     assert!(size > 4_194_304);
 }
+
+/// `loop` を `n` 段入れ子にした program（最も内側は `none`）。
+fn nested_loops(n: usize) -> String {
+    let mut e = "none<Int>()".to_string();
+    for k in 1..=n {
+        e = format!("loop(x, 2, |s{k}| {e})");
+    }
+    format!("fn f(x: Int) -> Option<Int> = {e}\nentry f\n")
+}
+
+#[test]
+fn rewritten_expression_depth_is_checked_after_lowering() {
+    // 20 段の入れ子は、原文の式の深さは上限（256）の内だが、書換えの後の式の深さが超えて拒否する（§18.1c の O-1）。
+    let src = nested_loops(20);
+    assert!(matches!(parse_source(src.as_bytes(), &StaticProfile::default()), Parsed::Program(_)), "原文は上限の内");
+    match compile(src.as_bytes(), &StaticProfile::default()) {
+        SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
+            let d = errors.iter().find(|d| d.code == "E-LIMIT-STATIC-EXPR-DEPTH").expect("式の深さの診断");
+            let need: usize = d.actual.as_ref().expect("act は書換え後の深さ").parse().unwrap();
+            assert!(need > 256, "書換え後の深さ {need}");
+        }
+        _ => panic!("拒否されない: {src}"),
+    }
+    // 十段なら書換えの後の深さも上限の内で受理する。
+    assert!(outcome(&nested_loops(10), &StaticProfile::default()).0);
+}

@@ -245,3 +245,28 @@ fn exec_rejects_a_recursive_entry_input_and_fmt_keeps_the_source_form() {
         assert!(!out.contains("rec_at"), "{out}");
     });
 }
+
+/// 次の program を、印なしの写しに展開した全文（v1.14 差分 §2〜§3 の形と、補助関数の本体）。
+const EXPANDED_TREE: &str = r"rec fn size(t: List<Int>) -> Int = let scrut = t in let tag = rec_at(scrut, 0) in if(eq(tag, 0), 0, let rest = rec_drop(scrut, 1) in let len = rec_at(rest, 0) in let data = rec_take(rec_drop(rest, 1), len) in let l = data in let rest2 = rec_drop(rest, add(1, len)) in let len2 = rec_at(rest2, 0) in let data2 = rec_take(rec_drop(rest2, 1), len2) in let v = rec_at(data2, 0) in let rest3 = rec_drop(rest2, add(1, len2)) in let len3 = rec_at(rest3, 0) in let data3 = rec_take(rec_drop(rest3, 1), len3) in let r = data3 in add(size(l), add(v, size(r))))
+fn solve(n: Int) -> Int = size(node_new(list<Int>(0), n, list<Int>(0)))
+entry solve
+fn leaf_new() -> List<Int> = list<Int>(0)
+fn node_new(node_arg1: List<Int>, node_arg2: Int, node_arg3: List<Int>) -> List<Int> = concat(list<Int>(1), concat(concat(list<Int>(length(node_arg1)), node_arg1), concat(list<Int>(1, node_arg2), concat(list<Int>(length(node_arg3)), node_arg3))))
+fn rec_drop(xs: List<Int>, n2: Int) -> List<Int> = reverse(snd(fold(xs, pair(0, list<Int>()), |acc, item| if(lt(fst(acc), n2), pair(add(fst(acc), 1), snd(acc)), pair(fst(acc), cons(item, snd(acc)))))))
+fn rec_take(xs2: List<Int>, n3: Int) -> List<Int> = reverse(snd(fold(xs2, pair(0, list<Int>()), |acc2, item2| if(lt(fst(acc2), n3), pair(add(fst(acc2), 1), cons(item2, snd(acc2))), acc2))))
+fn rec_at(xs3: List<Int>, i: Int) -> Int = fold(rec_take(rec_drop(xs3, i), 1), 0, |acc3, item3| item3)
+";
+
+#[test]
+fn recursive_helper_shapes_match_the_deltas() {
+    // v1.14 差分 §2〜§3 で固定した形：構築子は `<名前>_new`、引数のない構築子は `list<Int>(k)`（`[k]`）の定数、
+    // match は `rec_at(s, 0)` と比べる `if` の連鎖、項の取り出しは `rec_drop`・`rec_take`・`rec_at`。
+    // 補助関数の本体は仕様に文字として書いていないので、この全文を fixture とする（§18.1c の O-2）。
+    let src = "type Tree = Leaf | Node(Tree, Int, Tree)\nrec fn size(t: Tree) -> Int = match t { Leaf => 0, Node(l, v, r) => add(size(l), add(v, size(r))) }\nfn solve(n: Int) -> Int = size(Node(Leaf, n, Leaf))\nentry solve\n";
+    let p = match parse_source(src.as_bytes(), &StaticProfile::default()) {
+        Parsed::Program(p) => p,
+        Parsed::Failed(_) => panic!("解析できない"),
+    };
+    let px = expand(&p).unwrap_or_else(|_| panic!("展開できない"));
+    assert_eq!(tlvm::formatter::format_program(&px), EXPANDED_TREE);
+}

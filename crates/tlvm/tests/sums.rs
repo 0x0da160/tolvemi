@@ -366,3 +366,18 @@ entry solve
     let other = "fn solve(s: String) -> Result<Int, String> = ok<Int, String>(length(s)) entry solve";
     assert_eq!(exec(other, &[], b"abcd"), (0, "{\"ok\":4}\n".into(), String::new()));
 }
+
+#[test]
+fn wildcard_only_match_is_accepted_on_sums_and_options() {
+    // 最後の `_ => e` だけの match は、残りの全部の場合をまとめる（v1.4 の規則）。枝から族が決まらないので
+    // MatchKind::Any になり、直和型と Option の対象を受理する。値は `_` の枝が決める（§18.1c の O-5）。
+    let sum = "type T = A | B\nfn f(x: T) -> Int = match x { _ => 0 }\nentry f\n";
+    let opt = "fn f(x: Option<Int>) -> Int = match x { _ => 0 }\nentry f\n";
+    for src in [sum, opt] {
+        assert!(matches!(compile(src.as_bytes(), &StaticProfile::default()), SourceCompile::Result(CompileResult::Accepted { .. })), "{src}");
+    }
+    with_file(sum, "tlvm", |p| {
+        let (code, out, _) = tlvm(&["run", p, r#"{"A":[]}"#, "--plain"]);
+        assert_eq!((code, out.trim_end()), (0, "0"));
+    });
+}

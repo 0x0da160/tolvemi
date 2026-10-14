@@ -53,7 +53,7 @@ sources:
 | 28 | input int の value が JSON number → E-INPUT-*、Int として受理しない | 対応 | `input_decode`；モデル C063 | - |
 | 29 | decode 後の同じ key（escape 違い）→ duplicate 拒否 | 部分 | `rows_20_1_boundaries`（AST のみ）；モデル C057, C073, C080 | input 側の実装テストなし |
 | 30 | concat 長さ m,n → 結果 m+n、追加 cons は m | 対応 | `builtins_and_sharing`（割当数） | 共有は割当数からの推定 |
-| 31 | none の反復評価 → none 由来の割当 0 | 部分 | `builtins_and_sharing`（none リテラル 2 個） | fold・loop 内の反復を未検査 |
+| 31 | none の反復評価 → none 由来の割当 0 | 部分 | `builtins_and_sharing`（none リテラル 2 個）；`counting.rs` の `none_repeated_in_a_fold_allocates_nothing`（fold の反復で割当 0） | loop 内の反復を未検査 |
 | 32 | let の値を pair の両側で参照 → 束縛 1 回、pair 1 ノード | 対応 | `builtins_and_sharing`（割当数） | 束縛 1 回は割当数からの推定 |
 | 33 | bytes 上限超過かつ不正 UTF-8 → bytes 優先 | 部分 | `lexical_limits`、`ast_transport`（AST）；`tooling.rs`（input は有効 UTF-8 のみ） | input 側の不正 UTF-8 なし |
 | 34 | error 候補 33 件 → 通常 31 件＋E-DIAG-LIMIT | 部分 | `rows_20_1_boundaries`（33 件）、`error_limit`（40 件） | 一件 cutoff の特別選択を未検査 |
@@ -102,6 +102,8 @@ sources:
 - 行 54：`eval/harness.py` に `render`（正解 AST を示して書かせ、`tlvm ast` の一致で採点する）と `gen-render`（連結 arm、`render` とは別行に報告する）を追加した。実測は G4 で行い、ここでは実行していない。
 
 # 更新の記録
+
+- 2026-10-14（§18.1c の未了の項目）：`counting.rs` に `none_repeated_in_a_fold_allocates_nothing`（行 31 の fold の反復）、`reference_events_of_a_recursive_program_are_fixed`（再帰する型の代表の Steps と AllocatedNodes）、`tagged_copy_is_reported_only_when_rejected`（規則 T と、印つきと印なしの trace の差）を追加した。`recursive.rs` に `recursive_helper_shapes_match_the_deltas`（補助関数の全文の fixture）、`sums.rs` に `wildcard_only_match_is_accepted_on_sums_and_options`（`_` だけの `match`）、`rewritten.rs` に `rewritten_expression_depth_is_checked_after_lowering`（書換え後の式深さ）を追加した。行 31 は fold の反復まで覆ったが、loop の反復が未検査なので部分のままである。§20.1 の件数（対応 52、部分 9、未対応 0、モデルのみ 8）は変わらない。
 
 - 2026-10-14：`crates/tlvm/tests/regression.rs` に `rows_20_1_boundaries` を追加した。行 18・20・24・25・26・29（AST 側）・34（33 件）・43・61・62（AST 側）の実装テストになった。`ast_transport`、`names`、`types_arity_dag` などの既存テストは変更していない。
 
