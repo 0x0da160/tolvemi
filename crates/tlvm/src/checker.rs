@@ -411,6 +411,8 @@ pub struct TypeChecker<'a> {
     pub sharing_hits: u64,
     /// v1.12：試験用の論理 trace（None なら記録しない）
     pub trace: Option<Vec<(&'static str, usize)>>,
+    /// 規則 G（§18.1c）：いまの関数の論理イベントを数えるか。第二パスで複製でない関数は検査するが数えない。
+    counting: bool,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -428,6 +430,7 @@ impl<'a> TypeChecker<'a> {
             rec: None,
             sharing_hits: 0,
             trace: None,
+            counting: true,
         }
     }
 
@@ -488,6 +491,13 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn event(&mut self, ev: Ev, node: &Meta) -> TcR<()> {
+        if !self.counting {
+            // 規則 G：数えない関数の比較も、外側の比較 cache の記録には入れる（数える場合に同じ列を再生できるように）
+            if let Some(r) = self.rec.as_mut() {
+                r.push(ev);
+            }
+            return Ok(());
+        }
         if self.work.total() + 1 > self.profile.semantic_work {
             return Err(Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-SEMANTIC-WORK", node.span())
                 .exp(self.profile.semantic_work.to_string())
@@ -868,6 +878,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     /// v1.6：`loop(init, max, |s| e)`。init : S、max : Int、s : S の下で e : Option<S>。結果は Option<S>。
+    /// 規則 L（§18.1c）：結果型 Option<S> の BuildType は、init・max・e がすべて正常なときだけ、最後に一つ数える。
     fn loop_(&mut self, e: &'a Expr, init: &'a Expr, max: &'a Expr, binder: &'a str, body: &'a Expr) -> TcR<Ty> {
         let m = &e.meta;
         let st = self.expr(init)?;
@@ -883,7 +894,7 @@ impl<'a> TypeChecker<'a> {
         let bt = bt?;
         ok &= !bt.is_error();
         if !st.is_error() {
-            let want = self.build(Ty::option(st.clone()), m)?;
+            let want = Ty::option(st.clone());
             if self.equal(&bt, &want, &body.meta)? == Some(false) {
                 self.report("E-TYPE-LOOP-BODY", &body.meta, &want, &bt);
                 ok = false;
@@ -892,6 +903,7 @@ impl<'a> TypeChecker<'a> {
         if !ok {
             return Ok(Ty::error());
         }
+        self.build(Ty::option(st.clone()), m)?;
         self.hof.insert(m.index, (st, bt.clone()));
         Ok(bt)
     }
@@ -1349,6 +1361,24 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
 
 /// v1.12：`check_program` と同じ検査を、比較 cache の切替と論理 trace の有無を選んで行う。
 pub fn check_program_with(prog: &Program, eof: usize, profile: &StaticProfile, opts: &CheckOptions) -> CheckOutcome {
+    check_scoped(prog, eof, profile, opts, None)
+}
+
+/// 規則 G（§18.1c）の第二パスの設定。
+pub struct SecondPass {
+    /// 数える関数の名前（単相化で作った複製）
+    pub counted: HashSet<String>,
+    /// 第一パスの仕事量の総計。第二パスはここから数え、上限は第一パスと第二パスの和に対して検査する。
+    pub start: WorkCounter,
+}
+
+/// 規則 G（§18.1c）：単相化の後の第二パス。全関数を検査するが（`hof`・`inst` の表を作るため）、数えるのは
+/// `pass.counted` の関数だけである。非総称の関数は第一パスで数えたので、ここでは数え直さない。
+pub fn check_program_second(prog: &Program, eof: usize, profile: &StaticProfile, opts: &CheckOptions, pass: &SecondPass) -> CheckOutcome {
+    check_scoped(prog, eof, profile, opts, Some(pass))
+}
+
+fn check_scoped(prog: &Program, eof: usize, profile: &StaticProfile, opts: &CheckOptions, pass: Option<&SecondPass>) -> CheckOutcome {
     let mut out = CheckOutcome::default();
     // name
     let name_diags = check_names(prog);
@@ -1367,7 +1397,11 @@ pub fn check_program_with(prog: &Program, eof: usize, profile: &StaticProfile, o
     // typecheck + semantic-limits
     let mut tc = TypeChecker::new(&fn_map, profile);
     tc.configure(*opts);
+    if let Some(p) = pass {
+        tc.work = p.start;
+    }
     for f in &fns {
+        tc.counting = pass.is_none_or(|p| p.counted.contains(&f.name));
         if let Err(cutoff) = tc.check_function(f) {
             out.work = Some(tc.work);
             out.trace = tc.trace.take();

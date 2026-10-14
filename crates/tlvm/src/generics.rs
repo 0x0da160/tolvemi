@@ -21,7 +21,7 @@
 //! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は単相化・書き換え後の
 //! プログラムを検査・実行するので、停止性・型安全性・決定性は書き換え後のプログラムについて成り立つ。
 
-use crate::checker::{check_program, collect_params, user_calls, CheckOutcome, Instances};
+use crate::checker::{check_program_second, check_program_with, collect_params, user_calls, CheckOptions, CheckOutcome, Instances, SecondPass};
 use crate::diagnostics::Diagnostic;
 use crate::profiles::StaticProfile;
 use crate::syntax::*;
@@ -661,7 +661,13 @@ pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagno
 /// 型検査する。返すのは（検査の結果、以降の書き換えに使うプログラム）。診断は総称のプログラムの検査のもの
 /// （警告を含む）に、単相化の拒否と単相化後の検査の error を足したもの。受理したプログラムは単相化後のもの。
 pub fn check(px: &Program, eof: usize, profile: &StaticProfile) -> (CheckOutcome, Program) {
-    let mut o = check_program(px, eof, profile);
+    check_with(px, eof, profile, &CheckOptions::default())
+}
+
+/// `check` と同じ検査を、比較 cache の切替と論理 trace の有無を選んで行う（試験用）。仕事量は二つのパスの和で、
+/// 論理 trace は第一パスに第二パス（複製の本体だけ）を続けたもの（規則 G、§18.1c）。
+pub fn check_with(px: &Program, eof: usize, profile: &StaticProfile, opts: &CheckOptions) -> (CheckOutcome, Program) {
+    let mut o = check_program_with(px, eof, profile, opts);
     if !is_generic(px) || o.typed.is_none() {
         return (o, px.clone());
     }
@@ -678,11 +684,23 @@ pub fn check(px: &Program, eof: usize, profile: &StaticProfile) -> (CheckOutcome
             (o, px.clone())
         }
         Ok(pm) => {
-            let o2 = check_program(&pm, eof, profile);
+            // 規則 G：第二パスは単相化で作った複製だけを数え、第一パスの総計から続けて数える
+            let orig: HashSet<&str> = px.functions().map(|f| f.name.as_str()).collect();
+            let counted: HashSet<String> = pm.functions().filter(|f| !orig.contains(f.name.as_str())).map(|f| f.name.clone()).collect();
+            let pass = SecondPass { counted, start: o.work.unwrap_or_default() };
+            let o2 = check_program_second(&pm, eof, profile, opts, &pass);
             let mut diagnostics = o.diagnostics;
             diagnostics.extend(o2.diagnostics.into_iter().filter(|d| d.severity == "error"));
             let typed = if diagnostics.iter().any(|d| d.severity == "error") { None } else { o2.typed };
-            let out = CheckOutcome { diagnostics, typed, work: o2.work, hof: o2.hof, inst: o2.inst, ..Default::default() };
+            let trace = match (o.trace, o2.trace) {
+                (Some(mut a), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                (a, b) => a.or(b),
+            };
+            let sharing_hits = o.sharing_hits + o2.sharing_hits;
+            let out = CheckOutcome { diagnostics, typed, work: o2.work, hof: o2.hof, inst: o2.inst, trace, sharing_hits };
             (out, pm)
         }
     }
