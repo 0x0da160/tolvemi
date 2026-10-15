@@ -413,10 +413,27 @@ class StatsTest(unittest.TestCase):
         self.assertTrue(xy["reject"])
         self.assertFalse(xz["reject"])
         self.assertEqual([xy["p_holm"], xz["p_holm"]], S.holm([xy["p"], xz["p"]]))
-        # 一覧の arm が実行にないと、その比較を計算せず、主要比較を主張しない
+        # 一覧の arm が実行にないと、その比較を計算せず、主要比較を主張しない。Holm の族は一覧の三つのまま
         r = S.primary_comparisons({**reg, "comparisons": reg["comparisons"] + [{"id": "q", "arms": ["x", "q"]}]}, eps, 200)
         self.assertFalse(r["claimed"])
-        self.assertFalse(r["results"][2]["computed"])
+        xy, xz, q = r["results"]
+        self.assertFalse(q["computed"])
+        self.assertEqual([xy["p_holm"], xz["p_holm"], q["p_holm"]], S.holm([xy["p"], xz["p"], 1.0]))
+        self.assertGreater(xy["p_holm"], S.holm([xy["p"], xz["p"]])[0])  # 計算できた二つだけの族より大きい
+        self.assertEqual([xy["reject"], xz["reject"], q["reject"]], [True, False, False])
+        self.assertEqual(q["p_holm"], 1.0)
+
+    def test_uncomputed_comparison_stays_in_the_holm_family(self):
+        # 二つの比較の一つを計算できなかった。もう一つの p = 0.04 は族の大きさ 2 で調整して 0.08 になり、alpha 0.05 で棄却しない
+        results = [{"id": "a", "computed": True, "p": 0.04}, {"id": "b", "computed": False}]
+        S.holm_family(results, 0.05)
+        self.assertAlmostEqual(results[0]["p_holm"], 0.08)
+        self.assertFalse(results[0]["reject"])
+        self.assertEqual((results[1]["p_holm"], results[1]["reject"]), (1.0, False))
+        # 族から落とすと（計算できた比較だけを調整すると）棄却してしまう
+        alone = [{"id": "a", "computed": True, "p": 0.04}]
+        S.holm_family(alone, 0.05)
+        self.assertTrue(alone[0]["reject"])
 
 
 class HiddenSeedTest(unittest.TestCase):

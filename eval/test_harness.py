@@ -506,11 +506,13 @@ class ClaudeCliTest(unittest.TestCase):
 class MainTest(unittest.TestCase):
     """main（protocol の実行）を oracle で一題だけ回す。モデルは呼ばない。"""
 
-    def run_main(self, *args, config=None, env_extra=None):
+    def run_main(self, *args, config=None, env_extra=None, model="model-under-test"):
         env = {k: v for k, v in os.environ.items() if k != HIDDEN_SEED_ENV}
         env.update(env_extra or {})
         with tempfile.TemporaryDirectory() as d:
             argv = [sys.executable, str(EVAL / "harness.py"), "--backend", "oracle", "--tasks", "sum", "--out", d, *args]
+            if model is not None:
+                argv += ["--model", model]
             if config is not None:
                 cfg = Path(d) / "protocol.json"
                 cfg.write_text(json.dumps(config), encoding="utf-8")
@@ -544,7 +546,15 @@ class MainTest(unittest.TestCase):
             self.assertEqual(runs, [])
         p, _, _ = self.run_main("--arms", "lptl", "--backend", "claude-cli", config=self.config())
         self.assertEqual(p.returncode, 2)
-        self.assertIn("--model", p.stderr)
+        self.assertIn("--effort", p.stderr)
+
+    def test_model_has_no_default(self):
+        # モデルの版の識別子はリポジトリに書かないので、既定値に頼る実行はできない
+        for args in (["--backend", "claude-cli"], ["--backend", "anthropic"], []):
+            p, runs, _ = self.run_main("--arms", "lptl", *args, model=None)
+            self.assertEqual(p.returncode, 2, p.stderr)
+            self.assertIn("--model", p.stderr)
+            self.assertEqual(runs, [])
 
     def test_secret_task_set_fails_closed_without_the_seed(self):
         p, runs, _ = self.run_main("--arms", "lptl", "--task-set", "secret", config=self.config())

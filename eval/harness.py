@@ -23,10 +23,10 @@ backend:
   claude-cli   Claude Code の CLI（claude -p）。サブスクリプションでログインした claude があれば API キーは不要
   oracle       参照解をそのまま返す（API を使わずにハーネスを空回しして検査する）
 
-usage:
-  python3 eval/harness.py --backend oracle
-  python3 eval/harness.py --model claude-opus-5-5 --arms lptl,python --repeats 1 --rounds 3
-  python3 eval/harness.py --backend claude-cli --arms lptl,python
+usage（--model は必須で既定値はない。oracle はモデルを呼ばないので値を使わない）:
+  python3 eval/harness.py --backend oracle --model oracle
+  python3 eval/harness.py --model <モデル ID> --arms lptl,python --repeats 1 --rounds 3
+  python3 eval/harness.py --backend claude-cli --model <モデル ID> --arms lptl,python
   python3 eval/harness.py --protocol CONFIG.json --backend claude-cli --model MODEL --effort EFFORT --arms lptl,python
 
 --protocol を付けない実行は予備実験で、予算 B を使わず --rounds 回で止める。LPTL が LLM に有利かどうかを主張する
@@ -893,10 +893,9 @@ def _git_state() -> dict:
 def protocol_problems(args, explicit: set[str], cfg, arms: list[str]) -> list[str]:
     """protocol の実行の前提。一つでも欠ければ実行しない（fail closed）。"""
     problems = []
-    if args.backend != "oracle":
-        for opt in ("--model", "--effort"):
-            if opt not in explicit:
-                problems.append(f"{opt} を明示してください（§1：固定する版。値は eval/runs の config.json にだけ記録する）")
+    # --model はどの実行でも必須（argparse が検査する）。protocol の実行では --effort も既定値に頼らない
+    if args.backend != "oracle" and "--effort" not in explicit:
+        problems.append("--effort を明示してください（§1：固定する版。値は eval/runs の config.json にだけ記録する）")
     for opt, why in (("--repeats", "反復数 K は設定の repeats から取る"), ("--rounds", "回数は予算 B（requests）で決まる"),
                      ("--retries", "protocol の実行では CLI の時間切れを呼び直さない")):
         if opt in explicit:
@@ -918,7 +917,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--claude-bin", default="claude", help="claude-cli で使う claude コマンド")
     ap.add_argument("--timeout", type=float, default=300, help="claude-cli の 1 呼び出しの秒数の上限")
     ap.add_argument("--retries", type=int, default=2, help="claude-cli が時間切れのとき呼び直す回数（予備実験だけ）")
-    ap.add_argument("--model", default="claude-opus-5-5")
+    # モデルの版の識別子はリポジトリに書かない（草案 §1）。既定値を置かず、実行ごとに明示させる
+    ap.add_argument("--model", required=True,
+                    help="評価するモデルの ID（必須。値は eval/runs の config.json にだけ記録する。oracle では使わない）")
     ap.add_argument("--effort", default="high", choices=("low", "medium", "high", "xhigh", "max"))
     ap.add_argument("--max-tokens", type=int, default=32000)
     ap.add_argument("--no-fallback", action="store_true", help="安全分類器による拒否時のフォールバックを使わない")

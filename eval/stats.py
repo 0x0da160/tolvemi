@@ -4,7 +4,7 @@
 - 課題単位の対応ブートストラップ：課題を復元抽出し、同じ再標本の課題番号を比較する全 arm に使う。
   10,000 回、95% のパーセンタイル区間（線形補間）
 - 主要比較：登録した一覧（primary_comparisons.json）にある比較だけを、ブートストラップの p 値と Holm 法で扱う。
-  一覧が空なら主要比較を主張しない
+  Holm の族は一覧の全比較で、実行で計算できなかった比較は p = 1.0 として族に残す。一覧が空なら主要比較を主張しない
 """
 
 from __future__ import annotations
@@ -103,6 +103,17 @@ def holm(pvalues: list[float]) -> list[float]:
     return adjusted
 
 
+def holm_family(results: list[dict], alpha: float) -> None:
+    """登録した全比較を一つの族として Holm 法で調整し、各 result に p_holm と reject を書く。
+
+    計算できなかった比較（computed が偽）は p = 1.0 として族に残し、棄却しない。実行が一部の比較しか
+    計算できなくても族を小さくしないので、p_holm と reject は常に登録した一覧の全体に対する値になる。"""
+    adjusted = holm([r["p"] if r["computed"] else 1.0 for r in results])
+    for r, adj in zip(results, adjusted):
+        r["p_holm"] = adj
+        r["reject"] = bool(r["computed"]) and adj <= alpha
+
+
 # ---------------------------------------------------------------------------------------------- 主要比較の一覧
 
 
@@ -144,7 +155,8 @@ def load_registry(path) -> dict:
 
 def primary_comparisons(registry: dict, episodes: list[dict], resamples: int = BOOTSTRAP_RESAMPLES,
                         level: float = BOOTSTRAP_LEVEL, metric: str = "success_selected") -> dict:
-    """一覧の比較ごとに、課題単位の対応ブートストラップで差（arms[0] − arms[1]）の区間と p 値を求め、Holm 法で調整する。"""
+    """一覧の比較ごとに、課題単位の対応ブートストラップで差（arms[0] − arms[1]）の区間と p 値を求め、
+    一覧の全比較を族として Holm 法で調整する（holm_family）。"""
     comps = registry["comparisons"]
     if not comps:
         return {"claimed": False, "note": "主要比較は一覧にないので、主張しない", "results": []}
@@ -167,10 +179,7 @@ def primary_comparisons(registry: dict, episodes: list[dict], resamples: int = B
         diff = difference(means["a"], means["b"], level)
         results.append({"id": c["id"], "arms": [a, b], "computed": True, "tasks": len(tasks),
                         "estimate": sum(sa) / len(sa) - sum(sb) / len(sb), "ci": diff["ci"], "p": diff["p"]})
-    done = [r for r in results if r["computed"]]
-    for r, adj in zip(done, holm([r["p"] for r in done])):
-        r["p_holm"] = adj
-        r["reject"] = adj <= registry["alpha"]
-    complete = len(done) == len(comps)
+    holm_family(results, registry["alpha"])
+    complete = all(r["computed"] for r in results)
     return {"claimed": complete, "alpha": registry["alpha"], "level": level, "resamples": resamples,
             "note": "" if complete else "一覧の比較の一部を計算できなかったので、主要比較を主張しない", "results": results}

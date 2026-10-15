@@ -89,7 +89,8 @@ B は四成分（累積の論理入力 tokens、出力 tokens、モデル要求�
 
 `summary.json` の主指標は arm ごとの `success_selected` とその Wilson 区間、課題単位の対応ブートストラップ（10,000 回、95% の
 パーセンタイル区間。全 arm に同じ再標本の課題番号を使い、乱数の種は課題 ID の集合から決める）です。主要比較は
-`primary_comparisons.json` に列挙したものだけを、ブートストラップの p 値（区間の反転）と Holm 法で扱います。一覧が空なら主要比較を
+`primary_comparisons.json` に列挙したものだけを、ブートストラップの p 値（区間の反転）と Holm 法で扱います。Holm の族は一覧の
+全比較で、実行で計算できなかった比較は p = 1.0 として族に残します（そのときは主要比較を主張しません）。一覧が空なら主要比較を
 主張しません。二次指標（Success@1、`hidden_last_round`、修復成功、受理率、費用、失敗の分類の内訳）は `secondary` に別名で出します。
 
 ## 実行
@@ -98,14 +99,16 @@ B は四成分（累積の論理入力 tokens、出力 tokens、モデル要求�
 cargo build --release
 
 # API を使わずに経路を確かめる（参照解をそのまま返す）
-python3 eval/harness.py --backend oracle
+python3 eval/harness.py --backend oracle --model oracle
 
 # サブスクリプションで実行（ログイン済みの Claude Code の claude -p を使う。API キー不要）
-python3 eval/harness.py --backend claude-cli --model claude-opus-5-5 --effort high --arms lptl,python
+python3 eval/harness.py --backend claude-cli --model <モデル ID> --effort high --arms lptl,python
 
 # Claude API で実行（pip install 'anthropic>=1.11' と ANTHROPIC_API_KEY などの認証が必要）
-python3 eval/harness.py --model claude-opus-5-5 --effort high --arms lptl,lptl-nodiag,python --rounds 3 --repeats 1
+python3 eval/harness.py --model <モデル ID> --effort high --arms lptl,lptl-nodiag,python --rounds 3 --repeats 1
 ```
+
+`--model` は必須で、既定値はありません（モデルの版の識別子をリポジトリに書かないため）。oracle は値を使いません。
 
 結果は `eval/runs/<run-id>/` に `config.json`、`episodes.jsonl`（全回の候補コードと採点）、`summary.json`、
 `summary.md` として出ます（`eval/runs/` は git の管理外）。99 問 × 3 arm × 最大 3 回で、呼び出しは最大 891 回です。`--category hard` で難しい問題だけに絞れます。
@@ -128,7 +131,7 @@ python3 eval/harness.py --model claude-opus-5-5 --effort high --arms lptl,lptl-n
 }
 ```
 
-protocol の実行では、`--model` と `--effort` を明示します（値は `config.json` にだけ記録）。`--repeats` と `--rounds` は使えません
+protocol の実行では、`--model` に加えて `--effort` も明示します（値は `config.json` にだけ記録）。`--repeats` と `--rounds` は使えません
 （K は設定から、回数は B から決まる）。`cli_limits` が `cli-defaults` なら `--backend claude-cli`、`api-fixed` なら `--backend anthropic` です
 （`oracle` はどちらでも空回しに使える）。server-side fallback は使いません。実行のディレクトリには、公開してよいファイルの一覧
 `publish.json`（`publication_scope` による）も出ます。秘密の課題集合の実行では、生データ（`config.json`、`episodes.jsonl`）は
