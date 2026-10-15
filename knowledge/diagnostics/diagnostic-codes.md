@@ -166,6 +166,7 @@ sources:
 | `E-NAME-UNBOUND-VARIABLE` | name | `checker.rs` | 未束縛の変数 |
 | `E-PARSE-EXPECTED-EXPR` | parse | `parser.rs` | 式がある位置に式がない |
 | `E-PARSE-EXPECTED-TOKEN` | parse | `parser.rs` | 必要な区切り記号がない |
+| `E-RECORD-BASE-REDUNDANT` | name | `records.rs` | すべての field を書いたので、`..base` で写す field がない |
 | `E-RECORD-DUPLICATE-FIELD` | name | `records.rs` | 同じ field が二度書かれている |
 | `E-RECORD-DUPLICATE-TYPE` | name | `records.rs`、`sums.rs`、`recursive.rs` | 同じ名前のレコード型が二度宣言されている |
 | `E-RECORD-FIELD-CONFLICT` | name | `records.rs` | field 名が別のレコード型の field と重なる |

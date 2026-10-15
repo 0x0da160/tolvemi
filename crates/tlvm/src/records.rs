@@ -481,6 +481,19 @@ impl Env {
             );
             return unit;
         }
+        // 書かれていない field がなければ、`..base` が写す先はない。base は検査せずに捨てていたので、この形は拒否する
+        if let Some(b) = base.as_ref().filter(|_| missing.is_empty()) {
+            let d = self.err("E-RECORD-BASE-REDUNDANT", b.meta.span(), m.index);
+            *d = d.clone().fix(
+                "replace_expression",
+                m.span(),
+                format!(
+                    "{name} {{ ... }} with every field ({}), without `..base`",
+                    names.join(", ")
+                ),
+            );
+            return unit;
+        }
         let mut vals: Vec<Expr> = vec![];
         for (i, g) in given.into_iter().enumerate() {
             vals.push(match g {

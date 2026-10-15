@@ -109,6 +109,19 @@ fn record_diagnostics() {
         codes(&format!("{h}fn f(x: Int) -> P = P {{ a: x }} entry f")),
         ["E-RECORD-MISSING-FIELD"]
     );
+    // 全部の field を書いた `..base` は、base を検査せずに捨てていたので拒否する（DECISION-21）
+    assert_eq!(
+        codes(&format!(
+            "{h}fn f(x: P) -> P = P {{ a: 1, b: true, ..x }} entry f"
+        )),
+        ["E-RECORD-BASE-REDUNDANT"]
+    );
+    assert_eq!(
+        codes(&format!(
+            "{h}fn f(x: Int) -> P = P {{ a: x, b: true, ..undefined }} entry f"
+        )),
+        ["E-RECORD-BASE-REDUNDANT"]
+    );
     assert_eq!(
         codes(&format!(
             "{h}fn f(x: Int) -> P = P {{ a: x, a: x, b: true }} entry f"

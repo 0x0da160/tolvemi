@@ -113,4 +113,6 @@ sources:
 
 - 2026-10-15：`cargo fmt`（`56c5ce5`）の後、Verus の `push_inj`（`verus/src/surface.rs`）と `ft_app`（`verus/src/syntax_proof.rs`）が rlimit を超えて失敗していた（625 verified、error 2）。並びを変えた `verus/src/lib.rs` と `verus/src/pipeline.rs` を戻すと 627・0 になり、両関数に `#[verifier::rlimit(50)]` を付けても 627・0 になった。後者を採り（`5ff847f`）、証明と仕様は変えていない。
 
+- 2026-10-15（`..base`、DECISION-21）：全部の field を書いた `..base` は、base が既知の変数でも未束縛の名前でも `E-RECORD-BASE-REDUNDANT` で拒否する。固定は `crates/tlvm/tests/records.rs` の `record_diagnostics` と、診断 registry の fixture（`crates/tlvm/tests/diagnostic_registry.rs`）。registry は 138 コード。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

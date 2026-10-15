@@ -47,6 +47,7 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
   `..base` で残りを base から写す。
 - **診断**（phase は name）：`E-RECORD-UNKNOWN-TYPE`、`E-RECORD-UNKNOWN-FIELD`、`E-RECORD-MISSING-FIELD`、
   `E-RECORD-DUPLICATE-FIELD`、`E-RECORD-DUPLICATE-TYPE`、`E-RECORD-FIELD-CONFLICT`。typecheck に `E-TYPE-FIELD-ACCESS`。
+- **2026-10-15 追記（DECISION-21）**：`..base` は、書かれていない field が一つ以上あるときだけ書ける。全部の field を書いて `..base` を添えた構築は `E-RECORD-BASE-REDUNDANT`（phase は name）で拒否する。base は検査せずに捨てていた（不具合）ので、この規則で拒否に変えた。この拒否では base の中の誤りは報告しない。
 - **入出力**：値 JSON（§9.2）では pair の入れ子のまま。plain JSON では field 名を key にした object。
 - **検証との関係**：展開は検証されていない接着部分（`crates/tlvm/src/records.rs`）。検証済み部品には、展開して
   `fst`／`snd` に書き換えたプログラムの整形ソースを渡し、それを検査・実行する。したがって §11.2 の保証は書き換え後の

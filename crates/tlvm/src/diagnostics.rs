@@ -91,6 +91,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
         "E-RECORD-DUPLICATE-FIELD" => "同じ field が二度書かれています",
         "E-RECORD-MISSING-FIELD" => "レコードの構築に書かれていない field があります",
+        "E-RECORD-BASE-REDUNDANT" => "すべての field を書いたので、`..base` で写す field がありません",
         "E-RECORD-DUPLICATE-TYPE" => "同じ名前のレコード型が二度宣言されています",
         "E-RECORD-FIELD-CONFLICT" => "field 名は別のレコード型の field と重なってはいけません",
         "E-SUM-DUPLICATE-CTOR" => "構築子の名前が重複しています（構築子の名前はプログラム全体で一意）",

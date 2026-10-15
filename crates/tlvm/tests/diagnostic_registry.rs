@@ -642,6 +642,7 @@ fn cases() -> Vec<Case> {
         case("E-RECORD-DUPLICATE-TYPE", src("type P = { a: Int }\ntype P = { b: Int }\nfn f(x: Int) -> Int = x entry f\n")),
         case("E-RECORD-FIELD-CONFLICT", src("type P = { a: Int }\ntype Q = { a: Int }\nfn f(x: Int) -> Int = x entry f\n")),
         case("E-RECORD-MISSING-FIELD", src("type P = { a: Int, b: Int }\nfn f(x: Int) -> P = P { a: x } entry f\n")),
+        case("E-RECORD-BASE-REDUNDANT", src("type P = { a: Int, b: Int }\nfn f(x: P) -> P = P { a: 1, b: 2, ..x } entry f\n")),
         case("E-SUM-DUPLICATE-CTOR", src("type S = A | A\nfn f(x: Int) -> Int = x entry f\n")),
         case("E-SUM-NAME-CONFLICT", src("type S = Add | B\nfn Add(x: Int) -> Int = x\nfn f(x: Int) -> Int = x entry f\n")),
         case("E-SUM-UNKNOWN-CTOR", src("type S = A | B\nfn f(x: S) -> Int = match x { A => 0, C => 1 } entry f\n")),

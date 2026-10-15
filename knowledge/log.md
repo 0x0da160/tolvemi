@@ -1,6 +1,8 @@
 # Directory Update Log
 
 ## 2026-10-15
+* **`..base`（DECISION-21）**：全部の field を書いた `..base` を `E-RECORD-BASE-REDUNDANT` で拒否するようにした。`records.rs` が base を検査せずに捨てていた不具合の修正。診断の registry は 138 コード。テストは `records.rs` と `diagnostic_registry.rs`（[既知の注意点](overview/known-caveats.md)）。
+* **決定（2026-10-15）**：秘密 seed は使わず、新しい最終課題を作る（DECISION-22）。§11.2a は書換えの実装を Verus で証明し、v1.1 から v1.16 まで全版を今回の作業に入れる（DECISION-23、24）。
 * **既知の注意点**：凍結前の確認で分かった、仕様どおりだが驚きやすい振る舞い、範囲外・未対応・未検査の部分、未決の事項をまとめた（[既知の注意点](overview/known-caveats.md)）。索引にも載せた。
 * **診断コード**：発生箇所があるのに一覧になかった 57 件を、ソースと照合して加えた（[診断コード](diagnostics/diagnostic-codes.md)）。メッセージの雛形と修復規則は未固定。
 * **診断の registry**：ソースで発生する 137 コードについて、severity、phase、message template、repair 規則、発生箇所を版 1 の registry に固定した（[registry-v1.json](diagnostics/registry-v1.json)）。ソースと fixture に照合するテストを付けた（`crates/tlvm/tests/diagnostic_registry.rs`）。spec の成果物と manifest への登録は未了。

@@ -11,7 +11,7 @@
         {
           "kind": "replace_expression",
           "constraint": "call with {n}",
-          "source": "crates/tlvm/src/diagnostics.rs:428"
+          "source": "crates/tlvm/src/diagnostics.rs:429"
         }
       ],
       "emitted_by": [
@@ -27,7 +27,7 @@
         {
           "kind": "replace_expression",
           "constraint": "call with {n}",
-          "source": "crates/tlvm/src/diagnostics.rs:428"
+          "source": "crates/tlvm/src/diagnostics.rs:429"
         }
       ],
       "emitted_by": [
@@ -230,7 +230,7 @@
       "message_template": "error が多すぎるため以降を省略しました",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/diagnostics.rs:349"
+        "crates/tlvm/src/diagnostics.rs:350"
       ],
       "note": "件数上限の発生箇所は diagnostics.rs の limit()（diagnostics.rs:354）が code を引数で受けて作る（crates/tlvm/src/diagnostics.rs:349）",
       "implementation_note": "phase は diagnostic-limit（diagnostics.rs の limit() が設定）。PHASE_ORDER（diagnostics.rs:7-20）と 設計 §10.2 の段階には無く、カタログは「—」"
@@ -280,7 +280,7 @@
         {
           "kind": "insert_text",
           "constraint": "entry declaration naming a one-parameter function",
-          "source": "crates/tlvm/src/diagnostics.rs:433"
+          "source": "crates/tlvm/src/diagnostics.rs:434"
         }
       ],
       "emitted_by": [
@@ -317,7 +317,7 @@
         {
           "kind": "delete_span",
           "constraint": "move this import line to the top of the file, above every fn, type and entry declaration",
-          "source": "crates/tlvm/src/diagnostics.rs:454"
+          "source": "crates/tlvm/src/diagnostics.rs:455"
         }
       ],
       "emitted_by": [
@@ -412,7 +412,7 @@
         {
           "kind": "delete_span",
           "constraint": "this API compiles a single source string and cannot read files: compile the file with the CLI (tlvm check FILE), use compile_files with a map of sources, or paste the imported definitions here",
-          "source": "crates/tlvm/src/diagnostics.rs:459"
+          "source": "crates/tlvm/src/diagnostics.rs:460"
         }
       ],
       "emitted_by": [
@@ -579,7 +579,7 @@
         {
           "kind": "replace_expression",
           "constraint": "escape \\n, \\t or \\r; other control chars cannot be written",
-          "source": "crates/tlvm/src/diagnostics.rs:540"
+          "source": "crates/tlvm/src/diagnostics.rs:541"
         }
       ],
       "emitted_by": [
@@ -595,7 +595,7 @@
         {
           "kind": "replace_expression",
           "constraint": "one char between single quotes, such as 'a' or '\\n'; a sequence of chars is a string literal \"...\"",
-          "source": "crates/tlvm/src/diagnostics.rs:531"
+          "source": "crates/tlvm/src/diagnostics.rs:532"
         }
       ],
       "emitted_by": [
@@ -611,7 +611,7 @@
         {
           "kind": "replace_expression",
           "constraint": "escape: \\\\, \\n, \\t, \\r, and the delimiter quote (\\' in a char literal, \\\" in a string literal)",
-          "source": "crates/tlvm/src/diagnostics.rs:521"
+          "source": "crates/tlvm/src/diagnostics.rs:522"
         }
       ],
       "emitted_by": [
@@ -628,7 +628,7 @@
         {
           "kind": "replace_expression",
           "constraint": "canonical integer literal (no '+', no leading zeros, no -0)",
-          "source": "crates/tlvm/src/diagnostics.rs:435"
+          "source": "crates/tlvm/src/diagnostics.rs:436"
         }
       ],
       "emitted_by": [
@@ -664,7 +664,7 @@
         {
           "kind": "replace_expression",
           "constraint": "there are no operators: integer division is div(a, b), which returns Option<Int> (none when b <= 0); a line comment starts with //",
-          "source": "crates/tlvm/src/diagnostics.rs:537"
+          "source": "crates/tlvm/src/diagnostics.rs:538"
         }
       ],
       "emitted_by": [
@@ -682,7 +682,7 @@
         {
           "kind": "insert_text",
           "constraint": "closing '\"' (a line break inside a string literal is written \\n)",
-          "source": "crates/tlvm/src/diagnostics.rs:526"
+          "source": "crates/tlvm/src/diagnostics.rs:527"
         }
       ],
       "emitted_by": [
@@ -994,7 +994,7 @@
         {
           "kind": "replace_identifier",
           "constraint": "identifier not bound in any enclosing scope",
-          "source": "crates/tlvm/src/diagnostics.rs:430"
+          "source": "crates/tlvm/src/diagnostics.rs:431"
         }
       ],
       "emitted_by": [
@@ -1011,7 +1011,7 @@
         {
           "kind": "replace_identifier",
           "constraint": "function name not used by another function",
-          "source": "crates/tlvm/src/diagnostics.rs:432"
+          "source": "crates/tlvm/src/diagnostics.rs:433"
         }
       ],
       "emitted_by": [
@@ -1027,7 +1027,7 @@
         {
           "kind": "replace_identifier",
           "constraint": "identifier not bound in any enclosing scope",
-          "source": "crates/tlvm/src/diagnostics.rs:430"
+          "source": "crates/tlvm/src/diagnostics.rs:431"
         }
       ],
       "emitted_by": [
@@ -1043,7 +1043,7 @@
         {
           "kind": "replace_identifier",
           "constraint": "identifier not bound in any enclosing scope",
-          "source": "crates/tlvm/src/diagnostics.rs:430"
+          "source": "crates/tlvm/src/diagnostics.rs:431"
         }
       ],
       "emitted_by": [
@@ -1114,17 +1114,17 @@
         {
           "kind": "replace_identifier",
           "constraint": "type parameter name starting with an uppercase letter, as in fn first<T>(xs: List<T>) -> Option<T> or type Box<T> = { value: T }",
-          "source": "crates/tlvm/src/diagnostics.rs:443"
+          "source": "crates/tlvm/src/diagnostics.rs:444"
         },
         {
           "kind": "replace_identifier",
           "constraint": "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty",
-          "source": "crates/tlvm/src/diagnostics.rs:448"
+          "source": "crates/tlvm/src/diagnostics.rs:449"
         },
         {
           "kind": "replace_identifier",
           "constraint": "'{w}' is a reserved word; use another name such as {w}_ here and at every use",
-          "source": "crates/tlvm/src/diagnostics.rs:475"
+          "source": "crates/tlvm/src/diagnostics.rs:476"
         }
       ],
       "emitted_by": [
@@ -1144,27 +1144,27 @@
         {
           "kind": "replace_expression",
           "constraint": "exactly one binder between the bars, naming the state: {forms}",
-          "source": "crates/tlvm/src/diagnostics.rs:584"
+          "source": "crates/tlvm/src/diagnostics.rs:585"
         },
         {
           "kind": "replace_expression",
           "constraint": "exactly one binder between the bars, naming the element: {forms}; use fold(xs, init, |acc, x| ...) to carry an accumulator",
-          "source": "crates/tlvm/src/diagnostics.rs:591"
+          "source": "crates/tlvm/src/diagnostics.rs:592"
         },
         {
           "kind": "insert_text",
           "constraint": "', |{x}| e' before ')': the {nth} argument is a one-binder lambda, as in {forms}",
-          "source": "crates/tlvm/src/diagnostics.rs:601"
+          "source": "crates/tlvm/src/diagnostics.rs:602"
         },
         {
           "kind": "replace_expression",
           "constraint": "|{x}| {f}({x}): functions are not values, so pass a lambda that calls {f} on the {what}",
-          "source": "crates/tlvm/src/diagnostics.rs:605"
+          "source": "crates/tlvm/src/diagnostics.rs:606"
         },
         {
           "kind": "insert_text",
           "constraint": "'|{x}| ' before the expression, binding the {what} it uses: {forms}",
-          "source": "crates/tlvm/src/diagnostics.rs:607"
+          "source": "crates/tlvm/src/diagnostics.rs:608"
         }
       ],
       "emitted_by": [
@@ -1184,7 +1184,7 @@
         {
           "kind": "replace_expression",
           "constraint": "pattern: Ctor, Ctor(x, y) (one name or _ per field), ok(x), err(e), some(x), none, or _ for the remaining cases",
-          "source": "crates/tlvm/src/diagnostics.rs:472"
+          "source": "crates/tlvm/src/diagnostics.rs:473"
         }
       ],
       "emitted_by": [
@@ -1200,32 +1200,32 @@
         {
           "kind": "replace_expression",
           "constraint": "type arguments use angle brackets: list<T>(...) and none<T>()",
-          "source": "crates/tlvm/src/diagnostics.rs:482"
+          "source": "crates/tlvm/src/diagnostics.rs:483"
         },
         {
           "kind": "insert_text",
           "constraint": "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>(), dict<K, V>()",
-          "source": "crates/tlvm/src/diagnostics.rs:488"
+          "source": "crates/tlvm/src/diagnostics.rs:489"
         },
         {
           "kind": "insert_text",
           "constraint": "'=>' between the pattern and the arm's expression",
-          "source": "crates/tlvm/src/diagnostics.rs:490"
+          "source": "crates/tlvm/src/diagnostics.rs:491"
         },
         {
           "kind": "insert_text",
           "constraint": "() after none<T>, dict<K, V>, an explicit call f<T> or a constructor Leaf<T>, as in none<Int>(), dict<String, Int>(), f<Int>(x) or Leaf<Int>()",
-          "source": "crates/tlvm/src/diagnostics.rs:494"
+          "source": "crates/tlvm/src/diagnostics.rs:495"
         },
         {
           "kind": "insert_text",
           "constraint": "')' closing the '{what}(' opened at line {l}, column {c}: it already has all its arguments here, so one ')' is missing before this point (or there are too many arguments)",
-          "source": "crates/tlvm/src/diagnostics.rs:501"
+          "source": "crates/tlvm/src/diagnostics.rs:502"
         },
         {
           "kind": "delete_span",
           "constraint": "this ')' closes the '{what}(' opened at line {l}, column {c} before all its arguments are given: delete it if it is one too many, or else an earlier ')' closed something too soon",
-          "source": "crates/tlvm/src/diagnostics.rs:507"
+          "source": "crates/tlvm/src/diagnostics.rs:508"
         }
       ],
       "emitted_by": [
@@ -1244,7 +1244,7 @@
         {
           "kind": "replace_type",
           "constraint": "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name (Box<Int> for a generic one) | a type parameter of the declaration",
-          "source": "crates/tlvm/src/diagnostics.rs:515"
+          "source": "crates/tlvm/src/diagnostics.rs:516"
         }
       ],
       "emitted_by": [
@@ -1260,7 +1260,7 @@
         {
           "kind": "delete_span",
           "constraint": "delete 'rec': entry only names the function to run; if that function recurses, mark its declaration as rec fn",
-          "source": "crates/tlvm/src/diagnostics.rs:465"
+          "source": "crates/tlvm/src/diagnostics.rs:466"
         }
       ],
       "emitted_by": [
@@ -1286,7 +1286,7 @@
         {
           "kind": "replace_type",
           "constraint": "String",
-          "source": "crates/tlvm/src/diagnostics.rs:517"
+          "source": "crates/tlvm/src/diagnostics.rs:518"
         }
       ],
       "emitted_by": [
@@ -1448,6 +1448,22 @@
       ]
     },
     {
+      "code": "E-RECORD-BASE-REDUNDANT",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "すべての field を書いたので、`..base` で写す field がありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{name} { ... } with every field ({}), without `..base`",
+          "source": "crates/tlvm/src/records.rs:491"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:486"
+      ]
+    },
+    {
       "code": "E-RECORD-DUPLICATE-FIELD",
       "severity": "error",
       "phase": "name",
@@ -1455,7 +1471,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/records.rs:433",
-        "crates/tlvm/src/records.rs:599"
+        "crates/tlvm/src/records.rs:612"
       ]
     },
     {
@@ -1465,7 +1481,7 @@
       "message_template": "同じ名前のレコード型が二度宣言されています",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/records.rs:589",
+        "crates/tlvm/src/records.rs:602",
         "crates/tlvm/src/recursive.rs:512",
         "crates/tlvm/src/sums.rs:863"
       ]
@@ -1479,11 +1495,11 @@
         {
           "kind": "replace_identifier",
           "constraint": "field name not used by another record type ('{}' is a field of {other})",
-          "source": "crates/tlvm/src/records.rs:607"
+          "source": "crates/tlvm/src/records.rs:620"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:602"
+        "crates/tlvm/src/records.rs:615"
       ]
     },
     {
@@ -1699,7 +1715,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -1735,12 +1751,12 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type Dict<K, V>: dict_from(xs) makes a Dict from a List<Pair<K, V>> (a later pair replaces the value of an earlier equal key)",
-          "source": "crates/tlvm/src/diagnostics.rs:419"
+          "source": "crates/tlvm/src/diagnostics.rs:420"
         },
         {
           "kind": "replace_expression",
           "constraint": "expression of type Dict<K, V>, such as dict<K, V>() (empty), dict_put(d, k, v) or dict_from(pairs)",
-          "source": "crates/tlvm/src/diagnostics.rs:421"
+          "source": "crates/tlvm/src/diagnostics.rs:422"
         }
       ],
       "emitted_by": [
@@ -1762,12 +1778,12 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type List<Pair<K, V>>: this is already a Dict, so use it without dict_from",
-          "source": "crates/tlvm/src/diagnostics.rs:424"
+          "source": "crates/tlvm/src/diagnostics.rs:425"
         },
         {
           "kind": "replace_expression",
           "constraint": "expression of type List<Pair<K, V>>, such as map(xs, |x| pair(key, value))",
-          "source": "crates/tlvm/src/diagnostics.rs:425"
+          "source": "crates/tlvm/src/diagnostics.rs:426"
         }
       ],
       "emitted_by": [
@@ -1789,7 +1805,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -1811,12 +1827,12 @@
         {
           "kind": "replace_expression",
           "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
-          "source": "crates/tlvm/src/diagnostics.rs:413"
+          "source": "crates/tlvm/src/diagnostics.rs:414"
         },
         {
           "kind": "replace_expression",
           "constraint": "expression of type List<...>",
-          "source": "crates/tlvm/src/diagnostics.rs:415"
+          "source": "crates/tlvm/src/diagnostics.rs:416"
         }
       ],
       "emitted_by": [
@@ -1843,7 +1859,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -1865,7 +1881,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -1887,12 +1903,12 @@
         {
           "kind": "replace_expression",
           "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
-          "source": "crates/tlvm/src/diagnostics.rs:413"
+          "source": "crates/tlvm/src/diagnostics.rs:414"
         },
         {
           "kind": "replace_expression",
           "constraint": "expression of type List<...>",
-          "source": "crates/tlvm/src/diagnostics.rs:415"
+          "source": "crates/tlvm/src/diagnostics.rs:416"
         }
       ],
       "emitted_by": [
@@ -1914,7 +1930,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type Pair<..., ...>",
-          "source": "crates/tlvm/src/diagnostics.rs:427"
+          "source": "crates/tlvm/src/diagnostics.rs:428"
         }
       ],
       "emitted_by": [
@@ -2127,7 +2143,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2149,12 +2165,12 @@
         {
           "kind": "replace_expression",
           "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
-          "source": "crates/tlvm/src/diagnostics.rs:413"
+          "source": "crates/tlvm/src/diagnostics.rs:414"
         },
         {
           "kind": "replace_expression",
           "constraint": "expression of type List<...>",
-          "source": "crates/tlvm/src/diagnostics.rs:415"
+          "source": "crates/tlvm/src/diagnostics.rs:416"
         }
       ],
       "emitted_by": [
@@ -2176,7 +2192,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2198,7 +2214,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2220,7 +2236,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2242,7 +2258,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2264,7 +2280,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2286,7 +2302,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2310,17 +2326,17 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type Result<..., ...>",
-          "source": "crates/tlvm/src/diagnostics.rs:405"
-        },
-        {
-          "kind": "replace_expression",
-          "constraint": "expression of type Option<...>",
           "source": "crates/tlvm/src/diagnostics.rs:406"
         },
         {
           "kind": "replace_expression",
-          "constraint": "expression of type {t}",
+          "constraint": "expression of type Option<...>",
           "source": "crates/tlvm/src/diagnostics.rs:407"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}",
+          "source": "crates/tlvm/src/diagnostics.rs:408"
         }
       ],
       "emitted_by": [
@@ -2347,7 +2363,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type {t}{how}",
-          "source": "crates/tlvm/src/diagnostics.rs:402"
+          "source": "crates/tlvm/src/diagnostics.rs:403"
         }
       ],
       "emitted_by": [
@@ -2369,7 +2385,7 @@
         {
           "kind": "replace_expression",
           "constraint": "expression of type Pair<..., ...>",
-          "source": "crates/tlvm/src/diagnostics.rs:427"
+          "source": "crates/tlvm/src/diagnostics.rs:428"
         }
       ],
       "emitted_by": [
@@ -2384,7 +2400,7 @@
       "message_template": "warning が多すぎるため以降を省略しました",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/diagnostics.rs:350"
+        "crates/tlvm/src/diagnostics.rs:351"
       ],
       "note": "件数上限の発生箇所は diagnostics.rs の limit()（diagnostics.rs:354）が code を引数で受けて作る（crates/tlvm/src/diagnostics.rs:350）",
       "implementation_note": "phase は diagnostic-limit（diagnostics.rs の limit() が設定）。PHASE_ORDER（diagnostics.rs:7-20）と 設計 §10.2 の段階には無く、カタログは「—」"
