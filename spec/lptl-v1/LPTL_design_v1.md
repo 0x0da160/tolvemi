@@ -602,7 +602,7 @@ v1 の標準資源プロファイルは、再現性のため **AllocatedNodeCoun
 `resource-profile-v1-reference-1` は第18節の参照機械と以下の割当規則を使う。
 
 - リストは不変 cons-cell DAG。空リスト、bool、unit、none は共有 singleton であり、割当数0。none は型を保持するコンパイラ側の型情報で区別し、実行値ごとに型ノードを割り当てない。
-- `cons` は一セル、`pair` は一ノード、`some` は一ノード。既存 payload は共有する。
+- `cons` は一セル、`pair` は一ノード、`some` は一ノード。`ok` と `err` も、`some` と同じく一ノードを確保する（v1.4）。既存 payload は共有する。
 - `list<T>(e1,...,en)` は引数を左から右に評価後、要素参照を一時スタックに置き、末尾から n セルを構築する。要素のコピーはしない。
 - `concat(xs,ys)` は xs の spine を先頭から走査し、要素参照を一時スタックへ置く。ys を初期末尾としてスタックを逆順に取り出し、xs の長さ m の新規セルを作る。ys と要素を共有し、LPTL の中間 cons spine を作らない。
 - `reverse(xs)` は先頭から走査し、空リストを初期末尾として n セルを作る。`length` はキャッシュせず spine を走査する。
@@ -1316,6 +1316,7 @@ G0では完成ASTとの一致、不完全構文、破棄された親、同期で
 次の項目の状態は以下のとおりである。この節は G0 の未達項目のままである。
 
 - 節点ごとの規則の全体（未了）。上の表は代表 program の値を固定したものであり、ほかの節点の規則は `docs/typecheck-counting-design.md` §4 の案の段階にあり、fixture で固定するまで規範としない。
+- 既に束縛された型変数への bind（同じ型変数が二度現れる呼出し、型引数を明示した呼出し）は、Compare を一つと、既存の束縛との Equal を両方数える（§4.6。オーナーが 2026-10-15 に決定）。`crates/tlvm/tests/counting_nodes.rs` の `calls` で固定した。
 - 実行の参照イベント（Steps と AllocatedNodes）。代表の値を固定した（`crates/tlvm/tests/counting.rs`）。P1〜P3 の値は §18.3 の規則から手で求めたもの。再帰する型の代表（入力 3 の `size`、Steps 2212、AllocatedNodes 305）は処理系の出力である。全体の網羅は未了。
 - 整数の bit 数（決定。オーナーが 2026-10-14 に確認）。成功した run の結果（`Completed`）には bit 数を含めない。上限の検査は §18.3 のとおり、入力の検査と割当ごとの検査で行う。成功時の最大の bit 数を取り出す方法は定めない。
 - 書換えの深さ（決定。オーナーが 2026-10-14 に確認）。§18.1 に書いた。書換え後の式深さを、同じ上限で検査する。
@@ -1352,7 +1353,7 @@ AST transport 上限は表記に固有であり source bytes と同じ数値に�
 4. fold／length／reverse／concat の spine cursor による一つの cons または末尾 nil の読取り。
 5. list 構築／concat での一時要素参照の push と pop。一要素につき各一回。
 6. 構造的 eq での一対の値根、または一対の list spine セル／nil の比較。一対の list 値根を比較した後、spine の対を走査する。
-7. 第8.4節の新規整数／cons／pair／some node の一つの確保。
+7. 第8.4節の新規整数／cons／pair／some／ok／err node の一つの確保。min と max の結果も、整数を返す算術として新規整数の一つに数える。
 
 複数イベントを伴う処理は上記の手続き順に発生させる。例として concat は引数評価、dispatch、xs の各セル読取りと push、nil読取り、各 pop とセル確保の順。reverse は各セル読取りと確保、最後にnil読取り。fold はセル読取り、binder 設定、body 評価を繰り返し最後にnil読取り。
 

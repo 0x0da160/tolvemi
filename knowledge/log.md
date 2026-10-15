@@ -1,6 +1,8 @@
 # Directory Update Log
 
 ## 2026-10-15
+* **計数の決定（DECISION-25〜27）**：min と max の結果は、選んだ引数の値でも整数の割当を一つ数えるように `verus/src/eval.rs` を直した（Verus 667 件・error 0）。既に束縛された型変数への bind は Compare と Equal の両方を数える（§4.6。実装は既にこの形）。ok と err の構築は一つのステップと一つの割当（§8.4、§18.3 に追記）。固定は `counting.rs` と `counting_nodes.rs`。ワークスペースのテストは 328 件、失敗 0。
+* **§11.2a の形 C（DECISION-28）**：規模を v1.1 で測ってから形を決める。測定の結果が出るまで、形は未決。
 * **`..base`（DECISION-21）**：全部の field を書いた `..base` を `E-RECORD-BASE-REDUNDANT` で拒否するようにした。`records.rs` が base を検査せずに捨てていた不具合の修正。診断の registry は 138 コード。テストは `records.rs` と `diagnostic_registry.rs`（[既知の注意点](overview/known-caveats.md)）。
 * **決定（2026-10-15）**：秘密 seed は使わず、新しい最終課題を作る（DECISION-22）。§11.2a は書換えの実装を Verus で証明し、v1.1 から v1.16 まで全版を今回の作業に入れる（DECISION-23、24）。
 * **既知の注意点**：凍結前の確認で分かった、仕様どおりだが驚きやすい振る舞い、範囲外・未対応・未検査の部分、未決の事項をまとめた（[既知の注意点](overview/known-caveats.md)）。索引にも載せた。
