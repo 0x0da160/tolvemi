@@ -525,13 +525,16 @@ impl Ev {
     }
 }
 
-/// v1.12：型比較の共有（比較 cache）の切替。On は比較の結果と論理イベント列を覚え、同じ対の再照合では列を再生して計数する。
-/// 論理 trace・仕事量・cutoff は Off と同じになる（§18.1a）。interning は行わない。
+/// v1.12：型比較の共有（比較 cache）の切替。On は比較の結果と CompareType の数を覚え、同じ対の再照合では同じ数を計数する
+/// （trace を取るときは一つずつ記録する）。論理 trace・仕事量・cutoff は Off と同じになる（§18.1a）。
+/// Interned は On に加えて型を正準化する（`intern`）。同じ構造の型は一つの node になり、比較 cache が当たる組が増える。
+/// 論理 trace・仕事量・cutoff は Off と同じになる。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TypeSharing {
     #[default]
     Off,
     On,
+    Interned,
 }
 
 /// v1.12：`check_program_with` の選択。trace は試験用の論理 trace（イベント名と論理 node index）を取る。
@@ -541,12 +544,13 @@ pub struct CheckOptions {
     pub trace: bool,
 }
 
-/// `equal` の一回分の結果。鍵の型は保持し、Arc の address が再利用されないようにする。
+/// `equal` の一回分の結果。鍵の型は保持し、Arc の address が再利用されないようにする。`compares` は走査が出した
+/// CompareType の数（`equal_plain` は CompareType しか出さないので、論理イベント列はこの数で決まる）。
 struct CachedEq {
     _a: Ty,
     _b: Ty,
     result: Option<bool>,
-    events: Vec<Ev>,
+    compares: u64,
 }
 
 type TcR<T> = Result<T, Diagnostic>;
@@ -577,10 +581,9 @@ pub struct TypeChecker<'a> {
     pub hof: HofTypes,
     /// v1.10：総称の関数の呼び出しの型引数
     pub inst: Instances,
-    /// v1.12：比較 cache の切替、cache（鍵は両型の address）、`equal` の中で出した論理イベント（On のときだけ記録）
+    /// v1.12：比較 cache の切替（On と Interned のとき cache を使う）と、cache（鍵は両型の address）
     sharing: TypeSharing,
-    cache: HashMap<(usize, usize), CachedEq>,
-    rec: Option<Vec<Ev>>,
+    cache: HashMap<(usize, usize), CachedEq, std::hash::BuildHasherDefault<crate::intern::Mix>>,
     /// v1.12：cache から再生した回数（試験用。論理計数には入らない）
     pub sharing_hits: u64,
     /// v1.12：試験用の論理 trace（None なら記録しない）
@@ -600,8 +603,7 @@ impl<'a> TypeChecker<'a> {
             hof: HashMap::new(),
             inst: HashMap::new(),
             sharing: TypeSharing::Off,
-            cache: HashMap::new(),
-            rec: None,
+            cache: HashMap::default(),
             sharing_hits: 0,
             trace: None,
             counting: true,
@@ -685,10 +687,7 @@ impl<'a> TypeChecker<'a> {
 
     fn event(&mut self, ev: Ev, node: &Meta) -> TcR<()> {
         if !self.counting {
-            // 規則 G：数えない関数の比較も、外側の比較 cache の記録には入れる（数える場合に同じ列を再生できるように）
-            if let Some(r) = self.rec.as_mut() {
-                r.push(ev);
-            }
+            // 規則 G：数えない関数の論理イベントは計数しない（上限にも入らない）
             return Ok(());
         }
         if self.work.total() + 1 > self.profile.semantic_work {
@@ -705,9 +704,6 @@ impl<'a> TypeChecker<'a> {
             Ev::Visit => self.work.visit += 1,
             Ev::Build => self.work.build += 1,
             Ev::Compare => self.work.compare += 1,
-        }
-        if let Some(r) = self.rec.as_mut() {
-            r.push(ev);
         }
         if let Some(t) = self.trace.as_mut() {
             t.push((ev.name(), node.index));
@@ -730,53 +726,70 @@ impl<'a> TypeChecker<'a> {
         Ok(ty)
     }
 
-    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。On のときは同じ対の既知の結果を、覚えた論理イベント列の再生で返す。
+    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。On・Interned のときは、同じ対（node の address が同じもの。
+    /// Interned では同じ構造の型は同じ node）の既知の結果と CompareType の数を覚え、再照合では同じ数を計数する。
     fn equal(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<Option<bool>> {
         if a.is_error() || b.is_error() {
             return Ok(None);
         }
         if self.sharing == TypeSharing::Off {
-            return self.equal_plain(a, b, node);
+            return Ok(self.equal_plain(a, b, node)?.0);
         }
         let key = (a.addr(), b.addr());
-        if let Some((res, evs)) = self.cache.get(&key).map(|c| (c.result, c.events.clone())) {
+        if let Some((res, n)) = self.cache.get(&key).map(|c| (c.result, c.compares)) {
             self.sharing_hits += 1;
-            for ev in evs {
-                self.event(ev, node)?;
-            }
+            self.compares(n, node)?;
             return Ok(res);
         }
-        let outer = self.rec.replace(vec![]);
-        let r = self.equal_plain(a, b, node);
-        let mine = std::mem::replace(&mut self.rec, outer).unwrap_or_default();
-        if let Some(o) = self.rec.as_mut() {
-            o.extend(mine.iter().copied());
-        }
-        let res = r?;
+        let (res, n) = self.equal_plain(a, b, node)?;
         self.cache.insert(
             key,
             CachedEq {
                 _a: a.clone(),
                 _b: b.clone(),
                 result: res,
-                events: mine,
+                compares: n,
             },
         );
         Ok(res)
     }
 
-    fn equal_plain(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<Option<bool>> {
+    /// `n` 回の CompareType を、一回ずつ `event` で計数するのと同じ結果にする。trace を取らず、上限に届かないときは
+    /// 一度に足す。上限に届くとき（超過するイベントの前で止まる）と trace を取るときは、一回ずつ `event` を呼ぶ。
+    fn compares(&mut self, n: u64, node: &Meta) -> TcR<()> {
+        if !self.counting {
+            return Ok(());
+        }
+        let fits = self
+            .work
+            .total()
+            .checked_add(n)
+            .is_some_and(|t| t <= self.profile.semantic_work);
+        if self.trace.is_none() && fits {
+            self.work.compare += n;
+            return Ok(());
+        }
+        for _ in 0..n {
+            self.event(Ev::Compare, node)?;
+        }
+        Ok(())
+    }
+
+    /// 構造の走査。CompareType を一歩に一つ出し、その数を返す（不一致で止まる一歩も数える）。
+    fn equal_plain(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<(Option<bool>, u64)> {
         let mut todo = vec![(a.clone(), b.clone())];
+        let mut n = 0;
         while let Some((x, y)) = todo.pop() {
             self.event(Ev::Compare, node)?;
+            n += 1;
             if x.tag() != y.tag() {
-                return Ok(Some(false));
+                return Ok((Some(false), n));
             }
             for (p, q) in x.args().iter().zip(y.args()).rev() {
                 todo.push((p.clone(), q.clone()));
             }
         }
-        Ok(Some(true))
+        Ok((Some(true), n))
     }
 
     fn head(&mut self, t: &Ty, tag: TyTag, node: &Meta) -> TcR<Option<bool>> {
@@ -1950,6 +1963,8 @@ fn check_scoped(
     opts: &CheckOptions,
     pass: Option<&SecondPass>,
 ) -> CheckOutcome {
+    // Interned のときは、この検査の間だけ型を正準化する（外側の実行が開いていればそれを使う）
+    let _interning = crate::intern::Scope::enter(opts.sharing == TypeSharing::Interned);
     let mut out = CheckOutcome::default();
     // name
     let name_diags = check_names(prog);

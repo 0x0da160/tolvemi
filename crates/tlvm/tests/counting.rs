@@ -118,13 +118,43 @@ fn fifteen_addition_families_have_fixed_totals() {
 
 #[test]
 fn sharing_does_not_change_counts_or_trace() {
-    // 比較 cache の On と Off で、論理 trace と仕事量が同じ（規則 G の数えない関数も cache の記録に入る）
+    // 比較 cache の On と、それに正準化を加えた Interned で、論理 trace と仕事量が Off と同じ（規則 G の数えない
+    // 関数も cache の記録に入る）
     for (src, _, _) in FIFTEEN {
         let src = format!("{src}\nentry f");
         let off = trace(&src, TypeSharing::Off);
-        let on = trace(&src, TypeSharing::On);
-        assert_eq!(off, on, "{src}");
+        assert_eq!(off, trace(&src, TypeSharing::On), "{src}");
+        assert_eq!(off, trace(&src, TypeSharing::Interned), "{src}");
     }
+}
+
+/// 総称の二つのパス（`check_with`）の受理・仕事量・診断の code。`sharing` の方式で検査する。
+fn two_pass(src: &str, sharing: TypeSharing, semantic_work: u64) -> (bool, u64, Vec<&'static str>) {
+    let profile = sp(semantic_work);
+    let p = match parse_source(src.as_bytes(), &profile) {
+        Parsed::Program(p) => p,
+        Parsed::Failed(_) => panic!("解析できない: {src}"),
+    };
+    let px = expand(&p).unwrap_or_else(|_| panic!("展開できない: {src}"));
+    let opts = CheckOptions {
+        sharing,
+        trace: false,
+    };
+    let (o, _) = check_with(&px, src.len(), &profile, &opts);
+    let codes = o.diagnostics.iter().map(|d| d.code).collect();
+    (o.typed.is_some(), total(o.work), codes)
+}
+
+#[test]
+fn interned_keeps_the_generic_cutoffs_of_both_passes() {
+    // §18.1c の境界（第一パスと複製の和）の fixture を、正準化の有無で比べる
+    let src = "fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(x)\nentry f";
+    for work in [10, 9, 8, 7, 3, 0] {
+        let off = two_pass(src, TypeSharing::Off, work);
+        assert_eq!(off, two_pass(src, TypeSharing::On, work), "{work}");
+        assert_eq!(off, two_pass(src, TypeSharing::Interned, work), "{work}");
+    }
+    assert!(two_pass(src, TypeSharing::Interned, 10).0);
 }
 
 #[test]

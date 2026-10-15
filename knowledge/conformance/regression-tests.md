@@ -1,7 +1,7 @@
 ---
 type: Test Suite
 title: 必須回帰テスト
-description: LPTL v1 設計書 §20.1 の 69 行を既存テストと補助モデルへ対応付けた表。対応・部分・未対応・モデルのみの別と、残りの扱いを示す（2026-10-14 時点）。
+description: LPTL v1 設計書 §20.1 の 69 行を既存テストと補助モデルへ対応付けた表。対応・部分・未対応・モデルのみの別と、残りの扱いを示す（2026-10-15 時点）。
 tags: [lptl, conformance, tests, traceability]
 status: draft
 generated: { by: claude-code/2026-10-14, at: 2026-10-14T00:00:00Z }
@@ -16,7 +16,7 @@ sources:
 
 - 行番号は設計書 §20.1 の表の出現順（1〜69）。
 - 「テスト」は `crates/tlvm/tests/` の Rust テスト（関数名で示す。`regression.rs` の関数を指す場合は省略）。「モデル」は `spec/lptl-v1/v1_check_inputs.json` の case（`v1-C0xx` の下 3 桁で示す）。モデルは仕様の補助モデルの検査であり、処理系の検査ではない（[限定検査](limited-checks.md)）。
-- 2026-10-14 時点の内訳：対応 49、部分 9、未対応 3、モデルのみ 8（合計 69）。
+- 2026-10-15 時点の内訳：対応 53、部分 8、未対応 0、モデルのみ 8（合計 69）。
 - 部分・未対応・モデルのみの行は G0 の未達項目である（[出荷ゲート](../overview/status-and-gates.md)）。[^lptl-design]
 
 # 対応表
@@ -59,7 +59,7 @@ sources:
 | 34 | error 候補 33 件 → 通常 31 件＋E-DIAG-LIMIT | 部分 | `rows_20_1_boundaries`（33 件）、`error_limit`（40 件） | 一件 cutoff の特別選択を未検査 |
 | 35 | host の参照スロット・frame 上限 → HostAborted | 対応 | `host_ref_slots`；`rec.rs`（eval-depth） | stack_bytes 超過は未検査 |
 | 36 | Steps・AllocatedNodes・IntegerBits・OutputBytes 超過 → ResourceExhausted | 対応 | `resource_exhausted` | - |
-| 37 | 型共有・interning・比較 cache の有無 → 同じ trace と仕事量 | 部分 | `sharing_replays_cached_comparisons`、`sharing_keeps_trace_work_and_cutoff`（`tests/sharing.rs`） | interning は実装していない。Ty の Arc 共有は従来のまま |
+| 37 | 型共有・interning・比較 cache の有無 → 同じ trace と仕事量 | 対応 | `sharing_replays_cached_comparisons`、`interning_shares_equal_types_that_the_cache_misses`、`sharing_keeps_trace_work_and_cutoff`（リポジトリの全 `.tlvm` を上限の既定・40・400 で Off・On・Interned と比べる）、`sharing_keeps_trace_work_and_cutoff_on_the_two_pass_path`（総称の二つのパス）（`tests/sharing.rs`）；`sharing_does_not_change_counts_or_trace`、`interned_keeps_the_generic_cutoffs_of_both_passes`（`tests/counting.rs`）；`intern.rs` の単体テスト | - |
 | 38 | add 例、SemanticWork 9 と 8 | 対応 | `semantic_work_trace_fixtures`、`semantic_limits`；モデル C036, C042, C043 | - |
 | 39 | 型深さと SemanticWork の同時超過 → SEMANTIC-TYPE-DEPTH 優先 | 対応 | `semantic_limits` | 同時超過の例は一件のみ |
 | 40 | 合法な param `{"tag":"int"}` は tag 検査なしで受理 | 対応 | `ast_transport` | - |
@@ -95,13 +95,15 @@ sources:
 
 # 残りの扱い（判断が要る行）
 
-判断カード（§20.1 の 35・37・54）の回答は「三行とも実装」である（2026-10-14）。それぞれ次のとおり実装した。残りは下の三点だけである。
+判断カード（§20.1 の 35・37・54）の回答は「三行とも実装」である（2026-10-14）。それぞれ次のとおり実装した。残りは行 35 の stack_bytes と行 54 の実測だけである。
 
 - 行 35：`HostPolicy.max_ref_slots` と、検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` を実装した。環境の束縛を積む直前に検査し、超過は `HostAborted("ref-slots")` とする。ResourceExhausted へは統合しない。stack_bytes の超過は未検査のまま残る。
-- 行 37：型比較の cache（`TypeSharing::On`）を実装した。cache は両型の Arc の address を鍵にし、再照合では覚えた論理イベント列を再生するので、trace・仕事量・cutoff は Off と同じになる。interning（構造による正準化）は実装していない。
+- 行 37：型比較の cache（`TypeSharing::On`、2026-10-14）と型の正準化（`TypeSharing::Interned`、2026-10-15）を実装した。cache は両型の Arc の address を鍵にし、再照合では覚えた CompareType の数を計数するので、trace・仕事量・cutoff は Off と同じになる（trace を取るときは一つずつ記録する）。正準化は型検査の一回の実行の中だけ、構造の同じ型を一つの node にする（`intern.rs`）。論理イベント列は変えず、§18.1a が求める「同じ列・cutoff を再現する計数」を持つ。残りはない。
 - 行 54：`eval/harness.py` に `render`（正解 AST を示して書かせ、`tlvm ast` の一致で採点する）と `gen-render`（連結 arm、`render` とは別行に報告する）を追加した。実測は G4 で行い、ここでは実行していない。
 
 # 更新の記録
+
+- 2026-10-15：行 37 を対応にした。`TypeSharing::Interned`（型検査の一回の実行の中で構造の同じ型を一つの node にする。`crates/tlvm/src/intern.rs`）を実装し、Off・On・Interned の論理 trace・仕事量・cutoff・診断・型が同じことを `tests/sharing.rs` と `tests/counting.rs` で確かめた。既定は Off のまま。2026-10-14 の見出しの内訳（対応 49、部分 9、未対応 3）は表と合わなかったので、表に合わせた（対応 53、部分 8、未対応 0、モデルのみ 8）。
 
 - 2026-10-14（§18.1c の未了の項目）：`counting.rs` に `none_repeated_in_a_fold_allocates_nothing`（行 31 の fold の反復）、`reference_events_of_a_recursive_program_are_fixed`（再帰する型の代表の Steps と AllocatedNodes）、`tagged_copy_is_reported_only_when_rejected`（規則 T と、印つきと印なしの trace の差）を追加した。`recursive.rs` に `recursive_helper_shapes_match_the_deltas`（補助関数の全文の fixture）、`sums.rs` に `wildcard_only_match_is_accepted_on_sums_and_options`（`_` だけの `match`）、`rewritten.rs` に `rewritten_expression_depth_is_checked_after_lowering`（書換え後の式深さ）を追加した。行 31 は fold の反復まで覆ったが、loop の反復が未検査なので部分のままである。§20.1 の件数（対応 52、部分 9、未対応 0、モデルのみ 8）は変わらない。
 

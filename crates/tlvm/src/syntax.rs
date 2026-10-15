@@ -3,6 +3,7 @@
 //! AST node は span（UTF-8 bytes の半開区間）と論理 node index（前順 Admission index）を
 //! 持つが、構造的等価性の比較対象には含めない（`Meta` と `Sp` の `PartialEq` は常に真）。
 
+use crate::intern;
 use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
@@ -808,6 +809,35 @@ struct TyNode {
 #[derive(Clone)]
 pub struct Ty(Arc<TyNode>);
 
+/// 型の正準化の鍵（表が開いていて、子が二つまでのときだけ）。名前の印は実体の address で区別する（同じ構造でも
+/// 印が違えば別の node。表示が印の名前を使うため）。
+fn intern_key(
+    tag: TyTag,
+    args: &[Ty],
+    label: &Label,
+    pname: &Option<Arc<str>>,
+) -> Option<intern::Key> {
+    if args.len() > 2 || !intern::active() {
+        return None;
+    }
+    let mut kids = [0; 2];
+    for (k, a) in kids.iter_mut().zip(args) {
+        *k = a.addr();
+    }
+    let label = match &label.0 {
+        None => 0,
+        Some(Named::Record(r)) => Arc::as_ptr(r) as usize,
+        Some(Named::Sum(s)) => Arc::as_ptr(s) as usize,
+    };
+    Some(intern::Key {
+        tag,
+        arity: args.len() as u8,
+        kids,
+        label,
+        pname: pname.clone(),
+    })
+}
+
 impl Ty {
     /// 比較 cache の鍵に使う共有 node の address（同じ Arc を指す型だけが同じ値になる）。
     pub fn addr(&self) -> usize {
@@ -821,25 +851,41 @@ impl Ty {
             1 + args.iter().map(|a| a.depth()).max().unwrap_or(0)
         };
         let params = args.iter().any(|a| a.has_params());
-        Ty(Arc::new(TyNode {
-            tag,
-            args,
-            depth,
-            label: Label::default(),
-            pname: None,
-            params,
-        }))
+        Ty::make(tag, args, depth, Label::default(), None, params)
     }
+
+    /// 型の node を作る。型検査の実行の中（`TypeSharing::Interned`）では、同じ構造の node は一つにする（`intern`）。
+    fn make(
+        tag: TyTag,
+        args: Vec<Ty>,
+        depth: usize,
+        label: Label,
+        pname: Option<Arc<str>>,
+        params: bool,
+    ) -> Ty {
+        let key = intern_key(tag, &args, &label, &pname);
+        intern::canonical(key, move || {
+            Ty(Arc::new(TyNode {
+                tag,
+                args,
+                depth,
+                label,
+                pname,
+                params,
+            }))
+        })
+    }
+
     /// v1.10：型引数 `name`（総称の関数の本体では、どの型にも使える操作だけが通る不透明な型）。
     pub fn param(name: &str) -> Ty {
-        Ty(Arc::new(TyNode {
-            tag: TyTag::Param,
-            args: vec![],
-            depth: 1,
-            label: Label::default(),
-            pname: Some(name.into()),
-            params: true,
-        }))
+        Ty::make(
+            TyTag::Param,
+            vec![],
+            1,
+            Label::default(),
+            Some(name.into()),
+            true,
+        )
     }
     /// v1.10：型引数の名前（型引数でなければ None）。
     pub fn param_name(&self) -> Option<&str> {
@@ -902,14 +948,14 @@ impl Ty {
     }
     /// レコード名を付けた型（等価性は変わらない）。
     pub fn labeled(&self, label: Label) -> Ty {
-        Ty(Arc::new(TyNode {
-            tag: self.0.tag,
-            args: self.0.args.clone(),
-            depth: self.0.depth,
+        Ty::make(
+            self.0.tag,
+            self.0.args.clone(),
+            self.0.depth,
             label,
-            pname: self.0.pname.clone(),
-            params: self.0.params,
-        }))
+            self.0.pname.clone(),
+            self.0.params,
+        )
     }
     /// レコード名を外した型。
     pub fn unlabeled(&self) -> Ty {

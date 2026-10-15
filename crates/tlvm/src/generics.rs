@@ -815,6 +815,9 @@ pub fn check_with(
     profile: &StaticProfile,
     opts: &CheckOptions,
 ) -> (CheckOutcome, Program) {
+    // 二つのパスで同じ正準化の表を使う（Interned のとき。表は外側のこの範囲で開き、内側の検査は開いたまま使う）
+    let _interning =
+        crate::intern::Scope::enter(opts.sharing == crate::checker::TypeSharing::Interned);
     let mut o = check_program_with(px, eof, profile, opts);
     if !is_generic(px) || o.typed.is_none() {
         return (o, px.clone());

@@ -16,6 +16,7 @@ pub mod formatter;
 pub mod generics;
 pub mod hof;
 pub mod imports;
+mod intern;
 pub mod lexer;
 pub mod lines;
 pub mod lsp;
