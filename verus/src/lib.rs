@@ -27,3 +27,4 @@ pub mod surface;
 pub mod syntax;
 pub mod syntax_proof;
 pub mod value;
+pub mod records_proof;
