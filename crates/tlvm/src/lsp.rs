@@ -4,7 +4,7 @@
 //!
 //! - `initialize`・`initialized`・`shutdown`・`exit`
 //! - `textDocument/didOpen`・`didChange`（全文の同期）・`didClose` → `textDocument/publishDiagnostics`
-//! - `textDocument/formatting`（正準の整形。全文を置き換える一つの edit。構文の誤りがあれば null）
+//! - `textDocument/formatting`（正準の整形。全文を置き換える一つの edit。構文・名前・型などの検査に誤りがあれば null）
 //!
 //! 診断の span（UTF-8 の bytes）は LSP の位置（行と UTF-16 の code unit の列）に直す。`file://` の文書の import は
 //! その文書のファイルのディレクトリから解決し、開いている文書があればその中身を、なければディスクのファイルを読む。
@@ -182,6 +182,11 @@ impl Loader for Overlay<'_> {
 
 /// 文書を検査して診断（LSP の Diagnostic の JSON）の列を返す。
 pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec<String> {
+    check_document(uri, text, others).0
+}
+
+/// 文書を検査する。診断の列と、エラーが一つでもあったかどうかを返す。整形は、エラーのない文書にだけ行う。
+fn check_document(uri: &str, text: &str, others: &BTreeMap<String, String>) -> (Vec<String>, bool) {
     let sp = StaticProfile::default();
     let (r, files, root) = match uri_path(uri) {
         Some(path) => {
@@ -209,15 +214,19 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
     let r = match r {
         SourceCompile::Result(r) => r,
         SourceCompile::SourceBoundaryFailure => {
-            return vec![diag_json(
-                text,
-                (0, 0),
-                1,
-                "SourceBoundaryFailure",
-                "an imported file is not valid UTF-8",
-            )];
+            return (
+                vec![diag_json(
+                    text,
+                    (0, 0),
+                    1,
+                    "SourceBoundaryFailure",
+                    "an imported file is not valid UTF-8",
+                )],
+                true,
+            );
         }
     };
+    let has_error = !r.errors().is_empty();
     // import したファイルの診断を置く場所：根の最初の import の行
     let import_span = match parse_source(text.as_bytes(), &sp) {
         Parsed::Program(p) => p.imports.first().map(|i| i.span.t()),
@@ -248,7 +257,7 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
             _ => out.push(diag_json(text, d.span, sev, d.code, &message(d))),
         }
     }
-    out
+    (out, has_error)
 }
 
 /// 正準の整形（`tlvm fmt` と同じ）。構文の誤りがあれば（または検証済み formatter と食い違えば）None。
@@ -302,17 +311,18 @@ impl Server {
         }
     }
 
+    /// 開いているほかの文書の中身（import で依存しうる）。
+    fn others(&self, uri: &str) -> BTreeMap<String, String> {
+        self.docs
+            .iter()
+            .filter(|(u, _)| u.as_str() != uri)
+            .map(|(u, d)| (u.clone(), d.text.clone()))
+            .collect()
+    }
+
     fn publish(&self, uri: &str) -> String {
         let (diags, version) = match self.docs.get(uri) {
-            Some(d) => {
-                let others: BTreeMap<String, String> = self
-                    .docs
-                    .iter()
-                    .filter(|(u, _)| u.as_str() != uri)
-                    .map(|(u, d)| (u.clone(), d.text.clone()))
-                    .collect();
-                (diagnose(uri, &d.text, &others), d.version.clone())
-            }
+            Some(d) => (diagnose(uri, &d.text, &self.others(uri)), d.version.clone()),
             None => (vec![], None),
         };
         let v = version
@@ -385,18 +395,25 @@ impl Server {
                     response(id, "null")
                 }
                 "textDocument/formatting" => {
-                    let edit = uri.as_ref().and_then(|u| self.docs.get(u)).and_then(|d| {
-                        let f = format_text(&d.text)?;
-                        Some(if f == d.text {
-                            "[]".to_string()
-                        } else {
-                            format!(
-                                "[{{\"range\":{},\"newText\":{}}}]",
-                                range_json(&d.text, (0, d.text.len())),
-                                json_string(&f)
-                            )
-                        })
-                    });
+                    let edit = uri
+                        .as_ref()
+                        .and_then(|u| self.docs.get(u).map(|d| (u, d)))
+                        .and_then(|(u, d)| {
+                            // 検査に誤りがあれば整形しない（診断と同じ検査を通った文書だけ整形する）
+                            if check_document(u, &d.text, &self.others(u)).1 {
+                                return None;
+                            }
+                            let f = format_text(&d.text)?;
+                            Some(if f == d.text {
+                                "[]".to_string()
+                            } else {
+                                format!(
+                                    "[{{\"range\":{},\"newText\":{}}}]",
+                                    range_json(&d.text, (0, d.text.len())),
+                                    json_string(&f)
+                                )
+                            })
+                        });
                     response(id, edit.as_deref().unwrap_or("null"))
                 }
                 _ => error(id, -32601, &format!("method not found: {method}")),

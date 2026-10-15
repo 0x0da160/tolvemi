@@ -175,6 +175,17 @@ fn handshake_and_exit_codes() {
 }
 
 #[test]
+fn formatting_refuses_documents_with_errors() {
+    // 型の誤りのある文書は整形しない（診断と同じ検査を通ったものだけ）
+    let bad = "fn f(x: Int) -> Bool = x\nentry f\n";
+    let (_, msgs) = serve(&(init() + &open(URI, bad) + &format_req(7, URI) + &bye()));
+    assert_eq!(
+        response(&msgs, "7").get("result").unwrap().kind,
+        JKind::Null
+    );
+}
+
+#[test]
 fn requests_before_initialize_and_unknown_methods() {
     let (_, msgs) = serve(
         &(request(5, "textDocument/formatting", "{}")

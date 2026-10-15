@@ -3,7 +3,7 @@
 //!   tlvm check FILE           静的検査（.tlvm source、.json は ast_codec_v1）。結果の terminates は
 //!                             `rec fn` がなければ true（停止を保証）、あれば false（v1.7）
 //!   tlvm run FILE INPUT       検査・入力 decode・実行（INPUT は JSON 文字列、@path、- は stdin）
-//!   tlvm fmt FILE             正準ソースを出力
+//!   tlvm fmt FILE             正準ソースを出力（`check` と同じ検査に誤りがあれば出さず、終了コード 1）
 //!   tlvm ast FILE             ast_codec_v1 JSON を出力（v1.11：import があればまとめたプログラム）
 //!
 //! v1.11：source のファイルの先頭の `import "path.tlvm"` は、check・run・test・exec・ast がたどって一つのプログラムに
@@ -97,9 +97,16 @@ fn envelope(name: &str, reason: &str) {
 }
 
 /// 診断を出し、受理されていれば TypedProgram を返す。
-fn compiled(r: CompileResult, label: &str, src: &[u8]) -> Option<tlvm::checker::TypedProgram> {
+fn compiled(
+    r: CompileResult,
+    label: &str,
+    src: &[u8],
+    warn: bool,
+) -> Option<tlvm::checker::TypedProgram> {
     emit_in(r.errors(), label, src);
-    emit_in(r.warnings(), label, src);
+    if warn || !matches!(r, CompileResult::Accepted { .. }) {
+        emit_in(r.warnings(), label, src);
+    }
     match r {
         CompileResult::Accepted { program, .. } => Some(program),
         _ => None,
@@ -107,6 +114,20 @@ fn compiled(r: CompileResult, label: &str, src: &[u8]) -> Option<tlvm::checker::
 }
 
 fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedProgram>, String> {
+    compile_checked(path, as_ast, true)
+}
+
+/// `fmt` の前の検査。`check` と同じ検査を通ったものだけを整形する。受理されたときは警告を出さない。
+fn fmt_checks(path: &str, as_ast: bool) -> Result<bool, String> {
+    Ok(compile_checked(path, as_ast, false)?.is_some())
+}
+
+/// 検査する。`warn` が偽なら、受理されたときの警告は出さない（拒否されたときは出す）。
+fn compile_checked(
+    path: &str,
+    as_ast: bool,
+    warn: bool,
+) -> Result<Option<tlvm::checker::TypedProgram>, String> {
     let data = read(path)?;
     let sp = StaticProfile::default();
     Ok(if as_ast || path.ends_with(".json") {
@@ -119,7 +140,7 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
                 emit_in(&d, path, &data);
                 None
             }
-            AstCompile::Result(r) => compiled(r, path, &data),
+            AstCompile::Result(r) => compiled(r, path, &data, warn),
         }
     } else if path == "-" {
         match compile(&data, &sp) {
@@ -127,7 +148,7 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
                 envelope("SourceBoundaryFailure", "InvalidSourceEncoding");
                 None
             }
-            SourceCompile::Result(r) => compiled(r, path, &data),
+            SourceCompile::Result(r) => compiled(r, path, &data, warn),
         }
     } else {
         // v1.11：import をたどって一つのプログラムにまとめて検査する（import がなければ今までどおり）
@@ -138,7 +159,9 @@ fn compile_file(path: &str, as_ast: bool) -> Result<Option<tlvm::checker::TypedP
             }
             (SourceCompile::Result(r), files) => {
                 emit_files(r.errors(), &files);
-                emit_files(r.warnings(), &files);
+                if warn || !matches!(r, CompileResult::Accepted { .. }) {
+                    emit_files(r.warnings(), &files);
+                }
                 match r {
                     CompileResult::Accepted { program, .. } => Some(program),
                     _ => None,
@@ -218,7 +241,9 @@ fn parse_file(path: &str, as_ast: bool) -> Result<Option<Program>, String> {
                 emit_in(&d, path, &data);
                 None
             }
-            ParsedAst::Failed(AstCompile::Result(r)) => compiled(r, path, &data).map(|t| t.program),
+            ParsedAst::Failed(AstCompile::Result(r)) => {
+                compiled(r, path, &data, true).map(|t| t.program)
+            }
             ParsedAst::Failed(_) => {
                 envelope("AstBoundaryFailure", "InvalidUtf8");
                 None
@@ -227,7 +252,9 @@ fn parse_file(path: &str, as_ast: bool) -> Result<Option<Program>, String> {
     } else {
         match parse_source(&data, &sp) {
             Parsed::Program(p) => Some(p),
-            Parsed::Failed(SourceCompile::Result(r)) => compiled(r, path, &data).map(|t| t.program),
+            Parsed::Failed(SourceCompile::Result(r)) => {
+                compiled(r, path, &data, true).map(|t| t.program)
+            }
             Parsed::Failed(SourceCompile::SourceBoundaryFailure) => {
                 envelope("SourceBoundaryFailure", "InvalidSourceEncoding");
                 None
@@ -635,6 +662,8 @@ fn real_main() -> Result<ExitCode, String> {
             }
             None => Ok(ExitCode::from(1)),
         },
+        // 検査を通ったプログラムだけを整形する（`check` と同じ検査）。拒否なら診断を出して終了コードは 1
+        ["fmt", file] if !fmt_checks(file, as_ast)? => Ok(ExitCode::from(1)),
         ["fmt", file] => match parse_file(file, as_ast)? {
             // v1.1：レコード（v1.4：直和型と match、v1.5：map など、v1.6：loop）を含むプログラムは検証済み formatter の対象外。
             // 診断用 formatter で整形する
