@@ -2554,6 +2554,7 @@ fn push_match(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
+#[verifier::rlimit(50)]
 fn push_inj(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Inj,

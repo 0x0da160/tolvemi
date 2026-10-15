@@ -991,6 +991,7 @@ pub proof fn fds_lex(p: Seq<Sd>, i: nat, d: nat, td: nat)
 
 // ------------------------------------------------------------------ 正準ソースの継続の分離
 
+#[verifier::rlimit(50)]
 pub proof fn ft_app(t: Ty, k: Seq<char>)
     ensures
         ft(t, k) == ft(t, Seq::empty()) + k,
