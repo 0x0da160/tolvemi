@@ -2,7 +2,7 @@
 
 LPTL v1 を LLM が実際に書けるか、どこで失敗するかを測るための評価セットとハーネスです。
 設計書 §12 の Surface モードと Repair モードを実装し、評価の事前登録（evaluation-protocol-v1 草案）のうち
-オーナーの決定に依らない規則（最終候補の選び方、分母と失敗の分類、予算 B、統計、秘密の種）を `--protocol` の実行で使います。
+オーナーの決定に依らない規則（最終候補の選び方、分母と失敗の分類、予算 B、統計）を `--protocol` の実行で使います。
 **草案はまだ登録していないので、ここでの実行はどれも事前登録した正式実験（§12.5、G4）ではありません**。
 ここでの結果から「LPTL は LLM に有利」とは主張せず、診断・Skill・言語拡張（`match_option` など）の優先順位を
 決める材料にします。
@@ -116,12 +116,11 @@ python3 eval/harness.py --model <モデル ID> --effort high --arms lptl,lptl-no
 
 ### protocol の実行
 
-`--protocol CONFIG.json` を付けると、事前登録の設定を読んで実行します。設定にはオーナーが決める五つの項目が**すべて必要**で、
+`--protocol CONFIG.json` を付けると、事前登録の設定を読んで実行します。設定にはオーナーが決める四つの項目が**すべて必要**で、
 既定値はありません。一つでも欠けるか不正なら、何も実行せずに止まります（fail closed）。
 
 ```json
 {
-  "hidden_set_location": "<秘密の最終評価の課題を置くディレクトリ>",
   "repeats": "<反復数 K（1 以上の整数）>",
   "budget": {
     "input_tokens": "<整数>", "output_tokens": "<整数>", "requests": "<整数>", "verification_calls": "<整数>"
@@ -134,18 +133,18 @@ python3 eval/harness.py --model <モデル ID> --effort high --arms lptl,lptl-no
 protocol の実行では、`--model` に加えて `--effort` も明示します（値は `config.json` にだけ記録）。`--repeats` と `--rounds` は使えません
 （K は設定から、回数は B から決まる）。`cli_limits` が `cli-defaults` なら `--backend claude-cli`、`api-fixed` なら `--backend anthropic` です
 （`oracle` はどちらでも空回しに使える）。server-side fallback は使いません。実行のディレクトリには、公開してよいファイルの一覧
-`publish.json`（`publication_scope` による）も出ます。秘密の課題集合の実行では、生データ（`config.json`、`episodes.jsonl`）は
-秘密の課題を明かすので、範囲によらず一覧に入れません。`config.json` には処理系の commit と、未コミットの変更の有無（`git.dirty`）を記録します。
+`publish.json`（`publication_scope` による）も出ます。`config.json` には処理系の commit と、未コミットの変更の有無（`git.dirty`）を記録します。
 
 ```sh
 python3 eval/harness.py --protocol CONFIG.json --backend claude-cli --model MODEL --effort EFFORT --arms lptl,python
-LPTL_EVAL_HIDDEN_SEED=... python3 eval/harness.py --protocol CONFIG.json --task-set secret ...
 ```
 
-隠しテストの種は二つです。公開再現の課題集合（`eval/tasks`）はタスク ID の SHA-256 から決まり、誰でも `gen_tests.py` で
-同じ `hidden.json` を作り直せます。秘密の最終評価の課題集合（`--task-set secret`、設定の `hidden_set_location`）は、環境変数
-`LPTL_EVAL_HIDDEN_SEED` の秘密の値とタスク ID の HMAC-SHA256 から隠しテストをその場で作り、ファイルには書きません。
-環境変数がなければ読みません。種の値はリポジトリにも実行の記録にも書きません。
+公開再現の課題集合（`eval/tasks`）の隠しテストの種はタスク ID の SHA-256 で（`tasks_lib.public_seed`）、誰でも
+`gen_tests.py` で同じ `hidden.json` を作り直せます。
+
+**最終評価の課題集合**：最終評価は、リポジトリの外に置く新しい課題集合で行います（秘密の種は使いません）。この課題集合は
+まだ作っておらず、作ったあとにハッシュで登録します。ハーネスにはまだそれを読む経路がないので、今の `--protocol` の実行は
+公開再現の課題集合だけで回ります。
 
 `claude-cli` はツールを無効にし、設定・MCP・CLAUDE.md を読まずに空の一時ディレクトリで動かすので、
 モデルは参照解や隠しテストを見られません。CLI は 1 回の呼び出しが 1 往復なので、修復の回ではそれまでの会話を

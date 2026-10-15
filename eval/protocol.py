@@ -1,6 +1,6 @@
 """評価の事前登録（evaluation-protocol-v1 草案）のうち、オーナーの決定に依らない規則。
 
-- 必須の設定（草案 §9）：秘密の課題集合の場所、反復数 K、予算 B、CLI の限界の扱い、公開の範囲。
+- 必須の設定（草案 §9 の 2〜4）：反復数 K、予算 B、CLI の限界の扱い、公開の範囲。
   既定値を持たず、一つでも欠けるか不正なら実行しない（fail closed）。値はオーナーが登録の時に決める
 - 予算 B（草案 §5、設計書 §12.5）：四成分の上限。操作の前に guard し、実測の累積が一成分でも上限を
   超えた episode は budget 失敗とする（ちょうど上限は許す）
@@ -22,8 +22,9 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------------------------- 必須の設定（§9）
 
+# §9 の 1（最終評価の課題集合）は決まった：秘密の種は使わず、リポジトリの外に置く新しい課題集合で行う。
+# その課題集合はまだないので、置き場所の項目も読み込みの経路もまだ持たない
 CONFIG_KEYS = {
-    "hidden_set_location": "§9 の 1：秘密の最終評価の課題集合を置くディレクトリ",
     "repeats": "§9 の 2：反復数 K（1 以上の整数）",
     "budget": "§9 の 2：予算 B（input_tokens、output_tokens、requests、verification_calls の四つ。どれも 1 以上の整数）",
     "cli_limits": "§9 の 3：温度・seed・最大出力を CLI で固定できないことの扱い（cli-defaults か api-fixed）",
@@ -59,7 +60,6 @@ class Budget:
 
 @dataclass(frozen=True)
 class ProtocolConfig:
-    hidden_set_location: str
     repeats: int
     budget: Budget
     cli_limits: str
@@ -90,9 +90,6 @@ def load_protocol_config(source) -> ProtocolConfig:
             problems.append(f"{key} がありません（{what}）")
     for key in sorted(set(data) - set(CONFIG_KEYS) - {"_comment"}):
         problems.append(f"{key} は知らない項目です")
-    loc = data.get("hidden_set_location")
-    if loc is not None and (not isinstance(loc, str) or not loc.strip()):
-        problems.append("hidden_set_location は空でない文字列（ディレクトリのパス）でなければなりません")
     k = data.get("repeats")
     if k is not None and not _positive_int(k):
         problems.append(f"repeats は 1 以上の整数でなければなりません（{k!r}）")
@@ -116,7 +113,7 @@ def load_protocol_config(source) -> ProtocolConfig:
         problems.append(f"publication_scope は {' か '.join(PUBLICATION_SCOPES)} です（{ps!r}）")
     if problems:
         raise ProtocolConfigError("事前登録の設定が不完全です（fail closed）:\n- " + "\n- ".join(problems))
-    return ProtocolConfig(loc, k, Budget(**{c: b[c] for c in BUDGET_COMPONENTS}), cl, ps)
+    return ProtocolConfig(k, Budget(**{c: b[c] for c in BUDGET_COMPONENTS}), cl, ps)
 
 
 # ---------------------------------------------------------------------------------------------- 予算 B（§5）

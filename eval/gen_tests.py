@@ -2,7 +2,6 @@
 
 乱数の種はタスク ID から決めるので（tasks_lib.public_seed）、何度実行しても同じテストになる。
 reference.py に gen(rng, g) があればそれで入力を作り、無ければ入力型から作る。
-秘密の課題集合の隠しテストはファイルに書かず、ハーネスが秘密の種からその場で作る（tasks_lib.load_secret_tasks）。
 
 usage: python3 eval/gen_tests.py [--count N]
 """

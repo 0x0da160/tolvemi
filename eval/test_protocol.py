@@ -4,13 +4,12 @@
 - 予算 B の四成分の guard と事後の判定（§5、設計書 §12.5 の fixture と同じ答え）
 - 最終候補の選び方（§3）と失敗の分類・試験基盤の事故の判定表
 - 統計（§4）：課題単位の対応ブートストラップ、Holm 法、主要比較の一覧
-- 秘密の課題集合の種（§6、§9 の 1）
+- 公開再現の課題集合の隠しテストの種（public_seed。秘密の種はない）
 
 usage: python3 -m unittest discover -s eval -p 'test_*.py'
 """
 
 import json
-import os
 import subprocess
 import tempfile
 import unittest
@@ -27,7 +26,6 @@ SPEC_CASES = REPO / "spec" / "lptl-v1" / "v1_check_inputs.json"
 
 def full_config(**over) -> dict:
     cfg = {
-        "hidden_set_location": "/nonexistent/secret-tasks",
         "repeats": 3,
         "budget": {"input_tokens": 1000, "output_tokens": 500, "requests": 3, "verification_calls": 20},
         "cli_limits": "cli-defaults",
@@ -68,7 +66,7 @@ class ConfigTest(unittest.TestCase):
             full_config(budget={"input_tokens": 1, "output_tokens": 1, "requests": 1, "verification_calls": 1, "usd": 1}),
             full_config(budget=[1, 1, 1, 1]),
             full_config(cli_limits="default"), full_config(publication_scope="everything"),
-            full_config(hidden_set_location=""), full_config(hidden_set_location=3),
+            full_config(hidden_set_location="/somewhere"),  # 秘密の課題集合の項目はもうない（知らない項目で止まる）
             {**full_config(), "seed": "x"},
         ]
         for cfg in bad:
@@ -441,44 +439,6 @@ class HiddenSeedTest(unittest.TestCase):
         import hashlib
 
         self.assertEqual(T.public_seed("01-sum"), int(hashlib.sha256(b"01-sum").hexdigest()[:16], 16))
-
-    def test_secret_seed_fails_closed_without_the_variable(self):
-        for env in ({}, {T.HIDDEN_SEED_ENV: ""}, {T.HIDDEN_SEED_ENV: "  "}):
-            with self.assertRaises(T.SecretSeedMissing):
-                T.secret_seed("01-sum", env)
-            with self.assertRaises(T.SecretSeedMissing):
-                T.load_secret_tasks(T.TASKS, environ=env)
-
-    def test_secret_seed_depends_on_the_secret_and_the_task(self):
-        a, b = os.urandom(16).hex(), os.urandom(16).hex()  # 種の値をリポジトリに書かない
-        env_a, env_b = {T.HIDDEN_SEED_ENV: a}, {T.HIDDEN_SEED_ENV: b}
-        self.assertEqual(T.secret_seed("01-sum", env_a), T.secret_seed("01-sum", env_a))
-        self.assertNotEqual(T.secret_seed("01-sum", env_a), T.secret_seed("01-sum", env_b))
-        self.assertNotEqual(T.secret_seed("01-sum", env_a), T.secret_seed("02-count_even", env_a))
-        self.assertNotEqual(T.secret_seed("01-sum", env_a), T.public_seed("01-sum"))
-
-    def test_secret_task_set_generates_hidden_tests_in_memory(self):
-        env = {T.HIDDEN_SEED_ENV: os.urandom(16).hex()}
-        src = T.TASKS / "01-sum"
-        with tempfile.TemporaryDirectory() as d:
-            dst = Path(d) / "s01-sum"
-            dst.mkdir()
-            for f in ("task.json", "reference.py", "reference.tlvm"):
-                (dst / f).write_bytes((src / f).read_bytes())
-            tasks = T.load_secret_tasks(d, count=5, environ=env)
-            self.assertEqual(len(tasks[0]["hidden"]), 5)
-            self.assertFalse((dst / "hidden.json").exists())  # 隠しテストはファイルに書かない
-            self.assertEqual(T.load_secret_tasks(d, count=5, environ=env)[0]["hidden"], tasks[0]["hidden"])
-            public = json.loads((src / "hidden.json").read_text(encoding="utf-8"))[:5]
-            self.assertNotEqual([c["input"] for c in tasks[0]["hidden"]], [c["input"] for c in public])
-            (dst / "hidden.json").write_text("[]", encoding="utf-8")
-            with self.assertRaises(RuntimeError):
-                T.load_secret_tasks(d, environ=env)
-        with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(RuntimeError):
-                T.load_secret_tasks(d, environ=env)  # 課題がない
-            with self.assertRaises(FileNotFoundError):
-                T.load_secret_tasks(Path(d) / "missing", environ=env)
 
     def test_public_hidden_tests_are_unchanged(self):
         """公開の hidden.json は、種の関数を分けたあとも公開の種から同じものが作られる（5 題で確かめる）。"""

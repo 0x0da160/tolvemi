@@ -13,8 +13,9 @@ from pathlib import Path
 
 import harness
 import runner
+import tasks_lib
 from protocol import Budget, BackendError, estimate_tokens
-from tasks_lib import EVAL, HIDDEN_SEED_ENV, load_tasks
+from tasks_lib import EVAL, load_tasks
 
 
 class Scripted:
@@ -506,9 +507,7 @@ class ClaudeCliTest(unittest.TestCase):
 class MainTest(unittest.TestCase):
     """main（protocol の実行）を oracle で一題だけ回す。モデルは呼ばない。"""
 
-    def run_main(self, *args, config=None, env_extra=None, model="model-under-test"):
-        env = {k: v for k, v in os.environ.items() if k != HIDDEN_SEED_ENV}
-        env.update(env_extra or {})
+    def run_main(self, *args, config=None, model="model-under-test"):
         with tempfile.TemporaryDirectory() as d:
             argv = [sys.executable, str(EVAL / "harness.py"), "--backend", "oracle", "--tasks", "sum", "--out", d, *args]
             if model is not None:
@@ -517,13 +516,13 @@ class MainTest(unittest.TestCase):
                 cfg = Path(d) / "protocol.json"
                 cfg.write_text(json.dumps(config), encoding="utf-8")
                 argv += ["--protocol", str(cfg)]
-            p = subprocess.run(argv, capture_output=True, text=True, env=env, timeout=600)
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=600)
             runs = [r for r in Path(d).iterdir() if r.is_dir()]
             files = {f.name: f.read_text(encoding="utf-8") for r in runs for f in r.iterdir()}
         return p, runs, files
 
     def config(self, **over):
-        cfg = {"hidden_set_location": "/nonexistent/secret-tasks", "repeats": 1,
+        cfg = {"repeats": 1,
                "budget": {"input_tokens": 200000, "output_tokens": 50000, "requests": 3, "verification_calls": 40},
                "cli_limits": "cli-defaults", "publication_scope": "summary-only"}
         cfg.update(over)
@@ -556,11 +555,15 @@ class MainTest(unittest.TestCase):
             self.assertIn("--model", p.stderr)
             self.assertEqual(runs, [])
 
-    def test_secret_task_set_fails_closed_without_the_seed(self):
-        p, runs, _ = self.run_main("--arms", "lptl", "--task-set", "secret", config=self.config())
-        self.assertEqual(p.returncode, 2)
-        self.assertIn(HIDDEN_SEED_ENV, p.stderr)
-        self.assertEqual(runs, [])
+    def test_secret_task_set_mode_is_gone(self):
+        # 最終評価は秘密の種を使わず、リポジトリの外の新しい課題集合で行う（まだない）。秘密の課題集合の経路はない
+        for config in (self.config(), None):
+            p, runs, _ = self.run_main("--arms", "lptl", "--task-set", "secret", config=config)
+            self.assertEqual(p.returncode, 2, p.stderr)
+            self.assertIn("--task-set", p.stderr)
+            self.assertEqual(runs, [])
+        self.assertFalse(hasattr(harness, "load_secret_tasks"))
+        self.assertFalse(hasattr(tasks_lib, "secret_seed"))
 
     def test_unimplemented_arms_name_the_missing_decision(self):
         p, _, _ = self.run_main("--arms", "python-restricted")

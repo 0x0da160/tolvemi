@@ -57,7 +57,7 @@ from protocol import (BYTES_PER_TOKEN, CLI_ERROR_SUBTYPES, PUBLISHABLE, PYTHON_R
 from runner import find_let, nolet_rejection, run_ast, run_lptl, run_python
 from stats import (BOOTSTRAP_LEVEL, BOOTSTRAP_RESAMPLES, RegistryError, bootstrap_seed, difference, interval,
                    load_registry, paired_bootstrap, primary_comparisons, task_scores, wilson)
-from tasks_lib import EVAL, HIDDEN_SEED_ENV, SecretSeedMissing, load_secret_tasks, load_tasks
+from tasks_lib import EVAL, load_tasks
 
 REPO = EVAL.parent
 SKILL = (EVAL / "SKILL.md").read_text(encoding="utf-8")
@@ -931,8 +931,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default=str(EVAL / "runs"))
     ap.add_argument("--protocol", metavar="CONFIG.json", help="事前登録の設定（必須の項目が欠ければ実行しない）")
-    ap.add_argument("--task-set", choices=("public", "secret"), default="public",
-                    help=f"secret は設定の hidden_set_location の課題を、環境変数 {HIDDEN_SEED_ENV} の種で読む")
     ap.add_argument("--primary", default=str(EVAL / "primary_comparisons.json"), help="主要比較の一覧（protocol の実行）")
     args = ap.parse_args(argv)
     explicit = _explicit(argv)
@@ -956,17 +954,9 @@ def main(argv: list[str] | None = None) -> int:
         if problems := protocol_problems(args, explicit, cfg, arms):
             print("protocol の実行の前提が満たされていません（fail closed）:\n- " + "\n- ".join(problems), file=sys.stderr)
             return 2
-    elif args.task_set == "secret":
-        ap.error("--task-set secret needs --protocol (hidden_set_location)")
 
-    if args.task_set == "secret":
-        try:
-            tasks = load_secret_tasks(cfg.hidden_set_location)
-        except (SecretSeedMissing, OSError, RuntimeError) as e:
-            print(f"秘密の課題集合を読めません（fail closed）: {e}", file=sys.stderr)
-            return 2
-    else:
-        tasks = load_tasks()
+    # 課題集合は公開再現の eval/tasks だけ。最終評価の課題集合（リポジトリの外）はまだないので、読む経路もない
+    tasks = load_tasks()
     if only := [t for t in args.tasks.split(",") if t]:
         tasks = [t for t in tasks if any(t["id"] == o or t["id"].split("-", 1)[1] == o for o in only)]
     if cats := [c for c in args.category.split(",") if c]:
@@ -1005,10 +995,8 @@ def main(argv: list[str] | None = None) -> int:
         "repeats": repeats,
         "tasks": len(tasks),
         "task_ids": [t["id"] for t in tasks],
-        "task_set": args.task_set,
+        "task_set": "public",
         "task_filter": ",".join(only + cats) or None,
-        "hidden_seed": (f"HMAC-SHA256(${HIDDEN_SEED_ENV}, task id); the value is never recorded" if args.task_set == "secret"
-                        else "sha256(task id) (tasks_lib.public_seed)"),
         "skill_sha256": hashlib.sha256(SKILL.encode()).hexdigest(),
         "system_sha256": {a: hashlib.sha256(s.encode()).hexdigest() for a, s in systems.items()},
         "ast_schema_sha256": hashlib.sha256(AST_SCHEMA_PATH.read_bytes()).hexdigest(),
@@ -1022,11 +1010,8 @@ def main(argv: list[str] | None = None) -> int:
         config["protocol"] = cfg.as_dict()
         config["primary_comparisons"] = {"path": args.primary,
                                          "sha256": hashlib.sha256(Path(args.primary).read_bytes()).hexdigest()}
-        files = list(PUBLISHABLE[cfg.publication_scope])
-        if args.task_set == "secret":
-            # 生データ（config.json の課題 ID、episodes.jsonl の回答とコード）は秘密の課題を明かすので、範囲によらず公開しない
-            files = [f for f in files if f in PUBLISHABLE["summary-only"]]
-        config["publication"] = {"scope": cfg.publication_scope, "task_set": args.task_set, "files": files}
+        config["publication"] = {"scope": cfg.publication_scope, "task_set": "public",
+                                 "files": list(PUBLISHABLE[cfg.publication_scope])}
     (out / "config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     jobs = [(t, a, r) for r in range(1, repeats + 1) for a in arms for t in tasks]
