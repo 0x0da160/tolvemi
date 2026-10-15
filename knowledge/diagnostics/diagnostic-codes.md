@@ -20,6 +20,8 @@ sources:
 
 `E-ARITY-USER` と `E-ARITY-BUILTIN` は正式な具体コード。その他の型／name／lex／parse の具体コード、message template、repair 生成規則は版付き diagnostic registry に列挙して G0 で照合する（registry は未作成）。下表は設計書本文に現れるコードの抽出であり、registry の代用ではない。[^lptl-design] 突き合わせ報告は本文の診断コードを52種類と数えている。[^verification-report]
 
+2026-10-14 に、処理系のソースで発生する具体コードのうち、上の表に完全な形で載っていなかった 57 件を末尾の表に加えた。message template と repair 生成規則は未固定のまま。
+
 # 分類プレフィックス
 
 | プレフィックス | 対象 |
@@ -119,6 +121,70 @@ sources:
 | `E-AST-LIMIT-BYTES`、`-JSON-DEPTH`、`-INTEGER-DIGITS` | ast-boundary 等 | AST transport 上限 |
 
 各コードの出る文脈は [static profile](../resources/static-profile.md)、[strict JSON](../api/strict-json.md)、[AST codec](../api/ast-codec.md)、[回帰テスト](../conformance/regression-tests.md) を参照。
+
+# 追加の一覧（2026-10-14）
+
+上の表に完全な形で載っていないコードを、処理系のソースから拾った。省略形の行に含まれるコードも、ここでは完全な形で挙げる。phase はソースが設定する値、発生箇所はソースのファイル名（`crates/tlvm/src/` の下）、意味は `diagnostics.rs` の説明文を短く言い換えたもの。repair の形は書かない。
+
+| コード | phase | 発生箇所 | 意味 |
+|---|---|---|---|
+| `E-AST-DUPLICATE-KEY` | ast-parse | `ast_codec.rs` | AST JSON に重複キーがある |
+| `E-AST-FIELD-TYPE` | ast-schema | `ast_codec.rs` | JSON の型が期待と違う |
+| `E-AST-IDENTIFIER` | ast-schema | `ast_codec.rs`、`softnames.rs` | 識別子が不正（型引数の名は大文字で始める） |
+| `E-AST-INTEGER` | ast-schema | `ast_codec.rs` | 整数が正規形でない |
+| `E-AST-LIMIT-INTEGER-DIGITS` | ast-schema | `ast_codec.rs` | 整数の桁数が上限を超える |
+| `E-AST-LIMIT-JSON-DEPTH` | ast-parse | `ast_codec.rs` | AST JSON の構造深さが上限を超える |
+| `E-AST-LITERAL` | ast-schema | `ast_codec.rs` | 文字・文字列リテラルに書けない文字がある |
+| `E-AST-MISSING-FIELD` | ast-schema | `ast_codec.rs` | 必須キーがない |
+| `E-AST-STRING-SCALAR` | ast-parse | `ast_codec.rs` | AST JSON の文字列に不正な Unicode scalar がある |
+| `E-AST-STRING-TYPE` | ast-schema | `ast_codec.rs` | `List<Char>` は `{"tag":"string"}` と書く |
+| `E-AST-TAG` | ast-schema | `ast_codec.rs` | この位置で許されない tag |
+| `E-AST-UNKNOWN-FIELD` | ast-schema | `ast_codec.rs` | 未知のキーがある |
+| `E-INPUT-CHAR` | input-decode | `values.rs` | 入力の文字が Unicode scalar value でない |
+| `E-INPUT-DUPLICATE-KEY` | input-parse | `plain.rs`、`values.rs` | 入力 JSON に重複キーがある |
+| `E-INPUT-INTEGER` | input-decode | `plain.rs`、`values.rs` | 入力整数が正規形でない |
+| `E-INPUT-MISSING-FIELD` | input-decode | `plain.rs`、`values.rs` | 入力値に必須キーがない |
+| `E-INPUT-STRING-SCALAR` | input-parse | `plain.rs`、`values.rs` | 入力 JSON の文字列に不正な Unicode scalar がある |
+| `E-INPUT-TAG` | input-decode | `plain.rs`、`values.rs` | 入力値の tag が期待型と一致しない |
+| `E-INPUT-UNKNOWN-FIELD` | input-decode | `plain.rs`、`values.rs` | 入力値に未知のキーがある |
+| `E-INTERNAL-SOURCE-BOUNDARY` | source-boundary | `embed.rs` | `&str` は常に UTF-8 なので起きないはずの内部の不変条件の破れ |
+| `E-INTERNAL-VERIFIED-MISMATCH` | internal | `api.rs`、`values.rs` | 検証済み部品と診断用の検査器の判定が食い違った（処理系の不具合） |
+| `E-LEX-INVALID-INTEGER` | lex | `lexer.rs` | 整数リテラルが正規形でない |
+| `E-LIMIT-INPUT-INTEGER-DIGITS` | input-decode | `plain.rs`、`values.rs` | 入力整数の桁数が上限を超える |
+| `E-LIMIT-INPUT-VALUE-NODES` | input-decode | `plain.rs`、`values.rs` | 入力値の node 数が上限を超える |
+| `E-LIMIT-STATIC-AST-NODES` | structural-limits | `parser.rs` | AST node 数が上限を超える |
+| `E-LIMIT-STATIC-EXPR-DEPTH` | structural-limits、semantic-limits | `parser.rs`、`api.rs` | 式の深さが上限を超える（`api.rs` は書換え後の式） |
+| `E-LIMIT-STATIC-FOLD-DEPTH` | structural-limits | `parser.rs` | fold のネスト深さが上限を超える |
+| `E-LIMIT-STATIC-INTEGER-DIGITS` | lexical-limits | `lexer.rs` | 整数リテラルの桁数が上限を超える |
+| `E-LIMIT-STATIC-LET-DEPTH` | structural-limits | `parser.rs` | let のネスト深さが上限を超える |
+| `E-LIMIT-STATIC-SEMANTIC-WORK` | semantic-limits | `checker.rs` | 型検査の仕事量が上限を超える |
+| `E-LIMIT-STATIC-TYPE-DEPTH` | structural-limits | `parser.rs` | 型構文の深さが上限を超える |
+| `E-NAME-DUPLICATE-BINDER` | name | `checker.rs` | fold の acc と item、または match の一つの枝の束縛が同じ名前 |
+| `E-NAME-DUPLICATE-FUNCTION` | name | `checker.rs` | 同名のトップレベル関数が既にある |
+| `E-NAME-DUPLICATE-PARAM` | name | `checker.rs` | 同名の引数が既にある |
+| `E-NAME-SHADOW` | name | `checker.rs` | 外側の変数をシャドーする束縛 |
+| `E-NAME-UNBOUND-VARIABLE` | name | `checker.rs` | 未束縛の変数 |
+| `E-PARSE-EXPECTED-EXPR` | parse | `parser.rs` | 式がある位置に式がない |
+| `E-PARSE-EXPECTED-TOKEN` | parse | `parser.rs` | 必要な区切り記号がない |
+| `E-RECORD-DUPLICATE-FIELD` | name | `records.rs` | 同じ field が二度書かれている |
+| `E-RECORD-DUPLICATE-TYPE` | name | `records.rs`、`sums.rs`、`recursive.rs` | 同じ名前のレコード型が二度宣言されている |
+| `E-RECORD-FIELD-CONFLICT` | name | `records.rs` | field 名が別のレコード型の field と重なる |
+| `E-RECORD-MISSING-FIELD` | name | `records.rs` | レコードの構築に書かれていない field がある |
+| `E-RECORD-UNKNOWN-FIELD` | name | `records.rs` | この名前の field はない |
+| `E-RECORD-UNKNOWN-TYPE` | name | `records.rs`、`sums.rs` | レコード型が宣言されていない（型は使うより前に宣言する） |
+| `E-TYPE-ARG` | typecheck | `checker.rs` | 引数の型が一致しない |
+| `E-TYPE-EQ-OPERANDS` | typecheck | `checker.rs` | `eq` の両引数が同じ型でない |
+| `E-TYPE-EXPECTED-LIST` | typecheck | `checker.rs` | List 型の値が必要な位置に別の型がある |
+| `E-TYPE-FIELD-ACCESS` | typecheck | `checker.rs` | field を参照する式の型が、その field を持つレコード型でない |
+| `E-TYPE-FOLD-BODY` | typecheck | `checker.rs` | fold 本体の型が初期値の型と一致しない |
+| `E-TYPE-FOLD-LIST` | typecheck | `checker.rs` | fold の第 1 引数が List でない |
+| `E-TYPE-GENERIC-DUPLICATE-PARAM` | name | `generics.rs` | 同じ名前の型引数が二度宣言されている |
+| `E-TYPE-GENERIC-PARAM-CONFLICT` | name | `generics.rs` | 型引数の名前が宣言された型の名前と重なる |
+| `E-TYPE-GENERIC-UNUSED-PARAM` | name | `generics.rs` | 型の宣言の型引数が field・variant のどこにも使われていない |
+| `E-TYPE-IF-CONDITION` | typecheck | `checker.rs` | if の条件が Bool でない |
+| `E-TYPE-LIST-ITEM` | typecheck | `checker.rs` | リスト要素の型が注釈と一致しない |
+| `E-TYPE-RETURN` | typecheck | `checker.rs` | 関数本体の型が宣言した戻り型と一致しない |
+| `E-TYPE-SND-ARG` | typecheck | `checker.rs` | snd の引数が Pair でない |
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
 [^verification-report]: LPTL v1 統一版：突き合わせ確認報告
