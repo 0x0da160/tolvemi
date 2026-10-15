@@ -371,8 +371,24 @@ fn calls() {
             (8, 5, 8),
             21,
         ),
-        // 既に束縛のある型引数の bind（同じ型引数が二度現れる呼出し、型引数を明示した呼出し）は、§4.6 の文言の読みが
-        // 二通りあるので、ここでは固定していない。
+        // 既に束縛のある型変数への bind は、Compare を一つと、既存の束縛との Equal を両方数える（§4.6、2026-10-15 の決定）。
+        // 同じ型変数が二度現れる呼出し。第一パス same：V 1：a ／ C 1：戻り Equal(T, T)
+        // 第一パス f：V 3：same、x、1 ／ B 3：リテラル 1 の Int、推論した型引数 T の Int、戻り Int ／
+        //   C 4：bind(T, x) で Compare 1、bind(T, 1) で Compare 1 と Equal(Int, Int) 1、戻り 1
+        // 複製 same<Int>：V 1、C 1
+        (
+            "fn same<T>(a: T, b: T) -> T = a\nfn f(x: Int) -> Int = same(x, 1)",
+            (5, 3, 6),
+            14,
+        ),
+        // 型引数を明示した呼出し。第一パス id：V 1：x ／ C 1：戻り
+        // 第一パス f：V 2：id、x ／ B 2：明示した型引数 Int、戻り Int ／ C 3：bind(T, x) で Compare 1 と Equal(Int, Int) 1、戻り 1
+        // 複製 id<Int>：V 1、C 1
+        (
+            "fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id<Int>(x)",
+            (4, 2, 5),
+            11,
+        ),
         // 引数に現れない型引数を明示する。第一パス mk：V 1：list ／ B 1：List<T> ／ C 2：戻り
         // 第一パス f：V 2：mk、x ／ B 2：型引数 T、戻り型 ／ C 3：bind(Int, Int) は Equal 1、戻り 2
         // 複製 mk<Int>：V 1、B 1、C 2

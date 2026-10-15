@@ -953,8 +953,17 @@ impl Machine {
                     Builtin::Sub => self.int(x.sub(y)),
                     Builtin::Mul => self.int(x.mul(y)),
                     Builtin::Lt => Ok(Rc::new(Value::Bool(x.lt(y)))),
-                    Builtin::Min => Ok(if x.le(y) { a[0].clone() } else { a[1].clone() }),
-                    Builtin::Max => Ok(if x.le(y) { a[1].clone() } else { a[0].clone() }),
+                    // 結果は引数の値だが、整数を返す算術として新しい整数の節点を一つ数える（§18.3 の規則 7）
+                    Builtin::Min => {
+                        let first = x.le(y);
+                        self.allocate(Some(if first { x.bits() } else { y.bits() }))?;
+                        Ok(if first { a[0].clone() } else { a[1].clone() })
+                    },
+                    Builtin::Max => {
+                        let first = x.le(y);
+                        self.allocate(Some(if first { y.bits() } else { x.bits() }))?;
+                        Ok(if first { a[1].clone() } else { a[0].clone() })
+                    },
                     Builtin::Range => self.range(x, y),
                     Builtin::Le => Ok(Rc::new(Value::Bool(x.le(y)))),
                     Builtin::Mod => {

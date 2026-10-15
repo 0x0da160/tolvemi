@@ -284,10 +284,13 @@ fn reference_events_of_small_programs_are_fixed() {
     // P1：入場 1、x の node 1 で 2 step。割当 0。
     // P2：入場 1、add の node 1、組込み 1、x の node 1、1 の node 1 で 5 step。割当は 1 と結果の 2 で、さらに 2 step。計 7。
     // P3：入場 1、add の node 2、組込み 2、x・1・2 の node 3 で 8 step。割当は 1、内側の結果、2、外側の結果の 4 で、さらに 4 step。計 12。
+    // P4（min）・P5（max）：P2 と同じ形。選んだ引数の値を返しても、結果の整数を新しい node として一つ確保する（§18.3 の規則 7）。計 7、割当 2。
     let cases = [
         ("fn f(x: Int) -> Int = x\nentry f", 2, 0),
         ("fn f(x: Int) -> Int = add(x, 1)\nentry f", 7, 2),
         ("fn f(x: Int) -> Int = add(add(x, 1), 2)\nentry f", 12, 4),
+        ("fn f(x: Int) -> Int = min(x, 1)\nentry f", 7, 2),
+        ("fn f(x: Int) -> Int = max(x, 1)\nentry f", 7, 2),
     ];
     for (src, steps, alloc) in cases {
         let program = match compile(src.as_bytes(), &StaticProfile::default()) {
