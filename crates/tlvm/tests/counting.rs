@@ -376,6 +376,215 @@ fn reference_events_of_a_recursive_program_are_fixed() {
     );
 }
 
+// 書換えの族ごとの Steps と AllocatedNodes。§18.3 の参照イベント（式 node の評価開始、関数本体への入場、組込みの
+// 適用開始、spine の読取り（cons と末尾の nil）、list の push と pop、eq の比較、新規の整数・cons・pair・some の
+// 割当。割当は一つで step も一つ）と v1.1 差分 §7（match_option は node の 1 step だけ）を、書換え後の木に当てて
+// 手で数えた。書換え後の形は hof.rs・dict.rs（v1.9 差分 §2）・sums.rs・records.rs・recursive.rs のもの。
+// 下の注釈で「node」は式 node の評価開始、「組込み」は組込みの適用開始、「読取り」は spine の読取り。
+
+const INT5: &str = r#"{"tag":"int","value":"5"}"#;
+
+/// 整数のリストの値 JSON。
+fn int_list(xs: &[i64]) -> String {
+    let items: Vec<String> = xs
+        .iter()
+        .map(|k| format!(r#"{{"tag":"int","value":"{k}"}}"#))
+        .collect();
+    format!(r#"{{"tag":"list","items":[{}]}}"#, items.join(","))
+}
+
+#[test]
+fn reference_events_of_function_taking_builtins_are_fixed() {
+    // 値はすべて手計算（処理系の出力を写したものではない）。
+    // map、入力 [5, 7]。書換え後 reverse(fold(x, list<Int>(), |acc, y| cons(add(y, 1), acc)))
+    //   入場 1、node 4（reverse、fold、x、list）、fold の nil の読取り 1
+    //   反復 2 回 × 11：読取り 1、node 5（cons、add、y、1、acc）、組込み 2（add、cons）、割当 3（1、和、cons）
+    //   reverse：組込み 1、セル 2 個の読取りと割当 4、nil の読取り 1 → 計 34 step、割当 8
+    let map = "fn f(x: List<Int>) -> List<Int> = map(x, |y| add(y, 1))\nentry f\n";
+    assert_eq!(steps_and_allocs(map, &int_list(&[5, 7])), (34, 8));
+    // filter、入力 [1, 3]。書換え後 reverse(fold(x, list<Int>(), |acc, y| if(lt(y, 2), cons(y, acc), acc)))
+    //   入場 1、node 4、nil の読取り 1
+    //   y = 1：読取り 1、node 4（if、lt、y、2）、2 の割当 1、lt 1、cons(y, acc) の node 3・組込み 1・割当 1 → 12
+    //   y = 3：読取り 1、node 4、割当 1、lt 1、acc の node 1 → 8
+    //   reverse：組込み 1、セル 1 個の読取りと割当 2、nil の読取り 1 → 計 30 step、割当 4
+    let filter = "fn f(x: List<Int>) -> List<Int> = filter(x, |y| lt(y, 2))\nentry f\n";
+    assert_eq!(steps_and_allocs(filter, &int_list(&[1, 3])), (30, 4));
+    // any、入力 [1, 3]。書換え後 fold(x, false, |acc, y| if(acc, true, lt(y, 2)))
+    //   入場 1、node 3（fold、x、false）、nil の読取り 1
+    //   y = 1：読取り 1、node 5（if、acc、lt、y、2）、2 の割当 1、lt 1 → 8 ／ y = 3：読取り 1、node 3（if、acc、true）→ 4
+    //   計 17 step、割当 1
+    let any = "fn f(x: List<Int>) -> Bool = any(x, |y| lt(y, 2))\nentry f\n";
+    assert_eq!(steps_and_allocs(any, &int_list(&[1, 3])), (17, 1));
+    // all、入力 [3, 1]。書換え後 fold(x, true, |acc, y| if(acc, lt(y, 2), false))
+    //   入場 1、node 3（fold、x、true）、nil の読取り 1
+    //   y = 3：読取り 1、node 5、割当 1、lt 1 → 8 ／ y = 1：読取り 1、node 3（if、acc、false）→ 4
+    //   計 17 step、割当 1
+    let all = "fn f(x: List<Int>) -> Bool = all(x, |y| lt(y, 2))\nentry f\n";
+    assert_eq!(steps_and_allocs(all, &int_list(&[3, 1])), (17, 1));
+    // find、入力 [3, 1, 0]。書換え後
+    // fold(x, none<Int>(), |acc, y| match_option(acc, if(lt(y, 2), some(y), none<Int>()), |z| some(z)))
+    //   入場 1、node 3（fold、x、none）、nil の読取り 1
+    //   y = 3：読取り 1、node 7（match_option、acc、if、lt、y、2、none）、割当 1、lt 1 → 10
+    //   y = 1：読取り 1、node 8（…、some、y）、割当 2（2、some）、lt 1 → 12
+    //   y = 0：読取り 1、node 4（match_option、acc、some、z）、some の割当 1 → 6
+    //   計 33 step、割当 4
+    let find = "fn f(x: List<Int>) -> Option<Int> = find(x, |y| lt(y, 2))\nentry f\n";
+    assert_eq!(steps_and_allocs(find, &int_list(&[3, 1, 0])), (33, 4));
+    // sort_by、入力 [2, 1]（hof.rs の安定な挿入整列。e は外側の要素、st は内側の fold の状態）
+    //   入場 1、外側の node 3（fold、x、list）、外側の nil の読取り 1
+    //   外側の反復ごと：読取り 1、let の node 1、内側の fold の node 1、cons(e, acc) 5（割当 1）、
+    //     init pair(none, pair(list, false)) 7（割当 2）、内側の nil の読取り 1
+    //   内側の本体：鍵を決める最初の要素 22（node 16、組込み 4、割当 2：some、pair）、
+    //     比べて e を入れる要素 40（node 27、組込み 9、割当 4：cons 2、pair 2）
+    //   終わりの reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r)))))：
+    //     e を入れていないとき 20（cons とセル 1 個で割当 2）、入れたとき 18（セル 2 個で割当 2）
+    //   e = 2：1 + 1 + (1 + 5 + 7 + 23 + 1) + 20 = 59（割当 7）
+    //   e = 1：1 + 1 + (1 + 5 + 7 + 23 + 41 + 1) + 18 = 98（割当 11）
+    //   計 162 step、割当 18
+    let sort_by = "fn f(x: List<Int>) -> List<Int> = sort_by(x, |y| y)\nentry f\n";
+    assert_eq!(steps_and_allocs(sort_by, &int_list(&[2, 1])), (162, 18));
+}
+
+#[test]
+fn reference_events_of_dict_operations_are_fixed() {
+    // 手計算。dict_get(dict_put(dict<Int, Int>(), 1, x), 1)、入力 5。書換え後（v1.9 差分 §2 の形）
+    // let d = (let dd = list<Pair<Int, Int>>() in let kk = 1 in let vv = x in
+    //          let r = fold(dd, pair(list<Pair<Int, Int>>(), false), …) in
+    //          reverse(if(snd(r), fst(r), cons(pair(kk, vv), fst(r)))))
+    // in let k = 1 in fold(d, none<Int>(), |acc, e| if(eq(fst(e), k), some(snd(e)), acc))
+    //   入場 1、let d の node 1
+    //   dict_put 34：let 4 個の node 4、list・1・x の node 3 と 1 の割当 1、空の fold 7（fold・dd の node 2、
+    //     init 4（node 3、割当 1）、nil の読取り 1）、reverse(if(…)) 19（node 10、組込み 4：snd・fst・cons・reverse、
+    //     セル 1 個と nil の読取り 2、割当 3：pair、cons、reverse のセル）
+    //   dict_get 21：let k と 1 の node 2・割当 1、fold・d・none の node 3、nil の読取り 1、
+    //     反復 1 回 14（読取り 1、node 8：if・eq・fst・e・k・some・snd・e、組込み 3：fst・eq・snd、eq の比較 1、some の割当 1）
+    //   計 57 step、割当 7
+    let src =
+        "fn f(x: Int) -> Option<Int> = dict_get(dict_put(dict<Int, Int>(), 1, x), 1)\nentry f\n";
+    assert_eq!(steps_and_allocs(src, INT5), (57, 7));
+}
+
+#[test]
+fn reference_events_of_loop_are_fixed() {
+    // 書換え後の形は hof.rs の loop（16 段の fold。段 1 は if(lt(16^15, m), rg, one)、段 2〜15 は
+    // if(lt(fst(a), m), if(lt(W, sub(m, fst(a))), rg, one), nil)、一番内側は min(16, …) 歩の fold）。
+    // k は ok／err の構築の回数。§18.3 の規則 7 と v1.4 差分は ok／err の割当を書いていない。ここでは some と同じく
+    // 一つの node の確保（step 1、割当 1）と読む。この読みのほかは手計算である。
+    //
+    // max = 0、本体 none<Int>()、入力 5（本体を評価しない。段 2 は nil を辿る）。k = 1（init の ok(x)）
+    //   入場 1、let 4 個の node 4、m の 0 の node 1 と割当 1
+    //   range(0, 16) 38（node 3、割当 2、組込み 1、要素の整数と cons の割当 32）、range(0, 1) 8、list<Int>() の node 1
+    //   match_result・snd・fold の node 3、snd の組込み 1、ok 枝の none の node 1
+    //   段 1：list 7（node 5、2^60 の割当 1、lt 1）、init pair(0, ok(x)) 6 + k（node 4、0 と pair の割当 2）、
+    //     反復 1 回 12（読取り 1、段 2 の fold の node 1、list の node 6 と組込み 2、init の node 1、nil の読取り 1）、
+    //     nil の読取り 1
+    //   計 85 + k step、割当 42 + k
+    let k = 1;
+    let max0 = "fn f(x: Int) -> Option<Int> = loop(x, 0, |s| none<Int>())\nentry f\n";
+    assert_eq!(steps_and_allocs(max0, INT5), (85 + k, 42 + k));
+    // 本体を評価する loop（max >= 1）は固定していない。一番内側の min(16, …) の結果の整数を、§8.4 は新しい node と
+    // 数え、評価器は引数の node を返して数えないので、手計算と処理系の出力が一つずつ違う。
+}
+
+#[test]
+fn reference_events_of_matches_are_fixed() {
+    // 手計算。match の書換え（sums.rs）は match_result・match_option と let の入れ子。match_result も
+    // match_option と同じく node の 1 step だけを数える（§18.3 の規則 1。binder の設定は step ではない）。
+    // 直和型の match（変種 3）。書換え後 match_result(t, |a| a, |s1| match_result(s1, |b| 0, |s2| let c = s2 in c))
+    //   C(7) = err(err(7))：入場 1、node 7（match_result、t、match_result、s1、let、s2、c）→ 8 step、割当 0
+    //   B(true) = err(ok(true))：入場 1、node 5（match_result、t、match_result、s1、0）、0 の割当 1 → 7 step、割当 1
+    let sum = "type T = A(Int) | B(Bool) | C(Int)\nfn f(t: T) -> Int = match t { A(a) => a, B(b) => 0, C(c) => c }\nentry f\n";
+    assert_eq!(
+        steps_and_allocs(
+            sum,
+            r#"{"tag":"err","value":{"tag":"err","value":{"tag":"int","value":"7"}}}"#
+        ),
+        (8, 0)
+    );
+    assert_eq!(
+        steps_and_allocs(
+            sum,
+            r#"{"tag":"err","value":{"tag":"ok","value":{"tag":"bool","value":true}}}"#
+        ),
+        (7, 1)
+    );
+    // Option の match。書換え後 match_option(o, 0, |v| v)
+    //   some(5)：入場 1、node 3（match_option、o、v）→ 4 step、割当 0
+    //   none：入場 1、node 3（match_option、o、0）、0 の割当 1 → 5 step、割当 1
+    let opt = "fn f(o: Option<Int>) -> Int = match o { some(v) => v, none => 0 }\nentry f\n";
+    assert_eq!(
+        steps_and_allocs(opt, r#"{"tag":"some","value":{"tag":"int","value":"5"}}"#),
+        (4, 0)
+    );
+    assert_eq!(steps_and_allocs(opt, r#"{"tag":"none"}"#), (5, 1));
+    // Result の match。書換え後 match_result(r, |v| v, |e| 0)
+    //   ok(5)：入場 1、node 3（match_result、r、v）→ 4 step、割当 0
+    //   err(true)：入場 1、node 3（match_result、r、0）、0 の割当 1 → 5 step、割当 1
+    let res = "fn f(r: Result<Int, Bool>) -> Int = match r { ok(v) => v, err(e) => 0 }\nentry f\n";
+    assert_eq!(
+        steps_and_allocs(res, r#"{"tag":"ok","value":{"tag":"int","value":"5"}}"#),
+        (4, 0)
+    );
+    assert_eq!(
+        steps_and_allocs(res, r#"{"tag":"err","value":{"tag":"bool","value":true}}"#),
+        (5, 1)
+    );
+}
+
+#[test]
+fn reference_events_of_sum_construction_are_fixed() {
+    // 直和型の構築は ok／err の入れ子。B(true) は err<Int, Result<Bool, Int>>(ok<Bool, Int>(true))。
+    // k は ok／err の構築の回数（2）。§18.3 は ok／err の割当を書いていないので、loop と同じく some と同じ読み
+    // （step 1、割当 1）で数えた。そのほかは手計算：入場 1、node 3（err、ok、true）→ 4 + k step、割当 0 + k
+    let k = 2;
+    let src = "type T = A(Int) | B(Bool) | C(Int)\nfn f(x: Int) -> T = B(true)\nentry f\n";
+    assert_eq!(steps_and_allocs(src, INT5), (4 + k, k));
+}
+
+#[test]
+fn reference_events_of_records_are_fixed() {
+    // 手計算。レコードの構築は pair の入れ子、参照は fst／snd（records.rs）。
+    // 書換え後 let p = pair(n, true) in fst(p)
+    //   入場 1、node 6（let、pair、n、true、fst、p）、pair の割当 1、fst の組込み 1 → 9 step、割当 1
+    let two = "type P = { x: Int, y: Bool }\nfn f(n: Int) -> Int = let p = P { x: n, y: true } in p.x\nentry f\n";
+    assert_eq!(steps_and_allocs(two, INT5), (9, 1));
+    // 書換え後 let q = pair(n, pair(true, 2)) in snd(snd(q))
+    //   入場 1、node 9（let、pair、n、pair、true、2、snd、snd、q）、割当 3（2、内側の pair、外側の pair）、
+    //   snd の組込み 2 → 15 step、割当 3
+    let three = "type Q = { a: Int, b: Bool, c: Int }\nfn f(n: Int) -> Int = let q = Q { a: n, b: true, c: 2 } in q.c\nentry f\n";
+    assert_eq!(steps_and_allocs(three, INT5), (15, 3));
+}
+
+#[test]
+fn reference_events_of_recursive_helpers_are_fixed() {
+    // 手計算。再帰する型 Chain = End | Link(Chain) の値は整数の列（recursive.rs）。補助関数の全文は
+    // recursive.rs の recursive_helper_shapes_match_the_deltas で固定した形と同じもの。
+    // 構築 Link(End)：書換え後 link_new(list<Int>(0))、
+    // link_new(a) = concat(list<Int>(1), concat(list<Int>(length(a)), a))、結果 [1, 1, 0]
+    //   入場 1、呼出しの node 1、list<Int>(0) 6（node 2、push 1、pop 1、割当 2：0 と cons）
+    //   link_new 32：入場 1、concat の node 2、list<Int>(1) 6（割当 2）、list<Int>(length(a)) 10（length 6：node 2、
+    //     組込み 1、読取り 2、割当 1。list の node 1、push 1、pop 1、割当 1）、a の node 1、concat 2 回 × 6（組込み 1、
+    //     セル 1 個の読取りと push 2、nil の読取り 1、pop と割当 2）
+    //   計 40 step、割当 8
+    let build = "type Chain = End | Link(Chain)\nfn f(x: Int) -> Chain = Link(End)\nentry f\n";
+    assert_eq!(steps_and_allocs(build, INT5), (40, 8));
+    // match。書換え後 let scrut = link_new(list<Int>(0)) in let tag = rec_at(scrut, 0) in
+    // if(eq(tag, 0), 0, let rest = rec_drop(scrut, 1) in let len = rec_at(rest, 0) in
+    //   let data = rec_take(rec_drop(rest, 1), len) in let c = data in 1)
+    // 補助関数の手間（呼出しの node と引数を除き、入場を含む。L は列の長さ）：
+    //   rec_drop(xs, n) = 14 + 21 × 落とす個数 + 22 × 残す個数、割当 2 + 3L
+    //   rec_take(xs, n) = 14 + 27 × 取る個数 + 9 × 残りの個数、割当 2 + 5 × 取る個数
+    //   rec_at(xs, i) = 11 + rec_drop(xs, i) + rec_take(·, 1) + 2 × 取った個数、割当 2 + 両方の割当
+    //   入場 1、let 2 個の node 2、scrut の値 39（割当 8）
+    //   rec_at(scrut, 0) 156：node 2、0 の割当込み 2、rec_at 152（rec_drop 80、rec_take 59）、割当 21
+    //   if 1、eq(tag, 0) 6（node 3、0 の割当 1、組込み 1、比較 1）→ 偽
+    //   else 319：let 4 個の node 4、rec_drop(scrut, 1) 83（割当 12）、rec_at(rest, 0) 125（割当 18）、
+    //     rec_take(rec_drop(rest, 1), len) 104（割当 16）、data の node 1、1 の node と割当 2
+    //   計 524 step、割当 77
+    let matched = "type Chain = End | Link(Chain)\nfn f(x: Int) -> Int = match Link(End) { End => 0, Link(c) => 1 }\nentry f\n";
+    assert_eq!(steps_and_allocs(matched, INT5), (524, 77));
+}
+
 /// 型検査の仕事量と、論理 trace の名前の列（`CheckOptions` は比較 cache Off）。
 fn check_of(px: &tlvm::syntax::Program, len: usize) -> (Vec<&'static str>, u64) {
     let (mut o, _) = check_with(

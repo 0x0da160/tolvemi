@@ -103,6 +103,8 @@ sources:
 
 # 更新の記録
 
+- 2026-10-15（§18.1c の未了の項目）：`crates/tlvm/tests/counting_nodes.rs` を追加した（`docs/typecheck-counting-design.md` §4.1〜§4.6 の節点の手計算の総計。`literals_and_text_builtins`、`arithmetic_and_comparison_builtins`、`list_and_pair_builtins`、`dict_builtins`、`result_and_sum_nodes`、`records_and_recursive_sums`、`function_taking_builtins`、`calls`、`rejected_calls_count_no_comparison_or_result_type`）。`counting.rs` に書換えの族ごとの Steps と AllocatedNodes（`reference_events_of_function_taking_builtins_are_fixed`、`reference_events_of_dict_operations_are_fixed`、`reference_events_of_loop_are_fixed`、`reference_events_of_matches_are_fixed`、`reference_events_of_sum_construction_are_fixed`、`reference_events_of_records_are_fixed`、`reference_events_of_recursive_helpers_are_fixed`）を追加した。§20.1 の件数（対応 53、部分 8、未対応 0、モデルのみ 8）は変わらない。
+
 - 2026-10-15：行 37 を対応にした。`TypeSharing::Interned`（型検査の一回の実行の中で構造の同じ型を一つの node にする。`crates/tlvm/src/intern.rs`）を実装し、Off・On・Interned の論理 trace・仕事量・cutoff・診断・型が同じことを `tests/sharing.rs` と `tests/counting.rs` で確かめた。既定は Off のまま。2026-10-14 の見出しの内訳（対応 49、部分 9、未対応 3）は表と合わなかったので、表に合わせた（対応 53、部分 8、未対応 0、モデルのみ 8）。
 
 - 2026-10-14（§18.1c の未了の項目）：`counting.rs` に `none_repeated_in_a_fold_allocates_nothing`（行 31 の fold の反復）、`reference_events_of_a_recursive_program_are_fixed`（再帰する型の代表の Steps と AllocatedNodes）、`tagged_copy_is_reported_only_when_rejected`（規則 T と、印つきと印なしの trace の差）を追加した。`recursive.rs` に `recursive_helper_shapes_match_the_deltas`（補助関数の全文の fixture）、`sums.rs` に `wildcard_only_match_is_accepted_on_sums_and_options`（`_` だけの `match`）、`rewritten.rs` に `rewritten_expression_depth_is_checked_after_lowering`（書換え後の式深さ）を追加した。行 31 は fold の反復まで覆ったが、loop の反復が未検査なので部分のままである。§20.1 の件数（対応 52、部分 9、未対応 0、モデルのみ 8）は変わらない。
