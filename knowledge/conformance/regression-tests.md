@@ -109,4 +109,6 @@ sources:
 
 - 2026-10-14：行 35・37・48・54 を実装し、tlvm の全テスト（271 件、失敗 0）と Verus（627 verified、error 0）を通した。
 
+- 2026-10-15：`cargo fmt`（`56c5ce5`）の後、Verus の `push_inj`（`verus/src/surface.rs`）と `ft_app`（`verus/src/syntax_proof.rs`）が rlimit を超えて失敗していた（625 verified、error 2）。並びを変えた `verus/src/lib.rs` と `verus/src/pipeline.rs` を戻すと 627・0 になり、両関数に `#[verifier::rlimit(50)]` を付けても 627・0 になった。後者を採り（`5ff847f`）、証明と仕様は変えていない。
+
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1
