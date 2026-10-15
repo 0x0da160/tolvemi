@@ -47,7 +47,7 @@ sources:
   受理された文書には空の配列。
 - `file://` の文書の import は、開いている文書を先に、なければディスクを読む。import したファイルの誤りは根の最初の import の
   行に `path:行:列:` を付けて出す。ほかの URI では import は `E-IMPORT-UNSUPPORTED`。
-- 整形は `tlvm fmt` と同じ正準の整形を、文書全体を置き換える一つの edit で返す。既に正準なら `[]`、構文の誤りがあれば `null`。
+- 整形は `tlvm fmt` と同じ正準の整形を、文書全体を置き換える一つの edit で返す。既に正準なら `[]`。構文・名前・型などの検査に一つでも誤りがあれば `null` を返し、整形しない。
 - editor では、拡張子 `.tlvm` の言語の server のコマンドを `tlvm lsp` にする（`--stdio` は受け付けて無視する）。
 
 [^lptl-v1-12]: [LPTL v1.12 差分仕様](../../spec/lptl-v1.12/LPTL_v1.12_delta.md)

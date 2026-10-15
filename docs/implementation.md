@@ -105,7 +105,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの一覧（49 語）と、`tlvm ast`・`encode_ast` が字句表の語を変数名に使ったプログラムを `E-AST-IDENTIFIER` で拒否する検査（検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
 | `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
-| `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形。未検証の front-end |
+| `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形（検査に誤りがあれば返さない）。未検証の front-end |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`（v1.12：`repl`・`lsp`）、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
 
 ```sh
@@ -302,7 +302,7 @@ cargo run --release -- test examples/sum_even.tlvm                              
   手で組み立てます。request の `id` は受け取った bytes をそのまま返します。文書は全文同期で保持し、開く・変えるたびに
   その文書と、ほかの開いている文書の診断を出し直します。`file://` の文書は `imports::compile_root` に、開いている文書の
   中身を先に返す loader（中で `FsLoader` に委ねる）を渡して検査します。span の写像は、byte 位置の前の `\n` の数を行に、
-  行頭からの文字の `len_utf16` の和を列にします。整形は `tlvm fmt` の source の経路と同じ判定（`needs_glue`・import の有無と、
+  行頭からの文字の `len_utf16` の和を列にします。整形は、検査に誤りがなければ `tlvm fmt` の source の経路と同じ判定（`needs_glue`・import の有無と、
   検証済み formatter との照合）です。
 
 ```sh

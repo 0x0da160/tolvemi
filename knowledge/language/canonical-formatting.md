@@ -35,6 +35,11 @@ sources:
 
 `canonical_source(P)` は、受理済み AST を formatter が UTF-8 で出力した値で、[成果物ハッシュ](../api/hashes-and-identity.md) の入力になる。
 
+# 検査との関係
+
+`tlvm fmt` と LSP の整形は、`tlvm check` と同じ検査（構文・名前・型・静的な上限・import）を先に通す。誤りがあれば整形せず、
+`tlvm fmt` は診断を出して終了コード 1、LSP は `null` を返す。警告だけの文書は整形する（[v1.12 差分仕様](../../spec/lptl-v1.12/LPTL_v1.12_delta.md) §2b）。
+
 # 往復性と有限 profile
 
 抽象的には `parse(format(A)) = A`（source span・コメント・元の空白を除いた構文 AST について）。ただし同一 profile で受理した source の formatter 出力が同一 profile で再受理される保証はない。
