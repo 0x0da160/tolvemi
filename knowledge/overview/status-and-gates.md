@@ -66,7 +66,9 @@ G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission�
 
 DECISION-10 は確定した（オーナーの選択、2026-10-14）。`tlvm ast` と `encode_ast` は、字句表の語を変数名に使ったプログラムを付け替えずに `E-AST-IDENTIFIER` で拒否する（オーナーの選択、2026-10-14）。先に選んだ「encode で拒否する」は、出力が受理されるという誤った前提に基づいていたため、決め直しを求めた。拒否の結果、そうしたプログラムは `tlvm ast` で出せず、名前を変える必要がある（[字句の仕様](../language/lexical-syntax.md)）。
 
-DECISION-11（§20.1 の 35・37・54、2026-10-14）：オーナーが「三行とも実装」を選んだ（推奨の「三行とも v1 から外す」は採らない）。行 35 は `HostPolicy.max_ref_slots`（既定 4,000,000）と検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` で実装し、超過は `HostAborted("ref-slots")` とする。host-policy の識別子は `tlvm-rust-host-v1` に改めた。行 37 は型比較の cache（`TypeSharing::On`）で実装し、論理 trace・仕事量・cutoff は Off と同じになる。interning は 2026-10-14 の時点では未実装だった（2026-10-15 に `TypeSharing::Interned` として実装し、行 37 は対応になった。この決定の本文は書き換えていない）。行 54 は `eval/harness.py` の `render` と連結 arm `gen-render` で実装した。実測（G4）は行っていない。残りは [対応表](../conformance/regression-tests.md) の「残りの扱い」に記す。
+DECISION-11（§20.1 の 35・37・54、2026-10-14）：オーナーが「三行とも実装」を選んだ（推奨の「三行とも v1 から外す」は採らない）。行 35 は `HostPolicy.max_ref_slots`（既定 4,000,000）と検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` で実装し、超過は `HostAborted("ref-slots")` とする。host-policy の識別子は `tlvm-rust-host-v1` に改めた。行 37 は型比較の cache（`TypeSharing::On`）で実装し、論理 trace・仕事量・cutoff は Off と同じになる。interning は未実装である。行 54 は `eval/harness.py` の `render` と連結 arm `gen-render` で実装した。実測（G4）は行っていない。残りは [対応表](../conformance/regression-tests.md) の「残りの扱い」に記す。
+
+DECISION-11 の追記（2026-10-15）：行 37 の interning を `TypeSharing::Interned` として実装した（[intern.rs](../../crates/tlvm/src/intern.rs)）。既定は Off のまま。行 37 は対応になった。上の決定の本文は書き換えていない。
 
 DECISION-12（§18.1c の計数の木、2026-10-14）：オーナーが「入力の木で数える」を選んだ（推奨の A。書換え後の木で数える案は採らない）。型検査の論理仕事量は、型検査器が読む木（書換えの前）で数える。実行の参照イベントは書換え後の木で数える。書換え後の大きさの上限は、次の決定として出した（設計書 §11.4）。
 
@@ -94,7 +96,7 @@ Verus は本コンテナでソースからビルド済み（0.2026.10.07.89f8d65
 
 - §18.1c：v1.1〜v1.16 の追加分の計数。型検査の計数は入力の木（書換えの前）で数える（DECISION-12）。規則 G（総称の単相化）と規則 L（`loop` の結果型）を実装し、代表 program の値を [counting.rs](../../crates/tlvm/tests/counting.rs) で固定した（2026-10-14）。固定した：実行の参照イベントの代表値（P1〜P3 と再帰する型の代表）、再帰する直和型の補助関数の形、印つきと印なしの trace（一致せず、報告は規則 T）、書換えの深さの拒否（§18.1）。未了：節点ごとの規則の全体、代表以外の Steps と AllocatedNodes。書換えの深さと整数の bit 数は DECISION-14 で、印つきの構築の形は DECISION-15 で確定した。書換え後の大きさには上限 `E-LIMIT-STATIC-REWRITTEN-BYTES`（4 MiB、DECISION-13）を置いた。書換えの時間は、同日に書換えを要しないものの複製をやめて抑えた（O-7）。G0 の未達項目のまま。設計の経緯は [計数設計](../../docs/typecheck-counting-design.md)。
 - §19.2 と `ast_codec_v1.schema.json`：全 node（v1.1〜v1.16）、fn の `rec` と `type_params`、識別子の除外語（名前はすべて字句表の 68 語）を反映した（2026-10-14）。文字列の制御文字、char の範囲、整数桁上限は codec が検査する。
-- §20.1：v1.x の回帰行を既存テストへ対応付けた（[対応表](../conformance/regression-tests.md)、69 行：対応 52、部分 9、未対応 0、モデルのみ 8）。境界の追加は `rows_20_1_boundaries`（2026-10-14）。行 35・48・54 は 2026-10-14 に実装し、行 37 は interning を除いて実装した（部分）。部分 9 行の残りは対応表の「残りの扱い」に記す。2026-10-15 に行 37 の interning を実装して対応にし、内訳は対応 53、部分 8、未対応 0、モデルのみ 8 になった。§20.4：schema と成果物の bytes・SHA-256 を 2026-10-14 に再記録した。§18.1c の改訂と書換えの時間の記述の改訂で、設計本文の bytes・SHA-256 を再記録した（現在の値は後の再記録）（manifest と検証バンドルの表）。どちらも G0 の未達項目。
+- §20.1：v1.x の回帰行を既存テストへ対応付けた（[対応表](../conformance/regression-tests.md)、69 行。2026-10-15 時点で対応 53、部分 8、未対応 0、モデルのみ 8。2026-10-14 は対応 52、部分 9）。境界の追加は `rows_20_1_boundaries`（2026-10-14）。行 35・48・54 は 2026-10-14 に実装した。行 37 は型比較の cache（`TypeSharing::On`、2026-10-14）と interning（`TypeSharing::Interned`、2026-10-15）で実装し、対応にした。部分 8 行の残りは対応表の「残りの扱い」に記す。§20.4：schema と成果物の bytes・SHA-256 を 2026-10-14 に再記録した。§18.1c の改訂と書換えの時間の記述の改訂で、設計本文の bytes・SHA-256 を再記録した（現在の値は後の再記録）（manifest と検証バンドルの表）。どちらも G0 の未達項目。
 - 証明：§11.2a の接着部分の書換え（版ごとの意味論の一致）は未証明。`verus/src` に該当する証明は無い。
 
 # 設計状態として明示している境界
