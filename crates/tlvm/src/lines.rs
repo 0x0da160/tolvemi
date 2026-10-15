@@ -31,7 +31,9 @@ pub enum LinesResult {
 
 /// entry の入力型が標準入力の行から作れる辞書か（`Dict<String, String>` か `Dict<String, Int>`）。
 pub fn accepts(t: &Ty) -> bool {
-    t.tag() == TyTag::Dict && t.arg(0) == Ty::string() && (t.arg(1) == Ty::string() || t.arg(1) == Ty::int())
+    t.tag() == TyTag::Dict
+        && t.arg(0) == Ty::string()
+        && (t.arg(1) == Ty::string() || t.arg(1) == Ty::int())
 }
 
 /// 生成した JSON の項の位置（JSON の bytes 上、項の `[` の位置）と、もとの行の範囲（標準入力の bytes 上）。
@@ -56,10 +58,16 @@ pub fn dict_from_lines(t: &Ty, stdin: &str) -> LinesResult {
         };
         let (key, value) = (&body[..tab], &body[tab + 1..]);
         if key.is_empty() {
-            return LinesResult::BoundaryFailure(line_error(n, "鍵が空です（TAB より前に文字がありません）"));
+            return LinesResult::BoundaryFailure(line_error(
+                n,
+                "鍵が空です（TAB より前に文字がありません）",
+            ));
         }
         if value.contains('\t') {
-            return LinesResult::BoundaryFailure(line_error(n, "値に TAB があります（TAB は鍵と値の間に一つだけ）"));
+            return LinesResult::BoundaryFailure(line_error(
+                n,
+                "値に TAB があります（TAB は鍵と値の間に一つだけ）",
+            ));
         }
         if int_values && !is_canonical_int(value) {
             return LinesResult::BoundaryFailure(line_error(
@@ -80,7 +88,9 @@ pub fn dict_from_lines(t: &Ty, stdin: &str) -> LinesResult {
     json.push(']');
     match decode_plain_input(t, json.as_bytes(), &InputProfile::default()) {
         DecodeResult::Decoded(tv) => LinesResult::Decoded(tv),
-        DecodeResult::Invalid(ds) => LinesResult::Invalid(ds.into_iter().map(|d| on_stdin(d, &items)).collect()),
+        DecodeResult::Invalid(ds) => {
+            LinesResult::Invalid(ds.into_iter().map(|d| on_stdin(d, &items)).collect())
+        }
         // 生成した JSON は構成上 UTF-8 なので届かない（届いても拒否する）
         DecodeResult::InputBoundaryFailure => LinesResult::BoundaryFailure("InvalidUtf8".into()),
     }

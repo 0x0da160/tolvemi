@@ -62,7 +62,8 @@ use std::collections::HashSet;
 /// `map` など（v1.6 の `loop` も）を一つでも含むか。
 pub fn has_hof(p: &Program) -> bool {
     fn ex(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::Hof { .. } | ExprKind::Loop { .. }) || e.children().into_iter().any(ex)
+        matches!(e.kind, ExprKind::Hof { .. } | ExprKind::Loop { .. })
+            || e.children().into_iter().any(ex)
     }
     p.functions().any(|f| ex(&f.body))
 }
@@ -101,10 +102,16 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
+        ExprKind::Match { binder, .. }
+        | ExprKind::Hof { binder, .. }
+        | ExprKind::Loop { binder, .. } => {
             out.insert(binder.clone());
         }
-        ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+        ExprKind::MatchResult {
+            ok_binder,
+            err_binder,
+            ..
+        } => {
             out.insert(ok_binder.clone());
             out.insert(err_binder.clone());
         }
@@ -122,7 +129,11 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
 
 /// 意味論上の型を構文上の型にする（書き換えで書く `list<A>()`、`none<A>()` 用）。
 pub(crate) fn type_node(t: &Ty, meta: Meta) -> TypeNode {
-    TypeNode::new(t.tag(), t.args().iter().map(|a| type_node(a, meta)).collect(), meta)
+    TypeNode::new(
+        t.tag(),
+        t.args().iter().map(|a| type_node(a, meta)).collect(),
+        meta,
+    )
 }
 
 pub(crate) struct Lower<'a> {
@@ -144,7 +155,13 @@ impl B {
         self.ex(ExprKind::Var(n.to_string()))
     }
     pub(crate) fn call(&self, f: &str, args: Vec<Expr>) -> Expr {
-        self.ex(ExprKind::Call { callee: f.into(), args, builtin: true, callee_span: self.m.span, type_args: vec![] })
+        self.ex(ExprKind::Call {
+            callee: f.into(),
+            args,
+            builtin: true,
+            callee_span: self.m.span,
+            type_args: vec![],
+        })
     }
     pub(crate) fn if_(&self, c: Expr, t: Expr, f: Expr) -> Expr {
         self.ex(ExprKind::If(Box::new(c), Box::new(t), Box::new(f)))
@@ -156,13 +173,21 @@ impl B {
         self.ex(ExprKind::Bool(b))
     }
     pub(crate) fn empty(&self, t: &Ty) -> Expr {
-        self.ex(ExprKind::List { element_type: type_node(t, self.m), items: vec![] })
+        self.ex(ExprKind::List {
+            element_type: type_node(t, self.m),
+            items: vec![],
+        })
     }
     pub(crate) fn none(&self, t: &Ty) -> Expr {
         self.ex(ExprKind::None(type_node(t, self.m)))
     }
     pub(crate) fn let_(&self, name: &str, value: Expr, body: Expr) -> Expr {
-        self.ex(ExprKind::Let { name: name.into(), name_span: self.m.span, value: Box::new(value), body: Box::new(body) })
+        self.ex(ExprKind::Let {
+            name: name.into(),
+            name_span: self.m.span,
+            value: Box::new(value),
+            body: Box::new(body),
+        })
     }
     pub(crate) fn fold(&self, list: Expr, init: Expr, acc: &str, item: &str, body: Expr) -> Expr {
         self.ex(ExprKind::Fold {
@@ -204,11 +229,28 @@ impl Lower<'_> {
         };
         let (op, list, binder, body) = match out.kind {
             // v1.9：辞書の操作（a、b は鍵と値の型）
-            ExprKind::Call { callee, args, builtin: true, .. } if DICT_OPS.contains(&callee.as_str()) => {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin: true,
+                ..
+            } if DICT_OPS.contains(&callee.as_str()) => {
                 return self.dict_op(e.meta, &callee, args, &a, &b);
             }
-            ExprKind::Hof { op, list, binder, body, .. } => (op, list, binder, body),
-            ExprKind::Loop { init, max, binder, body, .. } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
+            ExprKind::Hof {
+                op,
+                list,
+                binder,
+                body,
+                ..
+            } => (op, list, binder, body),
+            ExprKind::Loop {
+                init,
+                max,
+                binder,
+                body,
+                ..
+            } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
             _ => return out,
         };
         let k = B { m: e.meta };
@@ -246,13 +288,21 @@ impl Lower<'_> {
                 k.fold(xs, k.none(&a), &acc, &x, step)
             }
             HofOp::SortBy => {
-                let (el, st, y, kv, ke, r) = (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+                let (el, st, y, kv, ke, r) = (
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                );
                 let fst = |e: Expr| k.call("fst", vec![e]);
                 let snd = |e: Expr| k.call("snd", vec![e]);
                 let cons = |h: Expr, t: Expr| k.call("cons", vec![h, t]);
                 // st = pair(e の鍵（最初の反復で決まる）, pair(書き出した列（逆順）, e を入れたか))
                 let out = || fst(snd(k.var(&st)));
-                let state = |rest: Expr, done: bool| k.pair(fst(k.var(&st)), k.pair(rest, k.bool(done)));
+                let state =
+                    |rest: Expr, done: bool| k.pair(fst(k.var(&st)), k.pair(rest, k.bool(done)));
                 let copy = state(cons(k.var(&y), out()), true);
                 let insert = state(cons(k.var(&y), cons(k.var(&el), out())), true);
                 let skip = state(cons(k.var(&y), out()), false);
@@ -271,7 +321,14 @@ impl Lower<'_> {
                 let init = k.pair(k.none(&Ty::int()), k.pair(k.empty(&a), k.bool(false)));
                 let scan = k.fold(cons(k.var(&el), k.var(&acc)), init, &st, &y, inner);
                 let rest = snd(k.var(&r));
-                let done = k.call("reverse", vec![k.if_(snd(rest.clone()), fst(rest.clone()), cons(k.var(&el), fst(rest)))]);
+                let done = k.call(
+                    "reverse",
+                    vec![k.if_(
+                        snd(rest.clone()),
+                        fst(rest.clone()),
+                        cons(k.var(&el), fst(rest)),
+                    )],
+                );
                 k.fold(xs, k.empty(&a), &acc, &el, k.let_(&r, scan, done))
             }
         }
@@ -290,7 +347,13 @@ impl Lower<'_> {
         let int = |n: u64| k.ex(ExprKind::Int(n.into()));
         let (mx, rg, one) = (self.fresh(), self.fresh(), self.fresh());
         let rt = type_node(&Ty::result(st.clone(), st.clone()), m);
-        let inj = |ok: bool, v: Expr| k.ex(ExprKind::Inj { ok, ty: rt.clone(), value: Box::new(v) });
+        let inj = |ok: bool, v: Expr| {
+            k.ex(ExprKind::Inj {
+                ok,
+                ty: rt.clone(),
+                value: Box::new(v),
+            })
+        };
         let match_result = |scrutinee: Expr, okb: &str, on_ok: Expr, errb: &str, on_err: Expr| {
             k.ex(ExprKind::MatchResult {
                 scrutinee: Box::new(scrutinee),
@@ -305,11 +368,21 @@ impl Lower<'_> {
         let fst = |e: Expr| k.call("fst", vec![e]);
         let snd = |e: Expr| k.call("snd", vec![e]);
         // 外側の段（LOOP_LEVELS - 1 段）の acc と item（外側から順）
-        let outer: Vec<(String, String)> = (1..LOOP_LEVELS).map(|_| (self.fresh(), self.fresh())).collect();
+        let outer: Vec<(String, String)> = (1..LOOP_LEVELS)
+            .map(|_| (self.fresh(), self.fresh()))
+            .collect();
         let (a, _) = &outer[outer.len() - 1];
         // 一番内側の段：n = min(LOOP_BASE, max - c) 歩を v1.6 当初の形の fold で進める（c >= max なら n <= 0 で何もしない）
-        let (n, acc, i, s2, d, res, x, nil) =
-            (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+        let (n, acc, i, s2, d, res, x, nil) = (
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+        );
         let step = k.ex(ExprKind::Match {
             scrutinee: Box::new(body),
             on_none: Box::new(inj(false, k.var(&s))),
@@ -325,30 +398,65 @@ impl Lower<'_> {
             match_result(k.var(&acc), &s, step, &d, inj(false, k.var(&d))),
         );
         // 止まったら c = max（それ以降、外側の段は残りの歩ごとに比較 1 回と空の fold で終わる）
-        let counted = k.pair(match_result(k.var(&res), &x, k.call("add", vec![fst(k.var(a)), k.var(&n)]), &x, k.var(&mx)), k.var(&res));
+        let counted = k.pair(
+            match_result(
+                k.var(&res),
+                &x,
+                k.call("add", vec![fst(k.var(a)), k.var(&n)]),
+                &x,
+                k.var(&mx),
+            ),
+            k.var(&res),
+        );
         let remaining = |a: &str| k.call("sub", vec![k.var(&mx), fst(k.var(a))]);
-        let mut inner = k.let_(&n, k.call("min", vec![int(LOOP_BASE), remaining(a)]), k.let_(&res, chunk, counted));
+        let mut inner = k.let_(
+            &n,
+            k.call("min", vec![int(LOOP_BASE), remaining(a)]),
+            k.let_(&res, chunk, counted),
+        );
         for j in (0..outer.len()).rev() {
             let (a, i) = &outer[j];
             // この段の 1 要素は LOOP_BASE^(LOOP_LEVELS - 1 - j) 歩を受け持つ。残りがそれより多ければ LOOP_BASE 要素、
             // そうでなければ 1 要素を辿る。外側の段の状態で c >= max なら（止まったか max 回評価した）空のリストを辿る
             let width = int(LOOP_BASE.pow(LOOP_LEVELS - 1 - j as u32));
             inner = if j == 0 {
-                let list = k.if_(k.call("lt", vec![width, k.var(&mx)]), k.var(&rg), k.var(&one));
+                let list = k.if_(
+                    k.call("lt", vec![width, k.var(&mx)]),
+                    k.var(&rg),
+                    k.var(&one),
+                );
                 k.fold(list, k.pair(int(0), inj(true, init.clone())), a, i, inner)
             } else {
                 let prev = &outer[j - 1].0;
-                let list = k.if_(k.call("lt", vec![width, remaining(prev)]), k.var(&rg), k.var(&one));
-                let guarded = k.if_(k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]), list, k.var(&nil));
+                let list = k.if_(
+                    k.call("lt", vec![width, remaining(prev)]),
+                    k.var(&rg),
+                    k.var(&one),
+                );
+                let guarded = k.if_(
+                    k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]),
+                    list,
+                    k.var(&nil),
+                );
                 k.fold(guarded, k.var(prev), a, i, inner)
             };
         }
         let r = self.fresh();
-        let result = match_result(snd(inner), &r, k.none(st), &d, k.ex(ExprKind::Some(Box::new(k.var(&d)))));
+        let result = match_result(
+            snd(inner),
+            &r,
+            k.none(st),
+            &d,
+            k.ex(ExprKind::Some(Box::new(k.var(&d)))),
+        );
         let full = k.call("range", vec![int(0), int(LOOP_BASE)]);
         let single = k.call("range", vec![int(0), int(1)]);
         let empty = k.empty(&Ty::int());
-        k.let_(&mx, max, k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))))
+        k.let_(
+            &mx,
+            max,
+            k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))),
+        )
     }
 }
 
@@ -361,14 +469,25 @@ pub fn lower(p: &Program, types: &HofTypes) -> Program {
         taken.extend(f.params.iter().map(|q| q.name.clone()));
         collect(&f.body, &mut taken);
     }
-    let mut l = Lower { types, taken, fresh: 0 };
+    let mut l = Lower {
+        types,
+        taken,
+        fresh: 0,
+    };
     let declarations = p
         .declarations
         .iter()
         .map(|d| match d {
-            Decl::Fn(f) => Decl::Fn(FnDecl { body: l.expr(&f.body), ..f.clone() }),
+            Decl::Fn(f) => Decl::Fn(FnDecl {
+                body: l.expr(&f.body),
+                ..f.clone()
+            }),
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta, imports: p.imports.clone() }
+    Program {
+        declarations,
+        meta: p.meta,
+        imports: p.imports.clone(),
+    }
 }

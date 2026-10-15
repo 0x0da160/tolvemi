@@ -83,20 +83,54 @@ fn pair(a: Expr, b: Expr, m: Meta) -> Expr {
 
 /// 組み込みの関数の呼び出し（`snd` など）。
 pub fn builtin(f: &str, args: Vec<Expr>, m: Meta) -> Expr {
-    ex(ExprKind::Call { callee: f.to_string(), args, builtin: true, callee_span: m.span, type_args: vec![] }, m)
+    ex(
+        ExprKind::Call {
+            callee: f.to_string(),
+            args,
+            builtin: true,
+            callee_span: m.span,
+            type_args: vec![],
+        },
+        m,
+    )
 }
 
 /// 補助関数の呼び出し（利用者の関数と同じ扱い。型引数は引数の型から推論する）。
 pub fn call(f: &str, arg: Expr, m: Meta) -> Expr {
-    ex(ExprKind::Call { callee: f.to_string(), args: vec![arg], builtin: false, callee_span: m.span, type_args: vec![] }, m)
+    ex(
+        ExprKind::Call {
+            callee: f.to_string(),
+            args: vec![arg],
+            builtin: false,
+            callee_span: m.span,
+            type_args: vec![],
+        },
+        m,
+    )
 }
 
 /// 補助関数の宣言（診断の未使用の警告は出さない）。`ctor` は診断に出す名前（型の名前）。
-fn helper(name: &str, params: Vec<(&str, TypeNode)>, ret: TypeNode, body: Expr, tparams: &[TypeParam], m: Meta, ctor: &str) -> FnDecl {
+fn helper(
+    name: &str,
+    params: Vec<(&str, TypeNode)>,
+    ret: TypeNode,
+    body: Expr,
+    tparams: &[TypeParam],
+    m: Meta,
+    ctor: &str,
+) -> FnDecl {
     FnDecl {
         name: name.to_string(),
         name_span: Sp::default(),
-        params: params.into_iter().map(|(n, ty)| Param { name: n.to_string(), name_span: Sp::default(), ty, meta: m }).collect(),
+        params: params
+            .into_iter()
+            .map(|(n, ty)| Param {
+                name: n.to_string(),
+                name_span: Sp::default(),
+                ty,
+                meta: m,
+            })
+            .collect(),
         return_type: ret,
         body,
         meta: m,
@@ -108,7 +142,15 @@ fn helper(name: &str, params: Vec<(&str, TypeNode)>, ret: TypeNode, body: Expr, 
 }
 
 /// 印を付ける補助関数 `name(x: inner) -> named = pair(印, x)`。`named` は `named_ty(r, inner, ..)`。
-pub fn wrap_fn(name: &str, r: usize, inner: TypeNode, named: TypeNode, tparams: &[TypeParam], m: Meta, ctor: &str) -> FnDecl {
+pub fn wrap_fn(
+    name: &str,
+    r: usize,
+    inner: TypeNode,
+    named: TypeNode,
+    tparams: &[TypeParam],
+    m: Meta,
+    ctor: &str,
+) -> FnDecl {
     let body = pair(tag_val(r, m), var("x", m), m);
     helper(name, vec![("x", inner)], named, body, tparams, m, ctor)
 }

@@ -9,7 +9,10 @@ use tlvm::diagnostics::Diagnostic;
 use tlvm::profiles::*;
 
 fn map(files: &[(&str, &str)]) -> BTreeMap<String, String> {
-    files.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    files
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 fn compiled_with(files: &[(&str, &str)], profile: &StaticProfile) -> CompileResult {
@@ -35,7 +38,11 @@ fn codes(files: &[(&str, &str)]) -> Vec<&'static str> {
 /// 唯一の error（コードを確かめ、修復ヒントがあることも確かめる）。
 fn only_error(files: &[(&str, &str)], code: &str) -> Diagnostic {
     let es = errors(files);
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), [code], "{es:?}");
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        [code],
+        "{es:?}"
+    );
     assert!(es[0].repair.is_some(), "{:?}", es[0]);
     es[0].clone()
 }
@@ -50,7 +57,8 @@ fn accepted(files: &[(&str, &str)]) -> tlvm::checker::TypedProgram {
 /// plain JSON で実行した出力。
 fn run(files: &[(&str, &str)], input: &str) -> String {
     let src = map(files);
-    let p = tlvm::embed::Program::compile_files(files[0].0, &src).unwrap_or_else(|e| panic!("{e:?}"));
+    let p =
+        tlvm::embed::Program::compile_files(files[0].0, &src).unwrap_or_else(|e| panic!("{e:?}"));
     p.run_json(input).unwrap()
 }
 
@@ -65,7 +73,13 @@ const SQ: &str = "fn sq(x: Int) -> Int = mul(x, x)\n";
 
 #[test]
 fn basic_import() {
-    let files = [("main.tlvm", "import \"sq.tlvm\"\nfn solve(x: Int) -> Int = add(sq(x), 1)\nentry solve\n"), ("sq.tlvm", SQ)];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"sq.tlvm\"\nfn solve(x: Int) -> Int = add(sq(x), 1)\nentry solve\n",
+        ),
+        ("sq.tlvm", SQ),
+    ];
     assert_eq!(run(&files, "7"), "50");
     assert_eq!(accepted(&files).entry, "solve");
 }
@@ -74,15 +88,24 @@ fn basic_import() {
 fn transitive_and_subdirectories() {
     // パスは import を書いたファイルのディレクトリから解決する。lib/b.tlvm の "c.tlvm" は lib/c.tlvm、"../top.tlvm" は top.tlvm
     let files = [
-        ("main.tlvm", "import \"lib/b.tlvm\"\nfn solve(x: Int) -> Int = quad(x)\nentry solve\n"),
-        ("lib/b.tlvm", "import \"c.tlvm\"\nimport \"../top.tlvm\"\nfn quad(x: Int) -> Int = twice(sq(x))\n"),
+        (
+            "main.tlvm",
+            "import \"lib/b.tlvm\"\nfn solve(x: Int) -> Int = quad(x)\nentry solve\n",
+        ),
+        (
+            "lib/b.tlvm",
+            "import \"c.tlvm\"\nimport \"../top.tlvm\"\nfn quad(x: Int) -> Int = twice(sq(x))\n",
+        ),
         ("lib/c.tlvm", "fn twice(x: Int) -> Int = add(x, x)\n"),
         ("top.tlvm", SQ),
     ];
     assert_eq!(run(&files, "3"), "18");
     // "./" と途中の ".." は正規化する
     let files = [
-        ("main.tlvm", "import \"./lib/../sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"./lib/../sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+        ),
         ("sq.tlvm", SQ),
     ];
     assert_eq!(run(&files, "4"), "16");
@@ -91,12 +114,21 @@ fn transitive_and_subdirectories() {
 #[test]
 fn root_in_a_subdirectory_of_the_map() {
     let files = [
-        ("app/main.tlvm", "import \"util/sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n"),
+        (
+            "app/main.tlvm",
+            "import \"util/sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+        ),
         ("app/util/sq.tlvm", SQ),
     ];
     assert_eq!(run(&files, "5"), "25");
     // 根の key のディレクトリ（app）より上は指せない
-    let files = [("app/main.tlvm", "import \"../sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n"), ("sq.tlvm", SQ)];
+    let files = [
+        (
+            "app/main.tlvm",
+            "import \"../sq.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+        ),
+        ("sq.tlvm", SQ),
+    ];
     let d = only_error(&files, "E-IMPORT-PATH");
     assert_eq!(d.file.as_deref(), Some("app/main.tlvm"));
 }
@@ -119,7 +151,10 @@ fn diamond_loads_each_file_once() {
 #[test]
 fn cycles() {
     let files = [
-        ("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = fa(x)\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = fa(x)\nentry solve\n",
+        ),
         ("a.tlvm", "import \"b.tlvm\"\nfn fa(x: Int) -> Int = x\n"),
         ("b.tlvm", "import \"a.tlvm\"\nfn fb(x: Int) -> Int = x\n"),
     ];
@@ -129,21 +164,49 @@ fn cycles() {
     assert_eq!(spelled(&files, &d), "import \"a.tlvm\"");
     assert_eq!(d.phase, "import");
     // 根に戻る循環と、自分自身の import
-    let files = [("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n"), ("a.tlvm", "import \"main.tlvm\"\n")];
-    assert_eq!(only_error(&files, "E-IMPORT-CYCLE").actual.as_deref(), Some("main.tlvm -> a.tlvm -> main.tlvm"));
-    let files = [("main.tlvm", "import \"main.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n")];
-    assert_eq!(only_error(&files, "E-IMPORT-CYCLE").actual.as_deref(), Some("main.tlvm -> main.tlvm"));
+    let files = [
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
+        ("a.tlvm", "import \"main.tlvm\"\n"),
+    ];
+    assert_eq!(
+        only_error(&files, "E-IMPORT-CYCLE").actual.as_deref(),
+        Some("main.tlvm -> a.tlvm -> main.tlvm")
+    );
+    let files = [(
+        "main.tlvm",
+        "import \"main.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+    )];
+    assert_eq!(
+        only_error(&files, "E-IMPORT-CYCLE").actual.as_deref(),
+        Some("main.tlvm -> main.tlvm")
+    );
 }
 
 #[test]
 fn missing_file() {
-    let files = [("main.tlvm", "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n"), ("lib/b.tlvm", SQ)];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
+        ("lib/b.tlvm", SQ),
+    ];
     let d = only_error(&files, "E-IMPORT-NOT-FOUND");
     assert_eq!(d.file.as_deref(), Some("main.tlvm"));
     assert_eq!(spelled(&files, &d), "\"lib/a.tlvm\"");
-    assert!(d.actual.as_deref().unwrap().starts_with("lib/a.tlvm"), "{d:?}");
+    assert!(
+        d.actual.as_deref().unwrap().starts_with("lib/a.tlvm"),
+        "{d:?}"
+    );
     // 根が対応表にない
-    match compile_files("nope.tlvm", &map(&[("main.tlvm", SQ)]), &StaticProfile::default()) {
+    match compile_files(
+        "nope.tlvm",
+        &map(&[("main.tlvm", SQ)]),
+        &StaticProfile::default(),
+    ) {
         SourceCompile::Result(r) => assert_eq!(r.errors()[0].code, "E-IMPORT-NOT-FOUND"),
         _ => panic!(),
     }
@@ -152,19 +215,37 @@ fn missing_file() {
 #[test]
 fn conflicts_name_both_files() {
     let files = [
-        ("main.tlvm", "import \"a.tlvm\"\nimport \"b.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nimport \"b.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+        ),
         ("a.tlvm", SQ),
         ("b.tlvm", "fn sq(x: Int) -> Int = add(x, x)\n"),
     ];
     let d = only_error(&files, "E-IMPORT-CONFLICT");
     assert_eq!(d.file.as_deref(), Some("b.tlvm"));
     assert_eq!(spelled(&files, &d), "sq");
-    assert_eq!(d.actual.as_deref(), Some("sq: defined in a.tlvm and in b.tlvm"));
+    assert_eq!(
+        d.actual.as_deref(),
+        Some("sq: defined in a.tlvm and in b.tlvm")
+    );
     // 根の定義と import した定義、型・構築子の名前も同じ名前空間
-    let files = [("main.tlvm", "import \"a.tlvm\"\nfn sq(x: Int) -> Int = x\nentry sq\n"), ("a.tlvm", SQ)];
-    assert_eq!(only_error(&files, "E-IMPORT-CONFLICT").file.as_deref(), Some("main.tlvm"));
     let files = [
-        ("main.tlvm", "import \"a.tlvm\"\ntype P = { x: Int }\nfn solve(x: Int) -> Int = x\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn sq(x: Int) -> Int = x\nentry sq\n",
+        ),
+        ("a.tlvm", SQ),
+    ];
+    assert_eq!(
+        only_error(&files, "E-IMPORT-CONFLICT").file.as_deref(),
+        Some("main.tlvm")
+    );
+    let files = [
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\ntype P = { x: Int }\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
         ("a.tlvm", "type P = { y: Int }\n"),
     ];
     assert_eq!(codes(&files), ["E-IMPORT-CONFLICT"]);
@@ -175,9 +256,21 @@ fn conflicts_name_both_files() {
     let d = only_error(&files, "E-IMPORT-CONFLICT");
     assert_eq!(spelled(&files, &d), "Leaf");
     // 一つのファイルの中の重複は今までどおりの診断（file 付き）
-    let files = [("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n"), ("a.tlvm", "fn g(x: Int) -> Int = x\nfn g(x: Int) -> Int = x\n")];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
+        (
+            "a.tlvm",
+            "fn g(x: Int) -> Int = x\nfn g(x: Int) -> Int = x\n",
+        ),
+    ];
     let es = errors(&files);
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-NAME-DUPLICATE-FUNCTION"]);
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-NAME-DUPLICATE-FUNCTION"]
+    );
     assert_eq!(es[0].file.as_deref(), Some("a.tlvm"));
 }
 
@@ -190,16 +283,35 @@ fn import_after_declaration() {
         _ => panic!(),
     };
     let es = r.errors();
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-IMPORT-AFTER-DECL"]);
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-IMPORT-AFTER-DECL"]
+    );
     assert_eq!(es[0].phase, "parse");
     assert_eq!(&src[es[0].span.0..es[0].span.1], "import \"a.tlvm\"");
     assert_eq!(es[0].repair.as_ref().unwrap().kind, "delete_span");
     assert_eq!(es[0].file, None);
     // entry の後、import の並びの途中に宣言があるときも
-    let files = [("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\nimport \"b.tlvm\"\n"), ("a.tlvm", SQ), ("b.tlvm", SQ)];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\nimport \"b.tlvm\"\n",
+        ),
+        ("a.tlvm", SQ),
+        ("b.tlvm", SQ),
+    ];
     assert_eq!(codes(&files), ["E-IMPORT-AFTER-DECL"]);
     // ライブラリの中の誤りはそのファイルに付く
-    let files = [("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n"), ("a.tlvm", "fn sq(x: Int) -> Int = mul(x, x)\nimport \"b.tlvm\"\n")];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+        ),
+        (
+            "a.tlvm",
+            "fn sq(x: Int) -> Int = mul(x, x)\nimport \"b.tlvm\"\n",
+        ),
+    ];
     let d = only_error(&files, "E-IMPORT-AFTER-DECL");
     assert_eq!(d.file.as_deref(), Some("a.tlvm"));
     assert_eq!(spelled(&files, &d), "import \"b.tlvm\"");
@@ -251,8 +363,14 @@ fn dict_shape(d: Dict<Int, Int>) -> Shape = if(lt(dict_size(d), 2), Empty, Circl
         ),
     ];
     let p = accepted(&files);
-    assert!(!p.terminates(), "rec fn は import したファイルにあっても印が残る");
-    assert_eq!(p.output_type.to_string(), "Pair<Pair<Int, Option<Int>>, Pair<Int, Shape>>");
+    assert!(
+        !p.terminates(),
+        "rec fn は import したファイルにあっても印が残る"
+    );
+    assert_eq!(
+        p.output_type.to_string(),
+        "Pair<Pair<Int, Option<Int>>, Pair<Int, Shape>>"
+    );
     assert_eq!(run(&files, "[4, 4, 5]"), r#"[[3,4],[4,{"Circle":[2]}]]"#);
 }
 
@@ -260,12 +378,24 @@ fn dict_shape(d: Dict<Int, Int>) -> Shape = if(lt(dict_size(d), 2), Empty, Circl
 fn library_entry_is_ignored() {
     // ライブラリの entry は根から import したときは無視する（根の entry だけが数える）
     let files = [
-        ("main.tlvm", "import \"lib.tlvm\"\nfn solve(x: Int) -> Int = add(sq(x), 1)\nentry solve\n"),
-        ("lib.tlvm", "fn sq(x: Int) -> Int = mul(x, x)\nfn demo(x: Int) -> Int = sq(x)\nentry demo\n"),
+        (
+            "main.tlvm",
+            "import \"lib.tlvm\"\nfn solve(x: Int) -> Int = add(sq(x), 1)\nentry solve\n",
+        ),
+        (
+            "lib.tlvm",
+            "fn sq(x: Int) -> Int = mul(x, x)\nfn demo(x: Int) -> Int = sq(x)\nentry demo\n",
+        ),
     ];
     assert_eq!(run(&files, "3"), "10");
     // 根に entry がなければ今までどおり E-ENTRY-MISSING（根に付く。ライブラリの entry は代わりにならない）
-    let files = [("main.tlvm", "import \"lib.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\n"), files[1]];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"lib.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\n",
+        ),
+        files[1],
+    ];
     let d = only_error(&files, "E-ENTRY-MISSING");
     assert_eq!(d.file.as_deref(), Some("main.tlvm"));
     // entry のないライブラリを単独で検査すると E-ENTRY-MISSING（ライブラリは根から import して検査する）
@@ -276,28 +406,54 @@ fn library_entry_is_ignored() {
 #[test]
 fn diagnostics_point_at_the_right_file() {
     let files = [
-        ("main.tlvm", "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = add(f(x), true)\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = add(f(x), true)\nentry solve\n",
+        ),
         ("lib/a.tlvm", "fn f(x: Int) -> Int = add(x, \"s\")\n"),
     ];
     let es = errors(&files);
-    let got: Vec<_> = es.iter().map(|d| (d.code, d.file.as_deref().unwrap(), spelled(&files, d))).collect();
-    assert!(got.contains(&("E-TYPE-ARG", "lib/a.tlvm", "\"s\"")), "{got:?}");
-    assert!(got.contains(&("E-TYPE-ARG", "main.tlvm", "true")), "{got:?}");
+    let got: Vec<_> = es
+        .iter()
+        .map(|d| (d.code, d.file.as_deref().unwrap(), spelled(&files, d)))
+        .collect();
+    assert!(
+        got.contains(&("E-TYPE-ARG", "lib/a.tlvm", "\"s\"")),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&("E-TYPE-ARG", "main.tlvm", "true")),
+        "{got:?}"
+    );
     // 修復ヒントの位置もファイルの中
     for d in &es {
         let r = d.repair.as_ref().unwrap();
         assert_eq!(r.target_span, d.span);
     }
     // JSON の最後の key が file
-    assert!(es[0].to_json().ends_with(",\"file\":\"lib/a.tlvm\"}") || es[0].to_json().ends_with(",\"file\":\"main.tlvm\"}"), "{}", es[0].to_json());
+    assert!(
+        es[0].to_json().ends_with(",\"file\":\"lib/a.tlvm\"}")
+            || es[0].to_json().ends_with(",\"file\":\"main.tlvm\"}"),
+        "{}",
+        es[0].to_json()
+    );
     // ライブラリの構文の誤りは、そのファイルの位置と修復ヒント
-    let files = [("main.tlvm", "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n"), ("lib/a.tlvm", "fn f(x: Int) -> Int = add(x 1)\n")];
+    let files = [
+        (
+            "main.tlvm",
+            "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
+        ("lib/a.tlvm", "fn f(x: Int) -> Int = add(x 1)\n"),
+    ];
     let es = errors(&files);
     assert_eq!(es[0].code, "E-PARSE-EXPECTED-TOKEN");
     assert_eq!(es[0].file.as_deref(), Some("lib/a.tlvm"));
     assert_eq!(spelled(&files, &es[0]), "1");
     // import のない単一ファイルの診断には file が付かず、JSON も今までと同じ
-    let es = errors(&[("main.tlvm", "fn solve(x: Int) -> Int = add(x, true)\nentry solve\n")]);
+    let es = errors(&[(
+        "main.tlvm",
+        "fn solve(x: Int) -> Int = add(x, true)\nentry solve\n",
+    )]);
     assert_eq!(es[0].file, None);
     assert!(!es[0].to_json().contains("\"file\""));
 }
@@ -309,7 +465,11 @@ fn unused_library_functions_do_not_warn() {
         ("lib.tlvm", "fn sq(x: Int) -> Int = mul(x, x)\nfn cube(x: Int) -> Int = mul(x, sq(x))\n"),
     ];
     let r = compiled(&files);
-    let ws: Vec<_> = r.warnings().iter().map(|d| (d.code, d.file.as_deref().unwrap(), spelled(&files, d))).collect();
+    let ws: Vec<_> = r
+        .warnings()
+        .iter()
+        .map(|d| (d.code, d.file.as_deref().unwrap(), spelled(&files, d)))
+        .collect();
     assert_eq!(ws, [("W-UNUSED-FUNCTION", "main.tlvm", "spare")]);
 }
 
@@ -321,7 +481,10 @@ fn source_string_apis_reject_imports() {
         _ => panic!(),
     };
     let es = r.errors();
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-IMPORT-UNSUPPORTED"]);
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-IMPORT-UNSUPPORTED"]
+    );
     assert_eq!(&src[es[0].span.0..es[0].span.1], "import \"sq.tlvm\"");
     assert!(es[0].repair.is_some());
     let e = tlvm::embed::Program::compile(src).unwrap_err();
@@ -334,20 +497,41 @@ fn source_string_apis_reject_imports() {
 #[test]
 fn limits() {
     let files = [
-        ("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = fa(x)\nentry solve\n"),
-        ("a.tlvm", "import \"b.tlvm\"\nfn fa(x: Int) -> Int = fb(x)\n"),
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = fa(x)\nentry solve\n",
+        ),
+        (
+            "a.tlvm",
+            "import \"b.tlvm\"\nfn fa(x: Int) -> Int = fb(x)\n",
+        ),
         ("b.tlvm", "fn fb(x: Int) -> Int = x\n"),
     ];
     assert_eq!(run(&files, "1"), "1");
-    let p = StaticProfile { import_files: 2, ..StaticProfile::default() };
+    let p = StaticProfile {
+        import_files: 2,
+        ..StaticProfile::default()
+    };
     let r = compiled_with(&files, &p);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-LIMIT-STATIC-IMPORT-FILES"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-LIMIT-STATIC-IMPORT-FILES"]
+    );
     assert_eq!(r.errors()[0].file.as_deref(), Some("a.tlvm"));
     // bytes はファイルの合計を source_bytes で抑える
     let total: usize = files.iter().map(|(_, s)| s.len()).sum();
-    let p = StaticProfile { source_bytes: total - 1, ..StaticProfile::default() };
-    assert_eq!(compiled_with(&files, &p).errors()[0].code, "E-LIMIT-STATIC-SOURCE-BYTES");
-    let p = StaticProfile { source_bytes: total, ..StaticProfile::default() };
+    let p = StaticProfile {
+        source_bytes: total - 1,
+        ..StaticProfile::default()
+    };
+    assert_eq!(
+        compiled_with(&files, &p).errors()[0].code,
+        "E-LIMIT-STATIC-SOURCE-BYTES"
+    );
+    let p = StaticProfile {
+        source_bytes: total,
+        ..StaticProfile::default()
+    };
     assert!(compiled_with(&files, &p).program().is_some());
 }
 
@@ -380,8 +564,15 @@ impl Drop for Dir {
 }
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 const APP: [(&str, &str); 3] = [
@@ -396,11 +587,18 @@ fn cli_check_run_test_exec() {
     let main = d.path("main.tlvm");
     let (code, out, err) = tlvm(&["check", &main]);
     assert_eq!(code, 0, "{err}");
-    assert!(out.contains(r#""entry":"main","input_type":"String","output_type":"String""#), "{out}");
+    assert!(
+        out.contains(r#""entry":"main","input_type":"String","output_type":"String""#),
+        "{out}"
+    );
     assert_eq!(err, "", "ライブラリの使わない関数は warning にしない");
     let (code, out, err) = tlvm(&["run", &main, "\"hi\"", "--plain"]);
     assert_eq!((code, out.trim_end()), (0, "\"HI!\""), "{err}");
-    std::fs::write(d.path("main.tests.json"), r#"[{"name": "a", "input": "ab", "expected": "AB!"}]"#).unwrap();
+    std::fs::write(
+        d.path("main.tests.json"),
+        r#"[{"name": "a", "input": "ab", "expected": "AB!"}]"#,
+    )
+    .unwrap();
     let (code, out, err) = tlvm(&["test", &main]);
     assert_eq!(code, 0, "{out}{err}");
     let mut c = Command::new(env!("CARGO_BIN_EXE_tlvm"))
@@ -422,9 +620,17 @@ fn cli_check_run_test_exec() {
 fn cli_relative_root_path() {
     // CLI に相対パスで渡しても、import はそのファイルのディレクトリから解決する
     let d = Dir::new(&APP);
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).current_dir(&d.0).args(["run", "main.tlvm", "\"a\"", "--plain"]).output().unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .current_dir(&d.0)
+        .args(["run", "main.tlvm", "\"a\"", "--plain"])
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8(o.stdout).unwrap().trim_end(), "\"A!\"");
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).current_dir(d.0.join("lib")).args(["run", "../main.tlvm", "\"a\"", "--plain"]).output().unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .current_dir(d.0.join("lib"))
+        .args(["run", "../main.tlvm", "\"a\"", "--plain"])
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8(o.stdout).unwrap().trim_end(), "\"A!\"");
 }
 
@@ -444,7 +650,10 @@ fn cli_fmt_keeps_imports_and_ast_is_merged() {
     let solve = out.find("\"name\":\"solve\"").unwrap();
     assert!(sq < solve, "{out}");
     assert_eq!(out.matches("\"tag\":\"entry\"").count(), 1, "{out}");
-    assert!(out.contains("\"tag\":\"entry\",\"name\":\"solve\""), "{out}");
+    assert!(
+        out.contains("\"tag\":\"entry\",\"name\":\"solve\""),
+        "{out}"
+    );
     // まとめた AST はそのまま --ast で動く
     let ast = d.path("merged.json");
     std::fs::write(&ast, &out).unwrap();
@@ -455,7 +664,10 @@ fn cli_fmt_keeps_imports_and_ast_is_merged() {
 #[test]
 fn cli_diagnostics_name_the_file() {
     let d = Dir::new(&[
-        ("main.tlvm", "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = f(x)\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"lib/a.tlvm\"\nfn solve(x: Int) -> Int = f(x)\nentry solve\n",
+        ),
         ("lib/a.tlvm", "fn f(x: Int) -> Int = add(x, true)\n"),
     ]);
     let (code, _, err) = tlvm(&["check", &d.path("main.tlvm")]);
@@ -463,12 +675,27 @@ fn cli_diagnostics_name_the_file() {
     let lib = d.path("lib/a.tlvm");
     assert!(err.contains(&format!("\"file\":\"{lib}\"")), "{err}");
     let (_, _, err) = tlvm(&["check", &d.path("main.tlvm"), "--human"]);
-    assert!(err.starts_with(&format!("{lib}:1:30: error[E-TYPE-ARG]")), "{err}");
+    assert!(
+        err.starts_with(&format!("{lib}:1:30: error[E-TYPE-ARG]")),
+        "{err}"
+    );
     assert!(err.contains("fn f(x: Int) -> Int = add(x, true)"), "{err}");
     // 見つからない・循環も、import を書いたファイルを指す
-    let d = Dir::new(&[("main.tlvm", "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n"), ("a.tlvm", "import \"nope.tlvm\"\n")]);
+    let d = Dir::new(&[
+        (
+            "main.tlvm",
+            "import \"a.tlvm\"\nfn solve(x: Int) -> Int = x\nentry solve\n",
+        ),
+        ("a.tlvm", "import \"nope.tlvm\"\n"),
+    ]);
     let (_, _, err) = tlvm(&["check", &d.path("main.tlvm"), "--human"]);
-    assert!(err.starts_with(&format!("{}:1:8: error[E-IMPORT-NOT-FOUND]", d.path("a.tlvm"))), "{err}");
+    assert!(
+        err.starts_with(&format!(
+            "{}:1:8: error[E-IMPORT-NOT-FOUND]",
+            d.path("a.tlvm")
+        )),
+        "{err}"
+    );
     // ast も同じ診断
     let (code, out, err) = tlvm(&["ast", &d.path("main.tlvm")]);
     assert_eq!((code, out.as_str()), (1, ""));
@@ -481,16 +708,29 @@ fn cli_library_without_entry() {
     let (code, _, err) = tlvm(&["check", &d.path("lib.tlvm")]);
     assert_eq!(code, 1);
     assert!(err.contains("E-ENTRY-MISSING"), "{err}");
-    assert!(!err.contains("\"file\""), "import のないファイルの診断は今までと同じ形: {err}");
+    assert!(
+        !err.contains("\"file\""),
+        "import のないファイルの診断は今までと同じ形: {err}"
+    );
 }
 
 #[cfg(unix)]
 #[test]
 fn cli_symlink_out_of_the_root_directory_is_not_read() {
     let outside = Dir::new(&[("secret.tlvm", SQ)]);
-    let d = Dir::new(&[("main.tlvm", "import \"link.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n")]);
-    std::os::unix::fs::symlink(Path::new(&outside.path("secret.tlvm")), d.0.join("link.tlvm")).unwrap();
+    let d = Dir::new(&[(
+        "main.tlvm",
+        "import \"link.tlvm\"\nfn solve(x: Int) -> Int = sq(x)\nentry solve\n",
+    )]);
+    std::os::unix::fs::symlink(
+        Path::new(&outside.path("secret.tlvm")),
+        d.0.join("link.tlvm"),
+    )
+    .unwrap();
     let (code, _, err) = tlvm(&["check", &d.path("main.tlvm")]);
     assert_eq!(code, 1);
-    assert!(err.contains("E-IMPORT-NOT-FOUND") && err.contains("outside"), "{err}");
+    assert!(
+        err.contains("E-IMPORT-NOT-FOUND") && err.contains("outside"),
+        "{err}"
+    );
 }

@@ -6,9 +6,20 @@ use tlvm::checker::{check_program_with, CheckOptions, CheckOutcome, TypeSharing}
 use tlvm::profiles::StaticProfile;
 
 fn check(src: &[u8], sharing: TypeSharing, semantic_work: u64) -> Option<CheckOutcome> {
-    let profile = StaticProfile { semantic_work, ..StaticProfile::default() };
+    let profile = StaticProfile {
+        semantic_work,
+        ..StaticProfile::default()
+    };
     match parse_source(src, &profile) {
-        Parsed::Program(p) => Some(check_program_with(&p, src.len(), &profile, &CheckOptions { sharing, trace: true })),
+        Parsed::Program(p) => Some(check_program_with(
+            &p,
+            src.len(),
+            &profile,
+            &CheckOptions {
+                sharing,
+                trace: true,
+            },
+        )),
         Parsed::Failed(_) => None,
     }
 }
@@ -17,7 +28,12 @@ fn check(src: &[u8], sharing: TypeSharing, semantic_work: u64) -> Option<CheckOu
 fn assert_same(off: &CheckOutcome, on: &CheckOutcome, name: &str) {
     assert_eq!(off.work, on.work, "{name}");
     assert_eq!(off.trace, on.trace, "{name}");
-    let key = |o: &CheckOutcome| o.diagnostics.iter().map(|d| (d.code, d.span, d.node_index)).collect::<Vec<_>>();
+    let key = |o: &CheckOutcome| {
+        o.diagnostics
+            .iter()
+            .map(|d| (d.code, d.span, d.node_index))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(key(off), key(on), "{name}");
 }
 
@@ -59,7 +75,9 @@ fn sharing_keeps_trace_work_and_cutoff() {
         let src = std::fs::read(f).unwrap();
         // 上限なしと、途中で cutoff する小さい上限の三通り
         for work in [default_work, 40, 400] {
-            let Some(off) = check(&src, TypeSharing::Off, work) else { continue };
+            let Some(off) = check(&src, TypeSharing::Off, work) else {
+                continue;
+            };
             let on = check(&src, TypeSharing::On, work).unwrap();
             assert_same(&off, &on, &f.display().to_string());
             hits += on.sharing_hits;

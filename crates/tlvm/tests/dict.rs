@@ -8,8 +8,15 @@ use tlvm::formatter::format_program;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -88,7 +95,10 @@ entry solve
 
 #[test]
 fn put_get_and_insertion_order() {
-    assert_eq!(run(COUNT, r#"["b","a","b","c","a","b"]"#), r#"[["b",3],["a",2],["c",1]]"#);
+    assert_eq!(
+        run(COUNT, r#"["b","a","b","c","a","b"]"#),
+        r#"[["b",3],["a",2],["c",1]]"#
+    );
     assert_eq!(run(COUNT, "[]"), "[]");
     let p = accepted(COUNT);
     assert_eq!(p.output_type.to_string(), "Dict<String, Int>");
@@ -110,7 +120,10 @@ entry solve
         run(src, r#"[[1,"a"],[2,"b"],[3,"c"]]"#),
         r#"[[[1,"a"],[2,"B"],[3,"c"]],[[1,"a"],[2,"b"],[3,"c"],[9,"new"]],[[1,"a"],[3,"c"]],[[1,"a"],[2,"b"],[3,"c"]],[[2,"b"],[3,"c"],[1,"back"]]]"#
     );
-    assert_eq!(run(src, "[]"), r#"[[[2,"B"]],[[9,"new"]],[],[],[[1,"back"]]]"#);
+    assert_eq!(
+        run(src, "[]"),
+        r#"[[[2,"B"]],[[9,"new"]],[],[],[[1,"back"]]]"#
+    );
 }
 
 #[test]
@@ -125,13 +138,20 @@ entry solve
         run(src, r#"[["x",1],["y",-5],["z",0]]"#),
         r#"[[-5,null],[[true,false],[3,[["x","y","z"],[[1,-5,0],[["x",1],["y",-5],["z",0]]]]]]]"#
     );
-    assert_eq!(run(src, "[]"), "[[null,null],[[false,false],[0,[[],[[],[]]]]]]");
+    assert_eq!(
+        run(src, "[]"),
+        "[[null,null],[[false,false],[0,[[],[[],[]]]]]]"
+    );
 }
 
 #[test]
 fn from_with_duplicates_keeps_first_position_and_last_value() {
-    let src = "fn solve(xs: List<Pair<String, Int>>) -> Dict<String, Int> = dict_from(xs)\nentry solve\n";
-    assert_eq!(run(src, r#"[["a",1],["b",2],["a",3],["c",4],["b",5]]"#), r#"[["a",3],["b",5],["c",4]]"#);
+    let src =
+        "fn solve(xs: List<Pair<String, Int>>) -> Dict<String, Int> = dict_from(xs)\nentry solve\n";
+    assert_eq!(
+        run(src, r#"[["a",1],["b",2],["a",3],["c",4],["b",5]]"#),
+        r#"[["a",3],["b",5],["c",4]]"#
+    );
     assert_eq!(run(src, "[]"), "[]");
 }
 
@@ -150,7 +170,10 @@ fn solve(xs: List<Int>) -> Pair<Pair<Int, Int>, Pair<Option<Int>, Pair<List<P>, 
 fn mod_or(x: Int) -> Int = match_option(mod(x, 3), 0, |r| r)
 entry solve
 ";
-    assert_eq!(run(src, "[1, 4, 2, 4, 7]"), r#"[[2,2],[20,[[{"x":1,"y":-1},{"x":4,"y":-4},{"x":2,"y":-2},{"x":7,"y":-7}],2]]]"#);
+    assert_eq!(
+        run(src, "[1, 4, 2, 4, 7]"),
+        r#"[[2,2],[20,[[{"x":1,"y":-1},{"x":4,"y":-4},{"x":2,"y":-2},{"x":7,"y":-7}],2]]]"#
+    );
 }
 
 #[test]
@@ -203,7 +226,10 @@ fn solve(xs: List<Pair<String, Int>>) -> Pair<Inv, Pair<Int, Pair<List<Int>, Opt
 entry solve
 ";
     assert_eq!(
-        run(src, r#"[["a",3],["b",1],["a",2],["c",-1],["b",-1],["d",4]]"#),
+        run(
+            src,
+            r#"[["a",3],["b",1],["a",2],["c",-1],["b",-1],["d",4]]"#
+        ),
         r#"[{"items":[["a",5],["d",4]],"ops":4},[9,[[4,5],[[0,0],[1,1],[2,4],[3,9]]]]]"#
     );
 }
@@ -220,7 +246,15 @@ entry solve
         let (code, out, err) = tlvm(&["run", p, "400", "--plain", "--stats"]);
         assert_eq!(code, 0, "{err}");
         assert_eq!(out.trim_end(), "[150,299]");
-        let steps: u64 = err.split("\"steps\":").nth(1).unwrap().split(',').next().unwrap().parse().unwrap();
+        let steps: u64 = err
+            .split("\"steps\":")
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
         assert!(steps < 2_000_000, "{steps}");
     });
 }
@@ -234,7 +268,10 @@ fn lowering_removes_dict() {
     assert!(text.contains("List<Pair<String, Int>>"), "{text}");
     assert!(text.contains("hof1"), "{text}");
     // 書き換え後のソースは検証済み formatter の正準形
-    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
 }
 
 #[test]
@@ -250,7 +287,10 @@ entry solve
     assert_eq!(run(src, "7"), r#"[{"dict":7,"dict_get":true},[1,3]]"#);
     // 関数名には使えない（検証済み parser との食い違いにはならない）
     let c = codes("fn dict_get(x: Int) -> Int = x\nentry dict_get\n");
-    assert!(c.contains(&"E-PARSE-EXPECTED-IDENT") && !c.contains(&"E-INTERNAL-VERIFIED-MISMATCH"), "{c:?}");
+    assert!(
+        c.contains(&"E-PARSE-EXPECTED-IDENT") && !c.contains(&"E-INTERNAL-VERIFIED-MISMATCH"),
+        "{c:?}"
+    );
     let c = codes("fn f(x: Int) -> Int = dict_lookup(x)\nentry f\n");
     assert_eq!(c, ["E-NAME-UNKNOWN-FUNCTION"]);
     // ast は字句表の語を変数名に使ったプログラムを付け替えずに拒否する（§4.2）
@@ -260,11 +300,15 @@ entry solve
         assert_eq!(code, 1);
         assert!(err.contains("E-AST-IDENTIFIER"), "{err}");
     });
-    let renamed = "fn solve(d: Int) -> Int = dict_size(dict_put(dict<Int, Int>(), d, 1))\nentry solve\n";
+    let renamed =
+        "fn solve(d: Int) -> Int = dict_size(dict_put(dict<Int, Int>(), d, 1))\nentry solve\n";
     with_file(renamed, "tlvm", |p| {
         let (code, out, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
-        assert!(out.contains("\"name\":\"d\"") && out.contains("\"callee\":\"dict_put\""), "{out}");
+        assert!(
+            out.contains("\"name\":\"d\"") && out.contains("\"callee\":\"dict_put\""),
+            "{out}"
+        );
     });
 }
 
@@ -280,7 +324,12 @@ entry solve
         assert!(out.starts_with("fn solve(d: Dict<String, Int>) -> Dict<String, List<Int>> = fold(dict_keys(d), dict<String, List<Int>>(), "), "{out}");
         with_file(&out, "tlvm", |q| {
             assert_eq!(tlvm(&["fmt", q]).1, out);
-            assert_eq!(tlvm(&["run", q, r#"[["a",1],["b",2]]"#, "--plain"]).1.trim_end(), r#"[["a",[1]],["b",[2]]]"#);
+            assert_eq!(
+                tlvm(&["run", q, r#"[["a",1],["b",2]]"#, "--plain"])
+                    .1
+                    .trim_end(),
+                r#"[["a",[1]],["b",[2]]]"#
+            );
         });
     });
 }
@@ -291,8 +340,14 @@ fn ast_codec_tags() {
     with_file(src, "tlvm", |p| {
         let (code, json, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
-        assert!(json.contains(r#"{"tag":"dict","key":{"tag":"int"},"value":{"tag":"bool"}}"#), "{json}");
-        assert!(json.contains(r#"{"tag":"dict","key_type":{"tag":"int"},"value_type":{"tag":"bool"}}"#), "{json}");
+        assert!(
+            json.contains(r#"{"tag":"dict","key":{"tag":"int"},"value":{"tag":"bool"}}"#),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#"{"tag":"dict","key_type":{"tag":"int"},"value_type":{"tag":"bool"}}"#),
+            "{json}"
+        );
         assert!(json.contains(r#""callee":"dict_put""#), "{json}");
         with_file(json.trim_end(), "json", |q| {
             let (code, out, err) = tlvm(&["run", q, "[[1,false]]", "--plain"]);
@@ -304,7 +359,11 @@ fn ast_codec_tags() {
     });
     // AST の型 tag の検査
     let bad = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"f","params":[{"name":"d","type":{"tag":"dict","key":{"tag":"int"}}}],"return_type":{"tag":"int"},"body":{"tag":"int","value":"0"}},{"tag":"entry","name":"f"}]}"#;
-    match compile_ast(bad.as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+    match compile_ast(
+        bad.as_bytes(),
+        &StaticProfile::default(),
+        &AstTransportProfile::default(),
+    ) {
         AstCompile::AstInvalid(d) => assert_eq!(d[0].code, "E-AST-MISSING-FIELD"),
         _ => panic!("accepted"),
     }
@@ -319,17 +378,44 @@ fn dict_input_value_and_plain_json() {
     // 鍵が重なる入力は拒否する（plain JSON と値 JSON のどちらでも）
     let (code, err) = run_err(src, r#"[["a",1],["b",2],["a",3]]"#, true);
     assert_eq!(code, 1);
-    assert!(err.contains("E-INPUT-DICT-DUPLICATE-KEY") && !err.contains("MISMATCH"), "{err}");
-    let pair = |k: &str, v: i32| format!(r#"{{"tag":"pair","left":{{"tag":"list","items":[{{"tag":"char","value":"{}"}}]}},"right":{{"tag":"int","value":"{v}"}}}}"#, k.chars().next().unwrap() as u32);
-    let dup = format!(r#"{{"tag":"list","items":[{},{}]}}"#, pair("a", 1), pair("a", 2));
+    assert!(
+        err.contains("E-INPUT-DICT-DUPLICATE-KEY") && !err.contains("MISMATCH"),
+        "{err}"
+    );
+    let pair = |k: &str, v: i32| {
+        format!(
+            r#"{{"tag":"pair","left":{{"tag":"list","items":[{{"tag":"char","value":"{}"}}]}},"right":{{"tag":"int","value":"{v}"}}}}"#,
+            k.chars().next().unwrap() as u32
+        )
+    };
+    let dup = format!(
+        r#"{{"tag":"list","items":[{},{}]}}"#,
+        pair("a", 1),
+        pair("a", 2)
+    );
     let (code, err) = run_err(src, &dup, false);
     assert_eq!(code, 1);
-    assert!(err.contains("E-INPUT-DICT-DUPLICATE-KEY") && !err.contains("MISMATCH"), "{err}");
-    let ok = format!(r#"{{"tag":"list","items":[{},{}]}}"#, pair("a", 1), pair("b", 2));
-    with_file(src, "tlvm", |p| assert_eq!(tlvm(&["run", p, &ok]).1.trim_end(), r#"{"tag":"int","value":"3"}"#));
+    assert!(
+        err.contains("E-INPUT-DICT-DUPLICATE-KEY") && !err.contains("MISMATCH"),
+        "{err}"
+    );
+    let ok = format!(
+        r#"{{"tag":"list","items":[{},{}]}}"#,
+        pair("a", 1),
+        pair("b", 2)
+    );
+    with_file(src, "tlvm", |p| {
+        assert_eq!(
+            tlvm(&["run", p, &ok]).1.trim_end(),
+            r#"{"tag":"int","value":"3"}"#
+        )
+    });
     // 形の誤り
     let (_, err) = run_err(src, r#"[["a",1,2]]"#, true);
-    assert!(err.contains("E-INPUT-FIELD-TYPE") && err.contains("[key, value]"), "{err}");
+    assert!(
+        err.contains("E-INPUT-FIELD-TYPE") && err.contains("[key, value]"),
+        "{err}"
+    );
     let (_, err) = run_err(src, r#"{"a":1}"#, true);
     assert!(err.contains("array of [key, value] arrays"), "{err}");
 }
@@ -344,7 +430,11 @@ fn tlvm_test_with_dict_cases() {
         with_file(cases, "json", |c| {
             let (code, out, _) = tlvm(&["test", p, c]);
             assert_eq!(code, 1);
-            assert!(out.contains(r#"{"case":"a","result":"pass"}"#) && out.contains(r#"{"case":"b","result":"pass"}"#), "{out}");
+            assert!(
+                out.contains(r#"{"case":"a","result":"pass"}"#)
+                    && out.contains(r#"{"case":"b","result":"pass"}"#),
+                "{out}"
+            );
             assert!(out.contains(r#""case":"dup","result":"error""#), "{out}");
         })
     });
@@ -369,16 +459,30 @@ entry solve
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        c.stdin.take().unwrap().write_all(b"to be or not to be").unwrap();
+        c.stdin
+            .take()
+            .unwrap()
+            .write_all(b"to be or not to be")
+            .unwrap();
         let o = c.wait_with_output().unwrap();
-        assert_eq!(String::from_utf8(o.stdout).unwrap(), "to=2\nbe=2\nor=1\nnot=1\n");
+        assert_eq!(
+            String::from_utf8(o.stdout).unwrap(),
+            "to=2\nbe=2\nor=1\nnot=1\n"
+        );
     });
     // v1.13：鍵が String の辞書は exec の入力型になる（exec_dict.rs）。鍵が String でない辞書は入力型にならない
-    with_file("fn solve(d: Dict<Int, String>) -> String = \"\"\nentry solve\n", "tlvm", |p| {
-        let (code, _, err) = tlvm(&["exec", p]);
-        assert_eq!(code, 64);
-        assert!(err.contains("UnsupportedEntry") && err.contains("Dict<Int, String>"), "{err}");
-    });
+    with_file(
+        "fn solve(d: Dict<Int, String>) -> String = \"\"\nentry solve\n",
+        "tlvm",
+        |p| {
+            let (code, _, err) = tlvm(&["exec", p]);
+            assert_eq!(code, 64);
+            assert!(
+                err.contains("UnsupportedEntry") && err.contains("Dict<Int, String>"),
+                "{err}"
+            );
+        },
+    );
 }
 
 #[test]
@@ -386,7 +490,10 @@ fn check_reports_dict_types() {
     with_file(COUNT, "tlvm", |p| {
         let (code, out, _) = tlvm(&["check", p]);
         assert_eq!(code, 0);
-        assert!(out.contains(r#""input_type":"List<String>","output_type":"Dict<String, Int>""#), "{out}");
+        assert!(
+            out.contains(r#""input_type":"List<String>","output_type":"Dict<String, Int>""#),
+            "{out}"
+        );
     });
 }
 
@@ -395,55 +502,119 @@ fn check_reports_dict_types() {
 #[test]
 fn diagnostics_and_repairs() {
     // 第 1 引数が辞書でない。List<Pair<K, V>> なら dict_from を示す
-    let e = errors("fn f(xs: List<Pair<String, Int>>) -> Option<Int> = dict_get(xs, \"a\")\nentry f\n");
+    let e =
+        errors("fn f(xs: List<Pair<String, Int>>) -> Option<Int> = dict_get(xs, \"a\")\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-DICT-ARG");
     assert_eq!(e[0].actual.as_deref(), Some("List<Pair<String, Int>>"));
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict_from(xs)"), "{:?}", e[0].repair);
+    assert!(
+        e[0].repair
+            .as_ref()
+            .unwrap()
+            .constraint
+            .contains("dict_from(xs)"),
+        "{:?}",
+        e[0].repair
+    );
     let e = errors("fn f(n: Int) -> Int = dict_size(n)\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-DICT-ARG");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict<K, V>()"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict<K, V>()"));
     // 鍵・値の型
-    let e = errors("fn f(d: Dict<String, Int>) -> Dict<String, Int> = dict_put(d, 1, true)\nentry f\n");
-    assert_eq!(e.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG", "E-TYPE-ARG"]);
-    assert_eq!((e[0].expected.as_deref(), e[1].expected.as_deref()), (Some("String"), Some("Int")));
+    let e =
+        errors("fn f(d: Dict<String, Int>) -> Dict<String, Int> = dict_put(d, 1, true)\nentry f\n");
+    assert_eq!(
+        e.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG", "E-TYPE-ARG"]
+    );
+    assert_eq!(
+        (e[0].expected.as_deref(), e[1].expected.as_deref()),
+        (Some("String"), Some("Int"))
+    );
     // dict_from の引数
     let e = errors("fn f(xs: List<Int>) -> Dict<Int, Int> = dict_from(xs)\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-DICT-FROM");
     assert_eq!(e[0].expected.as_deref(), Some("List<Pair<K, V>>"));
     let e = errors("fn f(d: Dict<Int, Int>) -> Dict<Int, Int> = dict_from(d)\nentry f\n");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("already a Dict"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("already a Dict"));
     // 辞書をリストとして使う
     let e = errors("fn f(d: Dict<Int, Int>) -> List<Int> = map(d, |e| 1)\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-HOF-LIST");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict_entries(d)"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict_entries(d)"));
     let e = errors("fn f(d: Dict<Int, Int>) -> Int = length(d)\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-EXPECTED-LIST");
     // Dict と List<Pair<K, V>> は別の型
     let e = errors("fn f(d: Dict<Int, Int>) -> List<Pair<Int, Int>> = d\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-RETURN");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict_entries(d)"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict_entries(d)"));
     let e = errors("fn g(d: Dict<Int, Int>) -> Int = 0\nfn f(xs: List<Pair<Int, Int>>) -> Int = g(xs)\nentry f\n");
     assert_eq!(e[0].code, "E-TYPE-ARG");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict_from(xs)"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict_from(xs)"));
     // 引数の数
-    assert_eq!(codes("fn f(d: Dict<Int, Int>) -> Dict<Int, Int> = dict_put(d, 1)\nentry f\n"), ["E-ARITY-BUILTIN"]);
+    assert_eq!(
+        codes("fn f(d: Dict<Int, Int>) -> Dict<Int, Int> = dict_put(d, 1)\nentry f\n"),
+        ["E-ARITY-BUILTIN"]
+    );
     // 型引数のない dict()、() のない dict<K, V>
     let e = errors("fn f(u: Unit) -> Dict<Int, Int> = dict()\nentry f\n");
     assert_eq!(e[0].code, "E-PARSE-EXPECTED-TOKEN");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict<K, V>()"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict<K, V>()"));
     let e = errors("fn f(u: Unit) -> Dict<Int, Int> = dict<Int, Int>\nentry f\n");
     assert_eq!(e[0].code, "E-PARSE-EXPECTED-TOKEN");
-    assert!(e[0].repair.as_ref().unwrap().constraint.contains("dict<String, Int>()"));
+    assert!(e[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("dict<String, Int>()"));
     // 型の Dict は型引数を二つ取る
-    assert_eq!(codes("fn f(d: Dict<Int>) -> Int = 0\nentry f\n"), ["E-PARSE-EXPECTED-TOKEN"]);
+    assert_eq!(
+        codes("fn f(d: Dict<Int>) -> Int = 0\nentry f\n"),
+        ["E-PARSE-EXPECTED-TOKEN"]
+    );
     // `Dict` だけ（型引数なし）はレコード型の名前として読む
-    assert_eq!(codes("fn f(d: Dict) -> Int = 0\nentry f\n"), ["E-RECORD-UNKNOWN-TYPE"]);
+    assert_eq!(
+        codes("fn f(d: Dict) -> Int = 0\nentry f\n"),
+        ["E-RECORD-UNKNOWN-TYPE"]
+    );
     // どの拒否も検証済み部品との食い違いにはならない
     for src in [
         "fn f(u: Unit) -> Int = dict_size(dict<Int, Int>)\nentry f\n",
         "fn dict(x: Int) -> Int = x\nentry dict\n",
         "fn f(x: Int) -> Int = add(dict_size(y), x)\nentry f\n",
     ] {
-        assert!(!codes(src).contains(&"E-INTERNAL-VERIFIED-MISMATCH"), "{src}: {:?}", codes(src));
+        assert!(
+            !codes(src).contains(&"E-INTERNAL-VERIFIED-MISMATCH"),
+            "{src}: {:?}",
+            codes(src)
+        );
     }
 }

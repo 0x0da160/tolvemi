@@ -106,7 +106,10 @@ impl Session {
     /// 宣言と import の source（`:list`）。
     pub fn listing(&self) -> Vec<String> {
         let imports = self.chunks.iter().filter(|c| c.import);
-        imports.chain(self.chunks.iter().filter(|c| !c.import)).map(|c| c.text.clone()).collect()
+        imports
+            .chain(self.chunks.iter().filter(|c| !c.import))
+            .map(|c| c.text.clone())
+            .collect()
     }
 
     fn build(&self, chunks: &[Chunk], news: &[New], tail: Option<(&str, &str, &str)>) -> Built {
@@ -121,7 +124,13 @@ impl Session {
                 Some(n) => (n.label.clone(), n.text.clone(), n.origin),
                 None => ("<session>".to_string(), c.text.clone(), 0),
             };
-            regions.push(Region { start: source.len(), len: c.text.len(), label, text, origin });
+            regions.push(Region {
+                start: source.len(),
+                len: c.text.len(),
+                label,
+                text,
+                origin,
+            });
             source.push_str(&c.text);
             source.push('\n');
         }
@@ -131,13 +140,25 @@ impl Session {
             Some((ty, label, expr)) => {
                 source.push_str(&format!("entry {MAIN}\nfn {MAIN}({ARG}: Unit) -> {ty} =\n"));
                 let start = source.len();
-                regions.push(Region { start, len: expr.len(), label: label.to_string(), text: expr.to_string(), origin: 0 });
+                regions.push(Region {
+                    start,
+                    len: expr.len(),
+                    label: label.to_string(),
+                    text: expr.to_string(),
+                    origin: 0,
+                });
                 source.push_str(expr);
                 body = Some((start, source.len()));
             }
-            None => source.push_str(&format!("fn {MAIN}({ARG}: Unit) -> Unit = unit\nentry {MAIN}\n")),
+            None => source.push_str(&format!(
+                "fn {MAIN}({ARG}: Unit) -> Unit = unit\nentry {MAIN}\n"
+            )),
         }
-        Built { source, regions, body }
+        Built {
+            source,
+            regions,
+            body,
+        }
     }
 
     /// 診断を表示用の形にする（source の一部から来たものはその source の位置で示す）。
@@ -154,7 +175,10 @@ impl Session {
                 let mut d = d.clone();
                 d.span = (shift(d.span.0), shift(d.span.1.max(d.span.0)));
                 if let Some(rep) = d.repair.as_mut() {
-                    rep.target_span = (shift(rep.target_span.0), shift(rep.target_span.1.max(rep.target_span.0)));
+                    rep.target_span = (
+                        shift(rep.target_span.0),
+                        shift(rep.target_span.1.max(rep.target_span.0)),
+                    );
                 }
                 return render_human(&d, &r.label, r.text.as_bytes());
             }
@@ -171,21 +195,32 @@ impl Session {
 
     fn errors(b: &Built, r: &SourceCompile, files: &[(String, Vec<u8>)]) -> Vec<String> {
         match r {
-            SourceCompile::SourceBoundaryFailure => vec!["error: an imported file is not valid UTF-8 (SourceBoundaryFailure)".into()],
-            SourceCompile::Result(r) => r.errors().iter().map(|d| Self::render(b, files, d)).collect(),
+            SourceCompile::SourceBoundaryFailure => {
+                vec!["error: an imported file is not valid UTF-8 (SourceBoundaryFailure)".into()]
+            }
+            SourceCompile::Result(r) => r
+                .errors()
+                .iter()
+                .map(|d| Self::render(b, files, d))
+                .collect(),
         }
     }
 
     /// 宣言を加えたプログラムを検査し、受理なら加える。返すのは表示する行。
     fn commit(&mut self, news: Vec<New>) -> Result<Vec<String>, Vec<String>> {
         let new_names: Vec<&String> = news.iter().flat_map(|n| n.chunk.names.iter()).collect();
-        let new_imports: Vec<&str> = news.iter().filter(|n| n.chunk.import).map(|n| n.chunk.text.as_str()).collect();
+        let new_imports: Vec<&str> = news
+            .iter()
+            .filter(|n| n.chunk.import)
+            .map(|n| n.chunk.text.as_str())
+            .collect();
         let mut replaced = vec![];
         let kept: Vec<Chunk> = self
             .chunks
             .iter()
             .filter(|c| {
-                let clash = c.names.iter().any(|n| new_names.contains(&n)) || (c.import && new_imports.contains(&c.text.as_str()));
+                let clash = c.names.iter().any(|n| new_names.contains(&n))
+                    || (c.import && new_imports.contains(&c.text.as_str()));
                 if clash && !c.import {
                     replaced.push(c.names.first().cloned().unwrap_or_default());
                 }
@@ -202,7 +237,10 @@ impl Session {
         let mut out = vec![];
         for n in &news {
             if n.chunk.import {
-                out.push(format!("imported {}", n.chunk.text.trim_start_matches("import").trim()));
+                out.push(format!(
+                    "imported {}",
+                    n.chunk.text.trim_start_matches("import").trim()
+                ));
             } else if let Some(name) = n.chunk.names.first() {
                 if replaced.contains(name) {
                     out.push(format!("redefined {name}"));
@@ -218,15 +256,26 @@ impl Session {
 
     /// source（宣言と import の列）を chunk に分ける。entry は `ignore_entry` なら無視し、そうでなければ誤りにする。
     /// `rebase` があれば import のパスをそのディレクトリからのパスに直す（`:load`）。
-    fn split(text: &str, label: &str, rebase: Option<&str>, ignore_entry: bool) -> Result<Vec<New>, Vec<String>> {
+    fn split(
+        text: &str,
+        label: &str,
+        rebase: Option<&str>,
+        ignore_entry: bool,
+    ) -> Result<Vec<New>, Vec<String>> {
         let sp = StaticProfile::default();
         let p = match parse_source(text.as_bytes(), &sp) {
             Parsed::Program(p) => p,
             Parsed::Failed(_) => {
                 // 修復ヒントと照合を含む今までの診断で示す
                 return Err(match compile(text.as_bytes(), &sp) {
-                    SourceCompile::Result(r) => r.errors().iter().map(|d| render_human(d, label, text.as_bytes())).collect(),
-                    SourceCompile::SourceBoundaryFailure => vec!["error: input is not valid UTF-8".into()],
+                    SourceCompile::Result(r) => r
+                        .errors()
+                        .iter()
+                        .map(|d| render_human(d, label, text.as_bytes()))
+                        .collect(),
+                    SourceCompile::SourceBoundaryFailure => {
+                        vec!["error: input is not valid UTF-8".into()]
+                    }
                 });
             }
         };
@@ -240,8 +289,21 @@ impl Session {
                 None => i.path.clone(),
             };
             let (s, e) = i.span.t();
-            let line = if rebase.is_some() { format!("import {}", crate::diagnostics::json_string(&path)) } else { text[s..e].trim_end().to_string() };
-            news.push(New { chunk: Chunk { import: true, names: vec![], text: line }, label: label.into(), text: text.into(), origin: s });
+            let line = if rebase.is_some() {
+                format!("import {}", crate::diagnostics::json_string(&path))
+            } else {
+                text[s..e].trim_end().to_string()
+            };
+            news.push(New {
+                chunk: Chunk {
+                    import: true,
+                    names: vec![],
+                    text: line,
+                },
+                label: label.into(),
+                text: text.into(),
+                origin: s,
+            });
         }
         for d in &p.declarations {
             if let Decl::Entry(e) = d {
@@ -252,9 +314,17 @@ impl Session {
                 return Err(vec![format!("{label}:{line}:{col}: error: the REPL has no entry; type an expression to evaluate it")]);
             }
             let (s, e) = decl_span(d);
-            let one = Program { declarations: vec![d.clone()], meta: p.meta, imports: vec![] };
+            let one = Program {
+                declarations: vec![d.clone()],
+                meta: p.meta,
+                imports: vec![],
+            };
             news.push(New {
-                chunk: Chunk { import: false, names: declared(&one), text: text[s..e].to_string() },
+                chunk: Chunk {
+                    import: false,
+                    names: declared(&one),
+                    text: text[s..e].to_string(),
+                },
                 label: label.into(),
                 text: text.into(),
                 origin: s,
@@ -277,11 +347,18 @@ impl Session {
         let text = match std::fs::read(path) {
             Ok(b) => match String::from_utf8(b) {
                 Ok(t) => t,
-                Err(_) => return Err(vec![format!("error: {path}: not valid UTF-8 (SourceBoundaryFailure)")]),
+                Err(_) => {
+                    return Err(vec![format!(
+                        "error: {path}: not valid UTF-8 (SourceBoundaryFailure)"
+                    )])
+                }
             },
             Err(e) => return Err(vec![format!("error: {path}: {e}")]),
         };
-        let dir = std::path::Path::new(path).parent().map(|d| d.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+        let dir = std::path::Path::new(path)
+            .parent()
+            .map(|d| d.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
         let dir = dir.trim_start_matches("./").to_string();
         let news = Self::split(&text, path, Some(&dir), true)?;
         let n = news.iter().filter(|n| !n.chunk.import).count();
@@ -300,17 +377,32 @@ impl Session {
     fn typed(&self, expr: &str) -> Typed {
         let (b, r, files) = self.probe(expr, "Unit");
         let errors = match r {
-            SourceCompile::Result(CompileResult::Accepted { program, .. }) => return Typed::Ok(Box::new(program)),
+            SourceCompile::Result(CompileResult::Accepted { program, .. }) => {
+                return Typed::Ok(Box::new(program))
+            }
             SourceCompile::Result(CompileResult::Rejected { errors, .. }) => errors,
             f => return Typed::Err(Self::errors(&b, &f, &files)),
         };
         let (body_s, body_e) = b.body.unwrap_or_default();
-        let is_ret = |d: &Diagnostic| d.code == "E-TYPE-RETURN" && d.span.0 >= body_s && d.span.0 <= body_e && d.file.as_deref().is_none_or(|f| f == ROOT);
-        let others: Vec<String> = errors.iter().filter(|d| !is_ret(d)).map(|d| Self::render(&b, &files, d)).collect();
+        let is_ret = |d: &Diagnostic| {
+            d.code == "E-TYPE-RETURN"
+                && d.span.0 >= body_s
+                && d.span.0 <= body_e
+                && d.file.as_deref().is_none_or(|f| f == ROOT)
+        };
+        let others: Vec<String> = errors
+            .iter()
+            .filter(|d| !is_ret(d))
+            .map(|d| Self::render(&b, &files, d))
+            .collect();
         if !others.is_empty() {
             return Typed::Err(others);
         }
-        let Some(actual) = errors.iter().find(|d| is_ret(d)).and_then(|d| d.actual.clone()) else {
+        let Some(actual) = errors
+            .iter()
+            .find(|d| is_ret(d))
+            .and_then(|d| d.actual.clone())
+        else {
             return Typed::Err(errors.iter().map(|d| Self::render(&b, &files, d)).collect());
         };
         let mut candidates = vec![];
@@ -327,7 +419,9 @@ impl Session {
         for ty in candidates {
             let (b, r, files) = self.probe(expr, &ty);
             match r {
-                SourceCompile::Result(CompileResult::Accepted { program, .. }) => return Typed::Ok(Box::new(program)),
+                SourceCompile::Result(CompileResult::Accepted { program, .. }) => {
+                    return Typed::Ok(Box::new(program))
+                }
                 r => last = Self::errors(&b, &r, &files),
             }
         }
@@ -348,18 +442,30 @@ impl Session {
             Typed::Ok(p) => p,
             Typed::Err(e) => return Err(e),
         };
-        let tv: TypedValue = match decode_input(&Ty::unit(), br#"{"tag":"unit"}"#, &InputProfile::default()) {
-            DecodeResult::Decoded(tv) => tv,
-            _ => return Err(vec!["error: InternalFault unit-input".into()]),
-        };
-        match run(&p, &tv, &ExecutionProfile::default(), &HostPolicy::default()) {
-            Ok(RunResult::Completed { output, .. }) => match encode_plain(&p.output_type, &output) {
-                Ok(v) => Ok(format!("{v} : {}", p.output_type)),
-                Err(e) => Err(vec![format!("error: InternalFault {e}")]),
-            },
-            Ok(RunResult::ResourceExhausted { kind, observed, limit }) => {
-                Err(vec![format!("error: ResourceExhausted {kind} (observed {observed}, limit {limit})")])
+        let tv: TypedValue =
+            match decode_input(&Ty::unit(), br#"{"tag":"unit"}"#, &InputProfile::default()) {
+                DecodeResult::Decoded(tv) => tv,
+                _ => return Err(vec!["error: InternalFault unit-input".into()]),
+            };
+        match run(
+            &p,
+            &tv,
+            &ExecutionProfile::default(),
+            &HostPolicy::default(),
+        ) {
+            Ok(RunResult::Completed { output, .. }) => {
+                match encode_plain(&p.output_type, &output) {
+                    Ok(v) => Ok(format!("{v} : {}", p.output_type)),
+                    Err(e) => Err(vec![format!("error: InternalFault {e}")]),
+                }
             }
+            Ok(RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            }) => Err(vec![format!(
+                "error: ResourceExhausted {kind} (observed {observed}, limit {limit})"
+            )]),
             Ok(RunResult::HostAborted(r)) => Err(vec![format!("error: HostAborted {r}")]),
             Ok(RunResult::InternalFault(r)) => Err(vec![format!("error: InternalFault {r}")]),
             Err(e) => Err(vec![format!("error: InternalFault {e}")]),
@@ -375,7 +481,10 @@ impl Session {
 pub fn is_declaration(input: &str) -> bool {
     let t = strip_comments_ws(input);
     let word = |s: &str| -> (String, String) {
-        let w: String = s.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let w: String = s
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         let rest = s[w.len()..].to_string();
         (w, rest)
     };
@@ -384,7 +493,10 @@ pub fn is_declaration(input: &str) -> bool {
     match w.as_str() {
         "fn" | "entry" => rest.starts_with(char::is_whitespace),
         "rec" => word(rest_t).0 == "fn",
-        "type" => rest.starts_with(char::is_whitespace) && rest_t.starts_with(|c: char| c.is_ascii_alphabetic()),
+        "type" => {
+            rest.starts_with(char::is_whitespace)
+                && rest_t.starts_with(|c: char| c.is_ascii_alphabetic())
+        }
         "import" => rest_t.starts_with('"'),
         _ => false,
     }
@@ -474,7 +586,9 @@ pub fn handle(session: &mut Session, input: &str) -> Option<Vec<String>> {
         Ok(v) | Err(v) => v,
     };
     if let Some(cmd) = t.strip_prefix(':') {
-        let (name, arg) = cmd.split_once(char::is_whitespace).map_or((cmd, ""), |(n, a)| (n, a.trim()));
+        let (name, arg) = cmd
+            .split_once(char::is_whitespace)
+            .map_or((cmd, ""), |(n, a)| (n, a.trim()));
         return Some(match name {
             "q" | "quit" => return None,
             "h" | "help" | "?" => vec![HELP.to_string()],
@@ -492,18 +606,30 @@ pub fn handle(session: &mut Session, input: &str) -> Option<Vec<String>> {
                 vec!["session cleared".into()]
             }
             "load" if !arg.is_empty() => lines(session.load(arg)),
-            "t" | "type" | "load" => vec![format!("usage: :{name} {}", if name == "load" { "FILE" } else { "EXPR" })],
+            "t" | "type" | "load" => vec![format!(
+                "usage: :{name} {}",
+                if name == "load" { "FILE" } else { "EXPR" }
+            )],
             _ => vec![format!("unknown command :{name} (see :help)")],
         });
     }
     if t.is_empty() {
         return Some(vec![]);
     }
-    Some(if is_declaration(t) { lines(session.declare(t)) } else { lines(session.eval(t).map(|v| vec![v])) })
+    Some(if is_declaration(t) {
+        lines(session.declare(t))
+    } else {
+        lines(session.eval(t).map(|v| vec![v]))
+    })
 }
 
 /// REPL の本体。`file` があれば最初に読む（読めなければ診断を出して終了コード 1）。
-pub fn repl(file: Option<&str>, input: &mut dyn BufRead, out: &mut dyn Write, prompt: bool) -> std::io::Result<i32> {
+pub fn repl(
+    file: Option<&str>,
+    input: &mut dyn BufRead,
+    out: &mut dyn Write,
+    prompt: bool,
+) -> std::io::Result<i32> {
     let mut session = Session::new();
     if let Some(f) = file {
         match session.load(f) {

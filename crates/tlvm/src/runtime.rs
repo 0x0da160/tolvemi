@@ -34,7 +34,8 @@ use tlvm_verified::pipeline::{run_checked, Checked};
 use tlvm_verified::value::Value as EV;
 
 /// exec の entry の入力型として受け付ける形（UnsupportedEntry の説明に使う）。
-pub const ENTRY_SHAPES: &str = "String、List<String>、Pair<List<String>, String>、Dict<String, String>、Dict<String, Int>";
+pub const ENTRY_SHAPES: &str =
+    "String、List<String>、Pair<List<String>, String>、Dict<String, String>、Dict<String, Int>";
 
 /// entry が受け取るもの。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +79,13 @@ pub enum ExecResult {
 
 /// 型検査済みのプログラムを、引数と標準入力の全文で実行する。深い再帰に備えて host-policy のスタック量を
 /// 持つスレッドで評価する（`api::run` と同じ）。
-pub fn exec(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProfile, host: &HostPolicy) -> Result<ExecResult, String> {
+pub fn exec(
+    p: &TypedProgram,
+    args: &[String],
+    stdin: &str,
+    prof: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<ExecResult, String> {
     std::thread::scope(|s| {
         let h = std::thread::Builder::new()
             .stack_size(host.stack_bytes)
@@ -86,15 +93,30 @@ pub fn exec(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProf
             .map_err(|e| e.to_string())?;
         match h.join() {
             Ok(r) => r,
-            Err(_) => Ok(ExecResult::Stopped(RunResult::InternalFault("evaluator-panic".into()))),
+            Err(_) => Ok(ExecResult::Stopped(RunResult::InternalFault(
+                "evaluator-panic".into(),
+            ))),
         }
     })
 }
 
-fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProfile, host: &HostPolicy) -> Result<ExecResult, String> {
-    let shape = exec_input(p).ok_or_else(|| format!("exec の entry の入力型は {} のどれか（この entry は {}）", ENTRY_SHAPES, p.input_type))?;
+fn exec_here(
+    p: &TypedProgram,
+    args: &[String],
+    stdin: &str,
+    prof: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<ExecResult, String> {
+    let shape = exec_input(p).ok_or_else(|| {
+        format!(
+            "exec の entry の入力型は {} のどれか（この entry は {}）",
+            ENTRY_SHAPES, p.input_type
+        )
+    })?;
     let Some(vp) = p.verified.as_ref() else {
-        return Ok(ExecResult::Stopped(RunResult::InternalFault("no-verified-program".into())));
+        return Ok(ExecResult::Stopped(RunResult::InternalFault(
+            "no-verified-program".into(),
+        )));
     };
     let text = || text_value(&stdin.chars().collect());
     let argv = || args_value(&args.iter().map(|a| a.chars().collect()).collect());
@@ -118,23 +140,39 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
     release(input);
     let stopped = |r: RunResult| Ok(ExecResult::Stopped(r));
     match r {
-        Checked::NotWellFormed => stopped(RunResult::InternalFault("verified-check-rejected-program".into())),
-        Checked::InputTypeMismatch => stopped(RunResult::InternalFault("verified-input-type-mismatch".into())),
+        Checked::NotWellFormed => stopped(RunResult::InternalFault(
+            "verified-check-rejected-program".into(),
+        )),
+        Checked::InputTypeMismatch => stopped(RunResult::InternalFault(
+            "verified-input-type-mismatch".into(),
+        )),
         Checked::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
             let kind = match kind {
                 Resource::Steps => "Steps",
                 Resource::IntegerBits => "IntegerBits",
                 Resource::AllocatedNodes => "AllocatedNodes",
             };
-            stopped(RunResult::ResourceExhausted { kind, observed, limit })
+            stopped(RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            })
         }
-        Checked::Ran(Err(Stop::HostDepth), _, _) => stopped(RunResult::HostAborted("eval-depth".into())),
-        Checked::Ran(Err(Stop::HostSlots), _, _) => stopped(RunResult::HostAborted("ref-slots".into())),
+        Checked::Ran(Err(Stop::HostDepth), _, _) => {
+            stopped(RunResult::HostAborted("eval-depth".into()))
+        }
+        Checked::Ran(Err(Stop::HostSlots), _, _) => {
+            stopped(RunResult::HostAborted("ref-slots".into()))
+        }
         Checked::Ran(Err(Stop::Fault), _, _) => stopped(RunResult::InternalFault("stuck".into())),
         Checked::Ran(Ok(w), _, _) => {
             let text = |v: &Rc<EV>| -> Option<String> {
                 // 出力型 String の値の文字はスカラー値（検証済み：val_type）
-                text_codes(v).map(|cs| cs.into_iter().map(|c| char::from_u32(c).unwrap_or('\u{FFFD}')).collect())
+                text_codes(v).map(|cs| {
+                    cs.into_iter()
+                        .map(|c| char::from_u32(c).unwrap_or('\u{FFFD}'))
+                        .collect()
+                })
             };
             let mut failed = false;
             let out = if p.output_type == Ty::string() {
@@ -168,9 +206,17 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
             };
             release(w);
             if out.len() as u64 > prof.output_bytes {
-                return stopped(RunResult::ResourceExhausted { kind: "OutputBytes", observed: prof.output_bytes + 1, limit: prof.output_bytes });
+                return stopped(RunResult::ResourceExhausted {
+                    kind: "OutputBytes",
+                    observed: prof.output_bytes + 1,
+                    limit: prof.output_bytes,
+                });
             }
-            Ok(if failed { ExecResult::Failure(out) } else { ExecResult::Output(out) })
+            Ok(if failed {
+                ExecResult::Failure(out)
+            } else {
+                ExecResult::Output(out)
+            })
         }
     }
 }
@@ -178,22 +224,39 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
 /// v1.13：標準入力の行から辞書の入力を作り、検証済みの復号器で値にする。`run --plain` と同じ経路を通る
 /// （`lines::dict_from_lines` が普通の JSON にして `api::decode_plain_input` で読み、`run_input_json` と同じく
 /// `decode_input_e` で値にする）。行の形の誤りと復号の拒否は、そのまま `ExecResult` で返す。
-fn lines_input(p: &TypedProgram, stdin: &str, prof: &ExecutionProfile) -> Result<Rc<EV>, ExecResult> {
+fn lines_input(
+    p: &TypedProgram,
+    stdin: &str,
+    prof: &ExecutionProfile,
+) -> Result<Rc<EV>, ExecResult> {
     let tv = match lines::dict_from_lines(&p.input_type, stdin) {
         LinesResult::Decoded(tv) => tv,
-        LinesResult::BoundaryFailure(reason) => return Err(ExecResult::InputBoundaryFailure(reason)),
+        LinesResult::BoundaryFailure(reason) => {
+            return Err(ExecResult::InputBoundaryFailure(reason))
+        }
         LinesResult::Invalid(ds) => return Err(ExecResult::InputInvalid(ds)),
     };
     // evaluator::run と同じ：入力の整数の bit 長が上限を超えるなら、実行せずに打ち切る
     if let Some(observed) = input_bits_over(&tv.value, prof.integer_bits) {
-        return Err(ExecResult::Stopped(RunResult::ResourceExhausted { kind: "IntegerBits", observed, limit: prof.integer_bits }));
+        return Err(ExecResult::Stopped(RunResult::ResourceExhausted {
+            kind: "IntegerBits",
+            observed,
+            limit: prof.integer_bits,
+        }));
     }
     if tv.text.len() >= 0x1000_0000 {
-        return Err(ExecResult::Stopped(RunResult::InternalFault("input-too-long-for-verified-decoder".into())));
+        return Err(ExecResult::Stopped(RunResult::InternalFault(
+            "input-too-long-for-verified-decoder".into(),
+        )));
     }
     let Some(vt) = verified_ty(&tv.ty) else {
-        return Err(ExecResult::Stopped(RunResult::InternalFault("no-verified-type".into())));
+        return Err(ExecResult::Stopped(RunResult::InternalFault(
+            "no-verified-type".into(),
+        )));
     };
-    decode_input_e(&tv.text, tv.json_depth, &vt)
-        .ok_or_else(|| ExecResult::Stopped(RunResult::InternalFault("verified-decoder-rejected-input".into())))
+    decode_input_e(&tv.text, tv.json_depth, &vt).ok_or_else(|| {
+        ExecResult::Stopped(RunResult::InternalFault(
+            "verified-decoder-rejected-input".into(),
+        ))
+    })
 }

@@ -8,8 +8,15 @@ use tlvm::formatter::format_program;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -75,12 +82,21 @@ entry solve
 
 #[test]
 fn six_forms_evaluate() {
-    assert_eq!(run(ALL_SIX, "[3, -1, 7, 2, 9, 7]"), "[[6,-2,14,4,18,14],[[3,7,2,9,7],[true,[true,[7,[9,7,7,3,2,-1]]]]]]");
+    assert_eq!(
+        run(ALL_SIX, "[3, -1, 7, 2, 9, 7]"),
+        "[[6,-2,14,4,18,14],[[3,7,2,9,7],[true,[true,[7,[9,7,7,3,2,-1]]]]]]"
+    );
     // 空のリスト：any は false、all は true、find は none
     assert_eq!(run(ALL_SIX, "[]"), "[[],[[],[false,[true,[null,[]]]]]]");
-    assert_eq!(run(ALL_SIX, "[-20]"), "[[-40],[[],[false,[false,[null,[-20]]]]]]");
+    assert_eq!(
+        run(ALL_SIX, "[-20]"),
+        "[[-40],[[],[false,[false,[null,[-20]]]]]]"
+    );
     let p = accepted(ALL_SIX);
-    assert_eq!(p.output_type.to_string(), "Pair<List<Int>, Pair<List<Int>, Pair<Bool, Pair<Bool, Pair<Option<Int>, List<Int>>>>>>");
+    assert_eq!(
+        p.output_type.to_string(),
+        "Pair<List<Int>, Pair<List<Int>, Pair<Bool, Pair<Bool, Pair<Option<Int>, List<Int>>>>>>"
+    );
 }
 
 #[test]
@@ -97,7 +113,13 @@ fn result_types() {
     ty("find(xs, |x| true)", "Option<Int>");
     ty("sort_by(xs, |x| x)", "List<Int>");
     // 本体は外側の変数を参照できる
-    assert_eq!(run("fn f(p: Pair<Int, List<Int>>) -> List<Int> = map(snd(p), |x| add(x, fst(p))) entry f", "[10, [1, 2]]"), "[11,12]");
+    assert_eq!(
+        run(
+            "fn f(p: Pair<Int, List<Int>>) -> List<Int> = map(snd(p), |x| add(x, fst(p))) entry f",
+            "[10, [1, 2]]"
+        ),
+        "[11,12]"
+    );
 }
 
 #[test]
@@ -111,7 +133,10 @@ fn strings() {
   sort_by(s, |c| code(c))))))
 entry solve
 "#;
-    assert_eq!(run(src, r#""cab a""#), r#"[[99,97,98,32,97],["caba",[false,["b"," aabc"]]]]"#);
+    assert_eq!(
+        run(src, r#""cab a""#),
+        r#"[[99,97,98,32,97],["caba",[false,["b"," aabc"]]]]"#
+    );
     assert_eq!(run(src, r#""""#), r#"[[],["",[true,[null,""]]]]"#);
     // 文字列のリスト：長さで並べ、大文字にした単語
     let words = r#"fn upper(c: Char) -> Char =
@@ -119,7 +144,10 @@ entry solve
 fn solve(ws: List<String>) -> List<String> = map(sort_by(ws, |w| length(w)), |w| map(w, |c| upper(c)))
 entry solve
 "#;
-    assert_eq!(run(words, r#"["ccc", "a", "bb", "dd"]"#), r#"["A","BB","DD","CCC"]"#);
+    assert_eq!(
+        run(words, r#"["ccc", "a", "bb", "dd"]"#),
+        r#"["A","BB","DD","CCC"]"#
+    );
 }
 
 #[test]
@@ -130,7 +158,10 @@ fn sort_by_is_stable() {
 entry solve
 ";
     let input = r#"[["a", 2], ["b", 1], ["c", 2], ["d", 1], ["e", 3], ["f", 2]]"#;
-    assert_eq!(run(src, input), r#"[["b","d","a","c","f","e"],["e","a","c","f","b","d"]]"#);
+    assert_eq!(
+        run(src, input),
+        r#"[["b","d","a","c","f","e"],["e","a","c","f","b","d"]]"#
+    );
     // すでに整列済み、逆順、全部同じ鍵
     let ints = "fn f(xs: List<Int>) -> List<Int> = sort_by(xs, |x| x) entry f";
     assert_eq!(run(ints, "[1, 2, 3, 4]"), "[1,2,3,4]");
@@ -150,13 +181,23 @@ entry solve
 ";
     assert_eq!(run(src, "[1, 1000000000000]"), "[true,[false,1]]");
     // 本体を評価し続ければ資源を使い切る（上の結果が評価の省略によることの確認）
-    with_file("fn f(xs: List<Int>) -> List<Bool> = map(xs, |x| lt(0, length(range(0, x)))) entry f", "tlvm", |p| {
-        let (code, _, err) = tlvm(&["run", p, "[1, 1000000000000]", "--plain"]);
-        assert_eq!(code, 2, "{err}");
-        assert!(err.contains("ResourceExhausted"), "{err}");
-    });
+    with_file(
+        "fn f(xs: List<Int>) -> List<Bool> = map(xs, |x| lt(0, length(range(0, x)))) entry f",
+        "tlvm",
+        |p| {
+            let (code, _, err) = tlvm(&["run", p, "[1, 1000000000000]", "--plain"]);
+            assert_eq!(code, 2, "{err}");
+            assert!(err.contains("ResourceExhausted"), "{err}");
+        },
+    );
     // 評価の順：要素の順に本体を評価し、最初に見つかったもの
-    assert_eq!(run("fn f(xs: List<Int>) -> Option<Int> = find(xs, |x| lt(2, x)) entry f", "[1, 5, 3, 9]"), "5");
+    assert_eq!(
+        run(
+            "fn f(xs: List<Int>) -> Option<Int> = find(xs, |x| lt(2, x)) entry f",
+            "[1, 5, 3, 9]"
+        ),
+        "5"
+    );
 }
 
 #[test]
@@ -172,7 +213,10 @@ entry solve
   pair(map(xs, |x| length(x)), sort_by(xs, |x| length(filter(x, |v| lt(0, v)))))
 entry solve
 ";
-    assert_eq!(run(sib, "[[1, 2, -3], [5], [-1, -2], [4, 4, 4]]"), "[[3,1,2,3],[[-1,-2],[5],[1,2,-3],[4,4,4]]]");
+    assert_eq!(
+        run(sib, "[[1, 2, -3], [5], [-1, -2], [4, 4, 4]]"),
+        "[[3,1,2,3],[[-1,-2],[5],[1,2,-3],[4,4,4]]]"
+    );
     // 書き換えで導入する名前（hof1 など）は、プログラム中の名前と重ならない
     let clash = "fn hof3(hof1: List<Int>) -> List<Int> = let hof2 = 1 in sort_by(hof1, |hof4| sub(hof4, hof2)) entry hof3";
     assert_eq!(run(clash, "[3, 1, 2]"), "[1,2,3]");
@@ -213,7 +257,10 @@ entry f
     assert_eq!(run(m, r#"{"Many": [[1, 2]]}"#), "[2,3]");
     assert_eq!(run(m, r#"{"One": [7]}"#), "[7]");
     // 構築子は binder の名前に使えない
-    assert_eq!(codes("type T = A | B fn f(xs: List<Int>) -> List<Int> = map(xs, |A| A) entry f"), ["E-SUM-NAME-CONFLICT"]);
+    assert_eq!(
+        codes("type T = A | B fn f(xs: List<Int>) -> List<Int> = map(xs, |A| A) entry f"),
+        ["E-SUM-NAME-CONFLICT"]
+    );
 }
 
 #[test]
@@ -222,23 +269,44 @@ fn lowering_uses_fold_and_passes_verified_formatter() {
     for w in ["map(", "filter(", "any(", "all(", "find(", "sort_by("] {
         assert!(!text.contains(w), "{w} in {text}");
     }
-    assert!(text.contains("reverse(fold(xs, list<Int>(), |hof1, x| cons(mul(x, 2), hof1)))"), "{text}");
-    assert!(text.contains("fold(xs, false, |hof3, x| if(hof3, true, eq(x, 3)))"), "{text}");
-    assert!(text.contains("fold(xs, true, |hof4, x| if(hof4, lt(-10, x), false))"), "{text}");
+    assert!(
+        text.contains("reverse(fold(xs, list<Int>(), |hof1, x| cons(mul(x, 2), hof1)))"),
+        "{text}"
+    );
+    assert!(
+        text.contains("fold(xs, false, |hof3, x| if(hof3, true, eq(x, 3)))"),
+        "{text}"
+    );
+    assert!(
+        text.contains("fold(xs, true, |hof4, x| if(hof4, lt(-10, x), false))"),
+        "{text}"
+    );
     assert!(text.contains("fold(xs, none<Int>(), |hof5, x| match_option(hof5, if(lt(5, x), some(x), none<Int>()), |hof6| some(hof6)))"), "{text}");
     // sort_by：鍵は let x = 要素 in 本体（ユーザーの binder はシャドーされない）。本体はソースに一度だけ現れる
     assert!(text.contains("let hof11 = let x = hof10 in neg(x) in match_option(fst(hof9), pair(some(hof11), snd(hof9)), |hof12|"), "{text}");
     assert_eq!(text.matches("neg(x)").count(), 1, "{text}");
-    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
     // 鍵の中に sort_by を入れ子にしても、書き換え後のソースは入れ子の深さに比例する大きさ
     let mut key = "0".to_string();
     for i in (1..=12).rev() {
         key = format!("length(sort_by(xs, |x{i}| add(x{i}, {key})))");
     }
-    let deep = format!("fn f(xs: List<Int>) -> List<Int> = sort_by(xs, |x0| add(x0, {key})) entry f");
+    let deep =
+        format!("fn f(xs: List<Int>) -> List<Int> = sort_by(xs, |x0| add(x0, {key})) entry f");
     let text = lowered(&deep);
-    assert!(text.len() < 40 * deep.len(), "{} vs {}", text.len(), deep.len());
-    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
+    assert!(
+        text.len() < 40 * deep.len(),
+        "{} vs {}",
+        text.len(),
+        deep.len()
+    );
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
     assert_eq!(run(&deep, "[]"), "[]");
     // レコード・直和型と一緒でも、書き換え後のソースは検証済み formatter の正準形
     let mixed = "type P = { a: Int, b: Int }
@@ -247,41 +315,67 @@ fn f(xs: List<P>) -> List<S> = map(sort_by(xs, |p| p.b), |p| if(lt(0, p.a), X(p.
 entry f
 ";
     let text = lowered(mixed);
-    assert!(text.contains("fold(") && !text.contains("sort_by("), "{text}");
-    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
+    assert!(
+        text.contains("fold(") && !text.contains("sort_by("),
+        "{text}"
+    );
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
 }
 
 // ---------------------------------------------------------------- 診断
 
 #[test]
 fn diagnostics() {
-    let c = |body: &str| codes(&format!("fn f(xs: List<Int>, n: Int) -> List<Int> = {body} entry g fn g(x: List<Int>) -> List<Int> = f(x, 0)"));
+    let c = |body: &str| {
+        codes(&format!("fn f(xs: List<Int>, n: Int) -> List<Int> = {body} entry g fn g(x: List<Int>) -> List<Int> = f(x, 0)"))
+    };
     assert_eq!(c("map(n, |x| x)"), ["E-TYPE-HOF-LIST"]);
     assert_eq!(c("filter(some(xs), |x| true)"), ["E-TYPE-HOF-LIST"]);
     assert_eq!(c("filter(xs, |x| x)"), ["E-TYPE-HOF-BODY"]);
     assert_eq!(c("sort_by(xs, |x| lt(x, 0))"), ["E-TYPE-HOF-BODY"]);
     assert_eq!(c("if(any(xs, |x| 1), xs, xs)"), ["E-TYPE-HOF-BODY"]);
     assert_eq!(c("if(all(xs, |x| x), xs, xs)"), ["E-TYPE-HOF-BODY"]);
-    assert_eq!(c("match_option(find(xs, |x| unit), xs, |y| xs)"), ["E-TYPE-HOF-BODY"]);
+    assert_eq!(
+        c("match_option(find(xs, |x| unit), xs, |y| xs)"),
+        ["E-TYPE-HOF-BODY"]
+    );
     assert_eq!(c("map(xs, |x| eq(x, 1))"), ["E-TYPE-RETURN"]);
     // binder：外側の名前をシャドーできず、本体の外では見えない
     assert_eq!(c("map(xs, |n| n)"), ["E-NAME-SHADOW"]);
     assert_eq!(c("map(xs, |x| map(xs, |x| x))"), ["E-NAME-SHADOW"]);
-    assert_eq!(c("concat(map(xs, |x| x), list<Int>(x))"), ["E-NAME-UNBOUND-VARIABLE"]);
+    assert_eq!(
+        c("concat(map(xs, |x| x), list<Int>(x))"),
+        ["E-NAME-UNBOUND-VARIABLE"]
+    );
     // 第 2 引数がラムダでない
     assert_eq!(c("map(xs, double)"), ["E-PARSE-EXPECTED-LAMBDA"]);
     assert_eq!(c("map(xs, add(x, 1))"), ["E-PARSE-EXPECTED-LAMBDA"]);
     assert_eq!(c("map(xs)"), ["E-PARSE-EXPECTED-LAMBDA"]);
-    assert_eq!(c("sort_by(xs, |a, b| lt(a, b))"), ["E-PARSE-EXPECTED-LAMBDA"]);
+    assert_eq!(
+        c("sort_by(xs, |a, b| lt(a, b))"),
+        ["E-PARSE-EXPECTED-LAMBDA"]
+    );
     assert_eq!(c("filter(xs, || true)"), ["E-PARSE-EXPECTED-LAMBDA"]);
     assert_eq!(c("map(xs, |x| x, 1)"), ["E-PARSE-EXPECTED-TOKEN"]);
     // 関数名と entry の名前には使えない（検証済み部品との食い違いにはしない）
-    assert_eq!(codes("fn map(x: Int) -> Int = x entry map"), ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]);
-    assert_eq!(codes("fn f(x: Int) -> Int = find(x, 1) entry f"), ["E-PARSE-EXPECTED-LAMBDA"]);
+    assert_eq!(
+        codes("fn map(x: Int) -> Int = x entry map"),
+        ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = find(x, 1) entry f"),
+        ["E-PARSE-EXPECTED-LAMBDA"]
+    );
     // 名前の候補に 6 語も出す
     let d = compiled("fn f(xs: List<Int>) -> List<Int> = mapp(xs) entry f").errors()[0].clone();
     assert_eq!(d.code, "E-NAME-UNKNOWN-FUNCTION");
-    assert!(d.repair.as_ref().unwrap().constraint.contains("map"), "{d:?}");
+    assert!(
+        d.repair.as_ref().unwrap().constraint.contains("map"),
+        "{d:?}"
+    );
 }
 
 #[test]
@@ -298,16 +392,27 @@ fn lambda_repair_hints() {
     assert_eq!(d.expected.as_deref(), Some("|x| e"));
     assert_eq!(d.actual.as_deref(), Some("double"));
     assert_eq!(r.kind, "replace_expression");
-    assert!(r.constraint.starts_with("|x| double(x)"), "{}", r.constraint);
+    assert!(
+        r.constraint.starts_with("|x| double(x)"),
+        "{}",
+        r.constraint
+    );
     let (_, r) = first("map(xs, mul(x, 2))");
     assert_eq!(r.kind, "insert_text");
     assert!(r.constraint.contains("'|x| '"), "{}", r.constraint);
     let (d, r) = first("map(xs)");
     assert_eq!(d.actual.as_deref(), Some(")"));
-    assert_eq!((r.kind, r.target_span.0, r.target_span.1), ("insert_text", d.span.0, d.span.0));
+    assert_eq!(
+        (r.kind, r.target_span.0, r.target_span.1),
+        ("insert_text", d.span.0, d.span.0)
+    );
     let (d, r) = first("sort_by(xs, |a, b| lt(a, b))");
     assert_eq!(d.actual.as_deref(), Some(","));
-    assert!(r.constraint.contains("exactly one binder") && r.constraint.contains("fold"), "{}", r.constraint);
+    assert!(
+        r.constraint.contains("exactly one binder") && r.constraint.contains("fold"),
+        "{}",
+        r.constraint
+    );
     // AST API には修復ヒントを付けない（AST にはこの誤りを書けない）
 }
 
@@ -318,7 +423,12 @@ fn ast_codec_tags() {
         let (code, ast, err) = tlvm(&["ast", p]);
         assert_eq!(code, 0, "{err}");
         // 6 語の tag（字句表の語でない名前を使う）
-        assert!(ast.contains(r#"{"tag":"sort_by","list":{"tag":"var","name":"xs"},"binder":"y","body":"#), "{ast}");
+        assert!(
+            ast.contains(
+                r#"{"tag":"sort_by","list":{"tag":"var","name":"xs"},"binder":"y","body":"#
+            ),
+            "{ast}"
+        );
         assert!(ast.contains(r#""tag":"find""#), "{ast}");
         with_file(ast.trim_end(), "json", |j| {
             let (code, out, err) = tlvm(&["run", j, "[3, 1, 2]", "--plain"]);
@@ -335,7 +445,11 @@ fn ast_codec_tags() {
             r#"{{"codec":"ast_codec_v1","declarations":[{{"tag":"fn","name":"f","params":[{{"name":"xs","type":{{"tag":"list","element":{{"tag":"int"}}}}}}],"return_type":{{"tag":"list","element":{{"tag":"int"}}}},"body":{body}}},{{"tag":"entry","name":"f"}}]}}"#
         )
     };
-    let ast_codes = |body: &str| match compile_ast(ast(body).as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+    let ast_codes = |body: &str| match compile_ast(
+        ast(body).as_bytes(),
+        &StaticProfile::default(),
+        &AstTransportProfile::default(),
+    ) {
         AstCompile::Result(r) => r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
         AstCompile::AstInvalid(d) => d.iter().map(|d| d.code).collect(),
         AstCompile::AstBoundaryFailure => vec!["boundary"],
@@ -343,11 +457,34 @@ fn ast_codec_tags() {
     let x = r#"{"tag":"var","name":"x"}"#;
     let xs = r#"{"tag":"var","name":"xs"}"#;
     assert!(ast_codes(&format!(r#"{{"tag":"filter","list":{xs},"binder":"x","body":{{"tag":"call","callee":"lt","args":[{{"tag":"int","value":"0"}},{x}],"type_args":[]}}}}"#)).is_empty());
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"body":{x}}}"#)), ["E-AST-MISSING-FIELD"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"map","body":{x}}}"#)), ["E-AST-IDENTIFIER"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"map","list":{xs},"binder":"x","init":{x},"body":{x}}}"#)), ["E-AST-UNKNOWN-FIELD"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"call","callee":"map","args":[{xs}],"type_args":[]}}"#)), ["E-AST-IDENTIFIER"]);
-    assert_eq!(ast_codes(&format!(r#"{{"tag":"sort_by","list":{xs},"binder":"x","body":{{"tag":"bool","value":true}}}}"#)), ["E-TYPE-HOF-BODY"]);
+    assert_eq!(
+        ast_codes(&format!(r#"{{"tag":"map","list":{xs},"body":{x}}}"#)),
+        ["E-AST-MISSING-FIELD"]
+    );
+    assert_eq!(
+        ast_codes(&format!(
+            r#"{{"tag":"map","list":{xs},"binder":"map","body":{x}}}"#
+        )),
+        ["E-AST-IDENTIFIER"]
+    );
+    assert_eq!(
+        ast_codes(&format!(
+            r#"{{"tag":"map","list":{xs},"binder":"x","init":{x},"body":{x}}}"#
+        )),
+        ["E-AST-UNKNOWN-FIELD"]
+    );
+    assert_eq!(
+        ast_codes(&format!(
+            r#"{{"tag":"call","callee":"map","args":[{xs}],"type_args":[]}}"#
+        )),
+        ["E-AST-IDENTIFIER"]
+    );
+    assert_eq!(
+        ast_codes(&format!(
+            r#"{{"tag":"sort_by","list":{xs},"binder":"x","body":{{"tag":"bool","value":true}}}}"#
+        )),
+        ["E-TYPE-HOF-BODY"]
+    );
 }
 
 // ---------------------------------------------------------------- tlvm fmt・test・exec
@@ -411,9 +548,18 @@ entry solve
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        c.stdin.take().unwrap().write_all(b"ccc\n  \na\nbb\nzz\n").unwrap();
+        c.stdin
+            .take()
+            .unwrap()
+            .write_all(b"ccc\n  \na\nbb\nzz\n")
+            .unwrap();
         let o = c.wait_with_output().unwrap();
-        assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
         assert_eq!(String::from_utf8(o.stdout).unwrap(), "a\nbb\nzz\nccc\n");
     });
 }

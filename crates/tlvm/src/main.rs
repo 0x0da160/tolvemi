@@ -31,12 +31,12 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tlvm::api::*;
 use tlvm::diagnostics::{json_string, render_human, Diagnostic};
-use tlvm::plain::encode_plain;
-use tlvm::strict_json::{self, JKind, JNode};
-use tlvm::values::encode_value;
 use tlvm::formatter::{encode_ast, format_program};
+use tlvm::plain::encode_plain;
 use tlvm::profiles::*;
+use tlvm::strict_json::{self, JKind, JNode};
 use tlvm::syntax::Program;
+use tlvm::values::encode_value;
 use tlvm::{DecodeResult, RunResult};
 
 static HUMAN: AtomicBool = AtomicBool::new(false);
@@ -51,7 +51,9 @@ fn usage() -> ExitCode {
 fn read(path: &str) -> Result<Vec<u8>, String> {
     if path == "-" {
         let mut v = vec![];
-        std::io::stdin().read_to_end(&mut v).map_err(|e| e.to_string())?;
+        std::io::stdin()
+            .read_to_end(&mut v)
+            .map_err(|e| e.to_string())?;
         Ok(v)
     } else {
         std::fs::read(path).map_err(|e| format!("{path}: {e}"))
@@ -72,16 +74,26 @@ fn emit_in(ds: &[Diagnostic], label: &str, src: &[u8]) {
 /// v1.11：import で複数のファイルからなるプログラムの診断を出す。`file` の付いた診断はそのファイルの source で表示する。
 fn emit_files(ds: &[Diagnostic], files: &[(String, Vec<u8>)]) {
     for d in ds {
-        let (label, src) = match d.file.as_deref().and_then(|f| files.iter().find(|(n, _)| n == f)) {
+        let (label, src) = match d
+            .file
+            .as_deref()
+            .and_then(|f| files.iter().find(|(n, _)| n == f))
+        {
             Some((n, b)) => (n.as_str(), b.as_slice()),
-            None => files.first().map_or(("<program>", &[][..]), |(n, b)| (n.as_str(), b.as_slice())),
+            None => files
+                .first()
+                .map_or(("<program>", &[][..]), |(n, b)| (n.as_str(), b.as_slice())),
         };
         emit_in(std::slice::from_ref(d), label, src);
     }
 }
 
 fn envelope(name: &str, reason: &str) {
-    eprintln!("{{\"result\":{},\"reason\":{}}}", json_string(name), json_string(reason));
+    eprintln!(
+        "{{\"result\":{},\"reason\":{}}}",
+        json_string(name),
+        json_string(reason)
+    );
 }
 
 /// 診断を出し、受理されていれば TypedProgram を返す。
@@ -158,7 +170,10 @@ fn parse_merged_file(path: &str, as_ast: bool) -> Result<Option<Program>, String
     }
     let data = read(path)?;
     let sp = StaticProfile::default();
-    let rel = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let rel = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     match resolve(path, &rel, &data, &mut FsLoader::new(path), &sp) {
         Resolved::Single => parse_file(path, as_ast),
         Resolved::Merged(m) => match parse_merged(&m, &sp) {
@@ -243,8 +258,16 @@ fn shifted(ds: Vec<Diagnostic>, off: usize) -> Vec<Diagnostic> {
         .collect()
 }
 
-fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> Result<ExitCode, String> {
-    let Some(p) = compile_file(file, as_ast)? else { return Ok(ExitCode::from(1)) };
+fn run_cmd(
+    file: &str,
+    input: &str,
+    as_ast: bool,
+    plain: bool,
+    stats: bool,
+) -> Result<ExitCode, String> {
+    let Some(p) = compile_file(file, as_ast)? else {
+        return Ok(ExitCode::from(1));
+    };
     let (label, data) = if input == "-" {
         ("<stdin>".to_string(), read("-")?)
     } else if let Some(path) = input.strip_prefix('@') {
@@ -263,8 +286,17 @@ fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> R
             return Ok(ExitCode::from(1));
         }
     };
-    match run(&p, &tv, &ExecutionProfile::default(), &HostPolicy::default())? {
-        RunResult::Completed { output, steps, allocated_nodes } => {
+    match run(
+        &p,
+        &tv,
+        &ExecutionProfile::default(),
+        &HostPolicy::default(),
+    )? {
+        RunResult::Completed {
+            output,
+            steps,
+            allocated_nodes,
+        } => {
             if plain {
                 println!("{}", encode_plain(&p.output_type, &output)?);
             } else {
@@ -275,7 +307,11 @@ fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> R
             }
             Ok(ExitCode::SUCCESS)
         }
-        RunResult::ResourceExhausted { kind, observed, limit } => {
+        RunResult::ResourceExhausted {
+            kind,
+            observed,
+            limit,
+        } => {
             eprintln!("{{\"result\":\"ResourceExhausted\",\"kind\":\"{kind}\",\"observed\":{observed},\"limit\":{limit}}}");
             Ok(ExitCode::from(2))
         }
@@ -297,9 +333,17 @@ fn run_cmd(file: &str, input: &str, as_ast: bool, plain: bool, stats: bool) -> R
 /// その文字列をそのまま標準出力に書く。
 fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
     use tlvm::runtime::{exec, exec_input, ExecInput, ExecResult, ENTRY_SHAPES};
-    let Some(p) = compile_file(file, false)? else { return Ok(ExitCode::from(1)) };
+    let Some(p) = compile_file(file, false)? else {
+        return Ok(ExitCode::from(1));
+    };
     let Some(shape) = exec_input(&p) else {
-        envelope("UnsupportedEntry", &format!("exec の entry の入力型は {ENTRY_SHAPES} のどれか（この entry は {}）", p.input_type));
+        envelope(
+            "UnsupportedEntry",
+            &format!(
+                "exec の entry の入力型は {ENTRY_SHAPES} のどれか（この entry は {}）",
+                p.input_type
+            ),
+        );
         return Ok(ExitCode::from(64));
     };
     let stdin = if shape == ExecInput::Args {
@@ -313,7 +357,13 @@ fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
             }
         }
     };
-    match exec(&p, args, &stdin, &ExecutionProfile::exec(), &HostPolicy::default())? {
+    match exec(
+        &p,
+        args,
+        &stdin,
+        &ExecutionProfile::exec(),
+        &HostPolicy::default(),
+    )? {
         ExecResult::Output(o) => {
             use std::io::Write;
             let mut out = std::io::stdout().lock();
@@ -339,7 +389,11 @@ fn exec_cmd(file: &str, args: &[String]) -> Result<ExitCode, String> {
             emit_in(&ds, "<stdin>", stdin.as_bytes());
             Ok(ExitCode::from(1))
         }
-        ExecResult::Stopped(RunResult::ResourceExhausted { kind, observed, limit }) => {
+        ExecResult::Stopped(RunResult::ResourceExhausted {
+            kind,
+            observed,
+            limit,
+        }) => {
             eprintln!("{{\"result\":\"ResourceExhausted\",\"kind\":\"{kind}\",\"observed\":{observed},\"limit\":{limit}}}");
             Ok(ExitCode::from(2))
         }
@@ -367,19 +421,32 @@ enum Outcome {
 }
 
 /// テストケースの一件を実行する。入力・期待出力は cases ファイルの一部として読み、診断の位置はファイル上に直す。
-fn run_case(p: &tlvm::checker::TypedProgram, case: &JNode, data: &[u8], plain: bool, label: &str) -> Result<Outcome, String> {
+fn run_case(
+    p: &tlvm::checker::TypedProgram,
+    case: &JNode,
+    data: &[u8],
+    plain: bool,
+    label: &str,
+) -> Result<Outcome, String> {
     let (Some(input), Some(expected)) = (case.get("input"), case.get("expected")) else {
-        return Ok(Outcome::Error("case には \"input\" と \"expected\" が必要です".into()));
+        return Ok(Outcome::Error(
+            "case には \"input\" と \"expected\" が必要です".into(),
+        ));
     };
     let mut values = vec![];
-    for (node, ty, what) in [(input, &p.input_type, "input"), (expected, &p.output_type, "expected")] {
+    for (node, ty, what) in [
+        (input, &p.input_type, "input"),
+        (expected, &p.output_type, "expected"),
+    ] {
         match decode(ty, &data[node.start..node.end], plain) {
             DecodeResult::Decoded(tv) => values.push(tv),
             DecodeResult::Invalid(d) => {
                 emit_in(&shifted(d, node.start), label, data);
                 return Ok(Outcome::Error(format!("{what} を型 {ty} として読めません")));
             }
-            DecodeResult::InputBoundaryFailure => return Ok(Outcome::Error(format!("{what} が UTF-8 ではありません"))),
+            DecodeResult::InputBoundaryFailure => {
+                return Ok(Outcome::Error(format!("{what} が UTF-8 ではありません")))
+            }
         }
     }
     let want = encode_value(&values[1].value);
@@ -390,22 +457,48 @@ fn run_case(p: &tlvm::checker::TypedProgram, case: &JNode, data: &[u8], plain: b
             Ok(canonical.to_string())
         }
     };
-    Ok(match run(p, &values[0], &ExecutionProfile::default(), &HostPolicy::default())? {
-        RunResult::Completed { output, .. } if output == want => Outcome::Pass,
-        RunResult::Completed { output, .. } => Outcome::Fail { expected: show(&want)?, actual: show(&output)? },
-        RunResult::ResourceExhausted { kind, observed, limit } => {
-            Outcome::Error(format!("ResourceExhausted {kind} (observed {observed}, limit {limit})"))
-        }
-        RunResult::HostAborted(r) => Outcome::Error(format!("HostAborted {r}")),
-        RunResult::InternalFault(r) => Outcome::Error(format!("InternalFault {r}")),
-    })
+    Ok(
+        match run(
+            p,
+            &values[0],
+            &ExecutionProfile::default(),
+            &HostPolicy::default(),
+        )? {
+            RunResult::Completed { output, .. } if output == want => Outcome::Pass,
+            RunResult::Completed { output, .. } => Outcome::Fail {
+                expected: show(&want)?,
+                actual: show(&output)?,
+            },
+            RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            } => Outcome::Error(format!(
+                "ResourceExhausted {kind} (observed {observed}, limit {limit})"
+            )),
+            RunResult::HostAborted(r) => Outcome::Error(format!("HostAborted {r}")),
+            RunResult::InternalFault(r) => Outcome::Error(format!("InternalFault {r}")),
+        },
+    )
 }
 
-fn test_cmd(file: &str, cases: Option<&str>, as_ast: bool, plain: bool) -> Result<ExitCode, String> {
-    let Some(p) = compile_file(file, as_ast)? else { return Ok(ExitCode::from(1)) };
+fn test_cmd(
+    file: &str,
+    cases: Option<&str>,
+    as_ast: bool,
+    plain: bool,
+) -> Result<ExitCode, String> {
+    let Some(p) = compile_file(file, as_ast)? else {
+        return Ok(ExitCode::from(1));
+    };
     let cases_path = cases.map_or_else(|| default_cases(file), str::to_string);
     let data = read(&cases_path)?;
-    let root = strict_json::parse(&data, 1024).map_err(|f| format!("{cases_path}: JSON として読めません（{:?}、byte {}）", f.kind, f.span.0))?;
+    let root = strict_json::parse(&data, 1024).map_err(|f| {
+        format!(
+            "{cases_path}: JSON として読めません（{:?}、byte {}）",
+            f.kind, f.span.0
+        )
+    })?;
     if root.kind != JKind::Array {
         return Err(format!("{cases_path}: テストケースの配列が必要です"));
     }
@@ -444,7 +537,10 @@ fn test_cmd(file: &str, cases: Option<&str>, as_ast: bool, plain: bool) -> Resul
                 if human {
                     println!("ERROR {name}: {why}");
                 } else {
-                    println!("{{\"case\":{n},\"result\":\"error\",\"reason\":{}}}", json_string(&why));
+                    println!(
+                        "{{\"case\":{n},\"result\":\"error\",\"reason\":{}}}",
+                        json_string(&why)
+                    );
                 }
             }
         }
@@ -454,7 +550,11 @@ fn test_cmd(file: &str, cases: Option<&str>, as_ast: bool, plain: bool) -> Resul
     } else {
         println!("{{\"passed\":{passed},\"failed\":{failed}}}");
     }
-    Ok(if failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) })
+    Ok(if failed == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }
 
 fn real_main() -> Result<ExitCode, String> {
@@ -476,7 +576,13 @@ fn real_main() -> Result<ExitCode, String> {
                 _ => return Ok(usage()),
             };
             let prompt = std::io::stdin().is_terminal();
-            let code = tlvm::repl::repl(file, &mut std::io::stdin().lock(), &mut std::io::stdout().lock(), prompt).map_err(|e| e.to_string())?;
+            let code = tlvm::repl::repl(
+                file,
+                &mut std::io::stdin().lock(),
+                &mut std::io::stdout().lock(),
+                prompt,
+            )
+            .map_err(|e| e.to_string())?;
             return Ok(ExitCode::from(code as u8));
         }
         Some("lsp") => {
@@ -484,13 +590,23 @@ fn real_main() -> Result<ExitCode, String> {
             if args[1..].iter().any(|a| a != "--stdio") {
                 return Ok(usage());
             }
-            let code = tlvm::lsp::serve(&mut std::io::stdin().lock(), &mut std::io::stdout().lock()).map_err(|e| e.to_string())?;
+            let code =
+                tlvm::lsp::serve(&mut std::io::stdin().lock(), &mut std::io::stdout().lock())
+                    .map_err(|e| e.to_string())?;
             return Ok(ExitCode::from(code as u8));
         }
         _ => {}
     }
-    let flags: Vec<&str> = args.iter().filter(|a| a.starts_with("--")).map(|s| s.as_str()).collect();
-    let pos: Vec<&str> = args.iter().filter(|a| !a.starts_with("--")).map(|s| s.as_str()).collect();
+    let flags: Vec<&str> = args
+        .iter()
+        .filter(|a| a.starts_with("--"))
+        .map(|s| s.as_str())
+        .collect();
+    let pos: Vec<&str> = args
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .map(|s| s.as_str())
+        .collect();
     let known = ["--ast", "--stats", "--plain", "--human", "--canonical"];
     if let Some(f) = flags.iter().find(|f| !known.contains(f)) {
         eprintln!("tlvm: unknown option {f}");
@@ -536,7 +652,10 @@ fn real_main() -> Result<ExitCode, String> {
                 let src = if as_ast || file.ends_with(".json") {
                     bare.clone()
                 } else {
-                    without_rec_markers(&String::from_utf8(read(file)?).map_err(|e| e.to_string())?, &p)
+                    without_rec_markers(
+                        &String::from_utf8(read(file)?).map_err(|e| e.to_string())?,
+                        &p,
+                    )
                 };
                 match canonical(&src, &StaticProfile::default()) {
                     Some(o) if o == bare => {
@@ -566,9 +685,17 @@ fn real_main() -> Result<ExitCode, String> {
             Some(p) => ast_out(&p, file),
             None => Ok(ExitCode::from(1)),
         },
-        ["run", file, input] => run_cmd(file, input, as_ast, flags.contains(&"--plain"), flags.contains(&"--stats")),
+        ["run", file, input] => run_cmd(
+            file,
+            input,
+            as_ast,
+            flags.contains(&"--plain"),
+            flags.contains(&"--stats"),
+        ),
         ["test", file] => test_cmd(file, None, as_ast, !flags.contains(&"--canonical")),
-        ["test", file, cases] => test_cmd(file, Some(cases), as_ast, !flags.contains(&"--canonical")),
+        ["test", file, cases] => {
+            test_cmd(file, Some(cases), as_ast, !flags.contains(&"--canonical"))
+        }
         _ => Ok(usage()),
     }
 }

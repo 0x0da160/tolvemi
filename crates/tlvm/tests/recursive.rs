@@ -7,8 +7,15 @@ use tlvm::api::*;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -61,7 +68,11 @@ fn exec(src: &str, stdin: &[u8]) -> (i32, String, String) {
             .unwrap();
         c.stdin.take().unwrap().write_all(stdin).unwrap();
         let o = c.wait_with_output().unwrap();
-        (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+        (
+            o.status.code().unwrap(),
+            String::from_utf8(o.stdout).unwrap(),
+            String::from_utf8(o.stderr).unwrap(),
+        )
     })
 }
 
@@ -76,7 +87,10 @@ fn build(n: Int) -> Tree = Node(Leaf, n, Node(Leaf, add(n, 1), Leaf))
 fn solve(t: Tree) -> Pair<Int, Tree> = pair(size(t), build(size(t)))
 entry solve
 "#;
-    assert_eq!(run(src, "[1,1,0,1,3,7,1,1,0,1,4,1,0]"), "[7,[1,1,0,1,7,7,1,1,0,1,8,1,0]]");
+    assert_eq!(
+        run(src, "[1,1,0,1,3,7,1,1,0,1,4,1,0]"),
+        "[7,[1,1,0,1,7,7,1,1,0,1,8,1,0]]"
+    );
     // 引数のない構築子は [番号]、Int の項は [1, 値]、再帰する項は [長さ] ++ 中身
     let leaf = format!("{TREE}fn solve(n: Int) -> Tree = Node(Leaf, n, Leaf)\nentry solve\n");
     assert_eq!(run(&leaf, "3"), "[1,1,0,1,3,1,0]");
@@ -145,9 +159,11 @@ fn warnings_are_not_emitted_for_generated_functions() {
 
 #[test]
 fn constructor_fields_must_be_encodable() {
-    let string = format!("type Tree = Leaf | Name(String, Tree)\nfn f(x: Int) -> Int = 1\nentry f\n");
+    let string =
+        format!("type Tree = Leaf | Name(String, Tree)\nfn f(x: Int) -> Int = 1\nentry f\n");
     assert_eq!(codes(&string), ["E-REC-FIELD-TYPE"]);
-    let list = format!("type Tree = Leaf | Many(List<Int>, Tree)\nfn f(x: Int) -> Int = 1\nentry f\n");
+    let list =
+        format!("type Tree = Leaf | Many(List<Int>, Tree)\nfn f(x: Int) -> Int = 1\nentry f\n");
     assert_eq!(codes(&list), ["E-REC-FIELD-TYPE"]);
     let other_sum = "type Color = Red | Green\ntype Tree = Leaf | Paint(Color, Tree)\nfn f(x: Int) -> Int = 1\nentry f\n";
     assert_eq!(codes(other_sum), ["E-REC-FIELD-TYPE"]);
@@ -175,13 +191,15 @@ fn names_and_arms_are_checked_as_for_sums() {
     assert_eq!(codes(&dup), ["E-MATCH-DUPLICATE"]);
     let unreachable = format!("{TREE}fn f(t: Tree) -> Int = match t {{ Leaf => 0, _ => 1, Node(l, v, r) => v }}\nentry f\n");
     assert_eq!(codes(&unreachable), ["E-MATCH-UNREACHABLE"]);
-    let arity = format!("{TREE}fn f(t: Tree) -> Int = match t {{ Leaf => 0, Node(l, v) => v }}\nentry f\n");
+    let arity =
+        format!("{TREE}fn f(t: Tree) -> Int = match t {{ Leaf => 0, Node(l, v) => v }}\nentry f\n");
     assert_eq!(codes(&arity), ["E-SUM-CTOR-ARITY"]);
     let call_arity = format!("{TREE}fn f(x: Int) -> Tree = Node(Leaf, x)\nentry f\n");
     assert_eq!(codes(&call_arity), ["E-SUM-CTOR-ARITY"]);
     let nullary = format!("{TREE}fn f(x: Int) -> Tree = Leaf(x)\nentry f\n");
     assert_eq!(codes(&nullary), ["E-SUM-CTOR-ARITY"]);
-    let unknown = format!("{TREE}fn f(t: Tree) -> Int = match t {{ Leaf => 0, Foo(x) => x }}\nentry f\n");
+    let unknown =
+        format!("{TREE}fn f(t: Tree) -> Int = match t {{ Leaf => 0, Foo(x) => x }}\nentry f\n");
     assert_eq!(codes(&unknown), ["E-SUM-UNKNOWN-CTOR"]);
     let mixed = format!("{TREE}type Opt2 = Some2(Int) | None2\nfn f(t: Tree) -> Int = match t {{ Leaf => 0, Some2(x) => x, _ => 1 }}\nentry f\n");
     assert_eq!(codes(&mixed), ["E-MATCH-MIXED"]);
@@ -191,7 +209,10 @@ fn names_and_arms_are_checked_as_for_sums() {
 fn type_errors_name_the_recursive_type() {
     let src = format!("{TREE}fn f(t: Tree) -> Int = add(t, 1)\nentry f\n");
     let r = compiled(&src);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG"]
+    );
     assert_eq!(r.errors()[0].actual.as_deref(), Some("Tree"));
 }
 
@@ -200,7 +221,10 @@ fn a_list_of_int_is_not_a_tree() {
     // 木の値を整数の列として渡すと、型検査で拒否される（v1.14 の既知の制限を解消した）
     let src = format!("{TREE}fn size(t: Tree) -> Int = match t {{ Leaf => 0, _ => 1 }}\nfn f(xs: List<Int>) -> Int = size(xs)\nentry f\n");
     let r = compiled(&src);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG"]
+    );
     assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("List<Int>"));
 }
@@ -209,7 +233,10 @@ fn a_list_of_int_is_not_a_tree() {
 fn different_recursive_types_do_not_mix() {
     let src = format!("{TREE}type Chain = End | Link(Chain)\nfn size(t: Tree) -> Int = match t {{ Leaf => 0, _ => 1 }}\nfn f(c: Chain) -> Int = size(c)\nentry f\n");
     let r = compiled(&src);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG"]
+    );
     assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("Chain"));
 }
@@ -218,7 +245,10 @@ fn different_recursive_types_do_not_mix() {
 fn types_of_the_same_shape_do_not_mix() {
     let src = "type A = X(A) | Ea\ntype B = Y(B) | Eb\nfn f(a: A) -> Int = match a { X(_) => 1, Ea => 0 }\nfn g(b: B) -> Int = f(b)\nentry g\n";
     let r = compiled(src);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG"]
+    );
     assert_eq!(r.errors()[0].expected.as_deref(), Some("A"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("B"));
 }
@@ -227,7 +257,10 @@ fn types_of_the_same_shape_do_not_mix() {
 fn match_on_another_recursive_type_is_rejected() {
     let src = format!("{TREE}type Chain = End | Link(Chain)\nfn f(c: Chain) -> Int = match c {{ Leaf => 0, _ => 1 }}\nentry f\n");
     let r = compiled(&src);
-    assert_eq!(r.errors().iter().map(|d| d.code).collect::<Vec<_>>(), ["E-TYPE-ARG"]);
+    assert_eq!(
+        r.errors().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-TYPE-ARG"]
+    );
     assert_eq!(r.errors()[0].expected.as_deref(), Some("Tree"));
     assert_eq!(r.errors()[0].actual.as_deref(), Some("Chain"));
 }
@@ -237,11 +270,17 @@ fn exec_rejects_a_recursive_entry_input_and_fmt_keeps_the_source_form() {
     let src = format!("{TREE}rec fn size(t: Tree) -> Int = match t {{ Leaf => 0, Node(l, v, r) => add(size(l), add(1, size(r))) }}\nentry size\n");
     let (code, out, err) = exec(&src, b"");
     assert_eq!(code, 64, "{out}{err}");
-    assert!(format!("{out}{err}").contains("UnsupportedEntry"), "{out}{err}");
+    assert!(
+        format!("{out}{err}").contains("UnsupportedEntry"),
+        "{out}{err}"
+    );
     with_file(&src, "tlvm", |p| {
         let (code, out, err) = tlvm(&["fmt", p]);
         assert_eq!(code, 0, "{err}");
-        assert!(out.contains("type Tree = Leaf | Node(Tree, Int, Tree)"), "{out}");
+        assert!(
+            out.contains("type Tree = Leaf | Node(Tree, Int, Tree)"),
+            "{out}"
+        );
         assert!(!out.contains("rec_at"), "{out}");
     });
 }

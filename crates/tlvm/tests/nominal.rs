@@ -7,8 +7,15 @@ use tlvm::api::*;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -45,7 +52,10 @@ fn codes(src: &str) -> Vec<&'static str> {
 fn expected_actual(src: &str) -> (String, String) {
     let r = compiled(src);
     let d = &r.errors()[0];
-    (d.expected.clone().unwrap_or_default(), d.actual.clone().unwrap_or_default())
+    (
+        d.expected.clone().unwrap_or_default(),
+        d.actual.clone().unwrap_or_default(),
+    )
 }
 
 #[test]
@@ -67,7 +77,10 @@ fn sums_with_the_same_shape_do_not_mix() {
 fn a_plain_result_is_not_a_named_sum() {
     let src = "type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n";
     assert_eq!(codes(src), ["E-TYPE-RETURN"]);
-    assert_eq!(expected_actual(src), ("Opt".to_string(), "Result<Int, Unit>".to_string()));
+    assert_eq!(
+        expected_actual(src),
+        ("Opt".to_string(), "Result<Int, Unit>".to_string())
+    );
 }
 
 #[test]
@@ -75,7 +88,10 @@ fn a_raw_pair_is_not_a_record() {
     // `pair` は構造だけの値。レコードの型には、構築（`Box { ... }`）で作った値だけが合う
     let src = "type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nfn g(x: Int) -> Int = f(pair(x, 2))\nentry g\n";
     assert_eq!(codes(src), ["E-TYPE-ARG"]);
-    assert_eq!(expected_actual(src), ("Box".to_string(), "Pair<Int, Int>".to_string()));
+    assert_eq!(
+        expected_actual(src),
+        ("Box".to_string(), "Pair<Int, Int>".to_string())
+    );
 }
 
 #[test]
@@ -89,7 +105,10 @@ fn hand_made_tag_shape_is_rejected_when_run() {
 fn generic_instances_are_distinct_types() {
     let src = "type Box<T> = { v: T, n: Int }\nfn f(b: Box<Int>) -> Int = b.v\nfn g(b: Box<Bool>) -> Int = f(b)\nentry g\n";
     assert_eq!(codes(src), ["E-TYPE-ARG"]);
-    assert_eq!(expected_actual(src), ("Box<Int>".to_string(), "Box<Bool>".to_string()));
+    assert_eq!(
+        expected_actual(src),
+        ("Box<Int>".to_string(), "Box<Bool>".to_string())
+    );
 }
 
 #[test]
@@ -136,7 +155,10 @@ fn fst_and_snd_do_not_read_through_a_named_type() {
     // 名義の型は Pair の別名ではない（印の後ろの構造を fst・snd で取り出させない）。中身は `e.f` で取り出す
     let src = "type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = fst(b)\nentry f\n";
     assert_eq!(codes(src), ["E-TYPE-FST-ARG"]);
-    assert_eq!(expected_actual(src), ("Pair".to_string(), "Box".to_string()));
+    assert_eq!(
+        expected_actual(src),
+        ("Pair".to_string(), "Box".to_string())
+    );
     let src = "type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = snd(b)\nentry f\n";
     assert_eq!(codes(src), ["E-TYPE-SND-ARG"]);
     let src = "type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nentry f\n";

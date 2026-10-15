@@ -11,11 +11,15 @@ fn frame(body: &str) -> String {
 }
 
 fn request(id: u32, method: &str, params: &str) -> String {
-    frame(&format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"{method}\",\"params\":{params}}}"))
+    frame(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"{method}\",\"params\":{params}}}"
+    ))
 }
 
 fn notify(method: &str, params: &str) -> String {
-    frame(&format!("{{\"jsonrpc\":\"2.0\",\"method\":\"{method}\",\"params\":{params}}}"))
+    frame(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"method\":\"{method}\",\"params\":{params}}}"
+    ))
 }
 
 fn init() -> String {
@@ -29,7 +33,11 @@ fn bye() -> String {
 fn open(uri: &str, text: &str) -> String {
     notify(
         "textDocument/didOpen",
-        &format!("{{\"textDocument\":{{\"uri\":{},\"languageId\":\"tlvm\",\"version\":1,\"text\":{}}}}}", json_string(uri), json_string(text)),
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"tlvm\",\"version\":1,\"text\":{}}}}}",
+            json_string(uri),
+            json_string(text)
+        ),
     )
 }
 
@@ -57,14 +65,26 @@ fn serve(input: &str) -> (i32, Vec<JNode>) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     let o = child.wait_with_output().unwrap();
     let mut out = o.stdout.as_slice();
     let mut msgs = vec![];
     while !out.is_empty() {
-        let end = out.windows(4).position(|w| w == b"\r\n\r\n").expect("header");
+        let end = out
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("header");
         let header = std::str::from_utf8(&out[..end]).unwrap();
-        let n: usize = header.strip_prefix("Content-Length: ").expect("content-length").parse().unwrap();
+        let n: usize = header
+            .strip_prefix("Content-Length: ")
+            .expect("content-length")
+            .parse()
+            .unwrap();
         let body = &out[end + 4..end + 4 + n];
         msgs.push(parse(body, 512).expect("json"));
         out = &out[end + 4 + n..];
@@ -81,22 +101,43 @@ fn s<'a>(n: &'a JNode, path: &[&str]) -> &'a str {
 }
 
 fn response(msgs: &[JNode], id: &str) -> JNode {
-    msgs.iter().find(|m| m.get("id").is_some_and(|i| i.text == id || (i.kind == JKind::Null && id == "null"))).unwrap_or_else(|| panic!("no response {id}")).clone()
+    msgs.iter()
+        .find(|m| {
+            m.get("id")
+                .is_some_and(|i| i.text == id || (i.kind == JKind::Null && id == "null"))
+        })
+        .unwrap_or_else(|| panic!("no response {id}"))
+        .clone()
 }
 
 /// 指定した URI の publishDiagnostics（順に）。
 fn published(msgs: &[JNode], uri: &str) -> Vec<Vec<JNode>> {
     msgs.iter()
-        .filter(|m| m.get("method").is_some_and(|x| x.text == "textDocument/publishDiagnostics"))
+        .filter(|m| {
+            m.get("method")
+                .is_some_and(|x| x.text == "textDocument/publishDiagnostics")
+        })
         .filter(|m| s(m, &["params", "uri"]) == uri)
-        .map(|m| m.get("params").unwrap().get("diagnostics").unwrap().items.clone())
+        .map(|m| {
+            m.get("params")
+                .unwrap()
+                .get("diagnostics")
+                .unwrap()
+                .items
+                .clone()
+        })
         .collect()
 }
 
 /// range の (開始行, 開始列, 終了行, 終了列)。
 fn range(d: &JNode) -> (usize, usize, usize, usize) {
     let n = |a: &str, b: &str| s(d, &["range", a, b]).parse::<usize>().unwrap();
-    (n("start", "line"), n("start", "character"), n("end", "line"), n("end", "character"))
+    (
+        n("start", "line"),
+        n("start", "character"),
+        n("end", "line"),
+        n("end", "character"),
+    )
 }
 
 const URI: &str = "untitled:doc";
@@ -106,10 +147,27 @@ fn handshake_and_exit_codes() {
     let (code, msgs) = serve(&(init() + &bye()));
     assert_eq!(code, 0);
     let r = response(&msgs, "1");
-    assert_eq!(s(&r, &["result", "capabilities", "textDocumentSync", "change"]), "1");
-    assert!(r.get("result").unwrap().get("capabilities").unwrap().get("documentFormattingProvider").unwrap().boolean);
+    assert_eq!(
+        s(
+            &r,
+            &["result", "capabilities", "textDocumentSync", "change"]
+        ),
+        "1"
+    );
+    assert!(
+        r.get("result")
+            .unwrap()
+            .get("capabilities")
+            .unwrap()
+            .get("documentFormattingProvider")
+            .unwrap()
+            .boolean
+    );
     assert_eq!(s(&r, &["result", "serverInfo", "name"]), "tlvm");
-    assert_eq!(response(&msgs, "99").get("result").unwrap().kind, JKind::Null);
+    assert_eq!(
+        response(&msgs, "99").get("result").unwrap().kind,
+        JKind::Null
+    );
     // shutdown の前の exit は終了コード 1、EOF も同じ
     assert_eq!(serve(&(init() + &notify("exit", "null"))).0, 1);
     assert_eq!(serve(&init()).0, 1);
@@ -118,12 +176,24 @@ fn handshake_and_exit_codes() {
 
 #[test]
 fn requests_before_initialize_and_unknown_methods() {
-    let (_, msgs) = serve(&(request(5, "textDocument/formatting", "{}") + &init() + &request(6, "textDocument/hover", "{}") + &bye()));
+    let (_, msgs) = serve(
+        &(request(5, "textDocument/formatting", "{}")
+            + &init()
+            + &request(6, "textDocument/hover", "{}")
+            + &bye()),
+    );
     assert_eq!(s(&response(&msgs, "5"), &["error", "code"]), "-32002");
     assert_eq!(s(&response(&msgs, "6"), &["error", "code"]), "-32601");
     // 文字列の id もそのまま返す
-    let (_, msgs) = serve(&(init() + &frame("{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"method\":\"shutdown\"}") + &notify("exit", "null")));
-    assert_eq!(response(&msgs, "abc").get("result").unwrap().kind, JKind::Null);
+    let (_, msgs) = serve(
+        &(init()
+            + &frame("{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"method\":\"shutdown\"}")
+            + &notify("exit", "null")),
+    );
+    assert_eq!(
+        response(&msgs, "abc").get("result").unwrap().kind,
+        JKind::Null
+    );
     // JSON として読めなければ parse error
     let (_, msgs) = serve(&(init() + &frame("{oops") + &bye()));
     assert_eq!(s(&response(&msgs, "null"), &["error", "code"]), "-32700");
@@ -133,7 +203,13 @@ fn requests_before_initialize_and_unknown_methods() {
 fn diagnostics_on_open_and_change() {
     let bad = "fn f(x: Int) -> Int = add(x, true)\nentry f\n";
     let good = "fn f(x: Int) -> Int = add(x, 1)\nentry f\n";
-    let (_, msgs) = serve(&(init() + &open(URI, bad) + &change(URI, 2, good) + &change(URI, 3, "fn f(x: Int) -> Int = \n") + &bye()));
+    let (_, msgs) = serve(
+        &(init()
+            + &open(URI, bad)
+            + &change(URI, 2, good)
+            + &change(URI, 3, "fn f(x: Int) -> Int = \n")
+            + &bye()),
+    );
     let p = published(&msgs, URI);
     assert_eq!(p.len(), 3);
     assert_eq!(p[0].len(), 1);
@@ -143,19 +219,34 @@ fn diagnostics_on_open_and_change() {
     assert_eq!(s(d, &["source"]), "tlvm");
     assert_eq!(range(d), (0, 29, 0, 33));
     let m = s(d, &["message"]);
-    assert!(m.contains("(expected Int, found Bool)") && m.contains("\nrepair (replace_expression): expression of type Int"), "{m}");
+    assert!(
+        m.contains("(expected Int, found Bool)")
+            && m.contains("\nrepair (replace_expression): expression of type Int"),
+        "{m}"
+    );
     // 誤りのない文書は空の診断
     assert!(p[1].is_empty());
     assert_eq!(s(&p[2][0], &["code"]), "E-PARSE-EXPECTED-EXPR");
     assert_eq!(range(&p[2][0]).0, 1);
     // version を返す
-    let versions: Vec<&str> = msgs.iter().filter_map(|m| m.get("params")?.get("version")).map(|v| v.text.as_str()).collect();
+    let versions: Vec<&str> = msgs
+        .iter()
+        .filter_map(|m| m.get("params")?.get("version"))
+        .map(|v| v.text.as_str())
+        .collect();
     assert_eq!(versions, ["1", "2", "3"]);
 }
 
 #[test]
 fn warnings_have_severity_2() {
-    let (_, msgs) = serve(&(init() + &open(URI, "fn unused(x: Int) -> Int = x\nfn f(x: Int) -> Int = x\nentry f\n") + &bye()));
+    let (_, msgs) = serve(
+        &(init()
+            + &open(
+                URI,
+                "fn unused(x: Int) -> Int = x\nfn f(x: Int) -> Int = x\nentry f\n",
+            )
+            + &bye()),
+    );
     let p = published(&msgs, URI);
     assert_eq!(s(&p[0][0], &["code"]), "W-UNUSED-FUNCTION");
     assert_eq!(s(&p[0][0], &["severity"]), "2");
@@ -195,22 +286,47 @@ fn formatting_edit() {
     assert_eq!(s(&edits[0], &["newText"]), canon);
     // 既に正準なら edit はない
     assert!(response(&msgs, "3").get("result").unwrap().items.is_empty());
-    assert_eq!(response(&msgs, "3").get("result").unwrap().kind, JKind::Array);
+    assert_eq!(
+        response(&msgs, "3").get("result").unwrap().kind,
+        JKind::Array
+    );
     // 構文の誤りがあれば null
-    assert_eq!(response(&msgs, "4").get("result").unwrap().kind, JKind::Null);
-    assert_eq!(response(&msgs, "5").get("result").unwrap().kind, JKind::Null);
+    assert_eq!(
+        response(&msgs, "4").get("result").unwrap().kind,
+        JKind::Null
+    );
+    assert_eq!(
+        response(&msgs, "5").get("result").unwrap().kind,
+        JKind::Null
+    );
 }
 
 #[test]
 fn formatting_programs_with_records() {
-    let (_, msgs) = serve(&(init() + &open(URI, "type P = {x: Int}\nfn f(p: P) -> Int = p.x\nentry f\n") + &format_req(2, URI) + &bye()));
+    let (_, msgs) = serve(
+        &(init()
+            + &open(URI, "type P = {x: Int}\nfn f(p: P) -> Int = p.x\nentry f\n")
+            + &format_req(2, URI)
+            + &bye()),
+    );
     let r = response(&msgs, "2");
-    assert_eq!(s(&r.get("result").unwrap().items[0], &["newText"]), "type P = { x: Int }\nfn f(p: P) -> Int = p.x\nentry f\n");
+    assert_eq!(
+        s(&r.get("result").unwrap().items[0], &["newText"]),
+        "type P = { x: Int }\nfn f(p: P) -> Int = p.x\nentry f\n"
+    );
 }
 
 #[test]
 fn close_clears_diagnostics() {
-    let (_, msgs) = serve(&(init() + &open(URI, "fn f(x: Int) -> Int = y\nentry f\n") + &notify("textDocument/didClose", &format!("{{\"textDocument\":{{\"uri\":{}}}}}", json_string(URI))) + &bye()));
+    let (_, msgs) = serve(
+        &(init()
+            + &open(URI, "fn f(x: Int) -> Int = y\nentry f\n")
+            + &notify(
+                "textDocument/didClose",
+                &format!("{{\"textDocument\":{{\"uri\":{}}}}}", json_string(URI)),
+            )
+            + &bye()),
+    );
     let p = published(&msgs, URI);
     assert_eq!(p.len(), 2);
     assert_eq!(s(&p[0][0], &["code"]), "E-NAME-UNBOUND-VARIABLE");
@@ -230,8 +346,16 @@ fn imports_use_open_documents_then_disk() {
     let d = Dir(std::env::temp_dir().join(format!("tlvm-lsp-{}", std::process::id())));
     let _ = std::fs::remove_dir_all(&d.0);
     std::fs::create_dir_all(d.0.join("lib")).unwrap();
-    std::fs::write(d.0.join("lib/sq.tlvm"), "fn sq(x: Int) -> Int = mul(x, x)\n").unwrap();
-    std::fs::write(d.0.join("lib/broken.tlvm"), "fn broken(x: Int) -> Int = true\n").unwrap();
+    std::fs::write(
+        d.0.join("lib/sq.tlvm"),
+        "fn sq(x: Int) -> Int = mul(x, x)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        d.0.join("lib/broken.tlvm"),
+        "fn broken(x: Int) -> Int = true\n",
+    )
+    .unwrap();
     let base = format!("file://{}", d.0.to_string_lossy().replace(' ', "%20"));
     let main = format!("{base}/main.tlvm");
     let lib = format!("{base}/lib/cube.tlvm");
@@ -254,13 +378,25 @@ fn imports_use_open_documents_then_disk() {
     let d3 = &p[3][0];
     assert_eq!(s(d3, &["code"]), "E-TYPE-RETURN");
     assert_eq!(range(d3), (0, 0, 0, 24));
-    assert!(s(d3, &["message"]).contains("broken.tlvm:1:28: "), "{}", s(d3, &["message"]));
+    assert!(
+        s(d3, &["message"]).contains("broken.tlvm:1:28: "),
+        "{}",
+        s(d3, &["message"])
+    );
     // ライブラリ単独では entry がない
-    assert_eq!(s(&published(&msgs, &lib)[0][0], &["code"]), "E-ENTRY-MISSING");
+    assert_eq!(
+        s(&published(&msgs, &lib)[0][0], &["code"]),
+        "E-ENTRY-MISSING"
+    );
 }
 
 #[test]
 fn import_in_untitled_document_is_unsupported() {
-    let (_, msgs) = serve(&(init() + &open(URI, "import \"a.tlvm\"\nfn f(x: Int) -> Int = x\nentry f\n") + &bye()));
-    assert_eq!(s(&published(&msgs, URI)[0][0], &["code"]), "E-IMPORT-UNSUPPORTED");
+    let (_, msgs) = serve(
+        &(init() + &open(URI, "import \"a.tlvm\"\nfn f(x: Int) -> Int = x\nentry f\n") + &bye()),
+    );
+    assert_eq!(
+        s(&published(&msgs, URI)[0][0], &["code"]),
+        "E-IMPORT-UNSUPPORTED"
+    );
 }

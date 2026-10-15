@@ -39,26 +39,66 @@ fn trace(src: &str, sharing: TypeSharing) -> Vec<&'static str> {
         Parsed::Failed(_) => panic!("解析できない: {src}"),
     };
     let px = expand(&p).unwrap_or_else(|_| panic!("展開できない: {src}"));
-    let (o, _) = check_with(&px, src.len(), &StaticProfile::default(), &CheckOptions { sharing, trace: true });
-    o.trace.expect("trace は要求した").into_iter().map(|(n, _)| n).collect()
+    let (o, _) = check_with(
+        &px,
+        src.len(),
+        &StaticProfile::default(),
+        &CheckOptions {
+            sharing,
+            trace: true,
+        },
+    );
+    o.trace
+        .expect("trace は要求した")
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect()
 }
 
 /// §2 の 15 件（entry は `f`）。受理するものと、拒否するもの（4 件目）。仕事量は規則から手で求めた総計。
 const FIFTEEN: [(&str, bool, u64); 15] = [
     ("fn f(x: Int) -> Int = x", true, 2),
-    ("fn f(x: List<Int>) -> List<Int> = map(x, |y| add(y, 1))", true, 13),
+    (
+        "fn f(x: List<Int>) -> List<Int> = map(x, |y| add(y, 1))",
+        true,
+        13,
+    ),
     ("fn g<T>(x: T) -> T = x\nfn f(x: Int) -> Int = x", true, 4),
-    ("fn f(x: Int) -> Option<Int> = loop(x, true, |s| none<Int>())", false, 9),
-    ("type S = Circle(Int) | Sq(Bool)\nfn f(x: Int) -> S = Sq(true)", true, 8),
-    ("type P = { x: Int, y: Bool }\nfn f(p: Int) -> P = P { x: p, y: true }", true, 8),
+    (
+        "fn f(x: Int) -> Option<Int> = loop(x, true, |s| none<Int>())",
+        false,
+        9,
+    ),
+    (
+        "type S = Circle(Int) | Sq(Bool)\nfn f(x: Int) -> S = Sq(true)",
+        true,
+        8,
+    ),
+    (
+        "type P = { x: Int, y: Bool }\nfn f(p: Int) -> P = P { x: p, y: true }",
+        true,
+        8,
+    ),
     (
         "fn f(x: Int) -> Option<Int> = dict_get(dict_put(dict<Int, Int>(), 1, x), 1)",
         true,
         17,
     ),
-    ("fn f(x: Option<Int>) -> Int = match_option(x, 0, |y| y)", true, 8),
-    ("fn f(x: List<Int>) -> Option<Pair<Int, List<Int>>> = uncons(x)", true, 10),
-    ("fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(x)", true, 10),
+    (
+        "fn f(x: Option<Int>) -> Int = match_option(x, 0, |y| y)",
+        true,
+        8,
+    ),
+    (
+        "fn f(x: List<Int>) -> Option<Pair<Int, List<Int>>> = uncons(x)",
+        true,
+        10,
+    ),
+    (
+        "fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(x)",
+        true,
+        10,
+    ),
     ("fn f(x: Int) -> String = \"ab\"", true, 5),
     ("fn f(x: Int) -> Option<Int> = div(x, 2)", true, 10),
     ("fn f(x: List<Int>) -> List<Int> = sort(x)", true, 6),
@@ -106,7 +146,10 @@ fn generic_call_counts_declared_form_plus_one_copy() {
     assert_eq!(outcome(src, &sp(2_000_000)), (true, 10, vec![]));
     assert_eq!(
         trace(src, TypeSharing::Off),
-        ["visit", "compare", "visit", "visit", "compare", "build", "build", "compare", "visit", "compare"]
+        [
+            "visit", "compare", "visit", "visit", "compare", "build", "build", "compare", "visit",
+            "compare"
+        ]
     );
 }
 
@@ -115,9 +158,18 @@ fn generic_copies_are_inside_the_running_total() {
     // 上限は第一パスと複製の和に対して検査する。第一パスの 8 の後で、複製の本体の一つ目（9）と二つ目（10）を数える。
     let src = "fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(x)\nentry f";
     assert_eq!(outcome(src, &sp(10)), (true, 10, vec![]));
-    assert_eq!(outcome(src, &sp(9)), (false, 9, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"]));
-    assert_eq!(outcome(src, &sp(8)), (false, 8, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"]));
-    assert_eq!(outcome(src, &sp(7)), (false, 7, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"]));
+    assert_eq!(
+        outcome(src, &sp(9)),
+        (false, 9, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"])
+    );
+    assert_eq!(
+        outcome(src, &sp(8)),
+        (false, 8, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"])
+    );
+    assert_eq!(
+        outcome(src, &sp(7)),
+        (false, 7, vec!["E-LIMIT-STATIC-SEMANTIC-WORK"])
+    );
 }
 
 #[test]
@@ -127,7 +179,10 @@ fn loop_result_type_is_counted_last_when_accepted() {
     assert_eq!(outcome(src, &sp(2_000_000)), (true, 12, vec![]));
     assert_eq!(
         trace(src, TypeSharing::Off),
-        ["visit", "visit", "visit", "build", "compare", "visit", "build", "compare", "compare", "build", "compare", "compare"]
+        [
+            "visit", "visit", "visit", "build", "compare", "visit", "build", "compare", "compare",
+            "build", "compare", "compare"
+        ]
     );
 }
 
@@ -142,7 +197,10 @@ fn loop_result_type_is_not_counted_when_the_loop_is_wrong() {
     assert_eq!(codes, ["E-TYPE-LOOP-MAX"]);
     assert_eq!(total, 9);
     // 本体が Option<S> でないときも同じ。
-    let (ok, total, codes) = outcome("fn f(x: Int) -> Option<Int> = loop(x, 3, |s| 0)\nentry f", &sp(2_000_000));
+    let (ok, total, codes) = outcome(
+        "fn f(x: Int) -> Option<Int> = loop(x, 3, |s| 0)\nentry f",
+        &sp(2_000_000),
+    );
     assert!(!ok);
     assert_eq!(codes, ["E-TYPE-LOOP-BODY"]);
     assert_eq!(total, 8);
@@ -150,8 +208,20 @@ fn loop_result_type_is_not_counted_when_the_loop_is_wrong() {
 
 /// 型検査器の論理 trace（イベントの名前だけ）。比較 cache は Off。
 fn trace_of(px: &tlvm::syntax::Program, len: usize) -> Vec<&'static str> {
-    let (o, _) = check_with(px, len, &StaticProfile::default(), &CheckOptions { sharing: TypeSharing::Off, trace: true });
-    o.trace.expect("trace は要求した").into_iter().map(|(n, _)| n).collect()
+    let (o, _) = check_with(
+        px,
+        len,
+        &StaticProfile::default(),
+        &CheckOptions {
+            sharing: TypeSharing::Off,
+            trace: true,
+        },
+    );
+    o.trace
+        .expect("trace は要求した")
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect()
 }
 
 #[test]
@@ -170,7 +240,11 @@ fn rec_mark_does_not_change_the_trace() {
         };
         let marked = expand(&p).unwrap_or_else(|_| panic!("展開できない: {src}"));
         let unmarked = marked.unmarked();
-        assert_eq!(trace_of(&marked, src.len()), trace_of(&unmarked, src.len()), "{src}");
+        assert_eq!(
+            trace_of(&marked, src.len()),
+            trace_of(&unmarked, src.len()),
+            "{src}"
+        );
     }
 }
 
@@ -190,11 +264,20 @@ fn reference_events_of_small_programs_are_fixed() {
             SourceCompile::Result(CompileResult::Accepted { program, .. }) => program,
             _ => panic!("受理されない: {src}"),
         };
-        let input = match tlvm::api::decode_input(&program.input_type, br#"{"tag":"int","value":"0"}"#, &tlvm::profiles::InputProfile::default()) {
+        let input = match tlvm::api::decode_input(
+            &program.input_type,
+            br#"{"tag":"int","value":"0"}"#,
+            &tlvm::profiles::InputProfile::default(),
+        ) {
             tlvm::DecodeResult::Decoded(tv) => tv,
             _ => panic!("入力"),
         };
-        let r = tlvm::api::run(&program, &input, &tlvm::profiles::ExecutionProfile::default(), &tlvm::profiles::HostPolicy::default());
+        let r = tlvm::api::run(
+            &program,
+            &input,
+            &tlvm::profiles::ExecutionProfile::default(),
+            &tlvm::profiles::HostPolicy::default(),
+        );
         assert!(
             matches!(r, Ok(tlvm::evaluator::RunResult::Completed { steps: s, allocated_nodes: a, .. }) if (s, a) == (steps, alloc)),
             "{src}: {r:?}"
@@ -211,12 +294,25 @@ fn steps_and_allocs(src: &str, input: &str) -> (u64, u64) {
         SourceCompile::Result(CompileResult::Accepted { program, .. }) => program,
         _ => panic!("受理されない: {src}"),
     };
-    let input = match tlvm::api::decode_input(&program.input_type, input.as_bytes(), &InputProfile::default()) {
+    let input = match tlvm::api::decode_input(
+        &program.input_type,
+        input.as_bytes(),
+        &InputProfile::default(),
+    ) {
         tlvm::DecodeResult::Decoded(tv) => tv,
         _ => panic!("入力"),
     };
-    match tlvm::api::run(&program, &input, &ExecutionProfile::default(), &HostPolicy::default()) {
-        Ok(tlvm::evaluator::RunResult::Completed { steps, allocated_nodes, .. }) => (steps, allocated_nodes),
+    match tlvm::api::run(
+        &program,
+        &input,
+        &ExecutionProfile::default(),
+        &HostPolicy::default(),
+    ) {
+        Ok(tlvm::evaluator::RunResult::Completed {
+            steps,
+            allocated_nodes,
+            ..
+        }) => (steps, allocated_nodes),
         r => panic!("{src}: {r:?}"),
     }
 }
@@ -227,7 +323,9 @@ fn none_repeated_in_a_fold_allocates_nothing() {
     // fold の反復の step は、入力の cons の読取りと body の評価で、長さに比例する（一反復の増分は一定）。
     let src = "fn f(x: List<Int>) -> Option<Int> = fold(x, none<Int>(), |acc, item| none<Int>())\nentry f\n";
     let list = |n: usize| {
-        let items: Vec<String> = (0..n).map(|k| format!(r#"{{"tag":"int","value":"{k}"}}"#)).collect();
+        let items: Vec<String> = (0..n)
+            .map(|k| format!(r#"{{"tag":"int","value":"{k}"}}"#))
+            .collect();
         format!(r#"{{"tag":"list","items":[{}]}}"#, items.join(","))
     };
     let (s0, a0) = steps_and_allocs(src, &list(0));
@@ -242,13 +340,27 @@ fn reference_events_of_a_recursive_program_are_fixed() {
     // 再帰する型の代表 program の Steps と AllocatedNodes。補助関数の本体を含む書換えの形で決まるので、形を
     // recursive_helper_shapes_match_the_deltas で固定したうえで、処理系の出力を固定する。手計算ではない
     // （§18.3 の規則の手計算は、上の P1〜P3 で照合した）。
-    assert_eq!(steps_and_allocs(TREE_SIZE, r#"{"tag":"int","value":"3"}"#), (STEPS_TREE_SIZE, ALLOCS_TREE_SIZE));
+    assert_eq!(
+        steps_and_allocs(TREE_SIZE, r#"{"tag":"int","value":"3"}"#),
+        (STEPS_TREE_SIZE, ALLOCS_TREE_SIZE)
+    );
 }
 
 /// 型検査の仕事量と、論理 trace の名前の列（`CheckOptions` は比較 cache Off）。
 fn check_of(px: &tlvm::syntax::Program, len: usize) -> (Vec<&'static str>, u64) {
-    let (mut o, _) = check_with(px, len, &StaticProfile::default(), &CheckOptions { sharing: TypeSharing::Off, trace: false });
-    (o.diagnostics.iter().map(|d| d.code).collect(), total(o.work.take()))
+    let (mut o, _) = check_with(
+        px,
+        len,
+        &StaticProfile::default(),
+        &CheckOptions {
+            sharing: TypeSharing::Off,
+            trace: false,
+        },
+    );
+    (
+        o.diagnostics.iter().map(|d| d.code).collect(),
+        total(o.work.take()),
+    )
 }
 
 /// 宣言が再帰する型だけのプログラムの、印つきの写しと印なしの写し（名義の型の印は `recursive::expand` が付ける）。
@@ -259,7 +371,10 @@ fn tagged_and_untagged(src: &str) -> (tlvm::syntax::Program, tlvm::syntax::Progr
     };
     let tagged = tlvm::recursive::expand(&p, Some(&tlvm::nominal::Tags::of(&p)));
     let untagged = expand(&p);
-    (tagged.unwrap_or_else(|_| panic!("展開できない: {src}")), untagged.unwrap_or_else(|_| panic!("展開できない: {src}")))
+    (
+        tagged.unwrap_or_else(|_| panic!("展開できない: {src}")),
+        untagged.unwrap_or_else(|_| panic!("展開できない: {src}")),
+    )
 }
 
 #[test]
@@ -272,7 +387,10 @@ fn tagged_copy_is_reported_only_when_rejected() {
     let (ucodes, uw) = check_of(&untagged, TREE_SIZE.len());
     assert!(tcodes.is_empty() && ucodes.is_empty());
     assert_eq!((tw, uw), (472, 356));
-    assert_ne!(trace_of(&tagged, TREE_SIZE.len()), trace_of(&untagged, TREE_SIZE.len()));
+    assert_ne!(
+        trace_of(&tagged, TREE_SIZE.len()),
+        trace_of(&untagged, TREE_SIZE.len())
+    );
     // 受理：印なしの写しの仕事量を報告する。
     assert_eq!(outcome(TREE_SIZE, &sp(2_000_000)), (true, uw, vec![]));
     // 拒否：List<Int> の値を Tree の位置へ渡す。印なしの写しは受理し、印つきの写しだけが拒否する。
@@ -282,6 +400,9 @@ fn tagged_copy_is_reported_only_when_rejected() {
     assert_eq!(check_of(&untagged_rej, rej.len()).0, Vec::<&str>::new());
     let (rcodes, rw) = check_of(&rejected, rej.len());
     assert_eq!(rcodes, ["E-TYPE-ARG"]);
-    assert_eq!(outcome(rej, &sp(2_000_000)), (false, rw, vec!["E-TYPE-ARG"]));
+    assert_eq!(
+        outcome(rej, &sp(2_000_000)),
+        (false, rw, vec!["E-TYPE-ARG"])
+    );
     assert_eq!(rw, 426);
 }

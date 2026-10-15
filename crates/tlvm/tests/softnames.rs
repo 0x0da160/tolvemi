@@ -6,8 +6,15 @@ use tlvm::formatter::encode_ast;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -56,13 +63,28 @@ fn builtin_names_as_variables() {
 #[test]
 fn name_rules_still_apply() {
     // 関数名と entry は呼び出しの名前なので予約語のまま
-    assert_eq!(codes("fn length(x: Int) -> Int = x entry length"), ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]);
+    assert_eq!(
+        codes("fn length(x: Int) -> Int = x entry length"),
+        ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]
+    );
     // 構文の予約語は使えない
-    assert_eq!(codes("fn f(x: Int) -> Int = let in = 1 in x entry f"), ["E-PARSE-EXPECTED-IDENT"]);
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = let in = 1 in x entry f"),
+        ["E-PARSE-EXPECTED-IDENT"]
+    );
     // 名前の規則（シャドー禁止、未束縛）
-    assert_eq!(codes("fn f(x: Int) -> Int = let pair = 1 in let pair = 2 in x entry f"), ["E-NAME-SHADOW"]);
-    assert_eq!(codes("fn f(x: Int) -> Int = length entry f"), ["E-NAME-UNBOUND-VARIABLE"]);
-    assert_eq!(codes("fn f(length: List<Int>) -> Int = length(length) entry f"), Vec::<&str>::new());
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = let pair = 1 in let pair = 2 in x entry f"),
+        ["E-NAME-SHADOW"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = length entry f"),
+        ["E-NAME-UNBOUND-VARIABLE"]
+    );
+    assert_eq!(
+        codes("fn f(length: List<Int>) -> Int = length(length) entry f"),
+        Vec::<&str>::new()
+    );
 }
 
 #[test]
@@ -76,7 +98,10 @@ fn fmt_and_ast() {
         let (code, out, err) = tlvm(&["ast", p]);
         assert_eq!(code, 1);
         assert!(out.is_empty(), "{out}");
-        assert!(err.contains("\"code\":\"E-AST-IDENTIFIER\"") && err.contains("\"actual\":\"length\""), "{err}");
+        assert!(
+            err.contains("\"code\":\"E-AST-IDENTIFIER\"") && err.contains("\"actual\":\"length\""),
+            "{err}"
+        );
     });
 }
 
@@ -84,16 +109,23 @@ fn fmt_and_ast() {
 fn ast_refuses_keyword_names() {
     // 字句表の語をすべて除く。付け替えず、ソース順で最初の使われ方を診断にする（§4.2）
     let src = "fn f(x: Int) -> Int = let length = x in length entry f";
-    let SourceCompile::Result(CompileResult::Accepted { program, .. }) = compile(src.as_bytes(), &StaticProfile::default()) else {
+    let SourceCompile::Result(CompileResult::Accepted { program, .. }) =
+        compile(src.as_bytes(), &StaticProfile::default())
+    else {
         panic!("not accepted");
     };
     let ds = encode_ast(&program.program).unwrap_err();
     assert_eq!(ds.len(), 1);
-    assert_eq!((ds[0].code, ds[0].actual.as_deref()), ("E-AST-IDENTIFIER", Some("length")));
+    assert_eq!(
+        (ds[0].code, ds[0].actual.as_deref()),
+        ("E-AST-IDENTIFIER", Some("length"))
+    );
     assert_eq!(&src[ds[0].span.0..ds[0].span.1], "length");
     // 名前を変えれば出せる
     let renamed = src.replace("length", "len");
-    let SourceCompile::Result(CompileResult::Accepted { program, .. }) = compile(renamed.as_bytes(), &StaticProfile::default()) else {
+    let SourceCompile::Result(CompileResult::Accepted { program, .. }) =
+        compile(renamed.as_bytes(), &StaticProfile::default())
+    else {
         panic!("not accepted");
     };
     assert!(encode_ast(&program.program).is_ok());
@@ -115,7 +147,10 @@ entry solve
     });
     // 関数名には使えない
     let c = codes("fn entry(x: Int) -> Int = x entry entry");
-    assert!(!c.is_empty() && c.iter().all(|c| *c == "E-PARSE-EXPECTED-IDENT"), "{c:?}");
+    assert!(
+        !c.is_empty() && c.iter().all(|c| *c == "E-PARSE-EXPECTED-IDENT"),
+        "{c:?}"
+    );
     // 式が途中で終わったときは、次の entry 宣言を変数と読んでも誤りのまま
     assert!(!codes("fn f(x: Int) -> Int = let y = 1 in\nentry f").is_empty());
 }

@@ -105,11 +105,15 @@ fn char_at(src: &[u8], i: usize) -> Option<(char, usize)> {
         return None;
     }
     let end = (i + utf8_len(src[i])).min(src.len());
-    std::str::from_utf8(&src[i..end]).ok().and_then(|s| s.chars().next()).map(|c| (c, end))
+    std::str::from_utf8(&src[i..end])
+        .ok()
+        .and_then(|s| s.chars().next())
+        .map(|c| (c, end))
 }
 
 fn control_char(c: char, at: usize, end: usize) -> Diagnostic {
-    Diagnostic::error("lex", "E-LEX-CONTROL-CHAR-IN-LITERAL", (at, end)).act(format!("U+{:04X}", c as u32))
+    Diagnostic::error("lex", "E-LEX-CONTROL-CHAR-IN-LITERAL", (at, end))
+        .act(format!("U+{:04X}", c as u32))
 }
 
 /// 文字リテラル（src[i] は `'`）。成功なら（文字, 閉じ引用符の次の位置）。
@@ -129,7 +133,8 @@ fn char_literal(src: &[u8], i: usize) -> Result<(char, usize), Diagnostic> {
             match unescape(x, '\'') {
                 Some(c) => (c, k),
                 None => {
-                    return Err(Diagnostic::error("lex", "E-LEX-INVALID-ESCAPE", (i + 1, k)).act(format!("\\{x}")));
+                    return Err(Diagnostic::error("lex", "E-LEX-INVALID-ESCAPE", (i + 1, k))
+                        .act(format!("\\{x}")));
                 }
             }
         }
@@ -144,7 +149,11 @@ fn char_literal(src: &[u8], i: usize) -> Result<(char, usize), Diagnostic> {
             while e < src.len() && !matches!(src[e], b'\'' | b'\n' | b'\r') {
                 e += 1;
             }
-            let end = if e < src.len() && src[e] == b'\'' { e + 1 } else { k };
+            let end = if e < src.len() && src[e] == b'\'' {
+                e + 1
+            } else {
+                k
+            };
             Err(bad(end).act(String::from_utf8_lossy(&src[i..end]).into_owned()))
         }
     }
@@ -168,7 +177,8 @@ fn string_literal(src: &[u8], i: usize) -> Result<(String, usize), Diagnostic> {
                 match unescape(x, '"') {
                     Some(e) => out.push(e),
                     None => {
-                        return Err(Diagnostic::error("lex", "E-LEX-INVALID-ESCAPE", (j, m)).act(format!("\\{x}")));
+                        return Err(Diagnostic::error("lex", "E-LEX-INVALID-ESCAPE", (j, m))
+                            .act(format!("\\{x}")));
                     }
                 }
                 j = m;
@@ -207,12 +217,20 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             push!($kind, $a, $b, String::new())
         };
         ($kind:expr, $a:expr, $b:expr, $lit:expr) => {{
-            let t = Token { kind: $kind, text: text($a, $b), lit: $lit, start: $a, end: $b };
+            let t = Token {
+                kind: $kind,
+                text: text($a, $b),
+                lit: $lit,
+                start: $a,
+                end: $b,
+            };
             toks.push(t);
             if toks.len() > profile.tokens {
-                return Err(Diagnostic::error("lexical-limits", "E-LIMIT-STATIC-TOKENS", ($a, $b))
-                    .exp(profile.tokens.to_string())
-                    .act(toks.len().to_string()));
+                return Err(
+                    Diagnostic::error("lexical-limits", "E-LIMIT-STATIC-TOKENS", ($a, $b))
+                        .exp(profile.tokens.to_string())
+                        .act(toks.len().to_string()),
+                );
             }
         }};
     }
@@ -230,7 +248,9 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
                 }
                 continue;
             }
-            return Err(Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("/"));
+            return Err(
+                Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("/"),
+            );
         }
         if b == b'\'' {
             let (c, j) = char_literal(src, i)?;
@@ -245,14 +265,22 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             continue;
         }
         if b >= 0x80 {
-            return Err(Diagnostic::error("lex", "E-LEX-NON-ASCII", (i, n.min(i + utf8_len(b)))));
+            return Err(Diagnostic::error(
+                "lex",
+                "E-LEX-NON-ASCII",
+                (i, n.min(i + utf8_len(b))),
+            ));
         }
         if ident_start(b) {
             let mut j = i + 1;
             while j < n && ident_char(src[j]) {
                 j += 1;
             }
-            let kind = if is_keyword(&text(i, j)) { TokKind::Kw } else { TokKind::Ident };
+            let kind = if is_keyword(&text(i, j)) {
+                TokKind::Kw
+            } else {
+                TokKind::Ident
+            };
             push!(kind, i, j);
             i = j;
             continue;
@@ -267,19 +295,30 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             }
             // 正規形・数値境界を桁上限より先に判定する（§18.1）
             if b == b'+' || (src[d0] == b'0' && (j - d0 > 1 || b == b'-')) {
-                return Err(Diagnostic::error("lex", "E-LEX-INVALID-INTEGER", (start, j)).act(text(start, j)));
+                return Err(
+                    Diagnostic::error("lex", "E-LEX-INVALID-INTEGER", (start, j))
+                        .act(text(start, j)),
+                );
             }
             if j < n && (ident_start(src[j]) || src[j] == b'-' || src[j] == b'.') {
                 let mut k = j + 1;
                 while k < n && ident_char(src[k]) {
                     k += 1;
                 }
-                return Err(Diagnostic::error("lex", "E-LEX-INVALID-NUMERIC-BOUNDARY", (start, k)));
+                return Err(Diagnostic::error(
+                    "lex",
+                    "E-LEX-INVALID-NUMERIC-BOUNDARY",
+                    (start, k),
+                ));
             }
             if j - d0 > profile.integer_digits {
-                return Err(Diagnostic::error("lexical-limits", "E-LIMIT-STATIC-INTEGER-DIGITS", (start, j))
-                    .exp(profile.integer_digits.to_string())
-                    .act((j - d0).to_string()));
+                return Err(Diagnostic::error(
+                    "lexical-limits",
+                    "E-LIMIT-STATIC-INTEGER-DIGITS",
+                    (start, j),
+                )
+                .exp(profile.integer_digits.to_string())
+                .act((j - d0).to_string()));
             }
             push!(TokKind::Int, start, j);
             i = j;
@@ -291,7 +330,9 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
                 i += 2;
                 continue;
             }
-            return Err(Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("-"));
+            return Err(
+                Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act("-"),
+            );
         }
         // v1.4：`match` の枝の `=>`（検証済み lexer にはない。`match` は検証済み部品へ渡す前に書き換える）
         if b == b'=' && i + 1 < n && src[i + 1] == b'>' {
@@ -304,8 +345,17 @@ pub fn lex(src: &[u8], profile: &StaticProfile) -> Result<Vec<Token>, Diagnostic
             i += 1;
             continue;
         }
-        return Err(Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1)).act(format!("{:?}", b as char)));
+        return Err(
+            Diagnostic::error("lex", "E-LEX-UNEXPECTED-CHARACTER", (i, i + 1))
+                .act(format!("{:?}", b as char)),
+        );
     }
-    toks.push(Token { kind: TokKind::Eof, text: String::new(), lit: String::new(), start: n, end: n });
+    toks.push(Token {
+        kind: TokKind::Eof,
+        text: String::new(),
+        lit: String::new(),
+        start: n,
+        end: n,
+    });
     Ok(toks)
 }

@@ -5,8 +5,15 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 /// 一時ディレクトリに、相対パスとファイルの中身の組でプロジェクトを作る。戻り値は根のファイルのパス（`main.tlvm`）。
@@ -44,7 +51,11 @@ impl Drop for Project {
 fn codes(p: &Project) -> Vec<String> {
     let (_, out, err) = tlvm(&["check", &p.root()]);
     let out = out + &err;
-    let mut v: Vec<String> = out.split("\"code\":\"").skip(1).map(|s| s.split('"').next().unwrap().to_string()).collect();
+    let mut v: Vec<String> = out
+        .split("\"code\":\"")
+        .skip(1)
+        .map(|s| s.split('"').next().unwrap().to_string())
+        .collect();
     v.sort();
     v.dedup();
     v
@@ -70,7 +81,10 @@ fn app(deps: &str) -> Vec<(String, String)> {
 }
 
 fn project(files: Vec<(String, String)>) -> Project {
-    let refs: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
     Project::new(&refs)
 }
 
@@ -108,7 +122,10 @@ fn a_dependency_declares_its_own_dependencies() {
 fn an_undeclared_package_is_rejected() {
     let p = project(app("{}"));
     assert_eq!(codes(&p), ["E-PKG-UNKNOWN"]);
-    let q = Project::new(&[("main.tlvm", "import \"@stats/summary.tlvm\"\nfn solve(xs: List<Int>) -> Int = total(xs)\nentry solve\n")]);
+    let q = Project::new(&[(
+        "main.tlvm",
+        "import \"@stats/summary.tlvm\"\nfn solve(xs: List<Int>) -> Int = total(xs)\nentry solve\n",
+    )]);
     assert_eq!(codes(&q), ["E-PKG-UNKNOWN"]);
 }
 
@@ -136,23 +153,59 @@ fn a_pinned_version_must_match() {
 
 #[test]
 fn a_dependency_path_must_stay_inside_the_project() {
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"../../outside"}}"#))), ["E-PKG-PATH"]);
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"/abs/stats"}}"#))), ["E-PKG-PATH"]);
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"."}}"#))), ["E-PKG-PATH"]);
+    assert_eq!(
+        codes(&project(app(r#"{"stats":{"path":"../../outside"}}"#))),
+        ["E-PKG-PATH"]
+    );
+    assert_eq!(
+        codes(&project(app(r#"{"stats":{"path":"/abs/stats"}}"#))),
+        ["E-PKG-PATH"]
+    );
+    assert_eq!(
+        codes(&project(app(r#"{"stats":{"path":"."}}"#))),
+        ["E-PKG-PATH"]
+    );
 }
 
 #[test]
 fn the_manifest_keys_and_shapes_are_checked() {
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"deps/stats","versoin":"0.2.0"}}"#))), ["E-PKG-MANIFEST"]);
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"deps/stats","version":"0.2"}}"#))), ["E-PKG-MANIFEST"]);
-    assert_eq!(codes(&project(app(r#"{"Stats":{"path":"deps/stats"}}"#))), ["E-PKG-MANIFEST"]);
-    assert_eq!(codes(&project(app(r#"{"stats":{"path":"deps/stats"}}"#).into_iter().map(|(a, b)| if a == "tlvm.json" { (a, "{broken".into()) } else { (a, b) }).collect())), ["E-PKG-MANIFEST"]);
+    assert_eq!(
+        codes(&project(app(
+            r#"{"stats":{"path":"deps/stats","versoin":"0.2.0"}}"#
+        ))),
+        ["E-PKG-MANIFEST"]
+    );
+    assert_eq!(
+        codes(&project(app(
+            r#"{"stats":{"path":"deps/stats","version":"0.2"}}"#
+        ))),
+        ["E-PKG-MANIFEST"]
+    );
+    assert_eq!(
+        codes(&project(app(r#"{"Stats":{"path":"deps/stats"}}"#))),
+        ["E-PKG-MANIFEST"]
+    );
+    assert_eq!(
+        codes(&project(
+            app(r#"{"stats":{"path":"deps/stats"}}"#)
+                .into_iter()
+                .map(|(a, b)| if a == "tlvm.json" {
+                    (a, "{broken".into())
+                } else {
+                    (a, b)
+                })
+                .collect()
+        )),
+        ["E-PKG-MANIFEST"]
+    );
 }
 
 #[test]
 fn an_at_import_must_stay_inside_the_dependency() {
     let mut files = app(r#"{"stats":{"path":"deps/stats"}}"#);
-    files[0].1 = "import \"@stats/../summary.tlvm\"\nfn solve(xs: List<Int>) -> Int = 0\nentry solve\n".into();
+    files[0].1 =
+        "import \"@stats/../summary.tlvm\"\nfn solve(xs: List<Int>) -> Int = 0\nentry solve\n"
+            .into();
     assert_eq!(codes(&project(files)), ["E-IMPORT-PATH"]);
     let mut files = app(r#"{"stats":{"path":"deps/stats"}}"#);
     files[0].1 = "import \"@stats\"\nfn solve(xs: List<Int>) -> Int = 0\nentry solve\n".into();
@@ -162,7 +215,10 @@ fn an_at_import_must_stay_inside_the_dependency() {
 #[test]
 fn a_stray_broken_manifest_does_not_affect_programs_without_packages() {
     let p = Project::new(&[
-        ("main.tlvm", "import \"lib/u.tlvm\"\nfn solve(xs: List<Int>) -> Int = one()\nentry solve\n"),
+        (
+            "main.tlvm",
+            "import \"lib/u.tlvm\"\nfn solve(xs: List<Int>) -> Int = one()\nentry solve\n",
+        ),
         ("lib/u.tlvm", "fn one() -> Int = 1\n"),
         ("tlvm.json", "{broken"),
     ]);
@@ -173,8 +229,12 @@ fn a_stray_broken_manifest_does_not_affect_programs_without_packages() {
 fn package_files_share_the_namespace() {
     let mut files = app(r#"{"stats":{"path":"deps/stats"}}"#);
     files.push(("deps/other/tlvm.json".into(), r#"{"name":"other"}"#.into()));
-    files.push(("deps/other/x.tlvm".into(), "fn total(xs: List<Int>) -> Int = 0\n".into()));
-    files[1].1 = r#"{"dependencies":{"stats":{"path":"deps/stats"},"other":{"path":"deps/other"}}}"#.into();
+    files.push((
+        "deps/other/x.tlvm".into(),
+        "fn total(xs: List<Int>) -> Int = 0\n".into(),
+    ));
+    files[1].1 =
+        r#"{"dependencies":{"stats":{"path":"deps/stats"},"other":{"path":"deps/other"}}}"#.into();
     files[0].1 = "import \"@stats/summary.tlvm\"\nimport \"@other/x.tlvm\"\nfn solve(xs: List<Int>) -> Int = total(xs)\nentry solve\n".into();
     assert_eq!(codes(&project(files)), ["E-IMPORT-CONFLICT"]);
 }
@@ -182,12 +242,30 @@ fn package_files_share_the_namespace() {
 #[test]
 fn an_import_cycle_across_packages_is_detected() {
     let p = project(vec![
-        ("main.tlvm".into(), "import \"@a/x.tlvm\"\nfn solve(xs: List<Int>) -> Int = ax()\nentry solve\n".into()),
-        ("tlvm.json".into(), r#"{"dependencies":{"a":{"path":"deps/a"}}}"#.into()),
-        ("deps/a/tlvm.json".into(), r#"{"name":"a","dependencies":{"b":{"path":"../b"}}}"#.into()),
-        ("deps/a/x.tlvm".into(), "import \"@b/y.tlvm\"\nfn ax() -> Int = 1\n".into()),
-        ("deps/b/tlvm.json".into(), r#"{"name":"b","dependencies":{"a":{"path":"../a"}}}"#.into()),
-        ("deps/b/y.tlvm".into(), "import \"@a/x.tlvm\"\nfn by() -> Int = 2\n".into()),
+        (
+            "main.tlvm".into(),
+            "import \"@a/x.tlvm\"\nfn solve(xs: List<Int>) -> Int = ax()\nentry solve\n".into(),
+        ),
+        (
+            "tlvm.json".into(),
+            r#"{"dependencies":{"a":{"path":"deps/a"}}}"#.into(),
+        ),
+        (
+            "deps/a/tlvm.json".into(),
+            r#"{"name":"a","dependencies":{"b":{"path":"../b"}}}"#.into(),
+        ),
+        (
+            "deps/a/x.tlvm".into(),
+            "import \"@b/y.tlvm\"\nfn ax() -> Int = 1\n".into(),
+        ),
+        (
+            "deps/b/tlvm.json".into(),
+            r#"{"name":"b","dependencies":{"a":{"path":"../a"}}}"#.into(),
+        ),
+        (
+            "deps/b/y.tlvm".into(),
+            "import \"@a/x.tlvm\"\nfn by() -> Int = 2\n".into(),
+        ),
     ]);
     assert_eq!(codes(&p), ["E-IMPORT-CYCLE"]);
 }

@@ -43,8 +43,20 @@ pub fn has_dict(p: &Program) -> bool {
     fn ex(e: &Expr) -> bool {
         match &e.kind {
             ExprKind::DictNew(_) => true,
-            ExprKind::Call { callee, builtin: true, .. } if DICT_OPS.contains(&callee.as_str()) => true,
-            ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::Inj { ty: t, .. } if ty(t) => true,
+            ExprKind::Call {
+                callee,
+                builtin: true,
+                ..
+            } if DICT_OPS.contains(&callee.as_str()) => true,
+            ExprKind::List {
+                element_type: t, ..
+            }
+            | ExprKind::None(t)
+            | ExprKind::Inj { ty: t, .. }
+                if ty(t) =>
+            {
+                true
+            }
             _ => e.children().into_iter().any(ex),
         }
     }
@@ -59,7 +71,13 @@ pub fn has_dict(p: &Program) -> bool {
 /// 空の辞書 `dict<K, V>()`（`t` は `Dict<K, V>` の型 node）を空のリストにする。
 pub(crate) fn lower_new(t: &TypeNode, m: Meta) -> Expr {
     let entry = TypeNode::new(TyTag::Pair, t.args.clone(), t.meta);
-    Expr { kind: ExprKind::List { element_type: entry, items: vec![] }, meta: m }
+    Expr {
+        kind: ExprKind::List {
+            element_type: entry,
+            items: vec![],
+        },
+        meta: m,
+    }
 }
 
 impl Lower<'_> {
@@ -74,14 +92,22 @@ impl Lower<'_> {
             "dict_entries" => arg(),
             "dict_keys" | "dict_values" => {
                 let (acc, e) = (self.fresh(), self.fresh());
-                let (proj, t) = if op == "dict_keys" { ("fst", k) } else { ("snd", v) };
+                let (proj, t) = if op == "dict_keys" {
+                    ("fst", k)
+                } else {
+                    ("snd", v)
+                };
                 let step = b.call("cons", vec![b.call(proj, vec![b.var(&e)]), b.var(&acc)]);
                 b.call("reverse", vec![b.fold(arg(), b.empty(t), &acc, &e, step)])
             }
             "dict_from" => {
                 let (acc, p, kk, vv) = (self.fresh(), self.fresh(), self.fresh(), self.fresh());
                 let put = self.put(&b, b.var(&acc), &kk, &vv, &entry);
-                let step = b.let_(&kk, b.call("fst", vec![b.var(&p)]), b.let_(&vv, b.call("snd", vec![b.var(&p)]), put));
+                let step = b.let_(
+                    &kk,
+                    b.call("fst", vec![b.var(&p)]),
+                    b.let_(&vv, b.call("snd", vec![b.var(&p)]), put),
+                );
                 b.fold(arg(), b.empty(&entry), &acc, &p, step)
             }
             _ => {
@@ -103,8 +129,15 @@ impl Lower<'_> {
                     }
                     "dict_remove" => {
                         let (acc, e) = (self.fresh(), self.fresh());
-                        let step = b.if_(same(&e), b.var(&acc), b.call("cons", vec![b.var(&e), b.var(&acc)]));
-                        b.call("reverse", vec![b.fold(b.var(&dd), b.empty(&entry), &acc, &e, step)])
+                        let step = b.if_(
+                            same(&e),
+                            b.var(&acc),
+                            b.call("cons", vec![b.var(&e), b.var(&acc)]),
+                        );
+                        b.call(
+                            "reverse",
+                            vec![b.fold(b.var(&dd), b.empty(&entry), &acc, &e, step)],
+                        )
                     }
                     _ => {
                         let vv = self.fresh();
@@ -128,8 +161,17 @@ impl Lower<'_> {
         let same = b.call("eq", vec![fst(b.var(&e)), b.var(kk)]);
         let replaced = b.pair(cons(new(), fst(b.var(&acc))), b.bool(true));
         let kept = b.pair(cons(b.var(&e), fst(b.var(&acc))), snd(b.var(&acc)));
-        let scan = b.fold(d, b.pair(b.empty(entry), b.bool(false)), &acc, &e, b.if_(same, replaced, kept));
-        let done = b.call("reverse", vec![b.if_(snd(b.var(&r)), fst(b.var(&r)), cons(new(), fst(b.var(&r))))]);
+        let scan = b.fold(
+            d,
+            b.pair(b.empty(entry), b.bool(false)),
+            &acc,
+            &e,
+            b.if_(same, replaced, kept),
+        );
+        let done = b.call(
+            "reverse",
+            vec![b.if_(snd(b.var(&r)), fst(b.var(&r)), cons(new(), fst(b.var(&r))))],
+        );
         b.let_(&r, scan, done)
     }
 }
@@ -151,15 +193,25 @@ fn erase_expr(e: &mut Expr) {
     }
     let m = e.meta;
     match &mut e.kind {
-        ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::Inj { ty: t, .. } => erase_ty(t),
+        ExprKind::List {
+            element_type: t, ..
+        }
+        | ExprKind::None(t)
+        | ExprKind::Inj { ty: t, .. } => erase_ty(t),
         // 型検査で拒否したプログラムにだけ残る（書き換えは型の付いた node だけ）
         ExprKind::DictNew(t) => {
             let mut t = t.clone();
             erase_ty(&mut t);
             *e = lower_new(&t, m);
         }
-        ExprKind::Field { target: Some((t, _, _)), .. } => erase_ty(t),
-        ExprKind::SumMatch { kind: Some(MatchKind::Sum { ty, fields }), .. } => {
+        ExprKind::Field {
+            target: Some((t, _, _)),
+            ..
+        } => erase_ty(t),
+        ExprKind::SumMatch {
+            kind: Some(MatchKind::Sum { ty, fields }),
+            ..
+        } => {
             erase_ty(ty);
             fields.iter_mut().flatten().for_each(erase_ty);
         }
@@ -178,7 +230,10 @@ pub fn erase_in_place(p: &mut Program) {
                 erase_expr(&mut f.body);
             }
             Decl::Type(t) => t.fields.iter_mut().for_each(|f| erase_ty(&mut f.ty)),
-            Decl::Sum(s) => s.variants.iter_mut().for_each(|v| v.fields.iter_mut().for_each(erase_ty)),
+            Decl::Sum(s) => s
+                .variants
+                .iter_mut()
+                .for_each(|v| v.fields.iter_mut().for_each(erase_ty)),
             Decl::Entry(_) => {}
         }
     }

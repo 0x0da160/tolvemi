@@ -1,7 +1,9 @@
 //! §18.1：書換え後のプログラムの大きさの上限（`E-LIMIT-STATIC-REWRITTEN-BYTES`）。型検査を通ったプログラムの、
 //! 検証済み部品へ渡す文字列の bytes が上限を超えれば拒否する。境界は、観測値が上限以下なら通過する。
 
-use tlvm::api::{compile, compile_ast, parse_source, AstCompile, CompileResult, Parsed, SourceCompile};
+use tlvm::api::{
+    compile, compile_ast, parse_source, AstCompile, CompileResult, Parsed, SourceCompile,
+};
 use tlvm::formatter::encode_ast;
 use tlvm::profiles::{AstTransportProfile, StaticProfile};
 
@@ -20,7 +22,10 @@ fn outcome(src: &str, profile: &StaticProfile) -> (bool, Vec<&'static str>, Opti
     match compile(src.as_bytes(), profile) {
         SourceCompile::Result(CompileResult::Accepted { .. }) => (true, vec![], None),
         SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
-            let act = errors.iter().find(|d| d.code == CODE).and_then(|d| d.actual.clone());
+            let act = errors
+                .iter()
+                .find(|d| d.code == CODE)
+                .and_then(|d| d.actual.clone());
             (false, errors.iter().map(|d| d.code).collect(), act)
         }
         _ => panic!("結果が出ない: {src}"),
@@ -32,7 +37,10 @@ fn ast_outcome(json: &str, profile: &StaticProfile) -> (bool, Vec<&'static str>,
     match compile_ast(json.as_bytes(), profile, &AstTransportProfile::default()) {
         AstCompile::Result(CompileResult::Accepted { .. }) => (true, vec![], None),
         AstCompile::Result(CompileResult::Rejected { errors, .. }) => {
-            let act = errors.iter().find(|d| d.code == CODE).and_then(|d| d.actual.clone());
+            let act = errors
+                .iter()
+                .find(|d| d.code == CODE)
+                .and_then(|d| d.actual.clone());
             (false, errors.iter().map(|d| d.code).collect(), act)
         }
         _ => panic!("AST の検査が結果を返さない"),
@@ -44,7 +52,9 @@ fn many_loops(functions: usize) -> String {
     let t = "match_option(loop(x, 3, |s| none<Int>()), 0, |v| v)";
     let mut src = String::new();
     for k in 0..functions {
-        src.push_str(&format!("fn g{k}(x: Int) -> Int = add(add({t}, {t}), add({t}, {t}))\n"));
+        src.push_str(&format!(
+            "fn g{k}(x: Int) -> Int = add(add({t}, {t}), add({t}, {t}))\n"
+        ));
     }
     src.push_str("entry g0\n");
     src
@@ -60,7 +70,10 @@ fn rewritten_size_is_checked_at_its_exact_boundary() {
     assert!(size > 0);
     // 観測値以下なら通過し、一つ下の上限では拒否する（act は同じ大きさ）。
     assert!(outcome(LOOP, &sp(size)).0);
-    assert_eq!(outcome(LOOP, &sp(size - 1)), (false, vec![CODE], Some(size.to_string())));
+    assert_eq!(
+        outcome(LOOP, &sp(size - 1)),
+        (false, vec![CODE], Some(size.to_string()))
+    );
 }
 
 #[test]
@@ -82,7 +95,10 @@ fn rewritten_size_is_checked_on_the_ast_path() {
     assert_eq!(codes, [CODE]);
     let size: usize = act.expect("act は書換え後の bytes").parse().unwrap();
     assert!(ast_outcome(&json, &sp(size)).0);
-    assert_eq!(ast_outcome(&json, &sp(size - 1)), (false, vec![CODE], Some(size.to_string())));
+    assert_eq!(
+        ast_outcome(&json, &sp(size - 1)),
+        (false, vec![CODE], Some(size.to_string()))
+    );
 }
 
 #[test]
@@ -116,11 +132,25 @@ fn nested_loops(n: usize) -> String {
 fn rewritten_expression_depth_is_checked_after_lowering() {
     // 20 段の入れ子は、原文の式の深さは上限（256）の内だが、書換えの後の式の深さが超えて拒否する（§18.1c の O-1）。
     let src = nested_loops(20);
-    assert!(matches!(parse_source(src.as_bytes(), &StaticProfile::default()), Parsed::Program(_)), "原文は上限の内");
+    assert!(
+        matches!(
+            parse_source(src.as_bytes(), &StaticProfile::default()),
+            Parsed::Program(_)
+        ),
+        "原文は上限の内"
+    );
     match compile(src.as_bytes(), &StaticProfile::default()) {
         SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
-            let d = errors.iter().find(|d| d.code == "E-LIMIT-STATIC-EXPR-DEPTH").expect("式の深さの診断");
-            let need: usize = d.actual.as_ref().expect("act は書換え後の深さ").parse().unwrap();
+            let d = errors
+                .iter()
+                .find(|d| d.code == "E-LIMIT-STATIC-EXPR-DEPTH")
+                .expect("式の深さの診断");
+            let need: usize = d
+                .actual
+                .as_ref()
+                .expect("act は書換え後の深さ")
+                .parse()
+                .unwrap();
             assert!(need > 256, "書換え後の深さ {need}");
         }
         _ => panic!("拒否されない: {src}"),

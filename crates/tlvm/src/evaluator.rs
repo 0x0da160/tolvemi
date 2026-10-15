@@ -18,8 +18,16 @@ use tlvm_verified::pipeline::{run_input_json, InputRun};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunResult {
-    Completed { output: String, steps: u64, allocated_nodes: u64 },
-    ResourceExhausted { kind: &'static str, observed: u64, limit: u64 },
+    Completed {
+        output: String,
+        steps: u64,
+        allocated_nodes: u64,
+    },
+    ResourceExhausted {
+        kind: &'static str,
+        observed: u64,
+        limit: u64,
+    },
     HostAborted(String),
     InternalFault(String),
 }
@@ -51,12 +59,24 @@ pub(crate) fn input_bits_over(v: &V, limit: u64) -> Option<u64> {
 
 /// run(typed_program, decoded_input, execution_profile, host_policy)。
 /// 入力型の不一致は API misuse なので InternalFault ではなく Err で返す。
-pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: &HostPolicy) -> Result<RunResult, String> {
+pub fn run(
+    prog: &TypedProgram,
+    input: &TypedValue,
+    p: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<RunResult, String> {
     if input.ty != prog.input_type {
-        return Err(format!("入力型 {} が entry の入力型 {} と一致しない", input.ty, prog.input_type));
+        return Err(format!(
+            "入力型 {} が entry の入力型 {} と一致しない",
+            input.ty, prog.input_type
+        ));
     }
     if let Some(b) = input_bits_over(&input.value, p.integer_bits) {
-        return Ok(RunResult::ResourceExhausted { kind: "IntegerBits", observed: b, limit: p.integer_bits });
+        return Ok(RunResult::ResourceExhausted {
+            kind: "IntegerBits",
+            observed: b,
+            limit: p.integer_bits,
+        });
     }
     let Some(vp) = prog.verified.as_ref() else {
         return Ok(RunResult::InternalFault("no-verified-program".into()));
@@ -70,18 +90,28 @@ pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: 
         max_slots: (host.max_ref_slots as u64).min(u64::MAX - 1),
     };
     if input.text.len() >= 0x1000_0000 {
-        return Ok(RunResult::InternalFault("input-too-long-for-verified-decoder".into()));
+        return Ok(RunResult::InternalFault(
+            "input-too-long-for-verified-decoder".into(),
+        ));
     }
     let r = match run_input_json(eprog, &input.text, input.json_depth, lim) {
-        InputRun::NotWellFormed => RunResult::InternalFault("verified-check-rejected-program".into()),
-        InputRun::InputRejected => RunResult::InternalFault("verified-decoder-rejected-input".into()),
+        InputRun::NotWellFormed => {
+            RunResult::InternalFault("verified-check-rejected-program".into())
+        }
+        InputRun::InputRejected => {
+            RunResult::InternalFault("verified-decoder-rejected-input".into())
+        }
         InputRun::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
             let kind = match kind {
                 Resource::Steps => "Steps",
                 Resource::IntegerBits => "IntegerBits",
                 Resource::AllocatedNodes => "AllocatedNodes",
             };
-            RunResult::ResourceExhausted { kind, observed, limit }
+            RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            }
         }
         InputRun::Ran(Err(Stop::HostDepth), _, _) => RunResult::HostAborted("eval-depth".into()),
         InputRun::Ran(Err(Stop::HostSlots), _, _) => RunResult::HostAborted("ref-slots".into()),
@@ -89,9 +119,17 @@ pub fn run(prog: &TypedProgram, input: &TypedValue, p: &ExecutionProfile, host: 
         InputRun::Ran(Err(Stop::Fault), _, _) => RunResult::InternalFault("stuck".into()),
         InputRun::Ran(Ok(out), steps, alloc) => {
             if out.len() as u64 > p.output_bytes {
-                RunResult::ResourceExhausted { kind: "OutputBytes", observed: p.output_bytes + 1, limit: p.output_bytes }
+                RunResult::ResourceExhausted {
+                    kind: "OutputBytes",
+                    observed: p.output_bytes + 1,
+                    limit: p.output_bytes,
+                }
             } else {
-                RunResult::Completed { output: out, steps, allocated_nodes: alloc }
+                RunResult::Completed {
+                    output: out,
+                    steps,
+                    allocated_nodes: alloc,
+                }
             }
         }
     };

@@ -73,7 +73,11 @@ pub struct AstTransportProfile {
 
 impl Default for AstTransportProfile {
     fn default() -> Self {
-        AstTransportProfile { id: "ast-transport-v1-reference-1", json_bytes: 16_777_216, json_depth: 1_024 }
+        AstTransportProfile {
+            id: "ast-transport-v1-reference-1",
+            json_bytes: 16_777_216,
+            json_depth: 1_024,
+        }
     }
 }
 
@@ -123,6 +127,11 @@ pub struct HostPolicy {
 
 impl Default for HostPolicy {
     fn default() -> Self {
-        HostPolicy { id: "tlvm-rust-host-v1", max_eval_depth: 400_000, max_ref_slots: 4_000_000, stack_bytes: 1 << 30 }
+        HostPolicy {
+            id: "tlvm-rust-host-v1",
+            max_eval_depth: 400_000,
+            max_ref_slots: 4_000_000,
+            stack_bytes: 1 << 30,
+        }
     }
 }

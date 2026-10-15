@@ -7,8 +7,15 @@ use tlvm::formatter::format_program;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -48,7 +55,11 @@ fn codes(src: &str) -> Vec<&'static str> {
 /// 唯一の error（コードを確かめ、修復ヒントがあることも確かめる）。
 fn only_error(src: &str, code: &str) -> tlvm::diagnostics::Diagnostic {
     let es = errors(src);
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), [code], "{es:?}");
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        [code],
+        "{es:?}"
+    );
     let d = es[0].clone();
     assert!(d.repair.is_some(), "{d:?}");
     d
@@ -90,7 +101,10 @@ entry main
     // 三つの型ごとに一つずつ具体化され、総称の宣言そのものは残らない
     let low = lowered(&src);
     assert_eq!(low.matches("fn first_g").count(), 3, "{low}");
-    assert!(!low.contains("fn first<") && !low.contains("fn first("), "{low}");
+    assert!(
+        !low.contains("fn first<") && !low.contains("fn first("),
+        "{low}"
+    );
     assert!(!low.contains("<T>"), "{low}");
 }
 
@@ -137,7 +151,10 @@ fn main(xs: List<Int>) -> Pair<List<Int>, Pair<List<String>, Pair<Dict<String, I
   pair(dedup(xs), pair(dedup(ws), pair(count(ws), pair(pairs(xs), repeat('z', 3)))))
 entry main
 ";
-    assert_eq!(run(src, "[1, 2, 1, 3]"), r#"[[1,2,3],[["a","b"],[[["a",2],["b",1]],[[[1,1],[2,2],[1,1]],"zzz"]]]]"#);
+    assert_eq!(
+        run(src, "[1, 2, 1, 3]"),
+        r#"[[1,2,3],[["a","b"],[[["a",2],["b",1]],[[[1,1],[2,2],[1,1]],"zzz"]]]]"#
+    );
 }
 
 #[test]
@@ -154,7 +171,10 @@ entry main
     // rec の印は具体化した関数に移る
     let low = lowered(src);
     assert_eq!(low.matches("rec fn len_g").count(), 2, "{low}");
-    assert!(low.contains("rec fn even_g") && low.contains("rec fn odd_g"), "{low}");
+    assert!(
+        low.contains("rec fn even_g") && low.contains("rec fn odd_g"),
+        "{low}"
+    );
     // 使われない rec の総称の関数はコードにならない（停止の保証は残る）
     let src = "rec fn len<T>(xs: List<T>) -> Int = match uncons(xs) { none => 0, some(p) => add(1, len(snd(p))) }\nfn main(x: Int) -> Int = x\nentry main\n";
     let p = accepted(src);
@@ -196,8 +216,14 @@ entry main
     let p = accepted(src);
     assert_eq!(p.input_type.to_string(), "Opt<String>");
     assert_eq!(p.output_type.to_string(), "Pair<Opt<Int>, String>");
-    assert_eq!(run(src, r#"{"Yes": [{"value": "hi", "n": 2}]}"#), r#"[{"Yes":[{"value":3,"n":1}]},"hi"]"#);
-    assert_eq!(run(src, r#"{"No": []}"#), r#"[{"Yes":[{"value":3,"n":1}]},"none"]"#);
+    assert_eq!(
+        run(src, r#"{"Yes": [{"value": "hi", "n": 2}]}"#),
+        r#"[{"Yes":[{"value":3,"n":1}]},"hi"]"#
+    );
+    assert_eq!(
+        run(src, r#"{"No": []}"#),
+        r#"[{"Yes":[{"value":3,"n":1}]},"none"]"#
+    );
     // 診断の型の表示も型引数つき
     let d = errors("type Box<T> = { v: T, w: Int }\nfn g(b: Box<Int>) -> Int = b.w\nfn main(x: Int) -> Int = g(Box { v: \"s\", w: 1 })\nentry main\n");
     assert_eq!(d[0].code, "E-TYPE-ARG");
@@ -220,7 +246,12 @@ fn generic_constructor_helper_function_is_hidden() {
     // 型引数を推論する構築のために作る関数は、使われなくても警告を出さない
     let src = "type Tree<T> = Leaf | Node(T, Int)\nfn main(x: Int) -> Int = match Node(x, 2) { Leaf => 0, Node(a, b) => add(a, b) }\nentry main\n";
     let r = compiled(src);
-    assert!(r.errors().is_empty() && r.warnings().is_empty(), "{:?} {:?}", r.errors(), r.warnings());
+    assert!(
+        r.errors().is_empty() && r.warnings().is_empty(),
+        "{:?} {:?}",
+        r.errors(),
+        r.warnings()
+    );
     assert_eq!(run(src, "5"), "7");
 }
 
@@ -228,76 +259,152 @@ fn generic_constructor_helper_function_is_hidden() {
 
 #[test]
 fn arithmetic_on_type_parameter_is_an_error_with_hint() {
-    let d = only_error("fn f<T>(x: T) -> Int = add(x, 1)\nfn main(x: Int) -> Int = f(x)\nentry main\n", "E-TYPE-ARG");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("Int"), Some("T")));
-    assert!(d.repair.unwrap().constraint.contains("T is a type parameter of f"));
+    let d = only_error(
+        "fn f<T>(x: T) -> Int = add(x, 1)\nfn main(x: Int) -> Int = f(x)\nentry main\n",
+        "E-TYPE-ARG",
+    );
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("Int"), Some("T"))
+    );
+    assert!(d
+        .repair
+        .unwrap()
+        .constraint
+        .contains("T is a type parameter of f"));
     // eq は全ての型に使える
-    assert!(codes("fn f<T>(x: T, y: T) -> Bool = eq(x, y)\nfn main(x: Int) -> Bool = f(x, x)\nentry main\n").is_empty());
+    assert!(codes(
+        "fn f<T>(x: T, y: T) -> Bool = eq(x, y)\nfn main(x: Int) -> Bool = f(x, x)\nentry main\n"
+    )
+    .is_empty());
 }
 
 #[test]
 fn unknown_type_parameter() {
-    let d = only_error("fn f<T>(xs: List<U>) -> Int = length(xs)\nfn main(x: Int) -> Int = x\nentry main\n", "E-TYPE-GENERIC-UNKNOWN-PARAM");
+    let d = only_error(
+        "fn f<T>(xs: List<U>) -> Int = length(xs)\nfn main(x: Int) -> Int = x\nentry main\n",
+        "E-TYPE-GENERIC-UNKNOWN-PARAM",
+    );
     assert_eq!(d.actual.as_deref(), Some("U"));
     assert!(d.repair.unwrap().constraint.contains("<T, U>"));
     // 型引数を宣言し忘れた（総称でない関数で T を使った）
-    let d = only_error("fn f(xs: List<T>) -> Int = length(xs)\nfn main(x: Int) -> Int = x\nentry main\n", "E-TYPE-GENERIC-UNKNOWN-PARAM");
+    let d = only_error(
+        "fn f(xs: List<T>) -> Int = length(xs)\nfn main(x: Int) -> Int = x\nentry main\n",
+        "E-TYPE-GENERIC-UNKNOWN-PARAM",
+    );
     let r = d.repair.unwrap();
     assert_eq!(r.target_span, (4, 4));
     assert!(r.constraint.contains("'<T>'"), "{}", r.constraint);
     // 本体の型の位置も
-    assert_eq!(codes("fn f<T>(x: T) -> Int = length(list<V>())\nfn main(x: Int) -> Int = x\nentry main\n"), ["E-TYPE-GENERIC-UNKNOWN-PARAM"]);
+    assert_eq!(
+        codes("fn f<T>(x: T) -> Int = length(list<V>())\nfn main(x: Int) -> Int = x\nentry main\n"),
+        ["E-TYPE-GENERIC-UNKNOWN-PARAM"]
+    );
 }
 
 #[test]
 fn declaration_errors() {
-    only_error("fn f<T, T>(x: T) -> T = x\nfn main(x: Int) -> Int = f(x)\nentry main\n", "E-TYPE-GENERIC-DUPLICATE-PARAM");
+    only_error(
+        "fn f<T, T>(x: T) -> T = x\nfn main(x: Int) -> Int = f(x)\nentry main\n",
+        "E-TYPE-GENERIC-DUPLICATE-PARAM",
+    );
     only_error("type Pt = { x: Int }\nfn id<Pt>(x: Pt) -> Pt = x\nfn main(x: Int) -> Int = x\nentry main\n", "E-TYPE-GENERIC-PARAM-CONFLICT");
-    only_error("type Box<T> = { v: Int }\nfn main(x: Int) -> Int = x\nentry main\n", "E-TYPE-GENERIC-UNUSED-PARAM");
-    only_error("type Box<T> = { v: T }\nfn main(x: Box<Int, Int>) -> Int = 1\nentry main\n", "E-TYPE-GENERIC-ARITY");
-    only_error("type Box<T> = { v: T }\nfn main(x: Box) -> Int = 1\nentry main\n", "E-TYPE-GENERIC-ARITY");
-    only_error("type Pt = { x: Int }\nfn main(x: Pt<Int>) -> Int = 1\nentry main\n", "E-TYPE-GENERIC-ARITY");
-    only_error("fn f<T>(x: T<Int>) -> Int = 1\nfn main(x: Int) -> Int = x\nentry main\n", "E-TYPE-GENERIC-ARITY");
+    only_error(
+        "type Box<T> = { v: Int }\nfn main(x: Int) -> Int = x\nentry main\n",
+        "E-TYPE-GENERIC-UNUSED-PARAM",
+    );
+    only_error(
+        "type Box<T> = { v: T }\nfn main(x: Box<Int, Int>) -> Int = 1\nentry main\n",
+        "E-TYPE-GENERIC-ARITY",
+    );
+    only_error(
+        "type Box<T> = { v: T }\nfn main(x: Box) -> Int = 1\nentry main\n",
+        "E-TYPE-GENERIC-ARITY",
+    );
+    only_error(
+        "type Pt = { x: Int }\nfn main(x: Pt<Int>) -> Int = 1\nentry main\n",
+        "E-TYPE-GENERIC-ARITY",
+    );
+    only_error(
+        "fn f<T>(x: T<Int>) -> Int = 1\nfn main(x: Int) -> Int = x\nentry main\n",
+        "E-TYPE-GENERIC-ARITY",
+    );
     // 型引数の名前は大文字で始まる
     let es = errors("fn f<t>(x: t) -> Int = 1\nfn main(x: Int) -> Int = x\nentry main\n");
     assert_eq!(es[0].code, "E-PARSE-EXPECTED-IDENT");
-    assert!(es[0].repair.as_ref().unwrap().constraint.contains("uppercase"));
+    assert!(es[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("uppercase"));
 }
 
 #[test]
 fn call_errors() {
     // 型引数の数
     let d = only_error("fn mk<T>(x: Int) -> List<T> = list<T>()\nfn main(x: Int) -> Int = length(mk<Int, Int>(x))\nentry main\n", "E-TYPE-GENERIC-ARITY");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("1 type arguments"), Some("2 type arguments")));
-    only_error("fn g(x: Int) -> Int = x\nfn main(x: Int) -> Int = g<Int>(x)\nentry main\n", "E-TYPE-GENERIC-ARITY");
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("1 type arguments"), Some("2 type arguments"))
+    );
+    only_error(
+        "fn g(x: Int) -> Int = x\nfn main(x: Int) -> Int = g<Int>(x)\nentry main\n",
+        "E-TYPE-GENERIC-ARITY",
+    );
     // 推論できない（戻り型だけに現れる）
     let d = only_error("fn mk<T>(x: Int) -> List<T> = list<T>()\nfn main(x: Int) -> Int = length(mk(x))\nentry main\n", "E-TYPE-GENERIC-INFER");
     let r = d.repair.unwrap();
     assert!(r.constraint.contains("mk<T>(...)"), "{}", r.constraint);
     // 推論した型が引数ごとに違う
     let d = only_error("fn p<T>(a: T, b: T) -> List<T> = list<T>(a, b)\nfn main(x: Int) -> Int = length(p(x, \"s\"))\nentry main\n", "E-TYPE-GENERIC-MISMATCH");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("Int"), Some("String")));
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("Int"), Some("String"))
+    );
     // 明示した型引数と引数の型が違う
     let d = only_error("fn p<T>(a: T, b: T) -> List<T> = list<T>(a, b)\nfn main(x: Int) -> Int = length(p<Int>(x, \"s\"))\nentry main\n", "E-TYPE-ARG");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("Int"), Some("String")));
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("Int"), Some("String"))
+    );
     // 形が合わない（List<T> に Int）
     let d = only_error(&format!("{FIRST}fn main(x: Int) -> Int = match first(x) {{ some(v) => v, none => 0 }}\nentry main\n"), "E-TYPE-ARG");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("List<T>"), Some("Int")));
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("List<T>"), Some("Int"))
+    );
     // 戻り値の型を取り違えた
-    let d = only_error("fn id<T>(x: T) -> T = x\nfn main(x: Int) -> String = id(x)\nentry main\n", "E-TYPE-RETURN");
-    assert_eq!((d.expected.as_deref(), d.actual.as_deref()), (Some("String"), Some("Int")));
+    let d = only_error(
+        "fn id<T>(x: T) -> T = x\nfn main(x: Int) -> String = id(x)\nentry main\n",
+        "E-TYPE-RETURN",
+    );
+    assert_eq!(
+        (d.expected.as_deref(), d.actual.as_deref()),
+        (Some("String"), Some("Int"))
+    );
 }
 
 #[test]
 fn generic_constructor_errors() {
     let h = "type Tree<T> = Leaf | Node(T, Int)\n";
     // 中身のない構築子は型引数を書く
-    let d = only_error(&format!("{h}fn main(x: Int) -> Int = match Leaf {{ Leaf => 0, Node(n, _) => n }}\nentry main\n"), "E-TYPE-GENERIC-INFER");
+    let d = only_error(
+        &format!(
+            "{h}fn main(x: Int) -> Int = match Leaf {{ Leaf => 0, Node(n, _) => n }}\nentry main\n"
+        ),
+        "E-TYPE-GENERIC-INFER",
+    );
     assert!(d.repair.unwrap().constraint.contains("Leaf<Int>()"));
     only_error(&format!("{h}fn main(x: Int) -> Int = match Leaf<Int, Int>() {{ Leaf => 0, Node(n, _) => n }}\nentry main\n"), "E-TYPE-GENERIC-ARITY");
     // 中身の型が型引数と食い違う
     let h2 = "type Two<T> = Both(T, T)\n";
-    only_error(&format!("{h2}fn main(x: Int) -> Int = match Both(x, \"s\") {{ Both(a, _) => a }}\nentry main\n"), "E-TYPE-GENERIC-MISMATCH");
+    only_error(
+        &format!(
+            "{h2}fn main(x: Int) -> Int = match Both(x, \"s\") {{ Both(a, _) => a }}\nentry main\n"
+        ),
+        "E-TYPE-GENERIC-MISMATCH",
+    );
     // 型引数を書いた構築子は書いた型で検査する
     only_error(&format!("{h}fn main(x: Int) -> Int = match Node<String>(x, 1) {{ Leaf => 0, Node(_, n) => n }}\nentry main\n"), "E-TYPE-ARG");
     // 推論できない型引数（Either の B）
@@ -307,7 +414,12 @@ fn generic_constructor_errors() {
     // `Leaf<Int>` には `()` が要る（none<T>() と同じ）
     let es = errors(&format!("{h}fn main(x: Int) -> Int = match Leaf<Int> {{ Leaf => 0, Node(n, _) => n }}\nentry main\n"));
     assert_eq!(es[0].code, "E-PARSE-EXPECTED-TOKEN");
-    assert!(es[0].repair.as_ref().unwrap().constraint.contains("Leaf<Int>()"));
+    assert!(es[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("Leaf<Int>()"));
 }
 
 #[test]
@@ -335,11 +447,17 @@ fn instantiation_limit() {
     // 型引数が関数ごとに倍になる（再帰なし）：型の大きさの上限で止める
     let mut src = String::from("fn f1<T>(x: T) -> Int = 1\n");
     for i in 2..=10 {
-        src.push_str(&format!("fn f{i}<T>(x: T) -> Int = f{}(pair(x, x))\n", i - 1));
+        src.push_str(&format!(
+            "fn f{i}<T>(x: T) -> Int = f{}(pair(x, x))\n",
+            i - 1
+        ));
     }
     src.push_str("fn main(x: Int) -> Int = f10(x)\nentry main\n");
     let es = errors(&src);
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-LIMIT-STATIC-GENERIC-INSTANCES"]);
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-LIMIT-STATIC-GENERIC-INSTANCES"]
+    );
     assert_eq!(es[0].phase, "semantic-limits");
     // 具体化の数の上限（型の違う 300 個の呼び出し）
     let vals = ["1", "true", "unit", "'c'", "\"s\""];
@@ -356,12 +474,28 @@ fn instantiation_limit() {
             }
         }
     }
-    let src = format!("fn k<T>(x: T) -> Int = 1\nfn main(x: Int) -> Int = length(list<Int>({}))\nentry main\n", calls.join(", "));
+    let src = format!(
+        "fn k<T>(x: T) -> Int = 1\nfn main(x: Int) -> Int = length(list<Int>({}))\nentry main\n",
+        calls.join(", ")
+    );
     let es = errors(&src);
-    assert_eq!(es.iter().map(|d| d.code).collect::<Vec<_>>(), ["E-LIMIT-STATIC-GENERIC-INSTANCES"]);
-    assert!(es[0].actual.as_deref().unwrap().contains("more than 256 instances"), "{es:?}");
+    assert_eq!(
+        es.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["E-LIMIT-STATIC-GENERIC-INSTANCES"]
+    );
+    assert!(
+        es[0]
+            .actual
+            .as_deref()
+            .unwrap()
+            .contains("more than 256 instances"),
+        "{es:?}"
+    );
     // 上限以内なら受理する
-    let src = format!("fn k<T>(x: T) -> Int = 1\nfn main(x: Int) -> Int = length(list<Int>({}))\nentry main\n", calls[..200].join(", "));
+    let src = format!(
+        "fn k<T>(x: T) -> Int = 1\nfn main(x: Int) -> Int = length(list<Int>({}))\nentry main\n",
+        calls[..200].join(", ")
+    );
     assert_eq!(run(&src, "0"), "200");
 }
 
@@ -376,10 +510,16 @@ fn unused_generic_function_warns_and_produces_no_code() {
     let src = format!("{FIRST}fn main(x: Int) -> Int = x\nentry main\n");
     let r = compiled(&src);
     assert!(r.errors().is_empty());
-    assert_eq!(r.warnings().iter().map(|d| d.code).collect::<Vec<_>>(), ["W-UNUSED-FUNCTION"]);
+    assert_eq!(
+        r.warnings().iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["W-UNUSED-FUNCTION"]
+    );
     assert!(!lowered(&src).contains("first"));
     // 使われない総称の関数も本体は検査する
-    assert_eq!(codes("fn f<T>(x: T) -> T = add(x, 1)\nfn main(x: Int) -> Int = x\nentry main\n"), ["E-TYPE-ARG"]);
+    assert_eq!(
+        codes("fn f<T>(x: T) -> T = add(x, 1)\nfn main(x: Int) -> Int = x\nentry main\n"),
+        ["E-TYPE-ARG"]
+    );
 }
 
 // ---------------------------------------------------------------- 道具
@@ -444,12 +584,20 @@ entry main
     });
     // AST の型引数の検査
     let bad = r#"{"codec":"ast_codec_v1","declarations":[{"tag":"fn","name":"f","params":[{"name":"x","type":{"tag":"param","name":"U"}}],"return_type":{"tag":"int"},"body":{"tag":"int","value":"1"},"type_params":["T"]},{"tag":"fn","name":"main","params":[{"name":"x","type":{"tag":"int"}}],"return_type":{"tag":"int"},"body":{"tag":"var","name":"x"}},{"tag":"entry","name":"main"}]}"#;
-    match compile_ast(bad.as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+    match compile_ast(
+        bad.as_bytes(),
+        &StaticProfile::default(),
+        &AstTransportProfile::default(),
+    ) {
         AstCompile::Result(r) => assert_eq!(r.errors()[0].code, "E-TYPE-GENERIC-UNKNOWN-PARAM"),
         _ => panic!("transport"),
     }
     let bad = bad.replace(r#""type_params":["T"]"#, r#""type_params":["t"]"#);
-    match compile_ast(bad.as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+    match compile_ast(
+        bad.as_bytes(),
+        &StaticProfile::default(),
+        &AstTransportProfile::default(),
+    ) {
         AstCompile::AstInvalid(d) => assert_eq!(d[0].code, "E-AST-IDENTIFIER"),
         _ => panic!("schema"),
     }
@@ -485,7 +633,11 @@ entry solve
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        c.stdin.take().unwrap().write_all(b"alpha\nbeta\ngamma\n").unwrap();
+        c.stdin
+            .take()
+            .unwrap()
+            .write_all(b"alpha\nbeta\ngamma\n")
+            .unwrap();
         let o = c.wait_with_output().unwrap();
         assert_eq!(String::from_utf8(o.stdout).unwrap(), "alpha|gamma");
     });

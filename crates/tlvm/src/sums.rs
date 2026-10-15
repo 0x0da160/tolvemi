@@ -148,7 +148,12 @@ impl Env {
     /// v1.15：直和型の名前の型。印つきの写しでは印を付けた型（名前は印つきの型の情報）。
     fn named(&self, sum: &str, plain: TypeNode) -> TypeNode {
         match self.sums.get(sum).and_then(|s| s.tag.as_ref()) {
-            Some((r, info)) => nominal::named_ty(*r, plain.clone(), Label(Some(Named::Sum(info.clone()))), plain.meta),
+            Some((r, info)) => nominal::named_ty(
+                *r,
+                plain.clone(),
+                Label(Some(Named::Sum(info.clone()))),
+                plain.meta,
+            ),
             None => plain,
         }
     }
@@ -162,7 +167,8 @@ impl Env {
     }
 
     fn err(&mut self, code: &'static str, span: (usize, usize), index: usize) -> &mut Diagnostic {
-        self.diags.push(Diagnostic::error("name", code, span).at(index));
+        self.diags
+            .push(Diagnostic::error("name", code, span).at(index));
         self.diags.last_mut().unwrap()
     }
 
@@ -178,10 +184,20 @@ impl Env {
                     let params = s.params();
                     let args: Vec<TypeNode> = t.args.iter().map(|a| self.ty(a, at)).collect();
                     if args.len() != params.len() {
-                        crate::generics::arity_error(&mut self.diags, n, &params, args.len(), t.meta);
+                        crate::generics::arity_error(
+                            &mut self.diags,
+                            n,
+                            &params,
+                            args.len(),
+                            t.meta,
+                        );
                         return TypeNode::new(TyTag::Unit, vec![], t.meta);
                     }
-                    let plain = if params.is_empty() { self.sums[n].chain[0].clone() } else { self.sums[n].chain_with(&args)[0].clone() };
+                    let plain = if params.is_empty() {
+                        self.sums[n].chain[0].clone()
+                    } else {
+                        self.sums[n].chain_with(&args)[0].clone()
+                    };
                     let mut x = self.named(n, plain);
                     x.meta = t.meta;
                     return x;
@@ -190,7 +206,14 @@ impl Env {
                 None => self.sum_names.contains(n) || self.records.get(n).is_some_and(|p| *p >= at),
             };
             if !later && !self.records.contains_key(n) {
-                let near = closest(n, self.sum_names.iter().chain(self.records.keys()).map(|k| k.as_str()), 3);
+                let near = closest(
+                    n,
+                    self.sum_names
+                        .iter()
+                        .chain(self.records.keys())
+                        .map(|k| k.as_str()),
+                    3,
+                );
                 let fix = if near.is_empty() {
                     "a type declared above with `type Name = { field: Type, ... }` or `type Name = A | B(T)`".to_string()
                 } else {
@@ -211,9 +234,15 @@ impl Env {
                 return TypeNode::new(TyTag::Unit, vec![], t.meta);
             }
             // レコード型の名前（または未知の名前）は records::expand が扱う（v1.10：型引数の中の直和型はここで展開する）
-            return TypeNode { args: t.args.iter().map(|a| self.ty(a, at)).collect(), ..t.clone() };
+            return TypeNode {
+                args: t.args.iter().map(|a| self.ty(a, at)).collect(),
+                ..t.clone()
+            };
         }
-        TypeNode { args: t.args.iter().map(|a| self.ty(a, at)).collect(), ..t.clone() }
+        TypeNode {
+            args: t.args.iter().map(|a| self.ty(a, at)).collect(),
+            ..t.clone()
+        }
     }
 
     fn conflict(&mut self, name: &str, span: Sp, index: usize) {
@@ -238,27 +267,53 @@ impl Env {
         } else {
             let mut all: Vec<&str> = self.ctors.keys().map(|k| k.as_str()).collect();
             all.sort();
-            let extra = if in_pattern { ", or ok(x), err(e), some(x), none, _" } else { "" };
-            format!("constructor declared with `type Name = A | B(T)`: {}{extra}", all.join(", "))
+            let extra = if in_pattern {
+                ", or ok(x), err(e), some(x), none, _"
+            } else {
+                ""
+            };
+            format!(
+                "constructor declared with `type Name = A | B(T)`: {}{extra}",
+                all.join(", ")
+            )
         };
         let d = self.err("E-SUM-UNKNOWN-CTOR", span.t(), index);
         *d = d.clone().act(name).fix("replace_identifier", span.t(), fix);
     }
 
-    fn arity(&mut self, ctor: &str, given: usize, parens: bool, span: Sp, index: usize, pattern: bool) {
+    fn arity(
+        &mut self,
+        ctor: &str,
+        given: usize,
+        parens: bool,
+        span: Sp,
+        index: usize,
+        pattern: bool,
+    ) {
         let (sum, k) = self.ctors[ctor].clone();
         let sig = self.sums[&sum].sigs[k].clone();
         let m = self.sums[&sum].fields[k].len();
         let fix = if m == 0 {
             format!("{ctor} has no fields: write it without parentheses")
         } else if pattern {
-            format!("{} (one name or _ per field of {sig})", pattern_text(ctor, m))
+            format!(
+                "{} (one name or _ per field of {sig})",
+                pattern_text(ctor, m)
+            )
         } else {
             format!("{ctor}(...) with {m} argument(s), as declared: {sig}")
         };
-        let act = if m == 0 && parens { "parentheses".to_string() } else { format!("{given} fields") };
+        let act = if m == 0 && parens {
+            "parentheses".to_string()
+        } else {
+            format!("{given} fields")
+        };
         let d = self.err("E-SUM-CTOR-ARITY", span.t(), index);
-        *d = d.clone().exp(format!("{m} fields")).act(act).fix("replace_expression", span.t(), fix);
+        *d = d
+            .clone()
+            .exp(format!("{m} fields"))
+            .act(act)
+            .fix("replace_expression", span.t(), fix);
     }
 
     /// 構築子 `ctor` を中身 `args` で構築する式（ok／err の入れ子）。
@@ -268,7 +323,13 @@ impl Env {
     }
 
     /// v1.10：`chain`（型引数を置き換えた型の列）を使って構築する。
-    fn construct_in(&self, ctor: &str, mut args: Vec<Expr>, meta: Meta, chain: &[TypeNode]) -> Expr {
+    fn construct_in(
+        &self,
+        ctor: &str,
+        mut args: Vec<Expr>,
+        meta: Meta,
+        chain: &[TypeNode],
+    ) -> Expr {
         let (sum, k) = &self.ctors[ctor];
         let n = chain.len();
         let mut payload = match args.len() {
@@ -285,10 +346,24 @@ impl Env {
             return self.seal(sum, payload, meta);
         }
         if k + 1 < n {
-            payload = ex(ExprKind::Inj { ok: true, ty: chain[*k].clone(), value: Box::new(payload) }, meta);
+            payload = ex(
+                ExprKind::Inj {
+                    ok: true,
+                    ty: chain[*k].clone(),
+                    value: Box::new(payload),
+                },
+                meta,
+            );
         }
         for j in (0..*k).rev() {
-            payload = ex(ExprKind::Inj { ok: false, ty: chain[j].clone(), value: Box::new(payload) }, meta);
+            payload = ex(
+                ExprKind::Inj {
+                    ok: false,
+                    ty: chain[j].clone(),
+                    value: Box::new(payload),
+                },
+                meta,
+            );
         }
         self.seal(sum, payload, meta)
     }
@@ -304,14 +379,24 @@ impl Env {
         let base = format!("{}_new", ctor.to_ascii_lowercase());
         let name = crate::generics::fresh(&mut self.taken, &base);
         let st = &self.sums[&sum];
-        let (meta, span, tparams, ret) = (st.meta, st.spans[k], st.tparams.clone(), self.named(&sum, st.chain[0].clone()));
+        let (meta, span, tparams, ret) = (
+            st.meta,
+            st.spans[k],
+            st.tparams.clone(),
+            self.named(&sum, st.chain[0].clone()),
+        );
         let fields = st.fields[k].clone();
         let mut params = vec![];
         let mut vars = vec![];
         for (i, f) in fields.into_iter().enumerate() {
             let pn = crate::generics::fresh(&mut self.taken, &format!("{name}_arg{}", i + 1));
             vars.push(ex(ExprKind::Var(pn.clone()), meta));
-            params.push(Param { name: pn, name_span: span, ty: f, meta });
+            params.push(Param {
+                name: pn,
+                name_span: span,
+                ty: f,
+                meta,
+            });
         }
         let body = self.construct(ctor, vars, meta);
         self.synth_decls.push(FnDecl {
@@ -371,88 +456,211 @@ impl Env {
                 self.unknown_ctor(n, m.span, i, false);
                 ExprKind::Unit
             }
-            ExprKind::Call { callee, args, builtin: false, callee_span, type_args } if self.ctors.contains_key(callee) => {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin: false,
+                callee_span,
+                type_args,
+            } if self.ctors.contains_key(callee) => {
                 let args: Vec<Expr> = args.iter().map(|a| self.expr(a)).collect();
                 let (sum, k) = self.ctors[callee].clone();
                 let fm = self.sums[&sum].fields[k].len();
                 let params = self.sums[&sum].params();
                 if !type_args.is_empty() {
                     // v1.10：型引数を書いた構築 `Node<Int>(x, 1)`、`Leaf<Int>()`
-                    let targs: Vec<TypeNode> = type_args.iter().map(|t| self.ty(t, usize::MAX)).collect();
+                    let targs: Vec<TypeNode> =
+                        type_args.iter().map(|t| self.ty(t, usize::MAX)).collect();
                     if targs.len() != params.len() {
                         let at = Meta::new((callee_span.0, m.span.1), i);
-                        crate::generics::arity_error(&mut self.diags, &sum, &params, targs.len(), at);
+                        crate::generics::arity_error(
+                            &mut self.diags,
+                            &sum,
+                            &params,
+                            targs.len(),
+                            at,
+                        );
                         return ex(ExprKind::Unit, m);
                     }
                     if args.len() != fm {
-                        self.arity(callee, args.len(), true, Sp(callee_span.0, m.span.1), i, false);
+                        self.arity(
+                            callee,
+                            args.len(),
+                            true,
+                            Sp(callee_span.0, m.span.1),
+                            i,
+                            false,
+                        );
                         return ex(ExprKind::Unit, m);
                     }
                     let chain = self.sums[&sum].chain_with(&targs);
                     return self.construct_in(callee, args, m, &chain);
                 }
                 if fm == 0 || args.len() != fm {
-                    self.arity(callee, args.len(), true, Sp(callee_span.0, m.span.1), i, false);
+                    self.arity(
+                        callee,
+                        args.len(),
+                        true,
+                        Sp(callee_span.0, m.span.1),
+                        i,
+                        false,
+                    );
                     return ex(ExprKind::Unit, m);
                 }
                 if !params.is_empty() {
                     // v1.10：型引数は総称の関数の呼び出しとして型検査で推論する
                     let f = self.synth(callee);
-                    return ex(ExprKind::Call { callee: f, args, builtin: false, callee_span: *callee_span, type_args: vec![] }, m);
+                    return ex(
+                        ExprKind::Call {
+                            callee: f,
+                            args,
+                            builtin: false,
+                            callee_span: *callee_span,
+                            type_args: vec![],
+                        },
+                        m,
+                    );
                 }
                 return self.construct(callee, args, m);
             }
-            ExprKind::Call { callee, builtin: false, callee_span, .. }
-                if upper(callee) && !self.fns.contains(callee) && !self.ctors.is_empty() =>
-            {
+            ExprKind::Call {
+                callee,
+                builtin: false,
+                callee_span,
+                ..
+            } if upper(callee) && !self.fns.contains(callee) && !self.ctors.is_empty() => {
                 self.unknown_ctor(callee, *callee_span, i, false);
                 ExprKind::Unit
             }
-            ExprKind::Call { callee, args, builtin, callee_span, type_args } => ExprKind::Call {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin,
+                callee_span,
+                type_args,
+            } => ExprKind::Call {
                 callee: callee.clone(),
                 args: args.iter().map(|a| self.expr(a)).collect(),
                 builtin: *builtin,
                 callee_span: *callee_span,
                 type_args: type_args.iter().map(|t| self.ty(t, usize::MAX)).collect(),
             },
-            ExprKind::List { element_type, items } => ExprKind::List {
+            ExprKind::List {
+                element_type,
+                items,
+            } => ExprKind::List {
                 element_type: self.ty(element_type, usize::MAX),
                 items: items.iter().map(|x| self.expr(x)).collect(),
             },
             ExprKind::None(t) => ExprKind::None(self.ty(t, usize::MAX)),
             ExprKind::DictNew(t) => ExprKind::DictNew(self.ty(t, usize::MAX)),
-            ExprKind::Inj { ok, ty, value } => {
-                ExprKind::Inj { ok: *ok, ty: self.ty(ty, usize::MAX), value: Box::new(self.expr(value)) }
-            }
-            ExprKind::Let { name, name_span, value, body } => {
+            ExprKind::Inj { ok, ty, value } => ExprKind::Inj {
+                ok: *ok,
+                ty: self.ty(ty, usize::MAX),
+                value: Box::new(self.expr(value)),
+            },
+            ExprKind::Let {
+                name,
+                name_span,
+                value,
+                body,
+            } => {
                 let value = Box::new(self.expr(value));
                 let body = Box::new(self.bind(&[(name, *name_span)], i, |s| s.expr(body)));
-                ExprKind::Let { name: name.clone(), name_span: *name_span, value, body }
+                ExprKind::Let {
+                    name: name.clone(),
+                    name_span: *name_span,
+                    value,
+                    body,
+                }
             }
-            ExprKind::Fold { list, init, acc, acc_span, item, item_span, body } => {
+            ExprKind::Fold {
+                list,
+                init,
+                acc,
+                acc_span,
+                item,
+                item_span,
+                body,
+            } => {
                 let list = Box::new(self.expr(list));
                 let init = Box::new(self.expr(init));
-                let body = Box::new(self.bind(&[(acc, *acc_span), (item, *item_span)], i, |s| s.expr(body)));
-                ExprKind::Fold { list, init, acc: acc.clone(), acc_span: *acc_span, item: item.clone(), item_span: *item_span, body }
+                let body = Box::new(
+                    self.bind(&[(acc, *acc_span), (item, *item_span)], i, |s| s.expr(body)),
+                );
+                ExprKind::Fold {
+                    list,
+                    init,
+                    acc: acc.clone(),
+                    acc_span: *acc_span,
+                    item: item.clone(),
+                    item_span: *item_span,
+                    body,
+                }
             }
-            ExprKind::Hof { op, list, binder, binder_span, body } => {
+            ExprKind::Hof {
+                op,
+                list,
+                binder,
+                binder_span,
+                body,
+            } => {
                 let list = Box::new(self.expr(list));
                 let body = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(body)));
-                ExprKind::Hof { op: *op, list, binder: binder.clone(), binder_span: *binder_span, body }
+                ExprKind::Hof {
+                    op: *op,
+                    list,
+                    binder: binder.clone(),
+                    binder_span: *binder_span,
+                    body,
+                }
             }
-            ExprKind::Loop { init, max, binder, binder_span, body } => {
+            ExprKind::Loop {
+                init,
+                max,
+                binder,
+                binder_span,
+                body,
+            } => {
                 let init = Box::new(self.expr(init));
                 let max = Box::new(self.expr(max));
                 let body = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(body)));
-                ExprKind::Loop { init, max, binder: binder.clone(), binder_span: *binder_span, body }
+                ExprKind::Loop {
+                    init,
+                    max,
+                    binder: binder.clone(),
+                    binder_span: *binder_span,
+                    body,
+                }
             }
-            ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
+            ExprKind::Match {
+                scrutinee,
+                on_none,
+                binder,
+                binder_span,
+                on_some,
+            } => {
                 let scrutinee = Box::new(self.expr(scrutinee));
                 let on_none = Box::new(self.expr(on_none));
-                let on_some = Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(on_some)));
-                ExprKind::Match { scrutinee, on_none, binder: binder.clone(), binder_span: *binder_span, on_some }
+                let on_some =
+                    Box::new(self.bind(&[(binder, *binder_span)], i, |s| s.expr(on_some)));
+                ExprKind::Match {
+                    scrutinee,
+                    on_none,
+                    binder: binder.clone(),
+                    binder_span: *binder_span,
+                    on_some,
+                }
             }
-            ExprKind::MatchResult { scrutinee, ok_binder, ok_span, on_ok, err_binder, err_span, on_err } => {
+            ExprKind::MatchResult {
+                scrutinee,
+                ok_binder,
+                ok_span,
+                on_ok,
+                err_binder,
+                err_span,
+                on_err,
+            } => {
                 let scrutinee = Box::new(self.expr(scrutinee));
                 let on_ok = Box::new(self.bind(&[(ok_binder, *ok_span)], i, |s| s.expr(on_ok)));
                 let on_err = Box::new(self.bind(&[(err_binder, *err_span)], i, |s| s.expr(on_err)));
@@ -466,7 +674,13 @@ impl Env {
                     on_err,
                 }
             }
-            ExprKind::SumMatch { scrutinee, arms, kw_span, close_span, .. } => {
+            ExprKind::SumMatch {
+                scrutinee,
+                arms,
+                kw_span,
+                close_span,
+                ..
+            } => {
                 return self.sum_match(e, scrutinee, arms, *kw_span, *close_span);
             }
             _ => {
@@ -480,7 +694,14 @@ impl Env {
         ex(kind, m)
     }
 
-    fn sum_match(&mut self, e: &Expr, scrutinee: &Expr, arms: &[Arm], kw_span: Sp, close_span: Sp) -> Expr {
+    fn sum_match(
+        &mut self,
+        e: &Expr,
+        scrutinee: &Expr,
+        arms: &[Arm],
+        kw_span: Sp,
+        close_span: Sp,
+    ) -> Expr {
         let m = e.meta;
         let i = m.index;
         let scrutinee = self.expr(scrutinee);
@@ -520,7 +741,10 @@ impl Env {
                         *d = d.clone().exp(g.describe()).act(f.describe()).fix(
                             "replace_expression",
                             p.span.t(),
-                            format!("pattern for the same type as the first arm: {}", g.describe()),
+                            format!(
+                                "pattern for the same type as the first arm: {}",
+                                g.describe()
+                            ),
                         );
                     }
                     _ => {}
@@ -532,7 +756,11 @@ impl Env {
             let names: Vec<String> = match &fam {
                 Some(Fam::Sum(s)) => {
                     let st = &self.sums[s];
-                    st.info.variants.iter().map(|(v, fm)| pattern_text(v, *fm)).collect()
+                    st.info
+                        .variants
+                        .iter()
+                        .map(|(v, fm)| pattern_text(v, *fm))
+                        .collect()
                 }
                 Some(Fam::Result) => vec!["ok(v)".into(), "err(e)".into()],
                 Some(Fam::Option) => vec!["some(v)".into(), "none".into()],
@@ -541,7 +769,8 @@ impl Env {
             let mut seen = vec![false; names.len()];
             let mut wild = false;
             for (a, v) in arms.iter().zip(&variants) {
-                let unreachable = wild || (v.is_none() && !seen.is_empty() && seen.iter().all(|x| *x));
+                let unreachable =
+                    wild || (v.is_none() && !seen.is_empty() && seen.iter().all(|x| *x));
                 if unreachable {
                     let d = self.err("E-MATCH-UNREACHABLE", a.span.t(), i);
                     *d = d.clone().fix(
@@ -557,17 +786,26 @@ impl Env {
                         *d = d.clone().act(names[*k].clone()).fix(
                             "delete_span",
                             a.span.t(),
-                            format!("delete this arm: an earlier arm already handles {}", names[*k]),
+                            format!(
+                                "delete this arm: an earlier arm already handles {}",
+                                names[*k]
+                            ),
                         );
                     }
                     Some(k) => seen[*k] = true,
                     None => wild = true,
                 }
             }
-            let missing: Vec<&str> = names.iter().zip(&seen).filter(|(_, s)| !**s).map(|(n, _)| n.as_str()).collect();
+            let missing: Vec<&str> = names
+                .iter()
+                .zip(&seen)
+                .filter(|(_, s)| !**s)
+                .map(|(n, _)| n.as_str())
+                .collect();
             if !wild && !missing.is_empty() {
                 let list = missing.join(", ");
-                let arms_text: Vec<String> = missing.iter().map(|p| format!("{p} => ...")).collect();
+                let arms_text: Vec<String> =
+                    missing.iter().map(|p| format!("{p} => ...")).collect();
                 let d = self.err("E-MATCH-MISSING", kw_span.t(), i);
                 *d = d.clone().exp(list).fix(
                     "insert_text",
@@ -579,22 +817,44 @@ impl Env {
         // 枝の本体（束縛は枝の中だけで見える）
         let mut out_arms = vec![];
         for (a, v) in arms.iter().zip(&variants) {
-            let names: Vec<(&str, Sp)> = a.pat.binds.iter().filter(|(b, _)| b != "_").map(|(b, s)| (b.as_str(), *s)).collect();
+            let names: Vec<(&str, Sp)> = a
+                .pat
+                .binds
+                .iter()
+                .filter(|(b, _)| b != "_")
+                .map(|(b, s)| (b.as_str(), *s))
+                .collect();
             let body = self.bind(&names, i, |s| s.expr(&a.body));
-            out_arms.push(Arm { body, variant: *v, ..a.clone() });
+            out_arms.push(Arm {
+                body,
+                variant: *v,
+                ..a.clone()
+            });
         }
         let kind = match fam {
             Some(Fam::Sum(s)) => {
                 let st = &self.sums[&s];
                 let mut ty = self.named(&s, st.chain[0].clone());
                 ty.meta = scrutinee.meta;
-                MatchKind::Sum { ty, fields: st.fields.clone() }
+                MatchKind::Sum {
+                    ty,
+                    fields: st.fields.clone(),
+                }
             }
             Some(Fam::Result) => MatchKind::Result,
             Some(Fam::Option) => MatchKind::Option,
             None => MatchKind::Any,
         };
-        ex(ExprKind::SumMatch { scrutinee: Box::new(scrutinee), arms: out_arms, kw_span, close_span, kind: Some(kind) }, m)
+        ex(
+            ExprKind::SumMatch {
+                scrutinee: Box::new(scrutinee),
+                arms: out_arms,
+                kw_span,
+                close_span,
+                kind: Some(kind),
+            },
+            m,
+        )
     }
 
     fn declare(&mut self, pos: usize, sd: &SumDecl, type_names: &HashSet<&str>) {
@@ -616,7 +876,11 @@ impl Env {
                     "constructor name not used by any other variant in the program".to_string(),
                 );
             } else if self.fns.contains(&v.name) || type_names.contains(v.name.as_str()) {
-                let what = if self.fns.contains(&v.name) { "function" } else { "type" };
+                let what = if self.fns.contains(&v.name) {
+                    "function"
+                } else {
+                    "type"
+                };
                 let d = self.err("E-SUM-NAME-CONFLICT", v.name_span.t(), idx);
                 *d = d.clone().act(&v.name).fix(
                     "replace_identifier",
@@ -628,7 +892,15 @@ impl Env {
             sigs.push(if v.fields.is_empty() {
                 v.name.clone()
             } else {
-                format!("{}({})", v.name, v.fields.iter().map(format_type).collect::<Vec<_>>().join(", "))
+                format!(
+                    "{}({})",
+                    v.name,
+                    v.fields
+                        .iter()
+                        .map(format_type)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             });
             variants.push((v.name.clone(), v.fields.len()));
         }
@@ -640,33 +912,84 @@ impl Env {
             let next = chain[0].clone();
             chain.insert(0, TypeNode::new(TyTag::Result, vec![p.clone(), next], meta));
         }
-        let inner = if n == 1 { chain[0].label.clone() } else { Label::default() };
+        let inner = if n == 1 {
+            chain[0].label.clone()
+        } else {
+            Label::default()
+        };
         let params: Vec<String> = sd.type_params.iter().map(|p| p.name.clone()).collect();
         let generic = (!params.is_empty()).then(|| {
             let mut t = chain[0].clone();
             t.label = Label::default();
-            Generic { params, template: t }
+            Generic {
+                params,
+                template: t,
+            }
         });
-        let info = Arc::new(SumInfo { name: sd.name.clone(), variants, inner, generic, tagged: false });
+        let info = Arc::new(SumInfo {
+            name: sd.name.clone(),
+            variants,
+            inner,
+            generic,
+            tagged: false,
+        });
         chain[0].label = Label(Some(Named::Sum(info.clone())));
         for (k, (v, _)) in info.variants.iter().enumerate() {
-            self.ctors.entry(v.clone()).or_insert_with(|| (sd.name.clone(), k));
+            self.ctors
+                .entry(v.clone())
+                .or_insert_with(|| (sd.name.clone(), k));
         }
         let spans = sd.variants.iter().map(|v| v.name_span).collect();
         // v1.15：印つきの写し：型の名前は印 r を付けた型（表示の名前は印つきの型の情報）。印を付ける・外す補助関数を作る
         let tagged = self.tags.as_ref().and_then(|t| t.get(&sd.name));
         let (tag, wrap) = match tagged {
             Some(r) => {
-                let generic = info.generic.as_ref().map(|g| Generic { params: g.params.clone(), template: nominal::named_ty(r, g.template.clone(), Label::default(), meta) });
-                let tinfo = Arc::new(SumInfo { name: info.name.clone(), variants: info.variants.clone(), inner: info.inner.clone(), generic, tagged: true });
-                let named = nominal::named_ty(r, chain[0].clone(), Label(Some(Named::Sum(tinfo.clone()))), meta);
-                let wrap = crate::generics::fresh(&mut self.taken, &format!("{}_wrap", sd.name.to_ascii_lowercase()));
-                self.helpers.push(nominal::wrap_fn(&wrap, r, chain[0].clone(), named, &sd.type_params, meta, &sd.name));
+                let generic = info.generic.as_ref().map(|g| Generic {
+                    params: g.params.clone(),
+                    template: nominal::named_ty(r, g.template.clone(), Label::default(), meta),
+                });
+                let tinfo = Arc::new(SumInfo {
+                    name: info.name.clone(),
+                    variants: info.variants.clone(),
+                    inner: info.inner.clone(),
+                    generic,
+                    tagged: true,
+                });
+                let named = nominal::named_ty(
+                    r,
+                    chain[0].clone(),
+                    Label(Some(Named::Sum(tinfo.clone()))),
+                    meta,
+                );
+                let wrap = crate::generics::fresh(
+                    &mut self.taken,
+                    &format!("{}_wrap", sd.name.to_ascii_lowercase()),
+                );
+                self.helpers.push(nominal::wrap_fn(
+                    &wrap,
+                    r,
+                    chain[0].clone(),
+                    named,
+                    &sd.type_params,
+                    meta,
+                    &sd.name,
+                ));
                 (Some((r, tinfo)), wrap)
             }
             None => (None, String::new()),
         };
-        let st = SumTy { info, pos, chain, fields, sigs, tparams: sd.type_params.clone(), meta, spans, tag, wrap };
+        let st = SumTy {
+            info,
+            pos,
+            chain,
+            fields,
+            sigs,
+            tparams: sd.type_params.clone(),
+            meta,
+            spans,
+            tag,
+            wrap,
+        };
         self.sums.insert(sd.name.clone(), st);
     }
 }
@@ -720,11 +1043,28 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
             Decl::Sum(_) => {}
             Decl::Entry(e) => decls.push(Decl::Entry(e.clone())),
             Decl::Type(t) => {
-                let fields = t.fields.iter().map(|f| FieldDecl { ty: env.ty(&f.ty, pos), ..f.clone() }).collect();
-                decls.push(Decl::Type(TypeDecl { fields, ..t.clone() }));
+                let fields = t
+                    .fields
+                    .iter()
+                    .map(|f| FieldDecl {
+                        ty: env.ty(&f.ty, pos),
+                        ..f.clone()
+                    })
+                    .collect();
+                decls.push(Decl::Type(TypeDecl {
+                    fields,
+                    ..t.clone()
+                }));
             }
             Decl::Fn(f) => {
-                let params: Vec<Param> = f.params.iter().map(|q| Param { ty: env.ty(&q.ty, usize::MAX), ..q.clone() }).collect();
+                let params: Vec<Param> = f
+                    .params
+                    .iter()
+                    .map(|q| Param {
+                        ty: env.ty(&q.ty, usize::MAX),
+                        ..q.clone()
+                    })
+                    .collect();
                 for q in &params {
                     env.conflict(&q.name, q.name_span, q.meta.index);
                 }
@@ -732,7 +1072,12 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
                 env.scope = params.iter().map(|q| q.name.clone()).collect();
                 let body = env.expr(&f.body);
                 env.scope.clear();
-                decls.push(Decl::Fn(FnDecl { params, return_type, body, ..f.clone() }));
+                decls.push(Decl::Fn(FnDecl {
+                    params,
+                    return_type,
+                    body,
+                    ..f.clone()
+                }));
             }
         }
     }
@@ -741,7 +1086,11 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
     // v1.15：印を付ける・外す補助関数（印つきの写しだけ）
     decls.extend(env.helpers.drain(..).map(Decl::Fn));
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
+        Ok(Program {
+            declarations: decls,
+            meta: p.meta,
+            imports: p.imports.clone(),
+        })
     } else {
         Err(env.diags)
     }
@@ -766,10 +1115,16 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
+        ExprKind::Match { binder, .. }
+        | ExprKind::Hof { binder, .. }
+        | ExprKind::Loop { binder, .. } => {
             out.insert(binder.clone());
         }
-        ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+        ExprKind::MatchResult {
+            ok_binder,
+            err_binder,
+            ..
+        } => {
             out.insert(ok_binder.clone());
             out.insert(err_binder.clone());
         }
@@ -804,8 +1159,12 @@ impl Lower {
     fn rewrite(&mut self, e: &mut Expr) {
         if let ExprKind::SumMatch { kind: Some(_), .. } = &e.kind {
             let m = e.meta;
-            let ExprKind::SumMatch { scrutinee, mut arms, kind: Some(kind), .. } =
-                std::mem::replace(&mut e.kind, ExprKind::Var(String::new()))
+            let ExprKind::SumMatch {
+                scrutinee,
+                mut arms,
+                kind: Some(kind),
+                ..
+            } = std::mem::replace(&mut e.kind, ExprKind::Var(String::new()))
             else {
                 unreachable!("kind を確かめた直和型の match")
             };
@@ -831,9 +1190,17 @@ impl Lower {
             }
             _ => scrutinee,
         };
-        let wild = arms.iter().find(|a| a.variant.is_none()).map(|a| a.body.clone());
+        let wild = arms
+            .iter()
+            .find(|a| a.variant.is_none())
+            .map(|a| a.body.clone());
         let arm = |k: usize| arms.iter().find(|a| a.variant == Some(k));
-        let body = |k: usize| arm(k).map(|a| a.body.clone()).or_else(|| wild.clone()).expect("exhaustive match");
+        let body = |k: usize| {
+            arm(k)
+                .map(|a| a.body.clone())
+                .or_else(|| wild.clone())
+                .expect("exhaustive match")
+        };
         // 一つの束縛の名前（`_` なら新しい名前）
         let binder = |l: &mut Lower, k: usize| -> String {
             match arm(k).and_then(|a| a.pat.binds.first()) {
@@ -845,7 +1212,15 @@ impl Lower {
             MatchKind::Any => {
                 let v = self.fresh();
                 let sp = Sp(m.span.0, m.span.0);
-                ex(ExprKind::Let { name: v, name_span: sp, value: Box::new(scrutinee), body: Box::new(wild.expect("wildcard arm")) }, m)
+                ex(
+                    ExprKind::Let {
+                        name: v,
+                        name_span: sp,
+                        value: Box::new(scrutinee),
+                        body: Box::new(wild.expect("wildcard arm")),
+                    },
+                    m,
+                )
             }
             MatchKind::Option => {
                 let b = binder(self, 0);
@@ -884,7 +1259,15 @@ impl Lower {
     }
 
     /// k 番目以降の variant を表す値 `src` の分解。
-    fn level(&mut self, m: Meta, k: usize, src: Expr, arms: &[Arm], counts: &[usize], wild: &Option<Expr>) -> Expr {
+    fn level(
+        &mut self,
+        m: Meta,
+        k: usize,
+        src: Expr,
+        arms: &[Arm],
+        counts: &[usize],
+        wild: &Option<Expr>,
+    ) -> Expr {
         let n = counts.len();
         if n == 1 || k + 1 == n {
             return self.payload(m, k, src, arms, counts, wild);
@@ -893,7 +1276,9 @@ impl Lower {
         let arm = arms.iter().find(|a| a.variant == Some(k));
         // ok の枝：中身が一つで名前があれば、その名前を binder にする
         let (x, on_ok) = match arm {
-            Some(a) if counts[k] == 1 && a.pat.binds[0].0 != "_" => (a.pat.binds[0].0.clone(), a.body.clone()),
+            Some(a) if counts[k] == 1 && a.pat.binds[0].0 != "_" => {
+                (a.pat.binds[0].0.clone(), a.body.clone())
+            }
             _ => {
                 let x = self.fresh();
                 let var = ex(ExprKind::Var(x.clone()), m);
@@ -923,14 +1308,30 @@ impl Lower {
     }
 
     /// k 番目の variant の中身 `src` を枝の束縛に取り出して本体を評価する式。
-    fn payload(&mut self, m: Meta, k: usize, src: Expr, arms: &[Arm], counts: &[usize], wild: &Option<Expr>) -> Expr {
+    fn payload(
+        &mut self,
+        m: Meta,
+        k: usize,
+        src: Expr,
+        arms: &[Arm],
+        counts: &[usize],
+        wild: &Option<Expr>,
+    ) -> Expr {
         let Some(a) = arms.iter().find(|a| a.variant == Some(k)) else {
             return wild.clone().expect("exhaustive match");
         };
         let fm = counts[k];
         let sp = Sp(m.span.0, m.span.0);
         let let_ = |name: String, value: Expr, body: Expr| {
-            ex(ExprKind::Let { name, name_span: sp, value: Box::new(value), body: Box::new(body) }, m)
+            ex(
+                ExprKind::Let {
+                    name,
+                    name_span: sp,
+                    value: Box::new(value),
+                    body: Box::new(body),
+                },
+                m,
+            )
         };
         let names: Vec<&str> = a.pat.binds.iter().map(|(b, _)| b.as_str()).collect();
         if fm == 0 || names.iter().all(|b| *b == "_") {
@@ -944,7 +1345,16 @@ impl Lower {
             _ => (self.fresh(), Some(src)),
         };
         let call = |name: &str, arg: Expr| {
-            ex(ExprKind::Call { callee: name.into(), args: vec![arg], builtin: true, callee_span: m.span, type_args: vec![] }, m)
+            ex(
+                ExprKind::Call {
+                    callee: name.into(),
+                    args: vec![arg],
+                    builtin: true,
+                    callee_span: m.span,
+                    type_args: vec![],
+                },
+                m,
+            )
         };
         let mut out = a.body.clone();
         for (i, b) in names.iter().enumerate().rev() {

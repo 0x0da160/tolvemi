@@ -13,12 +13,12 @@
 //! ```
 
 use crate::api::{compile, compile_files, decode_plain_input, run, CompileResult, SourceCompile};
-use std::collections::BTreeMap;
 use crate::checker::TypedProgram;
 use crate::evaluator::RunResult;
 use crate::plain::encode_plain_with;
 use crate::profiles::{ExecutionProfile, HostPolicy, InputProfile, StaticProfile};
 use crate::values::DecodeResult;
+use std::collections::BTreeMap;
 use std::fmt;
 
 pub use crate::diagnostics::Diagnostic;
@@ -48,7 +48,11 @@ pub enum RunError {
     /// 入力を入力型の値として読めない（診断の span は入力 JSON の bytes 上）
     Input(Vec<Diagnostic>),
     /// 実行の資源上限（steps、allocated nodes、整数の bit 数、出力 bytes）を超えた
-    ResourceExhausted { kind: &'static str, observed: u64, limit: u64 },
+    ResourceExhausted {
+        kind: &'static str,
+        observed: u64,
+        limit: u64,
+    },
     /// ホスト側の物理上限（評価の深さ）で中断した
     HostAborted(String),
     /// 処理系の内部の失敗（起きないはずのもの）
@@ -65,8 +69,15 @@ impl fmt::Display for RunError {
                 }
                 Ok(())
             }
-            RunError::ResourceExhausted { kind, observed, limit } => {
-                write!(f, "ResourceExhausted {kind} (observed {observed}, limit {limit})")
+            RunError::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "ResourceExhausted {kind} (observed {observed}, limit {limit})"
+                )
             }
             RunError::HostAborted(r) => write!(f, "HostAborted {r}"),
             RunError::Internal(r) => write!(f, "InternalFault {r}"),
@@ -99,20 +110,28 @@ impl Program {
     /// let p = tlvm::embed::Program::compile_files("main.tlvm", &files).unwrap();
     /// assert_eq!(p.run_json("7").unwrap(), "49");
     /// ```
-    pub fn compile_files(root: &str, files: &BTreeMap<String, String>) -> Result<Program, Vec<Diagnostic>> {
+    pub fn compile_files(
+        root: &str,
+        files: &BTreeMap<String, String>,
+    ) -> Result<Program, Vec<Diagnostic>> {
         Self::accept(compile_files(root, files, &StaticProfile::default()))
     }
 
     fn accept(r: SourceCompile) -> Result<Program, Vec<Diagnostic>> {
         match r {
-            SourceCompile::Result(CompileResult::Accepted { program, warnings, .. }) => {
-                Ok(Program { typed: program, warnings })
-            }
+            SourceCompile::Result(CompileResult::Accepted {
+                program, warnings, ..
+            }) => Ok(Program {
+                typed: program,
+                warnings,
+            }),
             SourceCompile::Result(CompileResult::Rejected { errors, .. }) => Err(errors),
             // &str は常に UTF-8 なので起きない
-            SourceCompile::SourceBoundaryFailure => {
-                Err(vec![Diagnostic::error("source-boundary", "E-INTERNAL-SOURCE-BOUNDARY", (0, 0))])
-            }
+            SourceCompile::SourceBoundaryFailure => Err(vec![Diagnostic::error(
+                "source-boundary",
+                "E-INTERNAL-SOURCE-BOUNDARY",
+                (0, 0),
+            )]),
         }
     }
 
@@ -150,7 +169,11 @@ impl Program {
     }
 
     /// plain JSON での実行。2^53 を超える整数は十進文字列で出す（JavaScript などの number で精度を落とさない）。
-    pub fn run_json_with(&self, input_plain_json: &str, limits: &Limits) -> Result<String, RunError> {
+    pub fn run_json_with(
+        &self,
+        input_plain_json: &str,
+        limits: &Limits,
+    ) -> Result<String, RunError> {
         self.run_plain(input_plain_json, limits, false)
     }
 
@@ -159,17 +182,35 @@ impl Program {
         self.run_plain(input_plain_json, &Limits::default(), true)
     }
 
-    fn run_plain(&self, input_plain_json: &str, limits: &Limits, exact: bool) -> Result<String, RunError> {
+    fn run_plain(
+        &self,
+        input_plain_json: &str,
+        limits: &Limits,
+        exact: bool,
+    ) -> Result<String, RunError> {
         let p = &self.typed;
-        let tv = match decode_plain_input(&p.input_type, input_plain_json.as_bytes(), &limits.input) {
+        let tv = match decode_plain_input(&p.input_type, input_plain_json.as_bytes(), &limits.input)
+        {
             DecodeResult::Decoded(tv) => tv,
             DecodeResult::Invalid(d) => return Err(RunError::Input(d)),
             // &str は常に UTF-8 なので起きない
-            DecodeResult::InputBoundaryFailure => return Err(RunError::Internal("input-boundary-failure".into())),
+            DecodeResult::InputBoundaryFailure => {
+                return Err(RunError::Internal("input-boundary-failure".into()))
+            }
         };
         match run(p, &tv, &limits.execution, &limits.host).map_err(RunError::Internal)? {
-            RunResult::Completed { output, .. } => encode_plain_with(&p.output_type, &output, exact).map_err(RunError::Internal),
-            RunResult::ResourceExhausted { kind, observed, limit } => Err(RunError::ResourceExhausted { kind, observed, limit }),
+            RunResult::Completed { output, .. } => {
+                encode_plain_with(&p.output_type, &output, exact).map_err(RunError::Internal)
+            }
+            RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            } => Err(RunError::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            }),
             RunResult::HostAborted(r) => Err(RunError::HostAborted(r)),
             RunResult::InternalFault(r) => Err(RunError::Internal(r)),
         }

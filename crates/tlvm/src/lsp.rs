@@ -11,7 +11,9 @@
 //! import したファイルの診断は、根の文書の最初の import の行に `file:行:列:` を付けて出す。
 //! JSON の読み取りは `strict_json`、書き出しは手で組み立てる（依存を増やさない）。
 
-use crate::api::{canonical, compile, needs_glue, parse_source, without_rec_markers, Parsed, SourceCompile};
+use crate::api::{
+    canonical, compile, needs_glue, parse_source, without_rec_markers, Parsed, SourceCompile,
+};
 use crate::diagnostics::{json_string, line_col, Diagnostic};
 use crate::formatter::format_program;
 use crate::imports::{self, FsLoader, Loader};
@@ -44,7 +46,10 @@ pub fn read_message(input: &mut dyn BufRead) -> std::io::Result<Option<Vec<u8>>>
         let mut line = String::new();
         if input.read_line(&mut line)? == 0 {
             return if any {
-                Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "EOF in header"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "EOF in header",
+                ))
             } else {
                 Ok(None)
             };
@@ -67,7 +72,10 @@ pub fn read_message(input: &mut dyn BufRead) -> std::io::Result<Option<Vec<u8>>>
     }
     let n = len.unwrap_or(0);
     if n > MAX_MESSAGE {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "message too large"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "message too large",
+        ));
     }
     let mut body = vec![0; n];
     input.read_exact(&mut body)?;
@@ -100,7 +108,11 @@ fn range_json(text: &str, (s, e): (usize, usize)) -> String {
 
 /// 診断の message（期待・実際の値と修復ヒントを添える）。
 fn message(d: &Diagnostic) -> String {
-    let mut m = if d.message.is_empty() { d.code.to_string() } else { d.message.clone() };
+    let mut m = if d.message.is_empty() {
+        d.code.to_string()
+    } else {
+        d.message.clone()
+    };
     match (&d.expected, &d.actual) {
         (Some(e), Some(a)) => m.push_str(&format!(" (expected {e}, found {a})")),
         (Some(e), None) => m.push_str(&format!(" (expected {e})")),
@@ -126,13 +138,19 @@ fn diag_json(text: &str, span: (usize, usize), severity: u8, code: &str, msg: &s
 pub fn uri_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     // file://host/path の host は localhost か空だけ
-    let path = if rest.starts_with('/') { rest } else { rest.strip_prefix("localhost")? };
+    let path = if rest.starts_with('/') {
+        rest
+    } else {
+        rest.strip_prefix("localhost")?
+    };
     let b = path.as_bytes();
     let mut out = vec![];
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            let h = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok())?;
+            let h = std::str::from_utf8(&b[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())?;
             out.push(h);
             i += 3;
         } else {
@@ -168,11 +186,22 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
     let (r, files, root) = match uri_path(uri) {
         Some(path) => {
             let display = path.to_string_lossy().into_owned();
-            let rel = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let rel = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-            let open = others.iter().filter_map(|(u, t)| uri_path(u).map(|p| (p, t.as_str()))).collect();
-            let mut loader = Overlay { fs: FsLoader::new(&display), dir, open };
-            let (r, files) = imports::compile_root(&display, &rel, text.as_bytes(), &mut loader, &sp);
+            let open = others
+                .iter()
+                .filter_map(|(u, t)| uri_path(u).map(|p| (p, t.as_str())))
+                .collect();
+            let mut loader = Overlay {
+                fs: FsLoader::new(&display),
+                dir,
+                open,
+            };
+            let (r, files) =
+                imports::compile_root(&display, &rel, text.as_bytes(), &mut loader, &sp);
             (r, files, Some(display))
         }
         None => (compile(text.as_bytes(), &sp), vec![], None),
@@ -180,7 +209,13 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
     let r = match r {
         SourceCompile::Result(r) => r,
         SourceCompile::SourceBoundaryFailure => {
-            return vec![diag_json(text, (0, 0), 1, "SourceBoundaryFailure", "an imported file is not valid UTF-8")];
+            return vec![diag_json(
+                text,
+                (0, 0),
+                1,
+                "SourceBoundaryFailure",
+                "an imported file is not valid UTF-8",
+            )];
         }
     };
     // import したファイルの診断を置く場所：根の最初の import の行
@@ -190,11 +225,25 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
     }
     .unwrap_or((0, 0));
     let mut out = vec![];
-    for (d, sev) in r.errors().iter().map(|d| (d, 1)).chain(r.warnings().iter().map(|d| (d, 2))) {
+    for (d, sev) in r
+        .errors()
+        .iter()
+        .map(|d| (d, 1))
+        .chain(r.warnings().iter().map(|d| (d, 2)))
+    {
         match d.file.as_deref() {
             Some(f) if Some(f) != root.as_deref() => {
-                let (line, col) = files.iter().find(|(n, _)| n == f).map_or((1, 1), |(_, src)| line_col(src, d.span.0));
-                out.push(diag_json(text, import_span, sev, d.code, &format!("{f}:{line}:{col}: {}", message(d))));
+                let (line, col) = files
+                    .iter()
+                    .find(|(n, _)| n == f)
+                    .map_or((1, 1), |(_, src)| line_col(src, d.span.0));
+                out.push(diag_json(
+                    text,
+                    import_span,
+                    sev,
+                    d.code,
+                    &format!("{f}:{line}:{col}: {}", message(d)),
+                ));
             }
             _ => out.push(diag_json(text, d.span, sev, d.code, &message(d))),
         }
@@ -205,7 +254,9 @@ pub fn diagnose(uri: &str, text: &str, others: &BTreeMap<String, String>) -> Vec
 /// 正準の整形（`tlvm fmt` と同じ）。構文の誤りがあれば（または検証済み formatter と食い違えば）None。
 pub fn format_text(text: &str) -> Option<String> {
     let sp = StaticProfile::default();
-    let Parsed::Program(p) = parse_source(text.as_bytes(), &sp) else { return None };
+    let Parsed::Program(p) = parse_source(text.as_bytes(), &sp) else {
+        return None;
+    };
     if needs_glue(&p) || !p.imports.is_empty() {
         return Some(format_program(&p));
     }
@@ -222,7 +273,10 @@ fn response(id: &str, result: &str) -> String {
 }
 
 fn error(id: &str, code: i64, msg: &str) -> String {
-    format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{}}}}}", json_string(msg))
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{}}}}}",
+        json_string(msg)
+    )
 }
 
 fn str_at<'a>(n: &'a JNode, path: &[&str]) -> Option<&'a str> {
@@ -241,19 +295,29 @@ impl Default for Server {
 
 impl Server {
     pub fn new() -> Server {
-        Server { docs: BTreeMap::new(), initialized: false, shutdown: false }
+        Server {
+            docs: BTreeMap::new(),
+            initialized: false,
+            shutdown: false,
+        }
     }
 
     fn publish(&self, uri: &str) -> String {
         let (diags, version) = match self.docs.get(uri) {
             Some(d) => {
-                let others: BTreeMap<String, String> =
-                    self.docs.iter().filter(|(u, _)| u.as_str() != uri).map(|(u, d)| (u.clone(), d.text.clone())).collect();
+                let others: BTreeMap<String, String> = self
+                    .docs
+                    .iter()
+                    .filter(|(u, _)| u.as_str() != uri)
+                    .map(|(u, d)| (u.clone(), d.text.clone()))
+                    .collect();
                 (diagnose(uri, &d.text, &others), d.version.clone())
             }
             None => (vec![], None),
         };
-        let v = version.map(|v| format!(",\"version\":{v}")).unwrap_or_default();
+        let v = version
+            .map(|v| format!(",\"version\":{v}"))
+            .unwrap_or_default();
         format!(
             "{{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{{\"uri\":{}{v},\"diagnostics\":[{}]}}}}",
             json_string(uri),
@@ -264,7 +328,12 @@ impl Server {
     /// 文書が変わったとき：その文書と、ほかの開いている文書（import で依存しうる）の診断を出す。
     fn republish(&self, uri: &str) -> Vec<String> {
         let mut v = vec![self.publish(uri)];
-        v.extend(self.docs.keys().filter(|u| u.as_str() != uri).map(|u| self.publish(u)));
+        v.extend(
+            self.docs
+                .keys()
+                .filter(|u| u.as_str() != uri)
+                .map(|u| self.publish(u)),
+        );
         v
     }
 
@@ -275,8 +344,18 @@ impl Server {
             _ => return (vec![error("null", -32700, "parse error")], None),
         };
         let method = str_at(&msg, &["method"]).unwrap_or("").to_string();
-        let id = msg.get("id").map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
-        let empty = JNode { kind: JKind::Null, start: 0, end: 0, text: String::new(), boolean: false, members: vec![], items: vec![] };
+        let id = msg
+            .get("id")
+            .map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
+        let empty = JNode {
+            kind: JKind::Null,
+            start: 0,
+            end: 0,
+            text: String::new(),
+            boolean: false,
+            members: vec![],
+            items: vec![],
+        };
         let params = msg.get("params").unwrap_or(&empty);
         let uri = str_at(params, &["textDocument", "uri"]).map(str::to_string);
         if let Some(id) = &id {
@@ -311,7 +390,11 @@ impl Server {
                         Some(if f == d.text {
                             "[]".to_string()
                         } else {
-                            format!("[{{\"range\":{},\"newText\":{}}}]", range_json(&d.text, (0, d.text.len())), json_string(&f))
+                            format!(
+                                "[{{\"range\":{},\"newText\":{}}}]",
+                                range_json(&d.text, (0, d.text.len())),
+                                json_string(&f)
+                            )
                         })
                     });
                     response(id, edit.as_deref().unwrap_or("null"))
@@ -326,17 +409,38 @@ impl Server {
             _ if !self.initialized || self.shutdown => {}
             "textDocument/didOpen" => {
                 if let (Some(u), Some(t)) = (uri, str_at(params, &["textDocument", "text"])) {
-                    let version = params.get("textDocument").and_then(|d| d.get("version")).map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
-                    self.docs.insert(u.clone(), Doc { text: t.to_string(), version });
+                    let version = params
+                        .get("textDocument")
+                        .and_then(|d| d.get("version"))
+                        .map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
+                    self.docs.insert(
+                        u.clone(),
+                        Doc {
+                            text: t.to_string(),
+                            version,
+                        },
+                    );
                     return (self.republish(&u), None);
                 }
             }
             "textDocument/didChange" => {
                 // 全文の同期：最後の変更の text が新しい全文
-                let text = params.get("contentChanges").and_then(|c| c.items.last()).and_then(|c| str_at(c, &["text"]));
+                let text = params
+                    .get("contentChanges")
+                    .and_then(|c| c.items.last())
+                    .and_then(|c| str_at(c, &["text"]));
                 if let (Some(u), Some(t)) = (uri, text) {
-                    let version = params.get("textDocument").and_then(|d| d.get("version")).map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
-                    self.docs.insert(u.clone(), Doc { text: t.to_string(), version });
+                    let version = params
+                        .get("textDocument")
+                        .and_then(|d| d.get("version"))
+                        .map(|n| String::from_utf8_lossy(&body[n.start..n.end]).into_owned());
+                    self.docs.insert(
+                        u.clone(),
+                        Doc {
+                            text: t.to_string(),
+                            version,
+                        },
+                    );
                     return (self.republish(&u), None);
                 }
             }

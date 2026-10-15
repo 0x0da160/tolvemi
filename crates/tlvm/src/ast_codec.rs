@@ -16,13 +16,39 @@ const DECL_TAGS: &[&str] = &["fn", "entry"];
 /// v1.4：`result`（型）、`ok`・`err`・`match_result`（式）
 /// v1.9：`dict`（型。key、value）
 /// v1.10：`param`（型引数。name）
-const TYPE_TAGS: &[&str] = &["int", "bool", "unit", "char", "string", "list", "option", "pair", "result", "dict", "param"];
+const TYPE_TAGS: &[&str] = &[
+    "int", "bool", "unit", "char", "string", "list", "option", "pair", "result", "dict", "param",
+];
 /// v1.5：`map`・`filter`・`any`・`all`・`find`・`sort_by`（式。list、binder、body）
 /// v1.6：`loop`（式。init、max、binder、body）
 /// v1.9：`dict`（空の辞書。key_type、value_type）。辞書の操作は `call`（callee が `dict_get` など）
 const EXPR_TAGS: &[&str] = &[
-    "int", "char", "string", "bool", "unit", "var", "list", "some", "none", "pair", "call", "let", "if", "fold", "match_option",
-    "ok", "err", "match_result", "map", "filter", "any", "all", "find", "sort_by", "loop", "dict",
+    "int",
+    "char",
+    "string",
+    "bool",
+    "unit",
+    "var",
+    "list",
+    "some",
+    "none",
+    "pair",
+    "call",
+    "let",
+    "if",
+    "fold",
+    "match_option",
+    "ok",
+    "err",
+    "match_result",
+    "map",
+    "filter",
+    "any",
+    "all",
+    "find",
+    "sort_by",
+    "loop",
+    "dict",
 ];
 
 /// v1.7：`fn` の `rec`（真偽値）は省略できる（省略は false。v1.6 までの AST JSON はそのまま読める）。
@@ -71,11 +97,30 @@ fn expr_fields(tag: &str) -> &'static [(&'static str, JKind)] {
         "call" => &[("callee", S), ("args", A), ("type_args", A)],
         "let" => &[("name", S), ("value", O), ("body", O)],
         "if" => &[("condition", O), ("then", O), ("else", O)],
-        "fold" => &[("list", O), ("init", O), ("acc", S), ("item", S), ("body", O)],
-        "match_option" => &[("scrutinee", O), ("on_none", O), ("binder", S), ("on_some", O)],
+        "fold" => &[
+            ("list", O),
+            ("init", O),
+            ("acc", S),
+            ("item", S),
+            ("body", O),
+        ],
+        "match_option" => &[
+            ("scrutinee", O),
+            ("on_none", O),
+            ("binder", S),
+            ("on_some", O),
+        ],
         "ok" | "err" => &[("ok_type", O), ("err_type", O), ("value", O)],
-        "match_result" => &[("scrutinee", O), ("ok_binder", S), ("on_ok", O), ("err_binder", S), ("on_err", O)],
-        "map" | "filter" | "any" | "all" | "find" | "sort_by" => &[("list", O), ("binder", S), ("body", O)],
+        "match_result" => &[
+            ("scrutinee", O),
+            ("ok_binder", S),
+            ("on_ok", O),
+            ("err_binder", S),
+            ("on_err", O),
+        ],
+        "map" | "filter" | "any" | "all" | "find" | "sort_by" => {
+            &[("list", O), ("binder", S), ("body", O)]
+        }
         "loop" => &[("init", O), ("max", O), ("binder", S), ("body", O)],
         "dict" => &[("key_type", O), ("value_type", O)],
         _ => &[],
@@ -127,9 +172,13 @@ pub enum Transport {
 /// transport 検査（bytes 上限 → UTF-8 → strict JSON → schema）。
 pub fn transport(data: &[u8], tp: &AstTransportProfile, sp: &StaticProfile) -> Transport {
     if data.len() > tp.json_bytes {
-        return Transport::Invalid(vec![Diagnostic::error("ast-boundary", "E-AST-LIMIT-BYTES", (0, 0))
-            .exp(tp.json_bytes.to_string())
-            .act(data.len().to_string())]);
+        return Transport::Invalid(vec![Diagnostic::error(
+            "ast-boundary",
+            "E-AST-LIMIT-BYTES",
+            (0, 0),
+        )
+        .exp(tp.json_bytes.to_string())
+        .act(data.len().to_string())]);
     }
     if std::str::from_utf8(data).is_err() {
         return Transport::BoundaryFailure;
@@ -165,14 +214,22 @@ fn fail(code: &'static str, span: (usize, usize)) -> Diagnostic {
 impl Schema<'_> {
     fn header<'n>(&self, n: &'n JNode, allowed: &[&str]) -> Result<&'n str, Diagnostic> {
         if n.kind != O {
-            return Err(fail("E-AST-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
+            return Err(fail("E-AST-FIELD-TYPE", n.span())
+                .exp("object")
+                .act(n.kind.name()));
         }
-        let tag = n.get("tag").ok_or_else(|| fail("E-AST-MISSING-FIELD", n.close_span()).exp("tag"))?;
+        let tag = n
+            .get("tag")
+            .ok_or_else(|| fail("E-AST-MISSING-FIELD", n.close_span()).exp("tag"))?;
         if tag.kind != S {
-            return Err(fail("E-AST-TAG", tag.span()).exp("string").act(tag.kind.name()));
+            return Err(fail("E-AST-TAG", tag.span())
+                .exp("string")
+                .act(tag.kind.name()));
         }
         if !allowed.contains(&tag.text.as_str()) {
-            return Err(fail("E-AST-TAG", tag.span()).exp(allowed.join(" | ")).act(tag.text.clone()));
+            return Err(fail("E-AST-TAG", tag.span())
+                .exp(allowed.join(" | "))
+                .act(tag.text.clone()));
         }
         Ok(&tag.text)
     }
@@ -184,7 +241,10 @@ impl Schema<'_> {
             }
         }
         let extra = smallest_key(
-            n.members.iter().map(|m| m.key.as_str()).filter(|k| !(tagged && *k == "tag") && !fs.iter().any(|(f, _)| f == k)),
+            n.members
+                .iter()
+                .map(|m| m.key.as_str())
+                .filter(|k| !(tagged && *k == "tag") && !fs.iter().any(|(f, _)| f == k)),
         );
         if let Some(k) = extra {
             return Err(fail("E-AST-UNKNOWN-FIELD", n.key_span(k)).act(k));
@@ -192,7 +252,9 @@ impl Schema<'_> {
         for (k, kind) in fs {
             let c = n.get(k).unwrap();
             if c.kind != *kind {
-                return Err(fail("E-AST-FIELD-TYPE", c.span()).exp(kind.name()).act(c.kind.name()));
+                return Err(fail("E-AST-FIELD-TYPE", c.span())
+                    .exp(kind.name())
+                    .act(c.kind.name()));
             }
         }
         Ok(())
@@ -208,9 +270,13 @@ impl Schema<'_> {
 
     fn program(&self, n: &JNode) -> R {
         if n.kind != O {
-            return Err(fail("E-AST-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
+            return Err(fail("E-AST-FIELD-TYPE", n.span())
+                .exp("object")
+                .act(n.kind.name()));
         }
-        let codec = n.get("codec").ok_or_else(|| fail("E-AST-CODEC", n.close_span()).exp("ast_codec_v1"))?;
+        let codec = n
+            .get("codec")
+            .ok_or_else(|| fail("E-AST-CODEC", n.close_span()).exp("ast_codec_v1"))?;
         if codec.kind != S || codec.text != "ast_codec_v1" {
             return Err(fail("E-AST-CODEC", codec.span()).exp("ast_codec_v1"));
         }
@@ -223,15 +289,22 @@ impl Schema<'_> {
 
     fn decl(&self, n: &JNode) -> R {
         let tag = self.header(n, DECL_TAGS)?;
-        self.keys(n, &decl_fields(tag, n.get("rec").is_some(), n.get("type_params").is_some()), true)?;
+        self.keys(
+            n,
+            &decl_fields(tag, n.get("rec").is_some(), n.get("type_params").is_some()),
+            true,
+        )?;
         self.ident(n.get("name").unwrap())?;
         if let Some(tp) = n.get("type_params") {
             for t in &tp.items {
                 if t.kind != S {
-                    return Err(fail("E-AST-FIELD-TYPE", t.span()).exp("string").act(t.kind.name()));
+                    return Err(fail("E-AST-FIELD-TYPE", t.span())
+                        .exp("string")
+                        .act(t.kind.name()));
                 }
                 if !is_type_param(&t.text) {
-                    return Err(fail("E-AST-IDENTIFIER", t.span()).exp("type parameter name starting with an uppercase letter"));
+                    return Err(fail("E-AST-IDENTIFIER", t.span())
+                        .exp("type parameter name starting with an uppercase letter"));
                 }
             }
         }
@@ -247,7 +320,9 @@ impl Schema<'_> {
 
     fn param(&self, n: &JNode) -> R {
         if n.kind != O {
-            return Err(fail("E-AST-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
+            return Err(fail("E-AST-FIELD-TYPE", n.span())
+                .exp("object")
+                .act(n.kind.name()));
         }
         self.keys(n, PARAM_FIELDS, false)?;
         self.ident(n.get("name").unwrap())?;
@@ -261,15 +336,22 @@ impl Schema<'_> {
         if tag == "param" {
             let name = n.get("name").unwrap();
             if !is_type_param(&name.text) {
-                return Err(fail("E-AST-IDENTIFIER", name.span()).exp("type parameter name starting with an uppercase letter"));
+                return Err(fail("E-AST-IDENTIFIER", name.span())
+                    .exp("type parameter name starting with an uppercase letter"));
             }
             return Ok(());
         }
         if tag == "list" {
             // `List<Char>` は `{"tag":"string"}` と書く
             let el = n.get("element").unwrap();
-            if el.kind == O && el.get("tag").is_some_and(|t| t.kind == S && t.text == "char") {
-                return Err(fail("E-AST-STRING-TYPE", n.span()).exp("{\"tag\":\"string\"}").act("list of char"));
+            if el.kind == O
+                && el
+                    .get("tag")
+                    .is_some_and(|t| t.kind == S && t.text == "char")
+            {
+                return Err(fail("E-AST-STRING-TYPE", n.span())
+                    .exp("{\"tag\":\"string\"}")
+                    .act("list of char"));
             }
         }
         for (k, _) in fs {
@@ -299,12 +381,14 @@ impl Schema<'_> {
                 }
                 ("char", _) => {
                     if literal_char(&c.text).is_none() {
-                        return Err(fail("E-AST-LITERAL", c.span()).exp("decimal code of a char (>= 32, or 9, 10, 13)"));
+                        return Err(fail("E-AST-LITERAL", c.span())
+                            .exp("decimal code of a char (>= 32, or 9, 10, 13)"));
                     }
                 }
                 ("string", _) => {
                     if !c.text.chars().all(literal_char_ok) {
-                        return Err(fail("E-AST-LITERAL", c.span()).exp("string without control chars other than \\n, \\t, \\r"));
+                        return Err(fail("E-AST-LITERAL", c.span())
+                            .exp("string without control chars other than \\n, \\t, \\r"));
                     }
                 }
                 ("bool", _) => {}
@@ -313,8 +397,12 @@ impl Schema<'_> {
                         self.ident(c)?;
                     }
                 }
-                (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => self.ident(c)?,
-                (_, "element_type" | "ok_type" | "err_type" | "key_type" | "value_type") => self.ty(c)?,
+                (_, "name" | "acc" | "item" | "binder" | "ok_binder" | "err_binder") => {
+                    self.ident(c)?
+                }
+                (_, "element_type" | "ok_type" | "err_type" | "key_type" | "value_type") => {
+                    self.ty(c)?
+                }
                 (_, "items" | "args") => {
                     for x in &c.items {
                         self.expr(x)?;
@@ -335,7 +423,9 @@ impl Schema<'_> {
 /// transport 通過後、共通 Admission を発行しながら表面 AST を構築する。
 /// guard 超過時は structural-limits の cutoff 診断を返す。
 pub fn build(root: &JNode, sp: &StaticProfile) -> Result<Program, Diagnostic> {
-    let mut b = Builder { adm: Admission::new(sp) };
+    let mut b = Builder {
+        adm: Admission::new(sp),
+    };
     b.program(root)
 }
 
@@ -355,16 +445,31 @@ impl Builder {
             let name = d.get("name").unwrap();
             if d.get("tag").unwrap().text == "entry" {
                 let i = self.adm.admit(d.span(), Depths::default())?;
-                decls.push(Decl::Entry(EntryDecl { name: name.text.clone(), name_span: sp_of(name), meta: Meta::new(d.span(), i) }));
+                decls.push(Decl::Entry(EntryDecl {
+                    name: name.text.clone(),
+                    name_span: sp_of(name),
+                    meta: Meta::new(d.span(), i),
+                }));
                 continue;
             }
-            let i = self.adm.admit(d.span(), Depths { fn_: true, ..Default::default() })?;
+            let i = self.adm.admit(
+                d.span(),
+                Depths {
+                    fn_: true,
+                    ..Default::default()
+                },
+            )?;
             let mut params = vec![];
             for p in &d.get("params").unwrap().items {
                 let pi = self.adm.admit(p.span(), Depths::default())?;
                 let pn = p.get("name").unwrap();
                 let ty = self.ty(p.get("type").unwrap(), 1)?;
-                params.push(Param { name: pn.text.clone(), name_span: sp_of(pn), ty, meta: Meta::new(p.span(), pi) });
+                params.push(Param {
+                    name: pn.text.clone(),
+                    name_span: sp_of(pn),
+                    ty,
+                    meta: Meta::new(p.span(), pi),
+                });
             }
             let ret = self.ty(d.get("return_type").unwrap(), 1)?;
             let body = self.expr(d.get("body").unwrap(), 1, 0, 0)?;
@@ -379,23 +484,48 @@ impl Builder {
                 rec_span: Sp::default(),
                 type_params: d
                     .get("type_params")
-                    .map(|t| t.items.iter().map(|x| TypeParam { name: x.text.clone(), span: sp_of(x) }).collect())
+                    .map(|t| {
+                        t.items
+                            .iter()
+                            .map(|x| TypeParam {
+                                name: x.text.clone(),
+                                span: sp_of(x),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 ctor: None,
             }));
         }
-        Ok(Program { declarations: decls, meta: Meta::new(n.span(), idx), imports: vec![] })
+        Ok(Program {
+            declarations: decls,
+            meta: Meta::new(n.span(), idx),
+            imports: vec![],
+        })
     }
 
     fn ty(&mut self, n: &JNode, depth: usize) -> Result<TypeNode, Diagnostic> {
         let tag = &n.get("tag").unwrap().text;
-        let i = self.adm.admit(n.span(), Depths { ty: Some(depth), ..Default::default() })?;
+        let i = self.adm.admit(
+            n.span(),
+            Depths {
+                ty: Some(depth),
+                ..Default::default()
+            },
+        )?;
         if tag == "string" {
             let meta = Meta::new(n.span(), i);
-            return Ok(TypeNode::new(TyTag::List, vec![TypeNode::new(TyTag::Char, vec![], meta)], meta));
+            return Ok(TypeNode::new(
+                TyTag::List,
+                vec![TypeNode::new(TyTag::Char, vec![], meta)],
+                meta,
+            ));
         }
         if tag == "param" {
-            return Ok(TypeNode::param(&n.get("name").unwrap().text, Meta::new(n.span(), i)));
+            return Ok(TypeNode::param(
+                &n.get("name").unwrap().text,
+                Meta::new(n.span(), i),
+            ));
         }
         let mut args = vec![];
         for (k, _) in type_fields(tag) {
@@ -407,13 +537,42 @@ impl Builder {
     fn expr(&mut self, n: &JNode, d: usize, ld: usize, fd: usize) -> Result<Expr, Diagnostic> {
         let tag = n.get("tag").unwrap().text.as_str();
         let (i, ld, fd) = match tag {
-            "let" => (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd),
-            "fold" | "map" | "filter" | "any" | "all" | "find" | "sort_by" | "loop" => {
-                (self.adm.admit(n.span(), Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?, ld, fd + 1)
-            }
-            "match_option" | "match_result" => {
-                (self.adm.admit(n.span(), Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?, ld + 1, fd)
-            }
+            "let" => (
+                self.adm.admit(
+                    n.span(),
+                    Depths {
+                        expr: Some(d),
+                        let_: Some(ld + 1),
+                        ..Default::default()
+                    },
+                )?,
+                ld + 1,
+                fd,
+            ),
+            "fold" | "map" | "filter" | "any" | "all" | "find" | "sort_by" | "loop" => (
+                self.adm.admit(
+                    n.span(),
+                    Depths {
+                        expr: Some(d),
+                        fold: Some(fd + 1),
+                        ..Default::default()
+                    },
+                )?,
+                ld,
+                fd + 1,
+            ),
+            "match_option" | "match_result" => (
+                self.adm.admit(
+                    n.span(),
+                    Depths {
+                        expr: Some(d),
+                        let_: Some(ld + 1),
+                        ..Default::default()
+                    },
+                )?,
+                ld + 1,
+                fd,
+            ),
             _ => (self.adm.admit(n.span(), expr_depths(d))?, ld, fd),
         };
         let g = |k: &str| n.get(k).unwrap();
@@ -430,13 +589,20 @@ impl Builder {
                 for c in &g("items").items {
                     items.push(self.expr(c, d + 1, ld, fd)?);
                 }
-                ExprKind::List { element_type: ty, items }
+                ExprKind::List {
+                    element_type: ty,
+                    items,
+                }
             }
             "some" => ExprKind::Some(Box::new(self.expr(g("value"), d + 1, ld, fd)?)),
             "dict" => {
                 let k = self.ty(g("key_type"), 1)?;
                 let v = self.ty(g("value_type"), 1)?;
-                ExprKind::DictNew(TypeNode::new(TyTag::Dict, vec![k, v], Meta::new(n.span(), i)))
+                ExprKind::DictNew(TypeNode::new(
+                    TyTag::Dict,
+                    vec![k, v],
+                    Meta::new(n.span(), i),
+                ))
             }
             "none" => ExprKind::None(self.ty(g("element_type"), 1)?),
             "pair" => {
@@ -465,7 +631,12 @@ impl Builder {
             "let" => {
                 let v = self.expr(g("value"), d + 1, ld, fd)?;
                 let b = self.expr(g("body"), d + 1, ld, fd)?;
-                ExprKind::Let { name: g("name").text.clone(), name_span: sp_of(g("name")), value: Box::new(v), body: Box::new(b) }
+                ExprKind::Let {
+                    name: g("name").text.clone(),
+                    name_span: sp_of(g("name")),
+                    value: Box::new(v),
+                    body: Box::new(b),
+                }
             }
             "if" => {
                 let c = self.expr(g("condition"), d + 1, ld, fd)?;
@@ -478,7 +649,11 @@ impl Builder {
                 let u = self.ty(g("err_type"), 1)?;
                 let v = self.expr(g("value"), d + 1, ld, fd)?;
                 let ty = TypeNode::new(TyTag::Result, vec![t, u], Meta::new(n.span(), i));
-                ExprKind::Inj { ok: tag == "ok", ty, value: Box::new(v) }
+                ExprKind::Inj {
+                    ok: tag == "ok",
+                    ty,
+                    value: Box::new(v),
+                }
             }
             "match_result" => {
                 let s = self.expr(g("scrutinee"), d + 1, ld, fd)?;
@@ -544,6 +719,9 @@ impl Builder {
                 }
             }
         };
-        Ok(Expr { kind, meta: Meta::new(n.span(), i) })
+        Ok(Expr {
+            kind,
+            meta: Meta::new(n.span(), i),
+        })
     }
 }

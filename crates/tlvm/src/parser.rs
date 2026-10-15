@@ -28,7 +28,12 @@ pub struct Depths {
 
 impl Admission {
     pub fn new(profile: &StaticProfile) -> Admission {
-        Admission { profile: profile.clone(), ast_nodes: 0, functions: 0, index: 0 }
+        Admission {
+            profile: profile.clone(),
+            ast_nodes: 0,
+            functions: 0,
+            index: 0,
+        }
     }
 
     /// guard 超過時は structural-limits の cutoff 診断を返す。
@@ -75,14 +80,18 @@ fn is_rec_at(toks: &[Token], i: usize) -> bool {
     let t = &toks[i];
     t.kind == TokKind::Ident
         && t.text == REC
-        && toks.get(i + 1).is_some_and(|n| n.is_kw("fn") || n.is_kw("entry"))
+        && toks
+            .get(i + 1)
+            .is_some_and(|n| n.is_kw("fn") || n.is_kw("entry"))
 }
 
 /// v1.11：宣言の先頭の `import` で、直後が文字列リテラル。`import` は予約語ではないので、それ以外の位置では普通の名前
 /// （トップレベルの宣言は fn・rec・entry・type で始まるので、この形は今まで常に構文誤りだった）。
 pub fn is_import_at(toks: &[Token], i: usize) -> bool {
     let t = &toks[i];
-    t.kind == TokKind::Ident && t.text == IMPORT && toks.get(i + 1).is_some_and(|n| n.kind == TokKind::Str)
+    t.kind == TokKind::Ident
+        && t.text == IMPORT
+        && toks.get(i + 1).is_some_and(|n| n.kind == TokKind::Str)
 }
 
 pub const IMPORT: &str = "import";
@@ -101,12 +110,20 @@ pub const LOOP_ONE_BINDER: &str = "exactly one binder: |s|";
 pub const TYPE_PARAM_EXPECTED: &str = "type parameter name starting with an uppercase letter";
 
 pub fn expr_depths(expr: usize) -> Depths {
-    Depths { expr: Some(expr), ..Default::default() }
+    Depths {
+        expr: Some(expr),
+        ..Default::default()
+    }
 }
 
 enum Fail {
     /// `at`：token の span の代わりに示す span と actual（`List<Char>` など複数 token にわたる誤り）
-    Parse { code: &'static str, index: usize, expected: Option<&'static str>, at: Option<(Span, String)> },
+    Parse {
+        code: &'static str,
+        index: usize,
+        expected: Option<&'static str>,
+        at: Option<(Span, String)>,
+    },
     Cutoff(Diagnostic),
 }
 
@@ -138,7 +155,14 @@ pub enum ParseOutcome {
 
 impl Parser {
     pub fn new(toks: Vec<Token>, profile: &StaticProfile) -> Parser {
-        Parser { toks, pos: 0, adm: Admission::new(profile), diags: vec![], prev_end: 0, no_record_at: None }
+        Parser {
+            toks,
+            pos: 0,
+            adm: Admission::new(profile),
+            diags: vec![],
+            prev_end: 0,
+            no_record_at: None,
+        }
     }
 
     fn peek(&self, k: usize) -> &Token {
@@ -155,7 +179,12 @@ impl Parser {
     }
 
     fn perr<T>(&self, code: &'static str, expected: &'static str) -> R<T> {
-        Err(Fail::Parse { code, index: self.pos, expected: Some(expected), at: None })
+        Err(Fail::Parse {
+            code,
+            index: self.pos,
+            expected: Some(expected),
+            at: None,
+        })
     }
 
     fn expect(&mut self, s: &'static str) -> R<Token> {
@@ -191,7 +220,9 @@ impl Parser {
 
     fn emit(&mut self, code: &'static str, index: usize, expected: Option<&'static str>) {
         let tok = &self.toks[index];
-        let mut d = Diagnostic::error("parse", code, tok.span()).act(tok.describe()).at(self.adm.index);
+        let mut d = Diagnostic::error("parse", code, tok.span())
+            .act(tok.describe())
+            .at(self.adm.index);
         if let Some(e) = expected {
             d.expected = Some(e.to_string());
         }
@@ -211,7 +242,12 @@ impl Parser {
 
     fn is_sync(&self, i: usize) -> bool {
         let t = &self.toks[i];
-        t.kind == TokKind::Eof || t.is_kw("fn") || t.is_kw("entry") || is_type_kw(t) || is_rec_at(&self.toks, i) || is_import_at(&self.toks, i)
+        t.kind == TokKind::Eof
+            || t.is_kw("fn")
+            || t.is_kw("entry")
+            || is_type_kw(t)
+            || is_rec_at(&self.toks, i)
+            || is_import_at(&self.toks, i)
     }
 
     pub fn parse_program(mut self) -> ParseOutcome {
@@ -226,7 +262,11 @@ impl Parser {
         while is_import_at(&self.toks, self.pos) {
             let kw = self.advance();
             let path = self.advance();
-            imports.push(ImportDecl { path: path.lit.clone(), path_span: Sp(path.start, path.end), span: Sp(kw.start, path.end) });
+            imports.push(ImportDecl {
+                path: path.lit.clone(),
+                path_span: Sp(path.start, path.end),
+                span: Sp(kw.start, path.end),
+            });
         }
         loop {
             let s = self.pos;
@@ -248,7 +288,12 @@ impl Parser {
             } else if is_rec_at(&self.toks, self.pos) {
                 // v1.7：`rec fn`。`rec entry` は書けない
                 if self.peek(1).is_kw("entry") {
-                    Err(Fail::Parse { code: "E-PARSE-REC-ENTRY", index: self.pos, expected: Some("fn"), at: None })
+                    Err(Fail::Parse {
+                        code: "E-PARSE-REC-ENTRY",
+                        index: self.pos,
+                        expected: Some("fn"),
+                        at: None,
+                    })
                 } else {
                     let m = self.advance();
                     self.parse_fn().map(|mut f| {
@@ -271,7 +316,12 @@ impl Parser {
                     all.push(d);
                     return ParseOutcome::Cutoff(all);
                 }
-                Err(Fail::Parse { code, index: p, expected, at }) => {
+                Err(Fail::Parse {
+                    code,
+                    index: p,
+                    expected,
+                    at,
+                }) => {
                     self.emit(code, p, expected);
                     if let Some((span, actual)) = at {
                         let d = self.diags.last_mut().unwrap();
@@ -301,12 +351,22 @@ impl Parser {
             return ParseOutcome::Errors(self.diags);
         }
         let end = self.toks.last().unwrap().end;
-        ParseOutcome::Ok(Program { declarations: decls, meta: Meta::new((0, end), prog_idx), imports })
+        ParseOutcome::Ok(Program {
+            declarations: decls,
+            meta: Meta::new((0, end), prog_idx),
+            imports,
+        })
     }
 
     fn parse_fn(&mut self) -> R<FnDecl> {
         let kw = self.advance();
-        let idx = self.adm.admit(kw.span(), Depths { fn_: true, ..Default::default() })?;
+        let idx = self.adm.admit(
+            kw.span(),
+            Depths {
+                fn_: true,
+                ..Default::default()
+            },
+        )?;
         let name = self.expect_ident()?;
         let type_params = self.parse_type_params()?;
         self.expect("(")?;
@@ -369,7 +429,10 @@ impl Parser {
                 return self.perr("E-PARSE-EXPECTED-IDENT", TYPE_PARAM_EXPECTED);
             }
             self.advance();
-            out.push(TypeParam { name: t.text, span: Sp(t.start, t.end) });
+            out.push(TypeParam {
+                name: t.text,
+                span: Sp(t.start, t.end),
+            });
             if self.peek(0).is_punct(",") {
                 self.advance();
                 continue;
@@ -403,7 +466,11 @@ impl Parser {
         if !self.at_decl_end() {
             return self.perr("E-PARSE-UNEXPECTED-TOKEN", "fn | entry | type | EOF");
         }
-        Ok(EntryDecl { name: name.text, name_span: Sp(name.start, name.end), meta: Meta::new((kw.start, self.prev_end), idx) })
+        Ok(EntryDecl {
+            name: name.text,
+            name_span: Sp(name.start, name.end),
+            meta: Meta::new((kw.start, self.prev_end), idx),
+        })
     }
 
     /// v1.1：`type Name = { f: T, ... }`。v1.4：`type Name = A | B(T, ...) | ...`
@@ -414,7 +481,9 @@ impl Parser {
         let type_params = self.parse_type_params()?;
         self.expect("=")?;
         if !self.peek(0).is_punct("{") {
-            return self.parse_sum_decl(kw, idx, name, type_params).map(Decl::Sum);
+            return self
+                .parse_sum_decl(kw, idx, name, type_params)
+                .map(Decl::Sum);
         }
         self.expect("{")?;
         let mut fields = vec![];
@@ -422,7 +491,11 @@ impl Parser {
             let f = self.expect_binder()?;
             self.expect(":")?;
             let ty = self.parse_type(1)?;
-            fields.push(FieldDecl { name: f.text, name_span: Sp(f.start, f.end), ty });
+            fields.push(FieldDecl {
+                name: f.text,
+                name_span: Sp(f.start, f.end),
+                ty,
+            });
             if self.peek(0).is_punct(",") {
                 self.advance();
                 if self.peek(0).is_punct("}") {
@@ -446,7 +519,13 @@ impl Parser {
     }
 
     /// v1.4：`=` の後の `A | B(T, ...) | ...`。構築子の名前は大文字で始まる。
-    fn parse_sum_decl(&mut self, kw: Token, idx: usize, name: Token, type_params: Vec<TypeParam>) -> R<SumDecl> {
+    fn parse_sum_decl(
+        &mut self,
+        kw: Token,
+        idx: usize,
+        name: Token,
+        type_params: Vec<TypeParam>,
+    ) -> R<SumDecl> {
         let mut variants = vec![];
         loop {
             let c = self.peek(0).clone();
@@ -467,7 +546,11 @@ impl Parser {
                 }
                 self.expect(")")?;
             }
-            variants.push(VariantDecl { name: c.text, name_span: Sp(c.start, c.end), fields });
+            variants.push(VariantDecl {
+                name: c.text,
+                name_span: Sp(c.start, c.end),
+                fields,
+            });
             if self.peek(0).is_punct("|") {
                 self.advance();
                 continue;
@@ -492,7 +575,13 @@ impl Parser {
         let t = self.peek(1);
         match t.kind {
             // 次の宣言の始まり（`entry f`、`type T =`）なら `match` は変数
-            TokKind::Ident if is_type_kw(t) && self.peek(2).kind == TokKind::Ident && self.peek(3).is_punct("=") => false,
+            TokKind::Ident
+                if is_type_kw(t)
+                    && self.peek(2).kind == TokKind::Ident
+                    && self.peek(3).is_punct("=") =>
+            {
+                false
+            }
             TokKind::Int | TokKind::Char | TokKind::Str | TokKind::Ident => true,
             TokKind::Kw if t.text == "entry" => self.peek(2).kind != TokKind::Ident,
             TokKind::Kw => !matches!(t.text.as_str(), "in" | "fn"),
@@ -532,7 +621,12 @@ impl Parser {
             }
             self.expect(")")?;
         }
-        Ok(Pattern { kind, span: Sp(start, self.prev_end), parens, binds })
+        Ok(Pattern {
+            kind,
+            span: Sp(start, self.prev_end),
+            parens,
+            binds,
+        })
     }
 
     /// v1.4：`match e { P => e, ... }`（`match` は読む前）
@@ -552,7 +646,12 @@ impl Parser {
             self.expect("=>")?;
             let body = self.parse_expr(d + 1, ld + 1, fd)?;
             let span = Sp(pat.span.0, self.prev_end);
-            arms.push(Arm { pat, body, span, variant: None });
+            arms.push(Arm {
+                pat,
+                body,
+                span,
+                variant: None,
+            });
             if self.peek(0).is_punct(",") {
                 self.advance();
                 continue;
@@ -577,26 +676,52 @@ impl Parser {
         if !self.peek(0).is_punct(",") {
             // `map(xs)`：ラムダがない（区切りの誤りでなく、閉じ括弧が来たとき）
             if self.peek(0).is_punct(")") {
-                return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_EXPECTED), at: None });
+                return Err(Fail::Parse {
+                    code: "E-PARSE-EXPECTED-LAMBDA",
+                    index: self.pos,
+                    expected: Some(LAMBDA_EXPECTED),
+                    at: None,
+                });
             }
             self.expect(",")?;
         }
         self.advance();
         if !self.peek(0).is_punct("|") {
-            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_EXPECTED), at: None });
+            return Err(Fail::Parse {
+                code: "E-PARSE-EXPECTED-LAMBDA",
+                index: self.pos,
+                expected: Some(LAMBDA_EXPECTED),
+                at: None,
+            });
         }
         self.advance();
         if !self.at_binder(0) {
-            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_ONE_BINDER), at: None });
+            return Err(Fail::Parse {
+                code: "E-PARSE-EXPECTED-LAMBDA",
+                index: self.pos,
+                expected: Some(LAMBDA_ONE_BINDER),
+                at: None,
+            });
         }
         let x = self.advance();
         if !self.peek(0).is_punct("|") {
-            return Err(Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: self.pos, expected: Some(LAMBDA_ONE_BINDER), at: None });
+            return Err(Fail::Parse {
+                code: "E-PARSE-EXPECTED-LAMBDA",
+                index: self.pos,
+                expected: Some(LAMBDA_ONE_BINDER),
+                at: None,
+            });
         }
         self.advance();
         let body = self.parse_expr(d + 1, ld, fd + 1)?;
         self.expect(")")?;
-        Ok(ExprKind::Hof { op, list: Box::new(list), binder: x.text, binder_span: Sp(x.start, x.end), body: Box::new(body) })
+        Ok(ExprKind::Hof {
+            op,
+            list: Box::new(list),
+            binder: x.text,
+            binder_span: Sp(x.start, x.end),
+            body: Box::new(body),
+        })
     }
 
     /// v1.6：`loop(init, max, |s| e)`（名前は読む前）。第 3 引数は一つの binder のラムダ。
@@ -606,7 +731,12 @@ impl Parser {
         let init = self.parse_expr(d + 1, ld, fd + 1)?;
         self.expect(",")?;
         let max = self.parse_expr(d + 1, ld, fd + 1)?;
-        let lambda = |p: &Self, expected| Fail::Parse { code: "E-PARSE-EXPECTED-LAMBDA", index: p.pos, expected: Some(expected), at: None };
+        let lambda = |p: &Self, expected| Fail::Parse {
+            code: "E-PARSE-EXPECTED-LAMBDA",
+            index: p.pos,
+            expected: Some(expected),
+            at: None,
+        };
         if !self.peek(0).is_punct(",") {
             // `loop(init, max)`：ラムダがない
             if self.peek(0).is_punct(")") {
@@ -642,18 +772,34 @@ impl Parser {
         let tok = self.peek(0).clone();
         if tok.kind == TokKind::Ident && tok.text == DICT_TYPE && self.peek(1).is_punct("<") {
             // v1.9：`Dict<K, V>`。`Dict` は予約語でなく、直後が `<` のときだけ辞書の型（レコード型の名前は型引数を取らない）
-            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            let idx = self.adm.admit(
+                tok.span(),
+                Depths {
+                    ty: Some(depth),
+                    ..Default::default()
+                },
+            )?;
             self.advance();
             self.expect("<")?;
             let k = self.parse_type(depth + 1)?;
             self.expect(",")?;
             let v = self.parse_type(depth + 1)?;
             self.expect(">")?;
-            return Ok(TypeNode::new(TyTag::Dict, vec![k, v], Meta::new((tok.start, self.prev_end), idx)));
+            return Ok(TypeNode::new(
+                TyTag::Dict,
+                vec![k, v],
+                Meta::new((tok.start, self.prev_end), idx),
+            ));
         }
         if tok.kind == TokKind::Ident {
             // v1.1：レコード型の名前。v1.10：総称の型 `Box<Int>` と型引数 `T` も（展開の前に `generics::resolve` が見分ける）
-            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            let idx = self.adm.admit(
+                tok.span(),
+                Depths {
+                    ty: Some(depth),
+                    ..Default::default()
+                },
+            )?;
             self.advance();
             let mut args = vec![];
             if self.peek(0).is_punct("<") {
@@ -668,22 +814,42 @@ impl Parser {
                 }
                 self.expect(">")?;
             }
-            let mut t = TypeNode::new(TyTag::Error, args, Meta::new((tok.start, self.prev_end), idx));
+            let mut t = TypeNode::new(
+                TyTag::Error,
+                args,
+                Meta::new((tok.start, self.prev_end), idx),
+            );
             t.name = Some(tok.text);
             return Ok(t);
         }
         if tok.is_kw("String") {
             // v1.2：`String` は `List<Char>`。一つの型 node として数える（検証済み parser の `pt`、`bt` と同じ）
-            let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+            let idx = self.adm.admit(
+                tok.span(),
+                Depths {
+                    ty: Some(depth),
+                    ..Default::default()
+                },
+            )?;
             self.advance();
             let meta = Meta::new(tok.span(), idx);
-            return Ok(TypeNode::new(TyTag::List, vec![TypeNode::new(TyTag::Char, vec![], meta)], meta));
+            return Ok(TypeNode::new(
+                TyTag::List,
+                vec![TypeNode::new(TyTag::Char, vec![], meta)],
+                meta,
+            ));
         }
         let tag = match (tok.kind, TyTag::from_keyword(&tok.text)) {
             (TokKind::Kw, Some(t)) => t,
             _ => return self.perr("E-PARSE-EXPECTED-TYPE", "type"),
         };
-        let idx = self.adm.admit(tok.span(), Depths { ty: Some(depth), ..Default::default() })?;
+        let idx = self.adm.admit(
+            tok.span(),
+            Depths {
+                ty: Some(depth),
+                ..Default::default()
+            },
+        )?;
         let at = self.pos;
         self.advance();
         let mut args = vec![];
@@ -706,7 +872,11 @@ impl Parser {
             }
             self.expect(">")?;
         }
-        Ok(TypeNode::new(tag, args, Meta::new((tok.start, self.prev_end), idx)))
+        Ok(TypeNode::new(
+            tag,
+            args,
+            Meta::new((tok.start, self.prev_end), idx),
+        ))
     }
 
     fn parse_args(&mut self, d: usize, ld: usize, fd: usize) -> R<Vec<Expr>> {
@@ -729,12 +899,23 @@ impl Parser {
         // v1.1：field の参照 `e.f`（後置、左結合）
         while self.peek(0).is_punct(".") {
             let dot = self.peek(0).clone();
-            let idx = self.adm.admit(dot.span(), Depths { expr: Some(d), ..Default::default() })?;
+            let idx = self.adm.admit(
+                dot.span(),
+                Depths {
+                    expr: Some(d),
+                    ..Default::default()
+                },
+            )?;
             self.advance();
             let f = self.expect_binder()?;
             let start = e.meta.span().0;
             e = Expr {
-                kind: ExprKind::Field { expr: Box::new(e), field: f.text, field_span: Sp(f.start, f.end), target: None },
+                kind: ExprKind::Field {
+                    expr: Box::new(e),
+                    field: f.text,
+                    field_span: Sp(f.start, f.end),
+                    target: None,
+                },
                 meta: Meta::new((start, self.prev_end), idx),
             };
         }
@@ -742,7 +923,12 @@ impl Parser {
     }
 
     /// v1.1：`Name { f: e, ..., ..base }`（名前は読んだ後）
-    fn parse_record(&mut self, d: usize, ld: usize, fd: usize) -> R<(Vec<RecordField>, Option<Box<Expr>>)> {
+    fn parse_record(
+        &mut self,
+        d: usize,
+        ld: usize,
+        fd: usize,
+    ) -> R<(Vec<RecordField>, Option<Box<Expr>>)> {
         self.expect("{")?;
         let mut fields = vec![];
         let mut base = None;
@@ -759,7 +945,11 @@ impl Parser {
             let f = self.expect_binder()?;
             self.expect(":")?;
             let value = self.parse_expr(d + 1, ld, fd)?;
-            fields.push(RecordField { name: f.text, name_span: Sp(f.start, f.end), value });
+            fields.push(RecordField {
+                name: f.text,
+                name_span: Sp(f.start, f.end),
+                value,
+            });
             if self.peek(0).is_punct(",") {
                 self.advance();
                 continue;
@@ -774,7 +964,10 @@ impl Parser {
         let tok = self.peek(0).clone();
         let start = tok.start;
         let sp = tok.span();
-        let simple = Depths { expr: Some(d), ..Default::default() };
+        let simple = Depths {
+            expr: Some(d),
+            ..Default::default()
+        };
         let kind;
         let idx;
         match tok.kind {
@@ -794,7 +987,14 @@ impl Parser {
                 kind = ExprKind::Str(tok.lit);
             }
             TokKind::Ident if tok.text == "match" && self.match_starts() => {
-                idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                idx = self.adm.admit(
+                    sp,
+                    Depths {
+                        expr: Some(d),
+                        let_: Some(ld + 1),
+                        ..Default::default()
+                    },
+                )?;
                 kind = self.parse_match(d, ld, fd)?;
             }
             TokKind::Ident => {
@@ -812,15 +1012,32 @@ impl Parser {
                     self.advance();
                     let args = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
-                    kind = ExprKind::Call { callee: tok.text, args, builtin: false, callee_span: Sp(sp.0, sp.1), type_args };
+                    kind = ExprKind::Call {
+                        callee: tok.text,
+                        args,
+                        builtin: false,
+                        callee_span: Sp(sp.0, sp.1),
+                        type_args,
+                    };
                 } else if self.peek(0).is_punct("(") {
                     self.advance();
                     let args = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
-                    kind = ExprKind::Call { callee: tok.text, args, builtin: false, callee_span: Sp(sp.0, sp.1), type_args: vec![] };
+                    kind = ExprKind::Call {
+                        callee: tok.text,
+                        args,
+                        builtin: false,
+                        callee_span: Sp(sp.0, sp.1),
+                        type_args: vec![],
+                    };
                 } else if self.peek(0).is_punct("{") {
                     let (fields, base) = self.parse_record(d, ld, fd)?;
-                    kind = ExprKind::Record { name: tok.text, name_span: Sp(sp.0, sp.1), fields, base };
+                    kind = ExprKind::Record {
+                        name: tok.text,
+                        name_span: Sp(sp.0, sp.1),
+                        fields,
+                        base,
+                    };
                 } else {
                     kind = ExprKind::Var(tok.text);
                 }
@@ -830,7 +1047,8 @@ impl Parser {
             TokKind::Kw
                 if is_soft_keyword(&tok.text)
                     && !(self.peek(1).is_punct("(")
-                        || (!is_lambda_form(&tok.text) && ["<", "["].iter().any(|p| self.peek(1).is_punct(p)))) =>
+                        || (!is_lambda_form(&tok.text)
+                            && ["<", "["].iter().any(|p| self.peek(1).is_punct(p)))) =>
             {
                 idx = self.adm.admit(sp, simple)?;
                 self.advance();
@@ -855,7 +1073,10 @@ impl Parser {
                     self.expect("(")?;
                     let items = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
-                    kind = ExprKind::List { element_type: ty, items };
+                    kind = ExprKind::List {
+                        element_type: ty,
+                        items,
+                    };
                 }
                 // v1.9：空の辞書 `dict<K, V>()`
                 DICT_NEW => {
@@ -866,7 +1087,11 @@ impl Parser {
                     self.expect(",")?;
                     let v = self.parse_type(1)?;
                     self.expect(">")?;
-                    let ty = TypeNode::new(TyTag::Dict, vec![k, v], Meta::new((start, self.prev_end), idx));
+                    let ty = TypeNode::new(
+                        TyTag::Dict,
+                        vec![k, v],
+                        Meta::new((start, self.prev_end), idx),
+                    );
                     if !self.peek(0).is_punct("(") {
                         return self.perr("E-PARSE-EXPECTED-TOKEN", "()");
                     }
@@ -904,14 +1129,29 @@ impl Parser {
                     self.expect(",")?;
                     let u = self.parse_type(1)?;
                     self.expect(">")?;
-                    let ty = TypeNode::new(TyTag::Result, vec![t, u], Meta::new((start, self.prev_end), idx));
+                    let ty = TypeNode::new(
+                        TyTag::Result,
+                        vec![t, u],
+                        Meta::new((start, self.prev_end), idx),
+                    );
                     self.expect("(")?;
                     let v = self.parse_expr(d + 1, ld, fd)?;
                     self.expect(")")?;
-                    kind = ExprKind::Inj { ok: tok.text == "ok", ty, value: Box::new(v) };
+                    kind = ExprKind::Inj {
+                        ok: tok.text == "ok",
+                        ty,
+                        value: Box::new(v),
+                    };
                 }
                 "match_result" => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            let_: Some(ld + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     self.advance();
                     self.expect("(")?;
                     let scrutinee = self.parse_expr(d + 1, ld + 1, fd)?;
@@ -947,7 +1187,14 @@ impl Parser {
                     kind = ExprKind::Pair(Box::new(a), Box::new(b));
                 }
                 "let" => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            let_: Some(ld + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     self.advance();
                     let name = self.expect_binder()?;
                     self.expect("=")?;
@@ -974,7 +1221,14 @@ impl Parser {
                     kind = ExprKind::If(Box::new(c), Box::new(t), Box::new(e));
                 }
                 "fold" => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            fold: Some(fd + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     self.advance();
                     self.expect("(")?;
                     let xs = self.parse_expr(d + 1, ld, fd + 1)?;
@@ -999,7 +1253,14 @@ impl Parser {
                     };
                 }
                 "match_option" => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), let_: Some(ld + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            let_: Some(ld + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     self.advance();
                     self.expect("(")?;
                     let scrutinee = self.parse_expr(d + 1, ld + 1, fd)?;
@@ -1020,11 +1281,25 @@ impl Parser {
                     };
                 }
                 name if HofOp::from_name(name).is_some() => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            fold: Some(fd + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     kind = self.parse_hof(HofOp::from_name(name).unwrap(), d, ld, fd)?;
                 }
                 LOOP => {
-                    idx = self.adm.admit(sp, Depths { expr: Some(d), fold: Some(fd + 1), ..Default::default() })?;
+                    idx = self.adm.admit(
+                        sp,
+                        Depths {
+                            expr: Some(d),
+                            fold: Some(fd + 1),
+                            ..Default::default()
+                        },
+                    )?;
                     kind = self.parse_loop(d, ld, fd)?;
                 }
                 name if is_builtin(name) => {
@@ -1033,12 +1308,21 @@ impl Parser {
                     self.expect("(")?;
                     let args = self.parse_args(d + 1, ld, fd)?;
                     self.expect(")")?;
-                    kind = ExprKind::Call { callee: tok.text.clone(), args, builtin: true, callee_span: Sp(sp.0, sp.1), type_args: vec![] };
+                    kind = ExprKind::Call {
+                        callee: tok.text.clone(),
+                        args,
+                        builtin: true,
+                        callee_span: Sp(sp.0, sp.1),
+                        type_args: vec![],
+                    };
                 }
                 _ => return self.perr("E-PARSE-EXPECTED-EXPR", "expression"),
             },
             _ => return self.perr("E-PARSE-EXPECTED-EXPR", "expression"),
         }
-        Ok(Expr { kind, meta: Meta::new((start, self.prev_end), idx) })
+        Ok(Expr {
+            kind,
+            meta: Meta::new((start, self.prev_end), idx),
+        })
     }
 }
