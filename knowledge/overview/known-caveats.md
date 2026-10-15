@@ -37,6 +37,7 @@ sources:
 - **整数の bit 数は、成功時の結果に含まない。** bit の上限を超えたときは `ResourceExhausted`（`IntegerBits`）になり、そのとき超えた bit 数を報告する（設計書 §18.3）。
 - **書換え後の式の深さは、上限 256 で検査する。** `loop` を 20 段入れ子にすると、書換え後の深さは 260 になり、`E-LIMIT-STATIC-EXPR-DEPTH` で拒否される（設計書 §18.1、`crates/tlvm/tests/rewritten.rs`）。
 - **`stack_bytes` の超過は未検査。** [必須回帰テスト](../conformance/regression-tests.md) の行 35 では、ref-slot の上限は検査するが、stack_bytes の超過は検査していない。
+- **全部の field を書いた `..base` は、base を検査しない（不具合。扱いは未決）。** `R { a: x, b: 2, ..undefined_name }` と `R { a: x, b: 2, ..true }` が通る。`records.rs` は base を名前解決も型検査もせずに捨てる。v1 は全部の式を解決して型検査する規則なので誤りである。扱いはオーナーの判断待ち（2026-10-15 にカードで送信）。レコードの証明の試作（`verus/src/records_proof.rs`）は、この形を前提から外している。
 
 ## 運用上の注意
 
