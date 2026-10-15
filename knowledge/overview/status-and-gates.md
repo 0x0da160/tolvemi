@@ -39,7 +39,7 @@ manifest 上のゲート状態：[^manifest]
 | **G3 境界監査** | TCB、`assume`、`external_body`、`unsafe`、BigInt、SMT、Rust、OS 等を版付き台帳で公開 | 境界監査後 |
 | **G4 LLM 実験** | §12.3–12.5 に従う介入を事前登録し、秘密 seed 最終評価・全 episode の分母・失敗分類・無条件費用・資源超過・対応比較と信頼区間を公開。正の優位性は必須にしない | 事前登録実験後 |
 
-G0 の未達項目は、対応 spec、完全な diagnostic registry、Admission・実行・型検査の参照 trace fixture、strict parser／encoder／共通検査器との適合照合。限定 schema 検査や補助モデルの通過（[限定検査](../conformance/limited-checks.md)）をゲートへ代用しない。
+G0 の未達項目は、対応 spec、Admission・実行・型検査の参照 trace fixture、strict parser／encoder／共通検査器との適合照合。診断の版付き registry は [registry-v1.json](../diagnostics/registry-v1.json) として 2026-10-15 に作成し、ソースと fixture に照合するテストを付けた（spec の成果物と manifest への登録は未了）。限定 schema 検査や補助モデルの通過（[限定検査](../conformance/limited-checks.md)）をゲートへ代用しない。
 
 # v1.0.0 の凍結に関する決定
 

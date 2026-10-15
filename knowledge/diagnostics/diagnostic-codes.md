@@ -18,9 +18,9 @@ sources:
 
 # 注意
 
-`E-ARITY-USER` と `E-ARITY-BUILTIN` は正式な具体コード。その他の型／name／lex／parse の具体コード、message template、repair 生成規則は版付き diagnostic registry に列挙して G0 で照合する（registry は未作成）。下表は設計書本文に現れるコードの抽出であり、registry の代用ではない。[^lptl-design] 突き合わせ報告は本文の診断コードを52種類と数えている。[^verification-report]
+`E-ARITY-USER` と `E-ARITY-BUILTIN` は正式な具体コード。その他の型／name／lex／parse の具体コード、message template、repair 生成規則は版付き diagnostic registry に列挙して G0 で照合する。registry は [registry-v1.json](registry-v1.json) に作成した（2026-10-15）。各コードの severity、phase、message template、repair 規則、発生箇所を持つ。ソースと fixture への照合は `crates/tlvm/tests/diagnostic_registry.rs` が行う。下表は設計書本文に現れるコードの抽出であり、registry の代用ではない。[^lptl-design] 突き合わせ報告は本文の診断コードを52種類と数えている。[^verification-report]
 
-2026-10-14 に、処理系のソースで発生する具体コードのうち、上の表に完全な形で載っていなかった 57 件を末尾の表に加えた。message template と repair 生成規則は未固定のまま。
+2026-10-14 に、処理系のソースで発生する具体コードのうち、上の表に完全な形で載っていなかった 57 件を末尾の表に加えた。message template と repair 生成規則は、2026-10-15 に registry-v1.json で固定した（上の注意を見る）。
 
 # 分類プレフィックス
 

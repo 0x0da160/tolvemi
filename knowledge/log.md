@@ -3,6 +3,7 @@
 ## 2026-10-15
 * **既知の注意点**：凍結前の確認で分かった、仕様どおりだが驚きやすい振る舞い、範囲外・未対応・未検査の部分、未決の事項をまとめた（[既知の注意点](overview/known-caveats.md)）。索引にも載せた。
 * **診断コード**：発生箇所があるのに一覧になかった 57 件を、ソースと照合して加えた（[診断コード](diagnostics/diagnostic-codes.md)）。メッセージの雛形と修復規則は未固定。
+* **診断の registry**：ソースで発生する 137 コードについて、severity、phase、message template、repair 規則、発生箇所を版 1 の registry に固定した（[registry-v1.json](diagnostics/registry-v1.json)）。ソースと fixture に照合するテストを付けた（`crates/tlvm/tests/diagnostic_registry.rs`）。spec の成果物と manifest への登録は未了。
 * **型引数の確認**：型引数を書かせる課題（98-adjacent_pairs）を、サブスクリプションでログインした `claude` CLI から現在の SKILL.md で一回実行し、正解した（隠しテスト 30/30）。API キーは使っていない（[v1.10 差分仕様](../spec/lptl-v1.10/LPTL_v1.10_delta.md) §5）。
 * **整形**：`tlvm fmt` と LSP の整形は、`tlvm check` と同じ検査に誤りがあれば整形しない（[正準フォーマット](language/canonical-formatting.md)、[対話的な道具](api/tooling.md)。仕様は [v1.12 差分仕様](../spec/lptl-v1.12/LPTL_v1.12_delta.md) §2b）。
 * **Verus**：`cargo fmt`（`56c5ce5`）で並びが変わった `lib.rs` と `pipeline.rs` のあと、`push_inj` と `ft_app` が rlimit を超えていた（625 件・error 2）。両関数に `#[verifier::rlimit(50)]` を付け、627 件・error 0 に戻した（`5ff847f`。[必須回帰テスト](conformance/regression-tests.md) の 2026-10-15 の記録）。
