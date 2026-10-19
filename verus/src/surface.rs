@@ -61,11 +61,17 @@ pub enum SExpr {
     Match(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
     Inj(bool, Ty, Ty, Box<SExpr>),
     MatchR(Box<SExpr>, Vec<char>, Box<SExpr>, Vec<char>, Box<SExpr>),
+    /// v1.1：e.f1.f2…（名前の列は空でない）
+    Fld(Box<SExpr>, Vec<Vec<char>>),
+    /// v1.1：R { f: e, ..b }（名前と式は同じ長さの二つの列。省略できる base）
+    Rec(Vec<char>, Vec<Vec<char>>, Vec<SExpr>, Option<Box<SExpr>>),
 }
 
 pub enum SDecl {
     Fn(Vec<char>, Vec<(Vec<char>, Ty)>, Ty, SExpr),
     Entry(Vec<char>),
+    /// v1.1：type R = { f: T, ... }（末尾のカンマの有無を持つ）
+    RecTy(Vec<char>, Vec<(Vec<char>, Ty)>, bool),
 }
 
 pub open spec fn vx(e: SExpr) -> Sx
@@ -90,6 +96,29 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::Match(m, n, x, b) => Sx::Match(Box::new(vx(*m)), Box::new(vx(*n)), x@, Box::new(vx(*b))),
         SExpr::Inj(ok, t, u, a) => Sx::Inj(ok, t, u, Box::new(vx(*a))),
         SExpr::MatchR(m, x, a, y, b) => Sx::MatchR(Box::new(vx(*m)), x@, Box::new(vx(*a)), y@, Box::new(vx(*b))),
+        SExpr::Fld(a, ns) => Sx::Fld(Box::new(vx(*a)), vnames(ns@)),
+        SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
+    }
+}
+
+pub open spec fn vnames(ns: Seq<Vec<char>>) -> Seq<Seq<char>> {
+    Seq::new(ns.len(), |i: int| ns[i]@)
+}
+
+/// レコード式の字段（名前の列と式の列は同じ長さ。式の列を再帰の対象にする）。
+pub open spec fn vfields(ns: Seq<Vec<char>>, es: Seq<SExpr>) -> Seq<(Seq<char>, Sx)>
+    decreases es,
+{
+    Seq::new(ns.len(), |i: int| (ns[i]@, if 0 <= i < es.len() { vx(es[i]) } else { Sx::Unit }))
+}
+
+/// レコード式の省略できる base。
+pub open spec fn vbase(b: Option<Box<SExpr>>) -> Option<Box<Sx>>
+    decreases b,
+{
+    match b {
+        Some(x) => Some(Box::new(vx(*x))),
+        None => None,
     }
 }
 
@@ -107,6 +136,7 @@ pub open spec fn vd(x: SDecl) -> Sd {
     match x {
         SDecl::Fn(f, ps, r, b) => Sd::Fn(f@, vps(ps@), r, vx(b)),
         SDecl::Entry(n) => Sd::Entry(n@),
+        SDecl::RecTy(r, fs, tc) => Sd::RecTy(r@, vps(fs@), tc),
     }
 }
 
@@ -228,7 +258,7 @@ fn is_sym_e(c: char) -> (b: bool)
         b == is_sym(c),
 {
     c == '(' || c == ')' || c == '[' || c == ']' || c == '<' || c == '>' || c == ',' || c == ':' || c == '='
-        || c == '|'
+        || c == '|' || c == '{' || c == '}' || c == '.'
 }
 
 fn dval_e(c: char) -> (r: u64)
@@ -1216,12 +1246,20 @@ pub open spec fn pe_ok(ts: Seq<ETok>, i: usize, d: usize, td: usize, r: Option<(
     }
 }
 
-pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+pub open spec fn pp_ok(ts: Seq<ETok>, i: usize, d: usize, td: usize, r: Option<(SExpr, usize)>) -> bool {
+    match r {
+        Some((e, j)) => pp(vtoks(ts), i as nat, d as nat, td as nat) == Some((vx(e), j as nat)) && j <= ts.len(),
+        None => pp(vtoks(ts), i as nat, d as nat, td as nat) is None,
+    }
+}
+
+/// 基本の式（後置の `.f` の並びを含まない）。
+pub fn pp_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 1nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1243,18 +1281,7 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
         } else {
             None
         },
-        ETok::Id(x) => {
-            if !ident_ok_e(x) {
-                None
-            } else if sym_e(ts, i + 1, '(') {
-                match pargs_e(ts, i + 2, d - 1, td) {
-                    Some((es, j)) => Some((SExpr::Call(clone_chars(x), es), j)),
-                    None => None,
-                }
-            } else {
-                Some((SExpr::Var(clone_chars(x)), i + 1))
-            }
-        },
+        ETok::Id(_) => pid_e(ts, i, d, td),
         ETok::Kw(k) => if soft_e(*k) && !sym_e(ts, i + 1, '(') && !sym_e(ts, i + 1, '<') {
             Some((SExpr::Var(kwt_e(*k)), i + 1))
         } else {
@@ -1276,6 +1303,406 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             }
         },
         _ => None,
+    }
+}
+
+/// 識別子で始まる式（呼び出し、レコード式、変数）。
+fn pid_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        ts@[i as int] is Id,
+    ensures
+        pp_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+    }
+    let x = match &ts[i] {
+        ETok::Id(x) => x,
+        _ => return None,
+    };
+    if !ident_ok_e(x) {
+        None
+    } else if sym_e(ts, i + 1, '(') {
+        match pargs_e(ts, i + 2, d - 1, td) {
+            Some((es, j)) => Some((SExpr::Call(clone_chars(x), es), j)),
+            None => None,
+        }
+    } else if sym_e(ts, i + 1, '{') && rec_head_e(ts, i + 2) {
+        match prec_e(ts, i + 2, d - 1, td) {
+            Some((ns, es, b, j)) => Some((SExpr::Rec(clone_chars(x), ns, es, b), j)),
+            None => None,
+        }
+    } else {
+        Some((SExpr::Var(clone_chars(x)), i + 1))
+    }
+}
+
+/// 式（後置の `.f` の並びを含む）。
+pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        pe_ok(ts@, i, d, td, r),
+    decreases d, 2nat,
+{
+    match pp_e(ts, i, d, td) {
+        None => None,
+        Some((e, j)) => {
+            let named = match idt_e(ts, j + 1) {
+                Some(_) => true,
+                None => false,
+            };
+            if recv_ok_e(&e) && j + 1 < ts.len() && sym_e(ts, j, '.') && named {
+                let (fs, m) = pfs_e(ts, j);
+                Some((SExpr::Fld(Box::new(e), fs), m))
+            } else {
+                Some((e, j))
+            }
+        },
+    }
+}
+
+/// 後置の `.f` の受け手になれる式か（整数・let・後置は受けない）。
+fn recv_ok_e(e: &SExpr) -> (r: bool)
+    ensures
+        r == recv_ok(vx(*e)),
+{
+    proof {
+        reveal_with_fuel(vx, 1);
+    }
+    match e {
+        SExpr::Int(..) | SExpr::Let(..) | SExpr::Fld(..) => false,
+        _ => true,
+    }
+}
+
+/// `R {` の後ろがレコード式の本体の形か（`}`、`IDENT :`、`..`）。
+fn rec_head_e(ts: &Vec<ETok>, i: usize) -> (r: bool)
+    requires
+        small(ts@),
+    ensures
+        r == rec_head(vtoks(ts@), i as nat),
+{
+    if sym_e(ts, i, '}') || (sym_e(ts, i, '.') && sym_e(ts, i + 1, '.')) {
+        return true;
+    }
+    match idt_e(ts, i) {
+        Some(_) => sym_e(ts, i + 1, ':'),
+        None => false,
+    }
+}
+
+/// `"." IDENT` の並び（位置 j から）。名前の列と、並びの後の位置。
+fn pfs_e(ts: &Vec<ETok>, j: usize) -> (r: (Vec<Vec<char>>, usize))
+    requires
+        small(ts@),
+        j <= ts.len(),
+    ensures
+        pfs(vtoks(ts@), j as nat) == (vnames(r.0@), r.1 as nat),
+        r.1 <= ts.len(),
+{
+    let ghost tv = vtoks(ts@);
+    let mut ns: Vec<Vec<char>> = Vec::new();
+    let mut k = j;
+    loop
+        invariant
+            small(ts@),
+            tv == vtoks(ts@),
+            j <= k <= ts.len(),
+            pfs(tv, j as nat) == (vnames(ns@) + pfs(tv, k as nat).0, pfs(tv, k as nat).1),
+        decreases ts.len() - k,
+    {
+        proof {
+            reveal_with_fuel(pfs, 1);
+        }
+        if k + 1 < ts.len() && sym_e(ts, k, '.') {
+            match idt_e(ts, k + 1) {
+                Some(x) => {
+                    let ghost old = ns@;
+                    let ghost xv = x@;
+                    ns.push(x);
+                    proof {
+                        assert(vnames(ns@) =~= vnames(old) + seq![xv]);
+                        assert(pfs(tv, k as nat).0 =~= seq![xv] + pfs(tv, (k + 2) as nat).0);
+                        assert(vnames(ns@) + pfs(tv, (k + 2) as nat).0 =~= vnames(old) + pfs(tv, k as nat).0);
+                    }
+                    k = k + 2;
+                },
+                None => {
+                    proof {
+                        assert(pfs(tv, k as nat) == (Seq::<Seq<char>>::empty(), k as nat));
+                        assert(vnames(ns@) + Seq::<Seq<char>>::empty() =~= vnames(ns@));
+                    }
+                    return (ns, k);
+                },
+            }
+        } else {
+            proof {
+                assert(pfs(tv, k as nat) == (Seq::<Seq<char>>::empty(), k as nat));
+                assert(vnames(ns@) + Seq::<Seq<char>>::empty() =~= vnames(ns@));
+            }
+            return (ns, k);
+        }
+    }
+}
+
+/// レコード式の本体（`{` の後）。
+fn prec_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<Vec<char>>, Vec<SExpr>, Option<Box<SExpr>>, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((ns, es, b, j)) => prec(vtoks(ts@), i as nat, d as nat, td as nat)
+                == Some((vfields(ns@, es@), vbase(b), j as nat)) && j <= ts.len() && ns@.len() == es@.len(),
+            None => prec(vtoks(ts@), i as nat, d as nat, td as nat) is None,
+        },
+    decreases d, 4nat,
+{
+    if sym_e(ts, i, '}') {
+        let ns: Vec<Vec<char>> = Vec::new();
+        let es: Vec<SExpr> = Vec::new();
+        proof {
+            assert(vfields(ns@, es@) =~= Seq::<(Seq<char>, Sx)>::empty());
+        }
+        return Some((ns, es, None, i + 1));
+    }
+    prest_e(ts, i, d, td)
+}
+
+/// レコード式の字段の並びと省略できる base（位置 i から、閉じ括弧まで）。
+fn prest_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<Vec<char>>, Vec<SExpr>, Option<Box<SExpr>>, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((ns, es, b, j)) => prest(vtoks(ts@), i as nat, d as nat, td as nat)
+                == Some((vfields(ns@, es@), vbase(b), j as nat)) && j <= ts.len() && ns@.len() == es@.len(),
+            None => prest(vtoks(ts@), i as nat, d as nat, td as nat) is None,
+        },
+    decreases d, 3nat,
+{
+    let ghost tv = vtoks(ts@);
+    let mut ns: Vec<Vec<char>> = Vec::new();
+    let mut es: Vec<SExpr> = Vec::new();
+    let mut k = i;
+    proof {
+        assert(vfields(ns@, es@) =~= Seq::<(Seq<char>, Sx)>::empty());
+    }
+    loop
+        invariant
+            small(ts@),
+            tv == vtoks(ts@),
+            k <= ts.len(),
+            ns@.len() == es@.len(),
+            prest(tv, i as nat, d as nat, td as nat) == catr(vfields(ns@, es@), prest(tv, k as nat, d as nat, td as nat)),
+        decreases ts.len() - k,
+    {
+        proof {
+            reveal_with_fuel(prest, 1);
+        }
+        if sym_e(ts, k, '.') && sym_e(ts, k + 1, '.') {
+            match pe_e(ts, k + 2, d, td) {
+                None => return None,
+                Some((b, j)) => {
+                    if sym_e(ts, j, '}') {
+                        proof {
+                            assert(vfields(ns@, es@) + Seq::<(Seq<char>, Sx)>::empty() =~= vfields(ns@, es@));
+                        }
+                        return Some((ns, es, Some(Box::new(b)), j + 1));
+                    }
+                    return None;
+                },
+            }
+        }
+        let f = match idt_e(ts, k) {
+            Some(f) => f,
+            None => return None,
+        };
+        if !sym_e(ts, k + 1, ':') {
+            return None;
+        }
+        match pe_e(ts, k + 2, d, td) {
+            None => return None,
+            Some((v, j)) => {
+                if sym_e(ts, j, '}') {
+                    let ghost bn = ns@;
+                    let ghost be = es@;
+                    let ghost fv = f@;
+                    let ghost vv = vx(v);
+                    ns.push(f);
+                    es.push(v);
+                    proof {
+                        assert(vfields(ns@, es@) =~= vfields(bn, be) + seq![(fv, vv)]);
+                    }
+                    return Some((ns, es, None, j + 1));
+                } else if sym_e(ts, j, ',') && k < j {
+                    let ghost bn = ns@;
+                    let ghost be = es@;
+                    let ghost fv = f@;
+                    let ghost vv = vx(v);
+                    ns.push(f);
+                    es.push(v);
+                    proof {
+                        assert(vfields(ns@, es@) =~= vfields(bn, be) + seq![(fv, vv)]);
+                        catr_app(vfields(bn, be), seq![(fv, vv)], prest(tv, (j + 1) as nat, d as nat, td as nat));
+                    }
+                    k = j + 1;
+                } else {
+                    return None;
+                }
+            },
+        }
+    }
+}
+
+/// レコード型の字段の並び（位置 i から、閉じ括弧まで）。
+fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty)>, bool, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((fs, tc, j)) => pfds(vtoks(ts@), i as nat, td as nat) == Some((vps(fs@), tc, j as nat)) && j <= ts.len(),
+            None => pfds(vtoks(ts@), i as nat, td as nat) is None,
+        },
+{
+    let ghost tv = vtoks(ts@);
+    let mut fs: Vec<(Vec<char>, Ty)> = Vec::new();
+    let mut k = i;
+    proof {
+        assert(vps(fs@) =~= Seq::<(Seq<char>, Ty)>::empty());
+    }
+    loop
+        invariant
+            small(ts@),
+            tv == vtoks(ts@),
+            k <= ts.len(),
+            pfds(tv, i as nat, td as nat) == catf(vps(fs@), pfds(tv, k as nat, td as nat)),
+        decreases ts.len() - k,
+    {
+        proof {
+            reveal_with_fuel(pfds, 1);
+        }
+        let f = match idt_e(ts, k) {
+            Some(f) => f,
+            None => return None,
+        };
+        if !sym_e(ts, k + 1, ':') {
+            return None;
+        }
+        match pt_e(ts, k + 2, td) {
+            None => return None,
+            Some((t, j)) => {
+                if sym_e(ts, j, '}') {
+                    let ghost bf = fs@;
+                    let ghost fv = f@;
+                    fs.push((f, t));
+                    proof {
+                        assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
+                    }
+                    return Some((fs, false, j + 1));
+                } else if sym_e(ts, j, ',') && k < j {
+                    if sym_e(ts, j + 1, '}') {
+                        let ghost bf = fs@;
+                        let ghost fv = f@;
+                        fs.push((f, t));
+                        proof {
+                            assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
+                        }
+                        return Some((fs, true, j + 2));
+                    }
+                    let ghost bf = fs@;
+                    let ghost fv = f@;
+                    fs.push((f, t));
+                    proof {
+                        assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
+                        catf_app(vps(bf), seq![(fv, fs@.last().1)], pfds(tv, (j + 1) as nat, td as nat));
+                    }
+                    k = j + 1;
+                } else {
+                    return None;
+                }
+            },
+        }
+    }
+}
+
+/// 宣言の先頭の文脈語 `type`（予約語ではない識別子として読む）。
+fn tyw_e(ts: &Vec<ETok>, i: usize) -> (r: bool)
+    requires
+        small(ts@),
+    ensures
+        r == (i < ts.len() && vtok(ts@[i as int]) == Tok::Id(tyw())),
+{
+    if i < ts.len() {
+        match &ts[i] {
+            ETok::Id(x) => {
+                let mut w: Vec<char> = Vec::new();
+                w.push('t');
+                w.push('y');
+                w.push('p');
+                w.push('e');
+                proof {
+                    assert(w@ =~= tyw());
+                }
+                eq_chars(x, &w)
+            },
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+/// 字段の並びの連結（prest の結果の前に字段を付ける）。
+pub open spec fn catr(u: Seq<(Seq<char>, Sx)>, o: Option<(Seq<(Seq<char>, Sx)>, Option<Box<Sx>>, nat)>) -> Option<
+    (Seq<(Seq<char>, Sx)>, Option<Box<Sx>>, nat),
+> {
+    match o {
+        Some((w, b, m)) => Some((u + w, b, m)),
+        None => None,
+    }
+}
+
+/// 型の字段の並びの連結（pfds の結果の前に字段を付ける）。
+pub open spec fn catf(u: Seq<(Seq<char>, Ty)>, o: Option<(Seq<(Seq<char>, Ty)>, bool, nat)>) -> Option<
+    (Seq<(Seq<char>, Ty)>, bool, nat),
+> {
+    match o {
+        Some((w, tc, m)) => Some((u + w, tc, m)),
+        None => None,
+    }
+}
+
+proof fn catr_app(u: Seq<(Seq<char>, Sx)>, w: Seq<(Seq<char>, Sx)>, o: Option<(Seq<(Seq<char>, Sx)>, Option<Box<Sx>>, nat)>)
+    ensures
+        catr(u, catr(w, o)) == catr(u + w, o),
+{
+    match o {
+        Some((x, b, m)) => {
+            assert(u + (w + x) =~= (u + w) + x);
+        },
+        None => {},
+    }
+}
+
+proof fn catf_app(u: Seq<(Seq<char>, Ty)>, w: Seq<(Seq<char>, Ty)>, o: Option<(Seq<(Seq<char>, Ty)>, bool, nat)>)
+    ensures
+        catf(u, catf(w, o)) == catf(u + w, o),
+{
+    match o {
+        Some((x, tc, m)) => {
+            assert(u + (w + x) =~= (u + w) + x);
+        },
+        None => {},
     }
 }
 
@@ -1327,7 +1754,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
                 && k != Kw::Ok && k != Kw::Err && k != Kw::MatchResult
         }),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1359,7 +1786,7 @@ fn pe_list_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::List),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1390,7 +1817,7 @@ fn pe_some_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::Some),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1418,7 +1845,7 @@ fn pe_none_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::None),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1446,7 +1873,7 @@ fn pe_pair_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::Pair),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1480,7 +1907,7 @@ fn pe_let_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::Let),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1514,7 +1941,7 @@ fn pe_if_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, 
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::If),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1555,7 +1982,7 @@ fn pe_fold_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::Fold),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1610,7 +2037,7 @@ fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExp
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::MatchOption),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1662,7 +2089,7 @@ fn pe_inj_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::Ok) || vtok(ts@[i as int]) == Tok::Kw(Kw::Err),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1707,7 +2134,7 @@ fn pe_matchr_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SEx
         d > 0,
         vtok(ts@[i as int]) == Tok::Kw(Kw::MatchResult),
     ensures
-        pe_ok(ts@, i, d, td, r),
+        pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
 {
     let ghost tv = vtoks(ts@);
@@ -1776,7 +2203,7 @@ pub fn pargs_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec
                 && j <= ts.len(),
             None => pargs(vtoks(ts@), i as nat, d as nat, td as nat) is None,
         },
-    decreases d, 2nat,
+    decreases d, 3nat,
 {
     let ghost tv = vtoks(ts@);
     if sym_e(ts, i, ')') {
@@ -1944,6 +2371,18 @@ pub fn pd_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SDecl,
     } else if kwat_e(ts, i, Kw::Entry) {
         match idt_e(ts, i + 1) {
             Some(x) => Some((SDecl::Entry(x), i + 2)),
+            None => None,
+        }
+    } else if tyw_e(ts, i) {
+        let r = match idt_e(ts, i + 1) {
+            Some(r) => r,
+            None => return None,
+        };
+        if !(sym_e(ts, i + 2, '=') && sym_e(ts, i + 3, '{')) {
+            return None;
+        }
+        match pfds_e(ts, i + 4, td) {
+            Some((fs, tc, j)) => Some((SDecl::RecTy(r, fs, tc), j)),
             None => None,
         }
     } else {
@@ -2426,9 +2865,211 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Match(..) => push_match(out, e),
         SExpr::Inj(..) => push_inj(out, e),
         SExpr::MatchR(..) => push_matchr(out, e),
+        SExpr::Fld(..) => push_fld(out, e),
+        SExpr::Rec(..) => push_rec(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
+    }
+}
+
+/// 後置の `.f`（受け手の式を出してから、名前を `.` で並べる）。
+fn push_fld(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Fld,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Fld(a, ns) = e {
+        push_e(out, a);
+        push_dots(out, ns);
+        proof {
+            reveal_with_fuel(fe, 1);
+            fe_app(vx(**a), fdots(vnames(ns@), z));
+        }
+    }
+    proof {
+        assert(out@ =~= o + fe(vx(*e), z));
+    }
+}
+
+/// `"." IDENT` の並びを出す（名前の列を先頭から）。
+fn push_dots(out: &mut Vec<char>, ns: &Vec<Vec<char>>)
+    ensures
+        final(out)@ == old(out)@ + fdots(vnames(ns@), Seq::empty()),
+{
+    let ghost o = out@;
+    let ghost v = vnames(ns@);
+    let ghost z = Seq::<char>::empty();
+    let mut i: usize = 0;
+    proof {
+        assert(v.subrange(0, v.len() as int) =~= v);
+    }
+    while i < ns.len()
+        invariant
+            v == vnames(ns@),
+            i <= ns@.len(),
+            out@ + fdots(v.subrange(i as int, v.len() as int), z) == o + fdots(v, z),
+        decreases ns@.len() - i,
+    {
+        let ghost before = out@;
+        proof {
+            reveal_with_fuel(fdots, 1);
+            assert(v.subrange(i as int, v.len() as int)[0] == v[i as int]);
+            assert(v.subrange(i as int, v.len() as int).subrange(1, v.len() - i as int) =~= v.subrange(
+                (i + 1) as int,
+                v.len() as int,
+            ));
+        }
+        push1(out, '.');
+        append_chars(out, &ns[i]);
+        proof {
+            assert(out@ =~= before + seq!['.'] + v[i as int]);
+        }
+        i += 1;
+    }
+    proof {
+        assert(v.subrange(ns@.len() as int, v.len() as int) =~= Seq::<Seq<char>>::empty());
+    }
+}
+
+/// レコード式の本体（字段の並びと base の前まで）。字段の式の列が名前より短いときは unit を出す（対応する値のない字段）。
+fn push_fields(out: &mut Vec<char>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>)
+    ensures
+        final(out)@ == old(out)@ + ffe(vfields(ns@, es@), 0, Seq::empty()),
+    decreases es, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    let ghost v = vfields(ns@, es@);
+    let mut i: usize = 0;
+    while i < ns.len()
+        invariant
+            v == vfields(ns@, es@),
+            i <= ns@.len(),
+            o + ffe(v, 0, z) == out@ + (if i < ns@.len() { ffe(v, i as nat, z) } else { z }),
+        decreases ns@.len() - i,
+    {
+        let ghost before = out@;
+        let ghost tail = if i + 1 == ns@.len() { z } else { seq![',', ' '] + ffe(v, (i + 1) as nat, z) };
+        proof {
+            reveal_with_fuel(ffe, 1);
+            assert(v[i as int].0 == ns@[i as int]@);
+        }
+        append_chars(out, &ns[i]);
+        push2(out, ':', ' ');
+        if i < es.len() {
+            push_e(out, &es[i]);
+            proof {
+                assert(v[i as int].1 == vx(es@[i as int]));
+                fe_app(vx(es@[i as int]), tail);
+            }
+        } else {
+            push_kw(out, Kw::Unit);
+            proof {
+                assert(v[i as int].1 == Sx::Unit);
+                fe_app(Sx::Unit, tail);
+            }
+        }
+        if i + 1 < ns.len() {
+            push2(out, ',', ' ');
+        }
+        i += 1;
+    }
+}
+
+/// レコード型の字段の並び（名前と型）。
+fn push_fds(out: &mut Vec<char>, fs: &Vec<(Vec<char>, Ty)>)
+    ensures
+        final(out)@ == old(out)@ + ffd(vps(fs@), 0, Seq::empty()),
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    let ghost v = vps(fs@);
+    let mut i: usize = 0;
+    while i < fs.len()
+        invariant
+            v == vps(fs@),
+            i <= fs@.len(),
+            o + ffd(v, 0, z) == out@ + (if i < fs@.len() { ffd(v, i as nat, z) } else { z }),
+        decreases fs@.len() - i,
+    {
+        let ghost tail = if i + 1 == fs@.len() { z } else { seq![',', ' '] + ffd(v, (i + 1) as nat, z) };
+        proof {
+            reveal_with_fuel(ffd, 1);
+            assert(v[i as int].0 == fs@[i as int].0@);
+        }
+        append_chars(out, &fs[i].0);
+        push2(out, ':', ' ');
+        push_ty(out, &fs[i].1);
+        proof {
+            assert(v[i as int].1 == fs@[i as int].1);
+            ft_app(fs@[i as int].1, tail);
+        }
+        if i + 1 < fs.len() {
+            push2(out, ',', ' ');
+        }
+        i += 1;
+    }
+}
+
+/// レコード式（`R { f: e, ..b }`、空は `R {}`）。
+fn push_rec(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Rec,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Rec(r, ns, es, b) = e {
+        append_chars(out, r);
+        push2(out, ' ', '{');
+        let bare = match b {
+            Some(_) => false,
+            None => ns.len() == 0,
+        };
+        if bare {
+            push1(out, '}');
+            proof {
+                reveal_with_fuel(vx, 1);
+                reveal_with_fuel(fe, 1);
+                assert(out@ =~= o + fe(vx(*e), z));
+            }
+        } else {
+            push1(out, ' ');
+            push_fields(out, ns, es);
+            match b {
+                Some(x) => {
+                    if ns.len() > 0 {
+                        push2(out, ',', ' ');
+                    }
+                    push2(out, '.', '.');
+                    push_e(out, x);
+                    push2(out, ' ', '}');
+                    proof {
+                        reveal_with_fuel(vx, 1);
+                        reveal_with_fuel(fe, 1);
+                        fe_app(vx(**x), seq![' ', '}'] + z);
+                        ffe_app(vfields(ns@, es@), 0, frtail(ns@.len() > 0, vbase(*b), z));
+                        assert(out@ =~= o + fe(vx(*e), z));
+                    }
+                },
+                None => {
+                    push2(out, ' ', '}');
+                    proof {
+                        reveal_with_fuel(vx, 1);
+                        reveal_with_fuel(fe, 1);
+                        ffe_app(vfields(ns@, es@), 0, frtail(ns@.len() > 0, vbase(*b), z));
+                        assert(out@ =~= o + fe(vx(*e), z));
+                    }
+                },
+            }
+        }
     }
 }
 
@@ -2744,6 +3385,34 @@ fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, Ty)>)
     }
 }
 
+/// レコード型の宣言（`type R = { f: T, .. }`。末尾のカンマは tc）。
+fn push_recty(out: &mut Vec<char>, r: &Vec<char>, fs: &Vec<(Vec<char>, Ty)>, tc: bool)
+    ensures
+        final(out)@ == old(out)@ + fd(Sd::RecTy(r@, vps(fs@), tc), Seq::empty()),
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    push5(out, 't', 'y', 'p', 'e', ' ');
+    append_chars(out, r);
+    push5(out, ' ', '=', ' ', '{', ' ');
+    push_fds(out, fs);
+    if tc {
+        push3(out, ',', ' ', '}');
+        push1(out, '\n');
+        proof {
+            ffd_app(vps(fs@), 0, seq![',', ' ', '}'] + seq!['\n'] + z);
+            assert(out@ =~= o + fd(Sd::RecTy(r@, vps(fs@), tc), z));
+        }
+    } else {
+        push2(out, ' ', '}');
+        push1(out, '\n');
+        proof {
+            ffd_app(vps(fs@), 0, seq![' ', '}'] + seq!['\n'] + z);
+            assert(out@ =~= o + fd(Sd::RecTy(r@, vps(fs@), tc), z));
+        }
+    }
+}
+
 fn push_decl(out: &mut Vec<char>, x: &SDecl)
     ensures
         final(out)@ == old(out)@ + fd(vd(*x), Seq::empty()),
@@ -2774,6 +3443,9 @@ fn push_decl(out: &mut Vec<char>, x: &SDecl)
             push1(out, ' ');
             append_chars(out, n);
             push1(out, '\n');
+        },
+        SDecl::RecTy(r, fs, tc) => {
+            push_recty(out, r, fs, *tc);
         },
     }
     proof {

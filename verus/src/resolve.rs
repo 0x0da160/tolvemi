@@ -119,6 +119,8 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
                 _ => None,
             }
         },
+        // レコードは検証済みの核にまだ入っていない（段階 2）。
+        Sx::Fld(..) | Sx::Rec(..) => None,
     }
 }
 
@@ -165,6 +167,7 @@ pub open spec fn fname(d: Sd) -> Seq<char> {
     match d {
         Sd::Fn(f, _, _, _) => f,
         Sd::Entry(x) => x,
+        Sd::RecTy(r, _, _) => r,
     }
 }
 
@@ -191,6 +194,7 @@ pub open spec fn rfunc(fs: Seq<Seq<char>>, d: Sd) -> Option<Func> {
             }
         },
         Sd::Entry(_) => None,
+        Sd::RecTy(_, _, _) => None,
     }
 }
 
@@ -614,6 +618,8 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
             None => None,
         },
         SExpr::MatchR(..) => rx_matchr_e(fs, sc, e),
+        // レコードは検証済みの核にまだ入っていない（段階 2）。
+        SExpr::Fld(..) | SExpr::Rec(..) => None,
     }
 }
 
@@ -903,6 +909,7 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
             }
         },
         SDecl::Entry(_) => None,
+        SDecl::RecTy(_, _, _) => None,
     }
 }
 
@@ -957,6 +964,13 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
                     assert(fns_upto(v, (i + 1) as nat) == f0);
                     assert(ents_upto(v, (i + 1) as nat) == e0.push(v[i as int]->Entry_0));
                     assert(e0.push(v[i as int]->Entry_0) =~= Seq::new(ents@.len(), |m: int| v[ents@[m] as int]->Entry_0));
+                }
+            },
+            // レコード宣言は名前解決の対象外（段階 2 で型名の一意性を検査する）。
+            SDecl::RecTy(_, _, _) => {
+                proof {
+                    assert(fns_upto(v, (i + 1) as nat) == f0);
+                    assert(ents_upto(v, (i + 1) as nat) == e0);
                 }
             },
         }

@@ -13,7 +13,7 @@ pub open spec fn suf(ts: Seq<Tok>, i: nat) -> Seq<Tok> {
 
 /// 式の直後に来てよい token 列（変数の直後の `(` は呼出し、文脈キーワードの直後の `<` は型引数と読まれる）。
 pub open spec fn nf(k: Seq<Tok>) -> bool {
-    k.len() == 0 || (k[0] != Tok::Sym('(') && k[0] != Tok::Sym('<'))
+    k.len() == 0 || (k[0] != Tok::Sym('(') && k[0] != Tok::Sym('<') && k[0] != Tok::Sym('{'))
 }
 
 pub open spec fn not_sym(t: Tok) -> bool {
@@ -95,6 +95,124 @@ pub proof fn word_ns(x: Seq<char>)
 {
 }
 
+/// レコード式の base と閉じ括弧の結合。
+pub proof fn rtail_app(ne: bool, b: Option<Box<Sx>>, k: Seq<Tok>)
+    ensures
+        rtail(ne, b, k) == rtail(ne, b, Seq::<Tok>::empty()) + k,
+    decreases b, 0nat,
+{
+    if let Some(x) = b {
+        te_app(*x, seq![Tok::Sym('}')] + k);
+        te_app(*x, seq![Tok::Sym('}')]);
+        assert(te(*x, seq![Tok::Sym('}')] + k) =~= te(*x, seq![Tok::Sym('}')]) + k);
+    }
+    assert(rtail(ne, b, k) =~= rtail(ne, b, Seq::<Tok>::empty()) + k);
+}
+
+/// レコード式の field の並び fs[i..] の結合。
+pub proof fn tfe_app(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>)
+    ensures
+        tfe(fs, i, tail) == tfe(fs, i, Seq::<Tok>::empty()) + tail,
+        i < fs.len() ==> tfe(fs, i, Seq::<Tok>::empty()).len() > 0 && not_sym(tfe(fs, i, Seq::<Tok>::empty())[0]),
+    decreases fs, fs.len() - i,
+{
+    let z = Seq::<Tok>::empty();
+    if i < fs.len() {
+        let x = fs[i as int];
+        word_ns(x.0);
+        if i + 1 == fs.len() {
+            te_app(x.1, tail);
+            te_app(x.1, z);
+        } else {
+            tfe_app(fs, i + 1, tail);
+            tfe_app(fs, i + 1, z);
+            te_app(x.1, seq![Tok::Sym(',')] + tfe(fs, i + 1, tail));
+            te_app(x.1, seq![Tok::Sym(',')] + tfe(fs, i + 1, z));
+        }
+    }
+    assert(tfe(fs, i, tail) =~= tfe(fs, i, z) + tail);
+}
+
+/// 型の字段の並び fs[i..] の結合。
+pub proof fn tfd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+    ensures
+        tfd(fs, i, tc, tail) == tfd(fs, i, tc, Seq::<Tok>::empty()) + tail,
+    decreases fs, fs.len() - i,
+{
+    let z = Seq::<Tok>::empty();
+    if i < fs.len() {
+        let x = fs[i as int];
+        if i + 1 == fs.len() {
+            if tc {
+                tt_app(x.1, seq![Tok::Sym(',')] + tail);
+                tt_app(x.1, seq![Tok::Sym(',')]);
+            } else {
+                tt_app(x.1, tail);
+                tt_app(x.1, z);
+            }
+        } else {
+            tfd_app(fs, i + 1, tc, tail);
+            tfd_app(fs, i + 1, tc, z);
+            tt_app(x.1, seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, tail));
+            tt_app(x.1, seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, z));
+        }
+    }
+    assert(tfd(fs, i, tc, tail) =~= tfd(fs, i, tc, z) + tail);
+}
+
+/// 先頭の字段を一つ取った並びの後ろ（位置を一つ進める）。
+pub proof fn tfe_shift(x: (Seq<char>, Sx), fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>)
+    ensures
+        tfe(seq![x] + fs, i + 1, tail) == tfe(fs, i, tail),
+    decreases fs.len() - i,
+{
+    let s = seq![x] + fs;
+    if i < fs.len() {
+        assert(s[(i + 1) as int] == fs[i as int]);
+        if i + 1 < fs.len() {
+            tfe_shift(x, fs, i + 1, tail);
+        }
+    }
+}
+
+pub proof fn tfd_shift(x: (Seq<char>, Ty), fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+    ensures
+        tfd(seq![x] + fs, i + 1, tc, tail) == tfd(fs, i, tc, tail),
+    decreases fs.len() - i,
+{
+    let s = seq![x] + fs;
+    if i < fs.len() {
+        assert(s[(i + 1) as int] == fs[i as int]);
+        if i + 1 < fs.len() {
+            tfd_shift(x, fs, i + 1, tc, tail);
+        }
+    }
+}
+
+pub proof fn bfs_shift(x: (Seq<char>, Sx), fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat)
+    ensures
+        bfs(seq![x] + fs, i + 1, d, td) == bfs(fs, i, d, td),
+    decreases fs.len() - i,
+{
+    let s = seq![x] + fs;
+    if i < fs.len() {
+        assert(s[(i + 1) as int] == fs[i as int]);
+        bfs_shift(x, fs, i + 1, d, td);
+    }
+}
+
+pub proof fn bfds_shift(x: (Seq<char>, Ty), fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat)
+    ensures
+        bfds(seq![x] + fs, i + 1, td) == bfds(fs, i, td),
+    decreases fs.len() - i,
+{
+    let s = seq![x] + fs;
+    if i < fs.len() {
+        assert(s[(i + 1) as int] == fs[i as int]);
+        bfds_shift(x, fs, i + 1, td);
+    }
+}
+
 pub proof fn te_app(e: Sx, k: Seq<Tok>)
     ensures
         te(e, k) == te(e, Seq::empty()) + k,
@@ -155,9 +273,50 @@ pub proof fn te_app(e: Sx, k: Seq<Tok>)
             tt_app(t, seq![Tok::Sym(',')] + tt(u, zu));
         },
         Sx::MatchR(..) => te_app_matchr(e, k),
+        Sx::Fld(..) => te_app_fld(e, k),
+        Sx::Rec(..) => te_app_rec(e, k),
         _ => {},
     }
     assert(te(e, k) =~= te(e, z) + k);
+}
+
+proof fn te_app_fld(e: Sx, k: Seq<Tok>)
+    requires
+        e is Fld,
+    ensures
+        te(e, k) == te(e, Seq::empty()) + k,
+        te(e, Seq::empty()).len() > 0,
+        not_sym(te(e, Seq::empty())[0]),
+    decreases e, 0nat,
+{
+    let z = Seq::<Tok>::empty();
+    if let Sx::Fld(a, fs) = e {
+        tdots_app(fs, k);
+        tdots_app(fs, z);
+        te_app(*a, tdots(fs, k));
+        te_app(*a, tdots(fs, z));
+        assert(te(e, k) =~= te(e, z) + k);
+    }
+}
+
+proof fn te_app_rec(e: Sx, k: Seq<Tok>)
+    requires
+        e is Rec,
+    ensures
+        te(e, k) == te(e, Seq::empty()) + k,
+        te(e, Seq::empty()).len() > 0,
+        not_sym(te(e, Seq::empty())[0]),
+    decreases e, 0nat,
+{
+    let z = Seq::<Tok>::empty();
+    if let Sx::Rec(r, fs, b) = e {
+        rtail_app(fs.len() > 0, b, k);
+        rtail_app(fs.len() > 0, b, z);
+        tfe_app(fs, 0, rtail(fs.len() > 0, b, k));
+        tfe_app(fs, 0, rtail(fs.len() > 0, b, z));
+        word_ns(r);
+        assert(te(e, k) =~= te(e, z) + k);
+    }
 }
 
 proof fn te_app_matchr(e: Sx, k: Seq<Tok>)
@@ -300,7 +459,7 @@ pub proof fn tdecl_app(x: Sd, k: Seq<Tok>)
     ensures
         tdecl(x, k) == tdecl(x, Seq::empty()) + k,
         tdecl(x, Seq::empty()).len() > 0,
-        tdecl(x, k)[0] == Tok::Kw(Kw::Fn) || tdecl(x, k)[0] == Tok::Kw(Kw::Entry),
+        tdecl(x, k)[0] == Tok::Kw(Kw::Fn) || tdecl(x, k)[0] == Tok::Kw(Kw::Entry) || tdecl(x, k)[0] == Tok::Id(tyw()),
 {
     let z = Seq::<Tok>::empty();
     match x {
@@ -310,6 +469,11 @@ pub proof fn tdecl_app(x: Sd, k: Seq<Tok>)
             tt_app(r, seq![Tok::Sym('=')] + te(b, z));
             tps_app(ps, 0, seq![Tok::Arrow] + tt(r, seq![Tok::Sym('=')] + te(b, k)));
             tps_app(ps, 0, seq![Tok::Arrow] + tt(r, seq![Tok::Sym('=')] + te(b, z)));
+        },
+        Sd::RecTy(r, fs, tc) => {
+            tfd_app(fs, 0, tc, seq![Tok::Sym('}')] + k);
+            tfd_app(fs, 0, tc, seq![Tok::Sym('}')]);
+            assert(tdecl(x, k) =~= tdecl(x, z) + k);
         },
         _ => {},
     }
@@ -395,19 +559,476 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
     }
 }
 
-pub open spec fn pe_pre(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>) -> bool {
+/// 式の完全性の共通の前提（後置の有無によらない部分）。
+pub open spec fn pre_base(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>) -> bool {
     &&& i <= ts.len()
     &&& suf(ts, i) == te(e, k)
     &&& bx(e, d, td)
     &&& nf(k)
 }
 
+/// 基本の式（後置を含まない）の完全性の前提。Fld は pp の結果にならない。
+pub open spec fn pp_pre(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>) -> bool {
+    pre_base(ts, i, d, td, e, k) && !(e is Fld)
+}
+
+/// 式 e の後ろに k が続く。e の末尾に後置 `.` が付きうるなら、k は `.` で始まらない（Int は付かない）。
+pub open spec fn no_dot(k: Seq<Tok>) -> bool {
+    k.len() == 0 || k[0] != Tok::Sym('.')
+}
+
+/// 式の完全性（後置を含む）の前提。後置 `.f` の並びは、k が `.` で始まらず、末尾が整数でないときだけ、k の手前で止まる。
+pub open spec fn pe_pre(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>) -> bool {
+    pre_base(ts, i, d, td, e, k) && (no_dot(k) || ends_int(e))
+}
+
+/// `.IDENT` の並びの先頭：fs が空でなければ、tdots は `.` と名前の token で始まる。
+pub proof fn tdots_cons(fs: Seq<Seq<char>>, k: Seq<Tok>)
+    requires
+        fs.len() > 0,
+    ensures
+        tdots(fs, k) == seq![Tok::Sym('.'), word_tok(fs[0])] + tdots(fs.subrange(1, fs.len() as int), k),
+{
+}
+
+pub proof fn tdots_app(fs: Seq<Seq<char>>, k: Seq<Tok>)
+    ensures
+        tdots(fs, k) == tdots(fs, Seq::<Tok>::empty()) + k,
+    decreases fs.len(),
+{
+    if fs.len() > 0 {
+        let rest = fs.subrange(1, fs.len() as int);
+        tdots_app(rest, k);
+        tdots_app(rest, Seq::<Tok>::empty());
+        tdots_cons(fs, k);
+        tdots_cons(fs, Seq::<Tok>::empty());
+        assert(tdots(fs, k) =~= tdots(fs, Seq::<Tok>::empty()) + k);
+    }
+}
+
+/// 字段の並び fs[j] の位置の名前と式は、深さ内の IDENT と式。
+pub proof fn bfs_at(fs: Seq<(Seq<char>, Sx)>, j: nat, d: nat, td: nat)
+    requires
+        j < fs.len(),
+        bfs(fs, j, d, td),
+    ensures
+        ident_ok(fs[j as int].0),
+        bx(fs[j as int].1, d, td),
+        bfs(fs, j + 1, d, td),
+{
+}
+
+/// 型の字段の並び fs[j] の位置の名前と型は、IDENT と深さ内の型。
+pub proof fn bfds_at(fs: Seq<(Seq<char>, Ty)>, j: nat, td: nat)
+    requires
+        j < fs.len(),
+        bfds(fs, j, td),
+    ensures
+        ident_ok(fs[j as int].0),
+        bt(fs[j as int].1, td),
+        bfds(fs, j + 1, td),
+{
+}
+
+/// 字段が一つだけの並びは、名前と式が深さ内なら健全。
+pub proof fn bfs_one(f: Seq<char>, v: Sx, d: nat, td: nat)
+    requires
+        ident_ok(f),
+        bx(v, d, td),
+    ensures
+        bfs(seq![(f, v)], 0, d, td),
+{
+    reveal_with_fuel(bfs, 1);
+    assert(bfs(seq![(f, v)], 1, d, td));
+}
+
+/// 型の字段が一つだけの並びは、名前と型が深さ内なら健全。
+pub proof fn bfds_one(f: Seq<char>, t: Ty, td: nat)
+    requires
+        ident_ok(f),
+        bt(t, td),
+    ensures
+        bfds(seq![(f, t)], 0, td),
+{
+    reveal_with_fuel(bfds, 1);
+    assert(bfds(seq![(f, t)], 1, td));
+}
+
+/// レコード式の base の後ろの閉じ部分の先頭（base があれば `,`、なければ `}`）。
+pub proof fn rtail_lead(b: Option<Box<Sx>>, k: Seq<Tok>)
+    ensures
+        rtail(true, b, k).len() > 0,
+        rtail(true, b, k)[0] == Tok::Sym(',') || rtail(true, b, k)[0] == Tok::Sym('}'),
+{
+    match b {
+        Some(x) => {
+            assert(rtail(true, b, k) == seq![Tok::Sym(',')] + seq![Tok::Sym('.'), Tok::Sym('.')] + te(*x, seq![Tok::Sym('}')] + k));
+        },
+        None => {},
+    }
+}
+
+/// 字段 fs[i] の先頭の token（名前と `:`）。
+pub proof fn tfe_head(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>)
+    requires
+        i < fs.len(),
+    ensures
+        tfe(fs, i, tail) == seq![word_tok(fs[i as int].0), Tok::Sym(':')] + te(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                tail
+            } else {
+                seq![Tok::Sym(',')] + tfe(fs, i + 1, tail)
+            },
+        ),
+{
+}
+
+pub proof fn tfd_head(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+    requires
+        i < fs.len(),
+    ensures
+        tfd(fs, i, tc, tail) == seq![word_tok(fs[i as int].0), Tok::Sym(':')] + tt(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                if tc {
+                    seq![Tok::Sym(',')] + tail
+                } else {
+                    tail
+                }
+            } else {
+                seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, tail)
+            },
+        ),
+{
+}
+
+/// 名前の列の並び：`.IDENT` の列の後ろが k で、k は `.` で始まらないなら、pfs は並びを最大に読む。
+pub proof fn pfs_complete(ts: Seq<Tok>, j: nat, fs: Seq<Seq<char>>, k: Seq<Tok>)
+    requires
+        j <= ts.len(),
+        suf(ts, j) == tdots(fs, k),
+        nms(fs),
+        no_dot(k),
+    ensures
+        pfs(ts, j) == (fs, (ts.len() - k.len()) as nat),
+    decreases fs.len(),
+{
+    if fs.len() == 0 {
+        assert(suf(ts, j) == k);
+        hd(ts, j, Seq::<Tok>::empty(), k);
+        if j < ts.len() {
+            assert(ts[j as int] == k[0]);
+        }
+    } else {
+        let f = fs[0];
+        let rest = fs.subrange(1, fs.len() as int);
+        tdots_cons(fs, k);
+        assert(nms(fs) && ident_ok(f));
+        hd(ts, j, seq![Tok::Sym('.'), word_tok(f)], tdots(rest, k));
+        assert(word_tok(f) == Tok::Id(f));
+        assert(idt(ts, j + 1) == Some(f));
+        pfs_complete(ts, j + 2, rest, k);
+        assert(seq![f] + rest =~= fs);
+    }
+}
+
+/// `.IDENT` の列の健全性：読んだ並びは token 列に戻り、名前はすべて IDENT。
+pub open spec fn pfs_post(ts: Seq<Tok>, j: nat) -> bool {
+    let r = pfs(ts, j);
+    j <= r.1 && r.1 <= ts.len() && suf(ts, j) == tdots(r.0, suf(ts, r.1)) && nms(r.0) && ((j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some) ==> r.0.len() > 0)
+}
+
+pub proof fn pfs_sound(ts: Seq<Tok>, j: nat)
+    requires
+        j <= ts.len(),
+    ensures
+        pfs_post(ts, j),
+    decreases ts.len() - j,
+{
+    if j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+        let f = idt(ts, j + 1)->Some_0;
+        assert(ts[j as int] == Tok::Sym('.'));
+        assert(ts[(j + 1) as int] == Tok::Id(f));
+        assert(ident_ok(f));
+        assert(word_tok(f) == Tok::Id(f));
+        pfs_sound(ts, j + 2);
+        let r2 = pfs(ts, j + 2);
+        pfx1(ts, j);
+        pfx1(ts, j + 1);
+        assert(suf(ts, j) =~= seq![Tok::Sym('.'), word_tok(f)] + suf(ts, j + 2));
+        assert(pfs(ts, j) == (seq![f] + r2.0, r2.1));
+        tdots_cons(seq![f] + r2.0, suf(ts, r2.1));
+        assert((seq![f] + r2.0).subrange(1, (seq![f] + r2.0).len() as int) =~= r2.0);
+        assert(suf(ts, j) == tdots(seq![f] + r2.0, suf(ts, r2.1)));
+    } else {
+        assert(pfs(ts, j) == (Seq::<Seq<char>>::empty(), j));
+    }
+}
+
+/// 式の完全性（後置を含む）。後置 `.IDENT` の並びは、基本の式の後ろに続く形として読む。
 pub proof fn pe_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
         pe_pre(ts, i, d, td, e, k),
     ensures
         pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 1nat,
+    decreases d, 4nat, e,
+{
+    match e {
+        Sx::Fld(a, fs) => {
+            let k2 = tdots(fs, k);
+            tdots_app(fs, k);
+            tdots_cons(fs, k);
+            assert(!ends_int(e));
+            assert(no_dot(k));
+            assert(te(e, k) == te(*a, k2));
+            te_app(*a, k2);
+            pp_complete(ts, i, d, td, *a, k2);
+            let j = (ts.len() - k2.len()) as nat;
+            at_end(ts, i, te(*a, Seq::<Tok>::empty()), k2);
+            hd(ts, j, seq![Tok::Sym('.'), word_tok(fs[0])], tdots(fs.subrange(1, fs.len() as int), k));
+            assert(word_tok(fs[0]) == Tok::Id(fs[0]));
+            assert(idt(ts, j + 1) == Some(fs[0]));
+            pfs_complete(ts, j, fs, k);
+            assert(pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)));
+        },
+        _ => {
+            pp_complete(ts, i, d, td, e, k);
+            te_app(e, k);
+            at_end(ts, i, te(e, Seq::<Tok>::empty()), k);
+            let j = (ts.len() - k.len()) as nat;
+            if ends_int(e) {
+                reveal_with_fuel(ends_int, 1);
+                assert(!recv_ok(e));
+            } else {
+                assert(no_dot(k));
+                if k.len() > 0 {
+                    hd(ts, j, k, Seq::<Tok>::empty());
+                }
+            }
+            assert(pe(ts, i, d, td) == Some((e, j)));
+        },
+    }
+}
+
+/// レコード式の base（`..` の後ろの式と `}`）。e はその式の全体。字段と base は深さ d - 1 で読む。
+proof fn rec_base_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, r: Seq<char>, fs: Seq<(Seq<char>, Sx)>, b: Option<Box<Sx>>, k: Seq<Tok>)
+    requires
+        d > 0,
+        e == Sx::Rec(r, fs, b),
+        b is Some,
+        i <= ts.len(),
+        bopt(b, (d - 1) as nat, td),
+        suf(ts, i) == seq![Tok::Sym('.'), Tok::Sym('.')] + te(*b->Some_0, seq![Tok::Sym('}')] + k),
+    ensures
+        prest(ts, i, (d - 1) as nat, td) == Some((Seq::<(Seq<char>, Sx)>::empty(), b, (ts.len() - k.len()) as nat)),
+    decreases d, 0nat, e,
+{
+    let d1 = (d - 1) as nat;
+    let x = *b->Some_0;
+    let kb = seq![Tok::Sym('}')] + k;
+    hd(ts, i, seq![Tok::Sym('.'), Tok::Sym('.')], te(x, kb));
+    pe_complete(ts, i + 2, d1, td, x, kb);
+    te_app(x, kb);
+    at_end(ts, i + 2, te(x, Seq::<Tok>::empty()), kb);
+    let p = (ts.len() - kb.len()) as nat;
+    hd(ts, p, seq![Tok::Sym('}')], k);
+    assert(Some(Box::new(x)) == b);
+    assert(prest(ts, i, d1, td) == Some((Seq::<(Seq<char>, Sx)>::empty(), Some(Box::new(x)), (p + 1) as nat)));
+}
+
+/// レコード式の字段 fs[j..] を、位置 i から読む。最後の字段の後ろは tl（`, .. base }` か `}`）。d はレコード式の深さで、字段と base は d - 1 で読む。
+proof fn rec_fields_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, r: Seq<char>, fs: Seq<(Seq<char>, Sx)>, b: Option<Box<Sx>>, j: nat, k: Seq<Tok>)
+    requires
+        d > 0,
+        e == Sx::Rec(r, fs, b),
+        j < fs.len(),
+        i <= ts.len(),
+        bfs(fs, j, (d - 1) as nat, td),
+        bopt(b, (d - 1) as nat, td),
+        suf(ts, i) == tfe(fs, j, rtail(true, b, k)),
+    ensures
+        prest(ts, i, (d - 1) as nat, td) == Some((fs.subrange(j as int, fs.len() as int), b, (ts.len() - k.len()) as nat)),
+    decreases d, 1nat, e, fs.len() - j,
+{
+    let d1 = (d - 1) as nat;
+    let tl = rtail(true, b, k);
+    let f = fs[j as int];
+    bfs_at(fs, j, d1, td);
+    rtail_lead(b, k);
+    let last = j + 1 == fs.len();
+    let t = if last {
+        tl
+    } else {
+        seq![Tok::Sym(',')] + tfe(fs, j + 1, tl)
+    };
+    tfe_head(fs, j, tl);
+    assert(tfe(fs, j, tl) == seq![word_tok(f.0), Tok::Sym(':')] + te(f.1, t));
+    hd(ts, i, seq![word_tok(f.0), Tok::Sym(':')], te(f.1, t));
+    assert(word_tok(f.0) == Tok::Id(f.0));
+    assert(idt(ts, i) == Some(f.0));
+    assert(t.len() > 0 && (t[0] == Tok::Sym(',') || t[0] == Tok::Sym('}')));
+    assert(nf(t) && no_dot(t));
+    pe_complete(ts, i + 2, d1, td, f.1, t);
+    te_app(f.1, t);
+    at_end(ts, i + 2, te(f.1, Seq::<Tok>::empty()), t);
+    let p = (ts.len() - t.len()) as nat;
+    assert(p > i);
+    if last {
+        match b {
+            None => {
+                assert(tl == seq![Tok::Sym('}')] + k);
+                hd(ts, p, seq![Tok::Sym('}')], k);
+                assert(prest(ts, i, d1, td) == Some((seq![(f.0, f.1)], None, (p + 1) as nat)));
+                assert(fs.subrange(j as int, fs.len() as int) =~= seq![f]);
+            },
+            Some(x) => {
+                assert(tl == seq![Tok::Sym(',')] + (seq![Tok::Sym('.'), Tok::Sym('.')] + te(*x, seq![Tok::Sym('}')] + k)));
+                hd(ts, p, seq![Tok::Sym(',')], seq![Tok::Sym('.'), Tok::Sym('.')] + te(*x, seq![Tok::Sym('}')] + k));
+                rec_base_complete(ts, p + 1, d, td, e, r, fs, b, k);
+                assert(fs.subrange(j as int, fs.len() as int) =~= seq![f] + Seq::<(Seq<char>, Sx)>::empty());
+            },
+        }
+    } else {
+        hd(ts, p, seq![Tok::Sym(',')], tfe(fs, j + 1, tl));
+        rec_fields_complete(ts, p + 1, d, td, e, r, fs, b, j + 1, k);
+        assert(seq![f] + fs.subrange((j + 1) as int, fs.len() as int) =~= fs.subrange(j as int, fs.len() as int));
+    }
+}
+
+/// レコード式の完全性。`R {` の後ろが本体の形（rec_head）であることを示し、本体を読む。
+proof fn pp_complete_rec(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+    requires
+        pp_pre(ts, i, d, td, e, k),
+        e is Rec,
+    ensures
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
+{
+    if let Sx::Rec(r, fs, b) = e {
+        let d1 = (d - 1) as nat;
+        let tl = rtail(fs.len() > 0, b, k);
+        assert(bx(e, d, td));
+        assert(te(e, k) == seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, tl));
+        hd(ts, i, seq![word_tok(r), Tok::Sym('{')], tfe(fs, 0, tl));
+        assert(word_tok(r) == Tok::Id(r));
+        assert(ident_ok(r));
+        if fs.len() > 0 {
+            tfe_head(fs, 0, tl);
+            bfs_at(fs, 0, d1, td);
+            hd(ts, i + 2, seq![word_tok(fs[0].0), Tok::Sym(':')], te(
+                fs[0].1,
+                if 0 + 1 == fs.len() {
+                    tl
+                } else {
+                    seq![Tok::Sym(',')] + tfe(fs, 1, tl)
+                },
+            ));
+            assert(word_tok(fs[0].0) == Tok::Id(fs[0].0));
+            assert(idt(ts, i + 2) == Some(fs[0].0));
+            rec_fields_complete(ts, i + 2, d, td, e, r, fs, b, 0, k);
+            assert(fs.subrange(0, fs.len() as int) =~= fs);
+            reveal_with_fuel(prec, 1);
+            reveal_with_fuel(pp, 1);
+            assert(prec(ts, i + 2, d1, td) == Some((fs, b, (ts.len() - k.len()) as nat)));
+            assert(pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)));
+        } else {
+            assert(tfe(fs, 0, tl) == tl);
+            assert(fs =~= Seq::<(Seq<char>, Sx)>::empty());
+            match b {
+                None => {
+                    assert(tl == seq![Tok::Sym('}')] + k);
+                    hd(ts, i + 2, seq![Tok::Sym('}')], k);
+                    reveal_with_fuel(prec, 1);
+                    reveal_with_fuel(pp, 1);
+                    assert(prec(ts, i + 2, d1, td) == Some((fs, b, (ts.len() - k.len()) as nat)));
+                    assert(pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)));
+                },
+                Some(x) => {
+                    assert(tl == seq![Tok::Sym('.'), Tok::Sym('.')] + te(*x, seq![Tok::Sym('}')] + k));
+                    hd(ts, i + 2, seq![Tok::Sym('.'), Tok::Sym('.')], te(*x, seq![Tok::Sym('}')] + k));
+                    rec_base_complete(ts, i + 2, d, td, e, r, fs, b, k);
+                    reveal_with_fuel(prec, 1);
+                    reveal_with_fuel(pp, 1);
+                    assert(prec(ts, i + 2, d1, td) == Some((fs, b, (ts.len() - k.len()) as nat)));
+                    assert(pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)));
+                },
+            }
+        }
+    }
+}
+
+/// 型の字段の並び fs[j..] を、位置 i から読む（閉じ括弧は tail に含む）。
+proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, Ty)>, j: nat, tc: bool, k: Seq<Tok>)
+    requires
+        j < fs.len(),
+        i <= ts.len(),
+        bfds(fs, j, td),
+        suf(ts, i) == tfd(fs, j, tc, seq![Tok::Sym('}')] + k),
+    ensures
+        pfds(ts, i, td) == Some((fs.subrange(j as int, fs.len() as int), tc, (ts.len() - k.len()) as nat)),
+    decreases fs.len() - j,
+{
+    let kb = seq![Tok::Sym('}')] + k;
+    let f = fs[j as int];
+    bfds_at(fs, j, td);
+    let last = j + 1 == fs.len();
+    let t = if last {
+        if tc {
+            seq![Tok::Sym(',')] + kb
+        } else {
+            kb
+        }
+    } else {
+        seq![Tok::Sym(',')] + tfd(fs, j + 1, tc, kb)
+    };
+    tfd_head(fs, j, tc, kb);
+    assert(tfd(fs, j, tc, kb) == seq![word_tok(f.0), Tok::Sym(':')] + tt(f.1, t));
+    hd(ts, i, seq![word_tok(f.0), Tok::Sym(':')], tt(f.1, t));
+    assert(word_tok(f.0) == Tok::Id(f.0));
+    assert(idt(ts, i) == Some(f.0));
+    pt_complete(ts, i + 2, td, f.1, t);
+    tt_app(f.1, t);
+    at_end(ts, i + 2, tt(f.1, Seq::<Tok>::empty()), t);
+    let p = (ts.len() - t.len()) as nat;
+    assert(p > i);
+    if last {
+        if tc {
+            hd(ts, p, seq![Tok::Sym(',')], kb);
+            hd(ts, p + 1, seq![Tok::Sym('}')], k);
+            assert(fs.subrange(j as int, fs.len() as int) =~= seq![f]);
+        } else {
+            hd(ts, p, seq![Tok::Sym('}')], k);
+        }
+    } else {
+        hd(ts, p, seq![Tok::Sym(',')], tfd(fs, j + 1, tc, kb));
+        tfd_head(fs, j + 1, tc, kb);
+        hd(ts, p + 1, seq![word_tok(fs[(j + 1) as int].0), Tok::Sym(':')], tt(
+            fs[(j + 1) as int].1,
+            if j + 2 == fs.len() {
+                if tc {
+                    seq![Tok::Sym(',')] + kb
+                } else {
+                    kb
+                }
+            } else {
+                seq![Tok::Sym(',')] + tfd(fs, j + 2, tc, kb)
+            },
+        ));
+        assert(word_tok(fs[(j + 1) as int].0) == Tok::Id(fs[(j + 1) as int].0));
+        pfds_complete(ts, p + 1, td, fs, j + 1, tc, k);
+        assert(seq![f] + fs.subrange((j + 1) as int, fs.len() as int) =~= fs.subrange(j as int, fs.len() as int));
+    }
+}
+
+/// 基本の式の完全性（後置を含まない）。Let は本体の後ろに後置が付かないことを要する。
+pub proof fn pp_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+    requires
+        pp_pre(ts, i, d, td, e, k),
+        e is Let ==> (no_dot(k) || ends_int(e)),
+    ensures
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 3nat, e,
 {
     match e {
         Sx::Int(n) => hd(ts, i, seq![Tok::Int(n)], k),
@@ -425,28 +1046,30 @@ pub proof fn pe_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
                 hd(ts, i + 1, seq![k[0]], k.subrange(1, k.len() as int));
             }
         },
-        Sx::List(..) => pe_complete_list(ts, i, d, td, e, k),
-        Sx::Some(..) => pe_complete_some(ts, i, d, td, e, k),
-        Sx::None(..) => pe_complete_none(ts, i, d, td, e, k),
-        Sx::Pair(..) => pe_complete_pair(ts, i, d, td, e, k),
-        Sx::Builtin(..) => pe_complete_builtin(ts, i, d, td, e, k),
-        Sx::Call(..) => pe_complete_call(ts, i, d, td, e, k),
-        Sx::Let(..) => pe_complete_let(ts, i, d, td, e, k),
-        Sx::If(..) => pe_complete_if(ts, i, d, td, e, k),
-        Sx::Fold(..) => pe_complete_fold(ts, i, d, td, e, k),
-        Sx::Match(..) => pe_complete_match(ts, i, d, td, e, k),
-        Sx::Inj(..) => pe_complete_inj(ts, i, d, td, e, k),
-        Sx::MatchR(..) => pe_complete_matchr(ts, i, d, td, e, k),
+        Sx::List(..) => pp_complete_list(ts, i, d, td, e, k),
+        Sx::Some(..) => pp_complete_some(ts, i, d, td, e, k),
+        Sx::None(..) => pp_complete_none(ts, i, d, td, e, k),
+        Sx::Pair(..) => pp_complete_pair(ts, i, d, td, e, k),
+        Sx::Builtin(..) => pp_complete_builtin(ts, i, d, td, e, k),
+        Sx::Call(..) => pp_complete_call(ts, i, d, td, e, k),
+        Sx::Let(..) => pp_complete_let(ts, i, d, td, e, k),
+        Sx::If(..) => pp_complete_if(ts, i, d, td, e, k),
+        Sx::Fold(..) => pp_complete_fold(ts, i, d, td, e, k),
+        Sx::Match(..) => pp_complete_match(ts, i, d, td, e, k),
+        Sx::Inj(..) => pp_complete_inj(ts, i, d, td, e, k),
+        Sx::MatchR(..) => pp_complete_matchr(ts, i, d, td, e, k),
+        Sx::Fld(..) => {},
+        Sx::Rec(..) => pp_complete_rec(ts, i, d, td, e, k),
     }
 }
 
-proof fn pe_complete_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Inj,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Inj(ok, t, u, a) = e {
         let z = Seq::<Tok>::empty();
@@ -473,13 +1096,13 @@ proof fn pe_complete_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
     }
 }
 
-proof fn pe_complete_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is MatchR,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::MatchR(m, x, a, y, b) = e {
         let z = Seq::<Tok>::empty();
@@ -518,13 +1141,13 @@ proof fn pe_complete_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq
     }
 }
 
-proof fn pe_complete_list(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_list(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is List,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::List(t, es) = e {
         let z = Seq::<Tok>::empty();
@@ -539,13 +1162,13 @@ proof fn pe_complete_list(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_some(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_some(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Some,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Some(a) = e {
         let z = Seq::<Tok>::empty();
@@ -558,13 +1181,13 @@ proof fn pe_complete_some(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_none(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_none(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is None,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::None(t) = e {
         let z = Seq::<Tok>::empty();
@@ -581,13 +1204,13 @@ proof fn pe_complete_none(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Pair,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Pair(a, b) = e {
         let z = Seq::<Tok>::empty();
@@ -607,13 +1230,13 @@ proof fn pe_complete_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Builtin,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Builtin(b, es) = e {
         hd(ts, i, seq![Tok::Kw(bkw(b)), Tok::Sym('(')], targs(es, 0, k));
@@ -622,13 +1245,13 @@ proof fn pe_complete_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Se
     }
 }
 
-proof fn pe_complete_call(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_call(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Call,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Call(f, es) = e {
         hd(ts, i, seq![Tok::Id(f), Tok::Sym('(')], targs(es, 0, k));
@@ -636,13 +1259,14 @@ proof fn pe_complete_call(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_let(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_let(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
+        no_dot(k) || ends_int(e),
         e is Let,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Let(x, a, b) = e {
         let z = Seq::<Tok>::empty();
@@ -659,13 +1283,13 @@ proof fn pe_complete_let(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
     }
 }
 
-proof fn pe_complete_if(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_if(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is If,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::If(c, a, b) = e {
         let z = Seq::<Tok>::empty();
@@ -691,13 +1315,13 @@ proof fn pe_complete_if(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok
     }
 }
 
-proof fn pe_complete_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Fold,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Fold(l, n, a, x, b) = e {
         let z = Seq::<Tok>::empty();
@@ -733,13 +1357,13 @@ proof fn pe_complete_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
     }
 }
 
-proof fn pe_complete_match(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+proof fn pp_complete_match(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
     requires
-        pe_pre(ts, i, d, td, e, k),
+        pp_pre(ts, i, d, td, e, k),
         e is Match,
     ensures
-        pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
-    decreases e, 0nat,
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
 {
     if let Sx::Match(m, n, x, b) = e {
         let z = Seq::<Tok>::empty();
@@ -779,7 +1403,7 @@ pub proof fn pargs_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, es: Seq<Sx>, 
         bxs(es, 0, d, td),
     ensures
         pargs(ts, i, d, td) == Some((es, (ts.len() - k.len()) as nat)),
-    decreases es, es.len() + 1,
+    decreases d, 6nat, es, es.len() + 1,
 {
     if es.len() == 0 {
         hd(ts, i, seq![Tok::Sym(')')], k);
@@ -802,7 +1426,7 @@ pub proof fn pargs1_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, es: Seq<Sx>,
         bxs(es, j, d, td),
     ensures
         pargs1(ts, i, d, td) == Some((es.subrange(j as int, es.len() as int), (ts.len() - k.len()) as nat)),
-    decreases es, es.len() - j,
+    decreases d, 5nat, es, es.len() - j,
 {
     let z = Seq::<Tok>::empty();
     let e = es[j as int];
@@ -887,6 +1511,7 @@ pub proof fn pd_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, x: Sd, k: Seq<To
         suf(ts, i) == tdecl(x, k),
         bd(x, d, td),
         nf(k),
+        no_dot(k),
     ensures
         pd(ts, i, d, td) == Some((x, (ts.len() - k.len()) as nat)),
 {
@@ -914,6 +1539,14 @@ pub proof fn pd_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, x: Sd, k: Seq<To
             hd(ts, i, seq![Tok::Kw(Kw::Entry), Tok::Id(n)], k);
             assert(idt(ts, i + 1) == Some(n));
         },
+        Sd::RecTy(r, fs, tc) => {
+            let kb = seq![Tok::Sym('}')] + k;
+            hd(ts, i, seq![Tok::Id(tyw()), word_tok(r), Tok::Sym('='), Tok::Sym('{')], tfd(fs, 0, tc, kb));
+            assert(word_tok(r) == Tok::Id(r));
+            assert(idt(ts, i + 1) == Some(r));
+            pfds_complete(ts, i + 4, td, fs, 0, tc, k);
+            assert(fs.subrange(0, fs.len() as int) =~= fs);
+        },
     }
 }
 
@@ -932,9 +1565,14 @@ pub proof fn pds_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, p: Seq<Sd>, j: 
         assert(p.subrange(j as int, p.len() as int) =~= Seq::<Sd>::empty());
     } else {
         let k = tds(p, j + 1);
+        reveal_with_fuel(tds, 1);
         if j + 1 < p.len() {
             tdecl_app(p[(j + 1) as int], tds(p, j + 2));
+            assert(k == tdecl(p[(j + 1) as int], tds(p, j + 2)));
+        } else {
+            assert(k.len() == 0);
         }
+        assert(no_dot(k));
         tdecl_app(p[j as int], k);
         pd_complete(ts, i, d, td, p[j as int], k);
         at_end(ts, i, tdecl(p[j as int], Seq::empty()), k);
@@ -1133,8 +1771,8 @@ pub proof fn pt_sound(ts: Seq<Tok>, i: nat, d: nat)
     }
 }
 
-pub open spec fn pe_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
-    match pe(ts, i, d, td) {
+pub open spec fn pp_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
+    match pp(ts, i, d, td) {
         Some((e, j)) => i < j <= ts.len() && suf(ts, i) == te(e, suf(ts, j)) && bx(e, d, td),
         None => true,
     }
@@ -1155,16 +1793,304 @@ pub open spec fn pargs1_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
     }
 }
 
+pub open spec fn pe_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
+    match pe(ts, i, d, td) {
+        Some((e, j)) => i < j <= ts.len() && suf(ts, i) == te(e, suf(ts, j)) && bx(e, d, td),
+        None => true,
+    }
+}
+
+/// 式の健全性（後置を含む）。基本の式の結果に `.f` の並びが続けば、Fld として受ける。
 pub proof fn pe_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     ensures
         pe_post(ts, i, d, td),
+    decreases d, 2nat, 0nat,
+{
+    pp_sound(ts, i, d, td);
+    if let Some((e, j)) = pp(ts, i, d, td) {
+        assert(pp_post(ts, i, d, td));
+        if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+            pfs_sound(ts, j);
+            let r = pfs(ts, j);
+            assert(pe(ts, i, d, td) == Some((Sx::Fld(Box::new(e), r.0), r.1)));
+            assert(te(Sx::Fld(Box::new(e), r.0), suf(ts, r.1)) == te(e, tdots(r.0, suf(ts, r.1))));
+            assert(suf(ts, i) == te(e, suf(ts, j)));
+            assert(bx(Sx::Fld(Box::new(e), r.0), d, td));
+        } else {
+            assert(pe(ts, i, d, td) == Some((e, j)));
+        }
+    }
+}
+
+pub open spec fn prest_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
+    match prest(ts, i, d, td) {
+        Some((fs, b, j)) => i < j <= ts.len() && (fs.len() > 0 || b is Some) && suf(ts, i) == tfe(
+            fs,
+            0,
+            rtail(fs.len() > 0, b, suf(ts, j)),
+        ) && bfs(fs, 0, d, td) && bopt(b, d, td),
+        None => true,
+    }
+}
+
+pub open spec fn prec_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
+    match prec(ts, i, d, td) {
+        Some((fs, b, j)) => i < j <= ts.len() && suf(ts, i) == tfe(
+            fs,
+            0,
+            rtail(fs.len() > 0, b, suf(ts, j)),
+        ) && bfs(fs, 0, d, td) && bopt(b, d, td),
+        None => true,
+    }
+}
+
+/// レコード式の字段の並びと base の健全性（位置 i から）。
+pub proof fn prest_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    requires
+        i <= ts.len(),
+    ensures
+        prest_post(ts, i, d, td),
+    decreases d, 3nat, ts.len() - i,
+{
+    reveal_with_fuel(prest, 1);
+    reveal_with_fuel(tfe, 1);
+    reveal_with_fuel(bfs, 1);
+    reveal_with_fuel(bopt, 1);
+    if sym(ts, i, '.') && sym(ts, i + 1, '.') {
+        pe_sound(ts, i + 2, d, td);
+        if let Some((b, j)) = pe(ts, i + 2, d, td) {
+            assert(pe_post(ts, i + 2, d, td));
+            if sym(ts, j, '}') {
+                pfx1(ts, i);
+                pfx1(ts, i + 1);
+                pfx1(ts, j);
+                assert(prest(ts, i, d, td) == Some((Seq::<(Seq<char>, Sx)>::empty(), Some(Box::new(b)), (j + 1) as nat)));
+                assert(suf(ts, i) =~= seq![Tok::Sym('.'), Tok::Sym('.')] + te(b, seq![Tok::Sym('}')] + suf(ts, j + 1)));
+                assert(prest_post(ts, i, d, td));
+            } else {
+                assert(prest(ts, i, d, td) is None);
+                assert(prest_post(ts, i, d, td));
+            }
+        } else {
+            assert(prest(ts, i, d, td) is None);
+            assert(prest_post(ts, i, d, td));
+        }
+    } else if idt(ts, i) is Some && sym(ts, i + 1, ':') {
+        let f = idt(ts, i)->Some_0;
+        assert(ident_ok(f));
+        assert(ts[i as int] == Tok::Id(f));
+        assert(word_tok(f) == Tok::Id(f));
+        pfx1(ts, i);
+        pfx1(ts, i + 1);
+        pe_sound(ts, i + 2, d, td);
+        if let Some((v, j)) = pe(ts, i + 2, d, td) {
+            assert(pe_post(ts, i + 2, d, td));
+            assert(suf(ts, i) =~= seq![word_tok(f), Tok::Sym(':')] + suf(ts, i + 2));
+            if sym(ts, j, '}') {
+                pfx1(ts, j);
+                assert(prest(ts, i, d, td) == Some((seq![(f, v)], None, (j + 1) as nat)));
+                tfe_head(seq![(f, v)], 0, seq![Tok::Sym('}')] + suf(ts, j + 1));
+                assert(suf(ts, i) =~= tfe(seq![(f, v)], 0, rtail(true, None, suf(ts, j + 1))));
+                assert(bx(v, d, td));
+                assert(i < (j + 1) as nat);
+                assert((j + 1) as nat <= ts.len());
+                bfs_one(f, v, d, td);
+                assert(bopt(None, d, td));
+                assert(prest_post(ts, i, d, td));
+            } else if sym(ts, j, ',') && i < j {
+                pfx1(ts, j);
+                prest_sound(ts, j + 1, d, td);
+                assert(prest_post(ts, j + 1, d, td));
+                if let Some((fs2, b2, m)) = prest(ts, j + 1, d, td) {
+                    assert(prest(ts, i, d, td) == Some((seq![(f, v)] + fs2, b2, m)));
+                    let s = seq![(f, v)] + fs2;
+                    let tl = rtail(true, b2, suf(ts, m));
+                    tfe_head(s, 0, tl);
+                    assert(s[0] == (f, v));
+                    if fs2.len() == 0 {
+                        assert(b2 is Some);
+                        assert(tfe(fs2, 0, rtail(false, b2, suf(ts, m))) == rtail(false, b2, suf(ts, m)));
+                        assert(suf(ts, j) =~= seq![Tok::Sym(',')] + rtail(false, b2, suf(ts, m)));
+                        assert(rtail(true, b2, suf(ts, m)) =~= seq![Tok::Sym(',')] + rtail(false, b2, suf(ts, m)));
+                    } else {
+                        tfe_shift((f, v), fs2, 0, tl);
+                        assert(tfe(s, 1, tl) == tfe(fs2, 0, tl));
+                    }
+                    assert(suf(ts, i) =~= tfe(s, 0, tl));
+                    bfs_shift((f, v), fs2, 0, d, td);
+                    assert(bx(v, d, td));
+                    assert(prest_post(ts, i, d, td));
+                } else {
+                    assert(prest(ts, i, d, td) is None);
+                    assert(prest_post(ts, i, d, td));
+                }
+            } else {
+                assert(prest(ts, i, d, td) is None);
+                assert(prest_post(ts, i, d, td));
+            }
+        } else {
+            assert(prest(ts, i, d, td) is None);
+            assert(prest_post(ts, i, d, td));
+        }
+    } else {
+        assert(prest(ts, i, d, td) is None);
+        assert(prest_post(ts, i, d, td));
+    }
+}
+
+/// レコード式の健全性（閉じ括弧まで）。
+pub proof fn prec_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    requires
+        i <= ts.len(),
+    ensures
+        prec_post(ts, i, d, td),
+    decreases d, 4nat, 0nat,
+{
+    reveal_with_fuel(prec, 1);
+    reveal_with_fuel(tfe, 1);
+    reveal_with_fuel(bfs, 1);
+    reveal_with_fuel(bopt, 1);
+    if sym(ts, i, '}') {
+        pfx1(ts, i);
+        assert(prec(ts, i, d, td) == Some((Seq::<(Seq<char>, Sx)>::empty(), None, (i + 1) as nat)));
+        assert(suf(ts, i) =~= seq![Tok::Sym('}')] + suf(ts, i + 1));
+        assert(prec_post(ts, i, d, td));
+    } else {
+        prest_sound(ts, i, d, td);
+        assert(prec(ts, i, d, td) == prest(ts, i, d, td));
+        assert(prec_post(ts, i, d, td));
+    }
+}
+
+/// レコード式の健全性。`R {` の後ろの本体を読み、R を名前として受ける。
+pub proof fn pp_sound_rec(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    requires
+        d > 0,
+        i < ts.len(),
+        ts[i as int] is Id,
+        ident_ok(ts[i as int]->Id_0),
+        sym(ts, i + 1, '{'),
+        rec_head(ts, i + 2),
+    ensures
+        pp_post(ts, i, d, td),
+    decreases d, 0nat, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    let r = ts[i as int]->Id_0;
+    prec_sound(ts, i + 2, d1, td);
+    assert(prec_post(ts, i + 2, d1, td));
+    if let Some((fs, b, j)) = prec(ts, i + 2, d1, td) {
+        pfx1(ts, i);
+        pfx1(ts, i + 1);
+        assert(ts[i as int] == Tok::Id(r));
+        assert(word_tok(r) == Tok::Id(r));
+        assert(pp(ts, i, d, td) == Some((Sx::Rec(r, fs, b), j)));
+        assert(suf(ts, i) =~= seq![word_tok(r), Tok::Sym('{')] + suf(ts, i + 2));
+        assert(te(Sx::Rec(r, fs, b), suf(ts, j)) == seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, rtail(fs.len() > 0, b, suf(ts, j))));
+        assert(bx(Sx::Rec(r, fs, b), d, td));
+    }
+}
+
+/// 型の字段の並びの健全性（位置 i から、閉じ括弧まで）。
+pub open spec fn pfds_post(ts: Seq<Tok>, i: nat, td: nat) -> bool {
+    match pfds(ts, i, td) {
+        Some((fs, tc, j)) => i < j <= ts.len() && fs.len() > 0 && suf(ts, i) == tfd(
+            fs,
+            0,
+            tc,
+            seq![Tok::Sym('}')] + suf(ts, j),
+        ) && bfds(fs, 0, td),
+        None => true,
+    }
+}
+
+pub proof fn pfds_sound(ts: Seq<Tok>, i: nat, td: nat)
+    requires
+        i <= ts.len(),
+    ensures
+        pfds_post(ts, i, td),
+    decreases ts.len() - i,
+{
+    reveal_with_fuel(pfds, 1);
+    reveal_with_fuel(tfd, 1);
+    reveal_with_fuel(bfds, 1);
+    if idt(ts, i) is Some && sym(ts, i + 1, ':') {
+        let f = idt(ts, i)->Some_0;
+        assert(ident_ok(f));
+        assert(word_tok(f) == Tok::Id(f));
+        pfx1(ts, i);
+        pfx1(ts, i + 1);
+        pt_sound(ts, i + 2, td);
+        if let Some((t, j)) = pt(ts, i + 2, td) {
+            assert(pt_post(ts, i + 2, td));
+            assert(suf(ts, i) =~= seq![word_tok(f), Tok::Sym(':')] + suf(ts, i + 2));
+            if sym(ts, j, '}') {
+                pfx1(ts, j);
+                assert(pfds(ts, i, td) == Some((seq![(f, t)], false, (j + 1) as nat)));
+                tfd_head(seq![(f, t)], 0, false, seq![Tok::Sym('}')] + suf(ts, j + 1));
+                assert(suf(ts, i) =~= tfd(seq![(f, t)], 0, false, seq![Tok::Sym('}')] + suf(ts, j + 1)));
+                bfds_one(f, t, td);
+                assert(pfds_post(ts, i, td));
+            } else if sym(ts, j, ',') && i < j {
+                pfx1(ts, j);
+                if sym(ts, j + 1, '}') {
+                    pfx1(ts, j + 1);
+                    assert(pfds(ts, i, td) == Some((seq![(f, t)], true, (j + 2) as nat)));
+                    tfd_head(seq![(f, t)], 0, true, seq![Tok::Sym('}')] + suf(ts, j + 2));
+                    assert(suf(ts, i) =~= tfd(seq![(f, t)], 0, true, seq![Tok::Sym('}')] + suf(ts, j + 2)));
+                    assert(bt(t, td));
+                    bfds_one(f, t, td);
+                    assert(i < (j + 2) as nat);
+                    assert((j + 2) as nat <= ts.len());
+                    assert(pfds_post(ts, i, td));
+                } else {
+                    pfds_sound(ts, j + 1, td);
+                    assert(pfds_post(ts, j + 1, td));
+                    if let Some((fs2, tc2, m)) = pfds(ts, j + 1, td) {
+                        assert(pfds(ts, i, td) == Some((seq![(f, t)] + fs2, tc2, m)));
+                        let s = seq![(f, t)] + fs2;
+                        tfd_head(s, 0, tc2, seq![Tok::Sym('}')] + suf(ts, m));
+                        tfd_shift((f, t), fs2, 0, tc2, seq![Tok::Sym('}')] + suf(ts, m));
+                        assert(tfd(s, 1, tc2, seq![Tok::Sym('}')] + suf(ts, m)) == tfd(fs2, 0, tc2, seq![Tok::Sym('}')] + suf(ts, m)));
+                        assert(suf(ts, i) =~= tfd(s, 0, tc2, seq![Tok::Sym('}')] + suf(ts, m)));
+                        bfds_shift((f, t), fs2, 0, td);
+                        assert(bt(t, td));
+                        assert(bfds(s, 0, td));
+                        assert(i < m);
+                        assert(m <= ts.len());
+                        assert(pfds_post(ts, i, td));
+                    } else {
+                        assert(pfds(ts, i, td) is None);
+                        assert(pfds_post(ts, i, td));
+                    }
+                }
+            } else {
+                assert(pfds(ts, i, td) is None);
+                assert(pfds_post(ts, i, td));
+            }
+        } else {
+            assert(pfds(ts, i, td) is None);
+            assert(pfds_post(ts, i, td));
+        }
+    } else {
+        assert(pfds(ts, i, td) is None);
+        assert(pfds_post(ts, i, td));
+    }
+}
+
+/// 基本の式の健全性（後置を含まない）。
+pub proof fn pp_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    ensures
+        pp_post(ts, i, d, td),
     decreases d, 1nat, 0nat,
 {
     if d > 0 && i < ts.len() {
         pfx1(ts, i);
         match ts[i as int] {
             Tok::Id(x) => if ident_ok(x) && sym(ts, i + 1, '(') {
-                pe_sound_call(ts, i, d, td);
+                pp_sound_call(ts, i, d, td);
+            } else if ident_ok(x) && sym(ts, i + 1, '{') && rec_head(ts, i + 2) {
+                pp_sound_rec(ts, i, d, td);
             },
             Tok::Kw(k) => {
                 if soft(k) && !sym(ts, i + 1, '(') && !sym(ts, i + 1, '<') {
@@ -1172,27 +2098,27 @@ pub proof fn pe_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     let e = Sx::Var(kwt(k));
                     assert(suf(ts, i) =~= te(e, suf(ts, i + 1)));
                 } else if k == Kw::List {
-                    pe_sound_list(ts, i, d, td);
+                    pp_sound_list(ts, i, d, td);
                 } else if k == Kw::Some {
-                    pe_sound_some(ts, i, d, td);
+                    pp_sound_some(ts, i, d, td);
                 } else if k == Kw::None {
-                    pe_sound_none(ts, i, d, td);
+                    pp_sound_none(ts, i, d, td);
                 } else if k == Kw::Pair {
-                    pe_sound_pair(ts, i, d, td);
+                    pp_sound_pair(ts, i, d, td);
                 } else if k == Kw::Let {
-                    pe_sound_let(ts, i, d, td);
+                    pp_sound_let(ts, i, d, td);
                 } else if k == Kw::If {
-                    pe_sound_if(ts, i, d, td);
+                    pp_sound_if(ts, i, d, td);
                 } else if k == Kw::Fold {
-                    pe_sound_fold(ts, i, d, td);
+                    pp_sound_fold(ts, i, d, td);
                 } else if k == Kw::MatchOption {
-                    pe_sound_match(ts, i, d, td);
+                    pp_sound_match(ts, i, d, td);
                 } else if k == Kw::Ok || k == Kw::Err {
-                    pe_sound_inj(ts, i, d, td);
+                    pp_sound_inj(ts, i, d, td);
                 } else if k == Kw::MatchResult {
-                    pe_sound_matchr(ts, i, d, td);
+                    pp_sound_matchr(ts, i, d, td);
                 } else if kw_b(k) is Some {
-                    pe_sound_builtin(ts, i, d, td);
+                    pp_sound_builtin(ts, i, d, td);
                 }
             },
             _ => {},
@@ -1200,7 +2126,7 @@ pub proof fn pe_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_call(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_call(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
@@ -1208,7 +2134,7 @@ proof fn pe_sound_call(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         ident_ok(ts[i as int]->Id_0),
         sym(ts, i + 1, '('),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1216,12 +2142,12 @@ proof fn pe_sound_call(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     if let Some((es, j)) = pargs(ts, i + 2, d1, td) {
         pfx1(ts, i);
         pfx1(ts, i + 1);
-        let e = pe(ts, i, d, td)->Some_0.0;
+        let e = pp(ts, i, d, td)->Some_0.0;
         assert(suf(ts, i) =~= te(e, suf(ts, j)));
     }
 }
 
-proof fn pe_sound_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
@@ -1229,7 +2155,7 @@ proof fn pe_sound_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat)
         kw_b(ts[i as int]->Kw_0) is Some,
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1241,21 +2167,21 @@ proof fn pe_sound_builtin(ts: Seq<Tok>, i: nat, d: nat, td: nat)
             pfx1(ts, i + 1);
             let b = kw_b(k)->Some_0;
             assert(bkw(b) == k);
-            let e = pe(ts, i, d, td)->Some_0.0;
+            let e = pp(ts, i, d, td)->Some_0.0;
             assert(e == Sx::Builtin(b, es));
             assert(suf(ts, i) =~= te(e, suf(ts, j)));
         }
     }
 }
 
-proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::List),
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1269,7 +2195,7 @@ proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     pfx1(ts, i + 1);
                     pfx1(ts, j);
                     pfx1(ts, j + 1);
-                    let e = pe(ts, i, d, td)->Some_0.0;
+                    let e = pp(ts, i, d, td)->Some_0.0;
                     assert(suf(ts, j) =~= seq![Tok::Sym('>'), Tok::Sym('(')] + targs(es, 0, suf(ts, m)));
                     assert(suf(ts, i) =~= te(e, suf(ts, m)));
                 }
@@ -1278,14 +2204,14 @@ proof fn pe_sound_list(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_some(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_some(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Some),
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1296,21 +2222,21 @@ proof fn pe_sound_some(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pfx1(ts, i);
                 pfx1(ts, i + 1);
                 pfx1(ts, j);
-                let e = pe(ts, i, d, td)->Some_0.0;
+                let e = pp(ts, i, d, td)->Some_0.0;
                 assert(suf(ts, i) =~= te(e, suf(ts, j + 1)));
             }
         }
     }
 }
 
-proof fn pe_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::None),
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     if sym(ts, i + 1, '<') {
@@ -1322,7 +2248,7 @@ proof fn pe_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pfx1(ts, j);
                 pfx1(ts, j + 1);
                 pfx1(ts, j + 2);
-                let e = pe(ts, i, d, td)->Some_0.0;
+                let e = pp(ts, i, d, td)->Some_0.0;
                 assert(suf(ts, j) =~= seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + suf(ts, j + 3));
                 assert(suf(ts, i) =~= te(e, suf(ts, j + 3)));
             }
@@ -1330,14 +2256,14 @@ proof fn pe_sound_none(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Pair),
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1352,7 +2278,7 @@ proof fn pe_sound_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                         pfx1(ts, i + 1);
                         pfx1(ts, j);
                         pfx1(ts, m);
-                        let e = pe(ts, i, d, td)->Some_0.0;
+                        let e = pp(ts, i, d, td)->Some_0.0;
                         assert(suf(ts, i) =~= te(e, suf(ts, m + 1)));
                     }
                 }
@@ -1361,13 +2287,13 @@ proof fn pe_sound_pair(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_let(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_let(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Let),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1383,7 +2309,7 @@ proof fn pe_sound_let(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                         pfx1(ts, i + 1);
                         pfx1(ts, i + 2);
                         pfx1(ts, j);
-                        let e = pe(ts, i, d, td)->Some_0.0;
+                        let e = pp(ts, i, d, td)->Some_0.0;
                         assert(suf(ts, i) =~= te(e, suf(ts, m)));
                     }
                 }
@@ -1392,13 +2318,13 @@ proof fn pe_sound_let(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_if(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_if(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::If),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1417,7 +2343,7 @@ proof fn pe_sound_if(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                 pfx1(ts, j);
                                 pfx1(ts, m);
                                 pfx1(ts, q);
-                                let e = pe(ts, i, d, td)->Some_0.0;
+                                let e = pp(ts, i, d, td)->Some_0.0;
                                 assert(suf(ts, i) =~= te(e, suf(ts, q + 1)));
                             }
                         }
@@ -1428,13 +2354,13 @@ proof fn pe_sound_if(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Fold),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1462,7 +2388,7 @@ proof fn pe_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         pfx1(ts, m + 4);
                                         pfx1(ts, m + 5);
                                         pfx1(ts, q);
-                                        let e = pe(ts, i, d, td)->Some_0.0;
+                                        let e = pp(ts, i, d, td)->Some_0.0;
                                         let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(a), Tok::Sym(','), word_tok(x), Tok::Sym('|')];
                                         assert(suf(ts, m) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, q + 1)));
                                         assert(suf(ts, i) =~= te(e, suf(ts, q + 1)));
@@ -1477,13 +2403,13 @@ proof fn pe_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::MatchOption),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1508,7 +2434,7 @@ proof fn pe_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         pfx1(ts, q + 2);
                                         pfx1(ts, q + 3);
                                         pfx1(ts, u);
-                                        let e = pe(ts, i, d, td)->Some_0.0;
+                                        let e = pp(ts, i, d, td)->Some_0.0;
                                         let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
                                         assert(suf(ts, q) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, u + 1)));
                                         assert(suf(ts, i) =~= te(e, suf(ts, u + 1)));
@@ -1523,14 +2449,14 @@ proof fn pe_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::Ok) || ts[i as int] == Tok::Kw(Kw::Err),
         nv(ts, i),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1550,7 +2476,7 @@ proof fn pe_sound_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                 pfx1(ts, m);
                                 pfx1(ts, m + 1);
                                 pfx1(ts, q);
-                                let e = pe(ts, i, d, td)->Some_0.0;
+                                let e = pp(ts, i, d, td)->Some_0.0;
                                 assert(suf(ts, m) =~= seq![Tok::Sym('>'), Tok::Sym('(')] + te(a, seq![Tok::Sym(')')] + suf(ts, q + 1)));
                                 assert(suf(ts, i) =~= te(e, suf(ts, q + 1)));
                             }
@@ -1562,13 +2488,13 @@ proof fn pe_sound_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
-proof fn pe_sound_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+proof fn pp_sound_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
         i < ts.len(),
         ts[i as int] == Tok::Kw(Kw::MatchResult),
     ensures
-        pe_post(ts, i, d, td),
+        pp_post(ts, i, d, td),
     decreases d, 0nat, 0nat,
 {
     let d1 = (d - 1) as nat;
@@ -1597,7 +2523,7 @@ proof fn pe_sound_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         pfx1(ts, q + 2);
                                         pfx1(ts, q + 3);
                                         pfx1(ts, u);
-                                        let e = pe(ts, i, d, td)->Some_0.0;
+                                        let e = pp(ts, i, d, td)->Some_0.0;
                                         let my = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(y), Tok::Sym('|')];
                                         let mx = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
                                         assert(suf(ts, q) =~= my + te(b, seq![Tok::Sym(')')] + suf(ts, u + 1)));
@@ -1617,7 +2543,7 @@ proof fn pe_sound_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat)
 pub proof fn pargs_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     ensures
         pargs_post(ts, i, d, td),
-    decreases d, 3nat, 0nat,
+    decreases d, 4nat, 0nat,
 {
     if sym(ts, i, ')') {
         pfx1(ts, i);
@@ -1630,7 +2556,7 @@ pub proof fn pargs_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
 pub proof fn pargs1_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     ensures
         pargs1_post(ts, i, d, td),
-    decreases d, 2nat, ts.len() - i,
+    decreases d, 3nat, ts.len() - i,
 {
     pe_sound(ts, i, d, td);
     if let Some((e, j)) = pe(ts, i, d, td) {
@@ -1755,6 +2681,22 @@ pub proof fn pd_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
             pfx1(ts, i + 1);
             let y = pd(ts, i, d, td)->Some_0.0;
             assert(suf(ts, i) =~= tdecl(y, suf(ts, i + 2)));
+        }
+    } else if i < ts.len() && ts[i as int] == Tok::Id(tyw()) {
+        if let Some(r) = idt(ts, i + 1) {
+            if sym(ts, i + 2, '=') && sym(ts, i + 3, '{') {
+                pfds_sound(ts, i + 4, td);
+                assert(pfds_post(ts, i + 4, td));
+                if let Some((fs, tc, j)) = pfds(ts, i + 4, td) {
+                    pfx1(ts, i);
+                    pfx1(ts, i + 1);
+                    pfx1(ts, i + 2);
+                    pfx1(ts, i + 3);
+                    assert(word_tok(r) == Tok::Id(r));
+                    let y = pd(ts, i, d, td)->Some_0.0;
+                    assert(suf(ts, i) =~= tdecl(y, suf(ts, j)));
+                }
+            }
         }
     }
 }

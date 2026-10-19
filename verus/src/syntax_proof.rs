@@ -22,6 +22,20 @@ pub open spec fn safe(k: Seq<char>) -> bool {
     k.len() == 0 || !(ident_char(k[0]) || k[0] == '-' || k[0] == '.')
 }
 
+/// 識別子の直後に来てよい列（識別子を延長しない。`.` や `-` は続けてよい）。
+pub open spec fn wsafe(k: Seq<char>) -> bool {
+    k.len() == 0 || !ident_char(k[0])
+}
+
+/// 式 e の直後に来てよい列。整数で終わる式は、続く `.`・`-`・識別子文字と字句が混ざるので `safe` を要る。
+pub open spec fn fsafe(e: Sx, k: Seq<char>) -> bool {
+    if ends_int(e) {
+        safe(k)
+    } else {
+        wsafe(k)
+    }
+}
+
 pub open spec fn is_word(w: Seq<char>) -> bool {
     &&& w.len() > 0
     &&& ident_start(w[0])
@@ -425,7 +439,7 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 1nat,
@@ -449,6 +463,8 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::Match(m, n, x, b) => fe_lex_match(e, d, td, k, u),
         Sx::Inj(..) => fe_lex_inj(e, d, td, k, u),
         Sx::MatchR(..) => fe_lex_matchr(e, d, td, k, u),
+        Sx::Fld(..) => fe_lex_fld(e, d, td, k, u),
+        Sx::Rec(..) => fe_lex_rec(e, d, td, k, u),
     }
 }
 
@@ -457,7 +473,7 @@ proof fn fe_lex_list(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is List,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -486,7 +502,7 @@ proof fn fe_lex_some(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Some,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -510,7 +526,7 @@ proof fn fe_lex_none(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is None,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -540,7 +556,7 @@ proof fn fe_lex_pair(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Pair,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -568,7 +584,7 @@ proof fn fe_lex_builtin(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Builtin,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -590,7 +606,7 @@ proof fn fe_lex_call(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Call,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -613,7 +629,7 @@ proof fn fe_lex_let(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Let,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -651,7 +667,7 @@ proof fn fe_lex_if(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is If,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -683,7 +699,7 @@ proof fn fe_lex_fold(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Fold,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -737,7 +753,7 @@ proof fn fe_lex_inj(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Inj,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -798,7 +814,7 @@ proof fn fe_lex_matchr(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is MatchR,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -836,7 +852,7 @@ proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         e is Match,
         bx(e, d, td),
         lex(k) == Some(u),
-        safe(k),
+        fsafe(e, k),
     ensures
         lex(fe(e, k)) == Some(te(e, u)),
     decreases e, 0nat,
@@ -879,11 +895,239 @@ proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
+/// 名前の並びが空でないとき、名前は IDENT で、先頭は ident_ok。
+proof fn nms_head(fs: Seq<Seq<char>>)
+    requires
+        fs.len() > 0,
+        nms(fs),
+    ensures
+        ident_ok(fs[0]),
+        nms(fs.subrange(1, fs.len() as int)),
+{
+    reveal_with_fuel(nms, 2);
+}
+
+/// IDENT の綴りは字句として Id になる（予約語でない）。
+proof fn word_id(x: Seq<char>)
+    requires
+        ident_ok(x),
+    ensures
+        word_tok(x) == Tok::Id(x),
+{
+}
+
+/// `.f` の並びが空でないなら、字句は `.` で始まる。
+proof fn fdots_dot(fs: Seq<Seq<char>>, k: Seq<char>)
+    requires
+        fs.len() > 0,
+    ensures
+        fdots(fs, k).len() > 0,
+        fdots(fs, k)[0] == '.',
+{
+    assert(fdots(fs, k) =~= seq!['.'] + (fs[0] + fdots(fs.subrange(1, fs.len() as int), k)));
+}
+
+/// 受けの後ろの `.` の並び。
+pub proof fn fdots_lex(fs: Seq<Seq<char>>, k: Seq<char>, u: Seq<Tok>)
+    requires
+        nms(fs),
+        lex(k) == Some(u),
+        wsafe(k),
+    ensures
+        lex(fdots(fs, k)) == Some(tdots(fs, u)),
+    decreases fs.len(),
+{
+    if fs.len() > 0 {
+        nms_head(fs);
+        let rest = fs.subrange(1, fs.len() as int);
+        fdots_lex(rest, k, u);
+        assert(wsafe(fdots(rest, k))) by {
+            if rest.len() > 0 {
+                fdots_dot(rest, k);
+            }
+        }
+        word_id(fs[0]);
+        li(fs[0], fdots(rest, k), tdots(rest, u));
+        ls('.', fs[0] + fdots(rest, k), seq![Tok::Id(fs[0])] + tdots(rest, u));
+        assert(fdots(fs, k) =~= seq!['.'] + (fs[0] + fdots(rest, k)));
+        assert(tdots(fs, u) =~= seq![Tok::Sym('.')] + (seq![Tok::Id(fs[0])] + tdots(rest, u)));
+    }
+}
+
+/// 閉じ部分 `..base` と ` }`（fields が空でないなら base の前に `, `）の字句。
+pub proof fn frtail_lex(ne: bool, b: Option<Box<Sx>>, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        bopt(b, d, td),
+        lex(k) == Some(u),
+    ensures
+        lex(frtail(ne, b, k)) == Some(rtail(ne, b, u)),
+    decreases b, 0nat,
+{
+    ls('}', k, u);
+    lw(' ', seq!['}'] + k, seq![Tok::Sym('}')] + u);
+    assert(seq![' ', '}'] + k =~= seq![' '] + (seq!['}'] + k));
+    match b {
+        Some(x) => {
+            fe_lex(*x, d, td, seq![' ', '}'] + k, seq![Tok::Sym('}')] + u);
+            let kx = fe(*x, seq![' ', '}'] + k);
+            let ux = te(*x, seq![Tok::Sym('}')] + u);
+            ls('.', kx, ux);
+            ls('.', seq!['.'] + kx, seq![Tok::Sym('.')] + ux);
+            assert(seq!['.', '.'] + kx =~= seq!['.'] + (seq!['.'] + kx));
+            assert(seq![Tok::Sym('.'), Tok::Sym('.')] + ux =~= seq![Tok::Sym('.')] + (seq![Tok::Sym('.')] + ux));
+            assert(lex(frtail(ne, b, k)) == Some(rtail(ne, b, u))) by {
+                assert(frtail(ne, b, k) =~= (if ne { seq![',', ' '] } else { seq![] }) + (seq!['.', '.'] + kx));
+                assert(rtail(ne, b, u) =~= (if ne { seq![Tok::Sym(',')] } else { seq![] }) + (seq![Tok::Sym('.'), Tok::Sym('.')] + ux));
+                if ne {
+                    lcs(seq!['.', '.'] + kx, seq![Tok::Sym('.'), Tok::Sym('.')] + ux);
+                }
+            }
+        },
+        None => {
+            assert(frtail(ne, b, k) =~= seq![' ', '}'] + k);
+            assert(rtail(ne, b, u) =~= seq![Tok::Sym('}')] + u);
+        },
+    }
+}
+
+/// `ne` のとき閉じ部分は `, ` で始まり、字句として安全。
+proof fn frtail_safe(ne: bool, b: Option<Box<Sx>>, k: Seq<char>)
+    requires
+        ne,
+    ensures
+        safe(frtail(ne, b, k)),
+{
+    match b {
+        Some(x) => {},
+        None => {},
+    }
+}
+
+/// 整数で終わらない式（受けの条件）は、末尾が整数でない。
+proof fn recv_not_int(a: Sx)
+    requires
+        recv_ok(a),
+    ensures
+        !ends_int(a),
+{
+}
+
+/// レコード式の field の並び fs[i..] の字句。最後の field の後ろに tail が続く。
+pub proof fn ffe_lex(fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat, tail: Seq<char>, u: Seq<Tok>)
+    requires
+        bfs(fs, i, d, td),
+        lex(tail) == Some(u),
+        i >= fs.len() || safe(tail),
+    ensures
+        lex(ffe(fs, i, tail)) == Some(tfe(fs, i, u)),
+    decreases fs, fs.len() - i,
+{
+    if i < fs.len() {
+        let x = fs[i as int].0;
+        let v = fs[i as int].1;
+        let last = i + 1 == fs.len();
+        let kt = if last { tail } else { seq![',', ' '] + ffe(fs, i + 1, tail) };
+        let ut = if last { u } else { seq![Tok::Sym(',')] + tfe(fs, i + 1, u) };
+        assert(lex(kt) == Some(ut)) by {
+            if !last {
+                ffe_lex(fs, i + 1, d, td, tail, u);
+                lcs(ffe(fs, i + 1, tail), tfe(fs, i + 1, u));
+            }
+        }
+        assert(safe(kt)) by {
+            if last {
+            } else {
+                assert(kt[0] == ',');
+            }
+        }
+        fe_lex(v, d, td, kt, ut);
+        let kv = fe(v, kt);
+        let uv = te(v, ut);
+        lw(' ', kv, uv);
+        ls(':', seq![' '] + kv, uv);
+        assert(seq![':', ' '] + kv =~= seq![':'] + (seq![' '] + kv));
+        word_id(x);
+        li(x, seq![':', ' '] + kv, seq![Tok::Sym(':')] + uv);
+        assert(ffe(fs, i, tail) =~= x + (seq![':', ' '] + kv));
+        assert(tfe(fs, i, u) =~= seq![word_tok(x), Tok::Sym(':')] + uv);
+    }
+}
+
+/// 字句の補題：`e.f1.f2…`（受けは Let と整数でない式。後ろの字句は k）。
+proof fn fe_lex_fld(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is Fld,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    match e {
+        Sx::Fld(a, fs) => {
+            recv_not_int(*a);
+            assert(wsafe(k));
+            fdots_lex(fs, k, u);
+            fdots_dot(fs, k);
+            fe_lex(*a, d, td, fdots(fs, k), tdots(fs, u));
+        },
+        _ => {},
+    }
+}
+
+/// 字句の補題：`R { f: e, …, ..b }`（後ろの字句は k）。
+proof fn fe_lex_rec(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is Rec,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::Rec(r, fs, b) => {
+            word_id(r);
+            if fs.len() == 0 && b is None {
+                ls('}', k, u);
+                ls('{', seq!['}'] + k, seq![Tok::Sym('}')] + u);
+                lw(' ', seq!['{'] + (seq!['}'] + k), seq![Tok::Sym('{')] + (seq![Tok::Sym('}')] + u));
+                li(r, seq![' '] + (seq!['{'] + (seq!['}'] + k)), seq![Tok::Sym('{')] + (seq![Tok::Sym('}')] + u));
+                reveal_with_fuel(tfe, 1);
+                reveal_with_fuel(rtail, 1);
+                assert(fe(e, k) =~= r + (seq![' '] + (seq!['{'] + (seq!['}'] + k))));
+                assert(tfe(fs, 0, rtail(fs.len() > 0, b, u)) =~= seq![Tok::Sym('}')] + u);
+                assert(te(e, u) =~= seq![Tok::Id(r), Tok::Sym('{')] + (seq![Tok::Sym('}')] + u));
+            } else {
+                let ne = fs.len() > 0;
+                let tc = frtail(ne, b, k);
+                let tu = rtail(ne, b, u);
+                frtail_lex(ne, b, d1, td, k, u);
+                assert(fs.len() == 0 || safe(tc)) by {
+                    if ne {
+                        frtail_safe(ne, b, k);
+                    }
+                }
+                ffe_lex(fs, 0, d1, td, tc, tu);
+                lw(' ', ffe(fs, 0, tc), tfe(fs, 0, tu));
+                ls('{', seq![' '] + ffe(fs, 0, tc), tfe(fs, 0, tu));
+                lw(' ', seq!['{'] + (seq![' '] + ffe(fs, 0, tc)), seq![Tok::Sym('{')] + tfe(fs, 0, tu));
+                li(r, seq![' '] + (seq!['{'] + (seq![' '] + ffe(fs, 0, tc))), seq![Tok::Sym('{')] + tfe(fs, 0, tu));
+                assert(fe(e, k) =~= r + (seq![' '] + (seq!['{'] + (seq![' '] + ffe(fs, 0, tc)))));
+                assert(te(e, u) =~= seq![Tok::Id(r), Tok::Sym('{')] + tfe(fs, 0, tu));
+            }
+        },
+        _ => {},
+    }
+}
+
 pub proof fn fargs_lex(es: Seq<Sx>, i: nat, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bxs(es, i, d, td),
         lex(k) == Some(u),
-        safe(k),
     ensures
         lex(fargs(es, i, k)) == Some(targs(es, i, u)),
     decreases es, es.len() - i,
@@ -905,7 +1149,6 @@ pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u:
     requires
         bps(ps, i, td),
         lex(k) == Some(u),
-        safe(k),
     ensures
         lex(fps(ps, i, k)) == Some(tps(ps, i, u)),
     decreases ps.len() - i,
@@ -929,6 +1172,121 @@ pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u:
         ln(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
         assert(seq![word_tok(x)] + (seq![Tok::Sym(':')] + tt(t, ut)) =~= tps(ps, i, u));
     }
+}
+
+/// レコード型の宣言の閉じ部分（末尾の `,` の有無に応じた ` }` と改行。続く字句は k）の字句。
+proof fn dclose(tc: bool, k: Seq<char>, u: Seq<Tok>)
+    requires
+        lex(k) == Some(u),
+    ensures
+        lex((if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k) == Some(
+            if tc { seq![Tok::Sym(',')] + (seq![Tok::Sym('}')] + u) } else { seq![Tok::Sym('}')] + u },
+        ),
+{
+    lw('\n', k, u);
+    ls('}', seq!['\n'] + k, u);
+    lw(' ', seq!['}'] + (seq!['\n'] + k), seq![Tok::Sym('}')] + u);
+    if tc {
+        ls(',', seq![' '] + (seq!['}'] + (seq!['\n'] + k)), seq![Tok::Sym('}')] + u);
+        assert(seq![',', ' ', '}'] + seq!['\n'] + k =~= seq![','] + (seq![' '] + (seq!['}'] + (seq!['\n'] + k))));
+    } else {
+        assert(seq![' ', '}'] + seq!['\n'] + k =~= seq![' '] + (seq!['}'] + (seq!['\n'] + k)));
+    }
+}
+
+/// 閉じ部分の先頭は `,` か空白で、字句として安全。
+proof fn dsafe(tc: bool, k: Seq<char>)
+    ensures
+        safe((if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k),
+{
+    if tc {
+        assert((seq![',', ' ', '}'] + seq!['\n'] + k)[0] == ',');
+    } else {
+        assert((seq![' ', '}'] + seq!['\n'] + k)[0] == ' ');
+    }
+}
+
+/// レコード型の field の並び fs[i..] の字句。最後の field の後ろは閉じ部分（dclose）。
+pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
+    requires
+        bfds(fs, i, td),
+        i < fs.len(),
+        lex(k) == Some(u),
+    ensures
+        lex(ffd(fs, i, (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k))
+            == Some(tfd(fs, i, tc, seq![Tok::Sym('}')] + u)),
+    decreases fs.len() - i,
+{
+    let tl = (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'];
+    dclose(tc, k, u);
+    dsafe(tc, k);
+    let tu = if tc { seq![Tok::Sym(',')] + (seq![Tok::Sym('}')] + u) } else { seq![Tok::Sym('}')] + u };
+    let x = fs[i as int].0;
+    let t = fs[i as int].1;
+    let last = i + 1 == fs.len();
+    let kt = if last { tl + k } else { seq![',', ' '] + ffd(fs, i + 1, tl + k) };
+    let ut = if last { tu } else { seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, seq![Tok::Sym('}')] + u) };
+    assert(lex(kt) == Some(ut)) by {
+        if !last {
+            ffd_lex(fs, i + 1, td, tc, k, u);
+            lcs(ffd(fs, i + 1, tl + k), tfd(fs, i + 1, tc, seq![Tok::Sym('}')] + u));
+        }
+    }
+    assert(safe(kt)) by {
+        if !last {
+            assert(kt[0] == ',');
+        }
+    }
+    ft_lex(t, kt, ut);
+    lw(' ', ft(t, kt), tt(t, ut));
+    ls(':', seq![' '] + ft(t, kt), tt(t, ut));
+    assert(seq![':', ' '] + ft(t, kt) =~= seq![':'] + (seq![' '] + ft(t, kt)));
+    word_id(x);
+    li(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
+    assert(ffd(fs, i, tl + k) =~= x + (seq![':', ' '] + ft(t, kt)));
+    assert(tfd(fs, i, tc, seq![Tok::Sym('}')] + u) =~= seq![Tok::Id(x), Tok::Sym(':')] + tt(t, ut));
+}
+
+/// 文脈語 `type` は予約語でなく、字句として Id になる。
+proof fn tyw_word()
+    ensures
+        is_word(tyw()),
+        word_tok(tyw()) == Tok::Id(tyw()),
+{
+    let w = tyw();
+    assert(w.len() == 4 && w[0] == 't' && w[1] == 'y' && w[2] == 'p' && w[3] == 'e');
+    assert forall|i: int| 0 < i < w.len() implies ident_char(#[trigger] w[i]) by {}
+    assert(kw_of(w) is None);
+}
+
+/// レコード型の宣言一行 `type R = { f: T, …, }` の字句（後ろの字句は k）。
+proof fn fd_lex_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
+    requires
+        ident_ok(r),
+        bfds(fs, 0, td),
+        fs.len() > 0,
+        lex(k) == Some(u),
+    ensures
+        lex(fd(Sd::RecTy(r, fs, tc), k)) == Some(tdecl(Sd::RecTy(r, fs, tc), u)),
+{
+    ffd_lex(fs, 0, td, tc, k, u);
+    let kf = ffd(fs, 0, (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k);
+    let uf = tfd(fs, 0, tc, seq![Tok::Sym('}')] + u);
+    word_id(r);
+    tyw_word();
+    lw(' ', kf, uf);
+    ls('{', seq![' '] + kf, uf);
+    lw(' ', seq!['{'] + (seq![' '] + kf), seq![Tok::Sym('{')] + uf);
+    ls('=', seq![' '] + (seq!['{'] + (seq![' '] + kf)), seq![Tok::Sym('{')] + uf);
+    let s3 = seq![' '] + (seq!['{'] + (seq![' '] + kf));
+    let t4 = seq![Tok::Sym('=')] + (seq![Tok::Sym('{')] + uf);
+    lw(' ', seq!['='] + s3, t4);
+    let s5 = seq![' '] + (seq!['='] + s3);
+    li(r, s5, t4);
+    lw(' ', r + s5, seq![Tok::Id(r)] + t4);
+    lword(tyw(), seq![' '] + (r + s5), seq![Tok::Id(r)] + t4);
+    assert(fd(Sd::RecTy(r, fs, tc), k) =~= tyw() + (seq![' '] + (r + s5)));
+    assert(tdecl(Sd::RecTy(r, fs, tc), u) =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t4));
 }
 
 #[verifier::rlimit(60)]
@@ -972,6 +1330,7 @@ pub proof fn fd_lex(x: Sd, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             lk(Kw::Entry, seq![' '] + (n + (seq!['\n'] + k)), seq![Tok::Id(n)] + u);
             assert(seq![Tok::Kw(Kw::Entry)] + (seq![Tok::Id(n)] + u) =~= tdecl(x, u));
         },
+        Sd::RecTy(r, fs, tc) => fd_lex_recty(r, fs, td, tc, k, u),
     }
 }
 
@@ -1016,6 +1375,91 @@ pub proof fn ft_app(t: Ty, k: Seq<char>)
         _ => {},
     }
     assert(ft(t, k) =~= ft(t, z) + k);
+}
+
+/// `.f` の並びは後ろの続きに対して結合する。
+pub proof fn fdots_app(fs: Seq<Seq<char>>, k: Seq<char>)
+    ensures
+        fdots(fs, k) == fdots(fs, Seq::empty()) + k,
+    decreases fs.len(),
+{
+    if fs.len() > 0 {
+        fdots_app(fs.subrange(1, fs.len() as int), k);
+    }
+    assert(fdots(fs, k) =~= fdots(fs, Seq::empty()) + k);
+}
+
+/// 閉じ部分は後ろの続きに対して結合する。
+pub proof fn frtail_app(ne: bool, b: Option<Box<Sx>>, k: Seq<char>)
+    ensures
+        frtail(ne, b, k) == frtail(ne, b, Seq::empty()) + k,
+    decreases b, 0nat,
+{
+    match b {
+        Some(x) => {
+            fe_app(*x, seq![' ', '}'] + k);
+            fe_app(*x, seq![' ', '}']);
+            assert(frtail(ne, b, k) =~= frtail(ne, b, Seq::empty()) + k);
+        },
+        None => {
+            assert(frtail(ne, b, k) =~= frtail(ne, b, Seq::empty()) + k);
+        },
+    }
+}
+
+/// レコード式の field の並びは後ろの続きに対して結合する。
+pub proof fn ffe_app(fs: Seq<(Seq<char>, Sx)>, i: nat, k: Seq<char>)
+    ensures
+        ffe(fs, i, k) == ffe(fs, i, Seq::empty()) + k,
+    decreases fs, fs.len() - i,
+{
+    if i < fs.len() {
+        if i + 1 == fs.len() {
+            fe_app(fs[i as int].1, k);
+        } else {
+            ffe_app(fs, i + 1, k);
+            fe_app(fs[i as int].1, seq![',', ' '] + ffe(fs, i + 1, k));
+            fe_app(fs[i as int].1, seq![',', ' '] + ffe(fs, i + 1, Seq::empty()));
+        }
+    }
+    assert(ffe(fs, i, k) =~= ffe(fs, i, Seq::empty()) + k);
+}
+
+proof fn fe_app_rec(e: Sx, k: Seq<char>)
+    requires
+        e is Rec,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Rec(r, fs, b) = e {
+        if fs.len() == 0 && b is None {
+        } else {
+            ffe_app(fs, 0, frtail(fs.len() > 0, b, k));
+            ffe_app(fs, 0, frtail(fs.len() > 0, b, z));
+            frtail_app(fs.len() > 0, b, k);
+        }
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+/// レコード型の field の並びは後ろの続きに対して結合する。
+pub proof fn ffd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
+    ensures
+        ffd(fs, i, k) == ffd(fs, i, Seq::empty()) + k,
+    decreases fs.len() - i,
+{
+    if i < fs.len() {
+        if i + 1 == fs.len() {
+            ft_app(fs[i as int].1, k);
+        } else {
+            ffd_app(fs, i + 1, k);
+            ft_app(fs[i as int].1, seq![',', ' '] + ffd(fs, i + 1, k));
+            ft_app(fs[i as int].1, seq![',', ' '] + ffd(fs, i + 1, Seq::empty()));
+        }
+    }
+    assert(ffd(fs, i, k) =~= ffd(fs, i, Seq::empty()) + k);
 }
 
 #[verifier::rlimit(60)]
@@ -1073,6 +1517,12 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
             ft_app(t, zt);
         },
         Sx::MatchR(..) => fe_app_matchr(e, k),
+        Sx::Fld(a, fs) => {
+            fdots_app(fs, k);
+            fe_app(*a, fdots(fs, k));
+            fe_app(*a, fdots(fs, z));
+        },
+        Sx::Rec(..) => fe_app_rec(e, k),
         _ => {},
     }
     assert(fe(e, k) =~= fe(e, z) + k);
@@ -1234,6 +1684,18 @@ pub proof fn fps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
     assert(fps(ps, i, k) =~= fps(ps, i, z) + k);
 }
 
+/// レコード型の宣言一行は後ろの続きに対して結合する。
+proof fn fd_app_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, tc: bool, k: Seq<char>)
+    ensures
+        fd(Sd::RecTy(r, fs, tc), k) == fd(Sd::RecTy(r, fs, tc), Seq::empty()) + k,
+{
+    let z = Seq::<char>::empty();
+    let tl = (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'];
+    ffd_app(fs, 0, tl + k);
+    ffd_app(fs, 0, tl + z);
+    assert(fd(Sd::RecTy(r, fs, tc), k) =~= fd(Sd::RecTy(r, fs, tc), z) + k);
+}
+
 pub proof fn fd_app(x: Sd, k: Seq<char>)
     ensures
         fd(x, k) == fd(x, Seq::empty()) + k,
@@ -1252,6 +1714,9 @@ pub proof fn fd_app(x: Sd, k: Seq<char>)
         assert(kp =~= zp + k);
         fps_app(ps, 0, kp);
         fps_app(ps, 0, zp);
+    }
+    if let Sd::RecTy(r, fs, tc) = x {
+        fd_app_recty(r, fs, tc, k);
     }
     assert(fd(x, k) =~= fd(x, z) + k);
 }

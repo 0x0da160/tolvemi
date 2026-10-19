@@ -380,7 +380,7 @@ pub open spec fn is_ws(c: char) -> bool {
 
 pub open spec fn is_sym(c: char) -> bool {
     c == '(' || c == ')' || c == '[' || c == ']' || c == '<' || c == '>' || c == ',' || c == ':'
-        || c == '=' || c == '|'
+        || c == '=' || c == '|' || c == '{' || c == '}' || c == '.'
 }
 
 /// IDENT（§4.2）で、予約語でないもの。
@@ -522,11 +522,38 @@ pub enum Sx {
     Inj(bool, Ty, Ty, Box<Sx>),
     /// v1.4：match_result(m, |x| a, |y| b)
     MatchR(Box<Sx>, Seq<char>, Box<Sx>, Seq<char>, Box<Sx>),
+    /// v1.1：e.f1.f2…（後置、左結合。受ける式は recv_ok、field 名は IDENT で、列は空でない）
+    Fld(Box<Sx>, Seq<Seq<char>>),
+    /// v1.1：R { f: e, ..b }（フィールドの並びと、省略できる base）
+    Rec(Seq<char>, Seq<(Seq<char>, Sx)>, Option<Box<Sx>>),
 }
 
 pub enum Sd {
     Fn(Seq<char>, Seq<(Seq<char>, Ty)>, Ty, Sx),
     Entry(Seq<char>),
+    /// v1.1：type R = { f: T, ... }（末尾の `,` の有無を持つ。整形がトークン列を変えないため）
+    RecTy(Seq<char>, Seq<(Seq<char>, Ty)>, bool),
+}
+
+/// 宣言の先頭で読む文脈語 `type` の綴り（予約語ではない）。
+pub open spec fn tyw() -> Seq<char> {
+    seq!['t', 'y', 'p', 'e']
+}
+
+/// 後置（受ける式として許す形）：Let と整数は、続く `.f` と読み違えるか、字句に入らないので受けない。
+pub open spec fn recv_ok(e: Sx) -> bool {
+    !(e is Let) && !(e is Int) && !(e is Fld)
+}
+
+/// 末尾が整数の式（Let は本体で決まる）。後置の `.` は付かない。
+pub open spec fn ends_int(e: Sx) -> bool
+    decreases e,
+{
+    match e {
+        Sx::Int(_) => true,
+        Sx::Let(_, _, b) => ends_int(*b),
+        _ => false,
+    }
 }
 
 // ------------------------------------------------------------------ EBNF：AST の token 列（§4.1）
@@ -612,6 +639,72 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
                 seq![Tok::Sym(','), Tok::Sym('|'), word_tok(y), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
+        Sx::Fld(a, fs) => te(*a, tdots(fs, k)),
+        Sx::Rec(r, fs, b) => seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, rtail(fs.len() > 0, b, k)),
+    }
+}
+
+/// `"." IDENT` の並び fs の後に k。
+pub open spec fn tdots(fs: Seq<Seq<char>>, k: Seq<Tok>) -> Seq<Tok>
+    decreases fs.len(),
+{
+    if fs.len() == 0 {
+        k
+    } else {
+        seq![Tok::Sym('.'), word_tok(fs[0])] + tdots(fs.subrange(1, fs.len() as int), k)
+    }
+}
+
+/// レコード式の `..base` と閉じ括弧。fields が空でないなら base の前にカンマ。
+pub open spec fn rtail(ne: bool, b: Option<Box<Sx>>, k: Seq<Tok>) -> Seq<Tok>
+    decreases b, 0nat,
+{
+    match b {
+        Some(x) => (if ne { seq![Tok::Sym(',')] } else { seq![] }) + seq![Tok::Sym('.'), Tok::Sym('.')] + te(
+            *x,
+            seq![Tok::Sym('}')] + k,
+        ),
+        None => seq![Tok::Sym('}')] + k,
+    }
+}
+
+/// レコード式の field の並び fs[i..]。最後の field の後ろに tail が続く。
+pub open spec fn tfe(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>) -> Seq<Tok>
+    decreases fs, fs.len() - i,
+{
+    if i >= fs.len() {
+        tail
+    } else {
+        seq![word_tok(fs[i as int].0), Tok::Sym(':')] + te(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                tail
+            } else {
+                seq![Tok::Sym(',')] + tfe(fs, i + 1, tail)
+            },
+        )
+    }
+}
+
+/// レコード型の宣言の field の並び fs[i..]。最後の field の後ろに、末尾のカンマ tc があれば `,` を置き、tail（閉じ括弧を含む）が続く。
+pub open spec fn tfd(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>) -> Seq<Tok>
+    decreases fs, fs.len() - i,
+{
+    if i >= fs.len() {
+        tail
+    } else {
+        seq![word_tok(fs[i as int].0), Tok::Sym(':')] + tt(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                if tc {
+                    seq![Tok::Sym(',')] + tail
+                } else {
+                    tail
+                }
+            } else {
+                seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, tail)
+            },
+        )
     }
 }
 
@@ -654,6 +747,7 @@ pub open spec fn tdecl(d: Sd, k: Seq<Tok>) -> Seq<Tok> {
             seq![Tok::Arrow] + tt(r, seq![Tok::Sym('=')] + te(b, k)),
         ),
         Sd::Entry(x) => seq![Tok::Kw(Kw::Entry), Tok::Id(x)] + k,
+        Sd::RecTy(r, fs, tc) => seq![Tok::Id(tyw()), word_tok(r), Tok::Sym('='), Tok::Sym('{')] + tfd(fs, 0, tc, seq![Tok::Sym('}')] + k),
     }
 }
 
@@ -735,6 +829,51 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
                 seq![',', ' ', '|'] + (y + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
             ))),
         )),
+        Sx::Fld(a, fs) => fe(*a, fdots(fs, k)),
+        Sx::Rec(r, fs, b) => r + (seq![' ', '{'] + if fs.len() == 0 && b is None {
+            seq!['}'] + k
+        } else {
+            seq![' '] + ffe(fs, 0, frtail(fs.len() > 0, b, k))
+        }),
+    }
+}
+
+/// `"." IDENT` の並び fs の後に k（字句）。
+pub open spec fn fdots(fs: Seq<Seq<char>>, k: Seq<char>) -> Seq<char>
+    decreases fs.len(),
+{
+    if fs.len() == 0 {
+        k
+    } else {
+        seq!['.'] + fs[0] + fdots(fs.subrange(1, fs.len() as int), k)
+    }
+}
+
+/// レコード式の閉じ部分（字句）：..base と ` }`。
+pub open spec fn frtail(ne: bool, b: Option<Box<Sx>>, k: Seq<char>) -> Seq<char>
+    decreases b, 0nat,
+{
+    match b {
+        Some(x) => (if ne { seq![',', ' '] } else { seq![] }) + seq!['.', '.'] + fe(*x, seq![' ', '}'] + k),
+        None => seq![' ', '}'] + k,
+    }
+}
+
+/// レコード式の field の並び fs[i..]（字句）。最後の field の後ろに tail が続く。
+pub open spec fn ffe(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<char>) -> Seq<char>
+    decreases fs, fs.len() - i,
+{
+    if i >= fs.len() {
+        tail
+    } else {
+        fs[i as int].0 + (seq![':', ' '] + fe(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                tail
+            } else {
+                seq![',', ' '] + ffe(fs, i + 1, tail)
+            },
+        ))
     }
 }
 
@@ -775,6 +914,29 @@ pub open spec fn fd(d: Sd, k: Seq<char>) -> Seq<char> {
             seq![' ', '-', '>', ' '] + ft(r, seq![' ', '=', ' '] + fe(b, seq!['\n'] + k)),
         )))),
         Sd::Entry(x) => kwt(Kw::Entry) + (seq![' '] + (x + (seq!['\n'] + k))),
+        Sd::RecTy(r, fs, tc) => seq!['t', 'y', 'p', 'e', ' '] + (r + (seq![' ', '=', ' ', '{', ' '] + ffd(
+            fs,
+            0,
+            (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k,
+        ))),
+    }
+}
+
+/// レコード型の宣言の field の並び fs[i..]（字句）。
+pub open spec fn ffd(fs: Seq<(Seq<char>, Ty)>, i: nat, tail: Seq<char>) -> Seq<char>
+    decreases fs, fs.len() - i,
+{
+    if i >= fs.len() {
+        tail
+    } else {
+        fs[i as int].0 + (seq![':', ' '] + ft(
+            fs[i as int].1,
+            if i + 1 == fs.len() {
+                tail
+            } else {
+                seq![',', ' '] + ffd(fs, i + 1, tail)
+            },
+        ))
     }
 }
 
@@ -1008,8 +1170,8 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
     }
 }
 
-/// 式。d は式の入れ子の深さ上限、td は型の深さ上限。
-pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
+/// 後置（`.f`）を除く基本の式。d は式の入れ子の深さ上限、td は型の深さ上限。
+pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
     decreases d, 0nat, 0nat,
 {
     if d == 0 || i >= ts.len() {
@@ -1033,6 +1195,11 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
             } else if sym(ts, i + 1, '(') {
                 match pargs(ts, i + 2, d1, td) {
                     Some((es, j)) => Some((Sx::Call(x, es), j)),
+                    None => None,
+                }
+            } else if sym(ts, i + 1, '{') && rec_head(ts, i + 2) {
+                match prec(ts, i + 2, d1, td) {
+                    Some((fs, b, j)) => Some((Sx::Rec(x, fs, b), j)),
                     None => None,
                 }
             } else {
@@ -1302,9 +1469,90 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
     }
 }
 
+/// 式。基本の式の後に、`.IDENT` の並びが続けば受ける（左結合）。
+pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
+    decreases d, 1nat, 0nat,
+{
+    match pp(ts, i, d, td) {
+        Some((e, j)) => if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+            let r = pfs(ts, j);
+            Some((Sx::Fld(Box::new(e), r.0), r.1))
+        } else {
+            Some((e, j))
+        },
+        None => None,
+    }
+}
+
+/// `"." IDENT` の並びを読む（位置 j から）。並びと、並びの後の位置。並びは最大に読む。
+pub open spec fn pfs(ts: Seq<Tok>, j: nat) -> (Seq<Seq<char>>, nat)
+    decreases ts.len() - j,
+{
+    if j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+        let r = pfs(ts, j + 2);
+        (seq![idt(ts, j + 1)->Some_0] + r.0, r.1)
+    } else {
+        (Seq::empty(), j)
+    }
+}
+
+/// `R {` の後ろがレコード式の本体の形（`}`、`IDENT :`、`..`）なら、R は記録式の名前。
+/// それ以外（`match x { ... }` の被験式など）は変数と読む。
+pub open spec fn rec_head(ts: Seq<Tok>, i: nat) -> bool {
+    sym(ts, i, '}') || (idt(ts, i) is Some && sym(ts, i + 1, ':')) || (sym(ts, i, '.') && sym(ts, i + 1, '.'))
+}
+
+/// レコード式の本体（`{` の後）。フィールドの並び、省略できる base、閉じ括弧の後の位置。
+pub open spec fn prec(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Seq<char>, Sx)>, Option<Box<Sx>>, nat)>
+    decreases d, 3nat, ts.len() - i,
+{
+    if sym(ts, i, '}') {
+        Some((Seq::empty(), None, i + 1))
+    } else {
+        prest(ts, i, d, td)
+    }
+}
+
+/// レコード式の要素一つ（フィールド、または最後の `..base`）と、閉じ括弧までの残り。
+pub open spec fn prest(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Seq<char>, Sx)>, Option<Box<Sx>>, nat)>
+    decreases d, 2nat, ts.len() - i,
+{
+    if sym(ts, i, '.') && sym(ts, i + 1, '.') {
+        match pe(ts, i + 2, d, td) {
+            Some((b, j)) => if sym(ts, j, '}') {
+                Some((Seq::empty(), Some(Box::new(b)), j + 1))
+            } else {
+                None
+            },
+            None => None,
+        }
+    } else {
+        match idt(ts, i) {
+            Some(f) => if sym(ts, i + 1, ':') {
+                match pe(ts, i + 2, d, td) {
+                    Some((v, j)) => if sym(ts, j, '}') {
+                        Some((seq![(f, v)], None, j + 1))
+                    } else if sym(ts, j, ',') && i < j {
+                        match prest(ts, j + 1, d, td) {
+                            Some((fs, b, m)) => Some((seq![(f, v)] + fs, b, m)),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            },
+            None => None,
+        }
+    }
+}
+
 /// `[ arguments ] ")"`
 pub open spec fn pargs(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<Sx>, nat)>
-    decreases d, 2nat, 0nat,
+    decreases d, 3nat, 0nat,
 {
     if sym(ts, i, ')') {
         Some((Seq::empty(), i + 1))
@@ -1315,7 +1563,7 @@ pub open spec fn pargs(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<Sx>
 
 /// `arguments ")"`
 pub open spec fn pargs1(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<Sx>, nat)>
-    decreases d, 1nat, ts.len() - i,
+    decreases d, 2nat, ts.len() - i,
 {
     match pe(ts, i, d, td) {
         Some((e, j)) => if sym(ts, j, ')') {
@@ -1399,8 +1647,50 @@ pub open spec fn pd(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sd, nat)> 
             Some(x) => Some((Sd::Entry(x), i + 2)),
             None => None,
         }
+    } else if i < ts.len() && ts[i as int] == Tok::Id(tyw()) {
+        match idt(ts, i + 1) {
+            Some(r) => if sym(ts, i + 2, '=') && sym(ts, i + 3, '{') {
+                match pfds(ts, i + 4, td) {
+                    Some((fs, tc, j)) => Some((Sd::RecTy(r, fs, tc), j)),
+                    None => None,
+                }
+            } else {
+                None
+            },
+            None => None,
+        }
     } else {
         None
+    }
+}
+
+/// レコード型の宣言の field の並び（閉じ括弧まで）。一つ以上で、最後の後ろに `,` を一つ許す。
+pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, bool, nat)>
+    decreases ts.len() - i,
+{
+    match idt(ts, i) {
+        Some(f) => if sym(ts, i + 1, ':') {
+            match pt(ts, i + 2, td) {
+                Some((t, j)) => if sym(ts, j, '}') {
+                    Some((seq![(f, t)], false, j + 1))
+                } else if sym(ts, j, ',') && i < j {
+                    if sym(ts, j + 1, '}') {
+                        Some((seq![(f, t)], true, j + 2))
+                    } else {
+                        match pfds(ts, j + 1, td) {
+                            Some((fs, tc, m)) => Some((seq![(f, t)] + fs, tc, m)),
+                            None => None,
+                        }
+                    }
+                } else {
+                    None
+                },
+                None => None,
+            }
+        } else {
+            None
+        },
+        None => None,
     }
 }
 
@@ -1472,8 +1762,20 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::Match(m, n, x, b) => name_ok(x) && bx(*m, d1, td) && bx(*n, d1, td) && bx(*b, d1, td),
             Sx::Inj(_, t, u, x) => bt(t, td) && bt(u, td) && bx(*x, d1, td),
             Sx::MatchR(m, x, a, y, b) => name_ok(x) && name_ok(y) && bx(*m, d1, td) && bx(*a, d1, td) && bx(*b, d1, td),
+            Sx::Fld(a, fs) => recv_ok(*a) && fs.len() > 0 && nms(fs) && bx(*a, d, td),
+            Sx::Rec(r, fs, b) => ident_ok(r) && bfs(fs, 0, d1, td) && bopt(b, d1, td),
             _ => true,
         }
+    }
+}
+
+/// レコード式の省略できる base は、あれば深さ内。
+pub open spec fn bopt(b: Option<Box<Sx>>, d: nat, td: nat) -> bool
+    decreases b, 0nat,
+{
+    match b {
+        Some(x) => bx(*x, d, td),
+        None => true,
     }
 }
 
@@ -1481,6 +1783,27 @@ pub open spec fn bxs(es: Seq<Sx>, i: nat, d: nat, td: nat) -> bool
     decreases es, es.len() - i,
 {
     i >= es.len() || (bx(es[i as int], d, td) && bxs(es, i + 1, d, td))
+}
+
+/// `.IDENT` の並びの名前は、すべて IDENT。
+pub open spec fn nms(fs: Seq<Seq<char>>) -> bool
+    decreases fs.len(),
+{
+    fs.len() == 0 || (ident_ok(fs[0]) && nms(fs.subrange(1, fs.len() as int)))
+}
+
+/// レコード式の field：名前は IDENT で、値は深さ内。
+pub open spec fn bfs(fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat) -> bool
+    decreases fs, fs.len() - i,
+{
+    i >= fs.len() || (ident_ok(fs[i as int].0) && bx(fs[i as int].1, d, td) && bfs(fs, i + 1, d, td))
+}
+
+/// レコード型の宣言の field：名前は IDENT で、型は深さ内。
+pub open spec fn bfds(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
+    decreases fs.len() - i,
+{
+    i >= fs.len() || (ident_ok(fs[i as int].0) && bt(fs[i as int].1, td) && bfds(fs, i + 1, td))
 }
 
 pub open spec fn bps(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
@@ -1493,6 +1816,7 @@ pub open spec fn bd(x: Sd, d: nat, td: nat) -> bool {
     match x {
         Sd::Fn(f, ps, r, b) => ident_ok(f) && bps(ps, 0, td) && bt(r, td) && bx(b, d, td),
         Sd::Entry(x) => ident_ok(x),
+        Sd::RecTy(r, fs, tc) => ident_ok(r) && fs.len() > 0 && bfds(fs, 0, td),
     }
 }
 
