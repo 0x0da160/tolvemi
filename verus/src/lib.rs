@@ -12,6 +12,7 @@ pub mod bigint;
 pub mod bigstep;
 pub mod check;
 pub mod eval;
+pub mod fold_meaning;
 pub mod input;
 pub mod input_exec;
 pub mod input_proof;
