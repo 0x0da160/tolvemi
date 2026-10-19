@@ -51,6 +51,9 @@ pub struct XFunc {
 
 pub struct XProg {
     pub funcs: Seq<XFunc>,
+    /// DAG のランク証明書と rec の印（核の Prog と同じ。呼出しの型付けに使う）。
+    pub rank: Seq<nat>,
+    pub rec: Seq<bool>,
     pub entry: nat,
 }
 
@@ -391,11 +394,13 @@ pub open spec fn embed_prog(p: Prog) -> XProg {
             p.funcs.len(),
             |i: int| XFunc { params: p.funcs[i].params, ret: p.funcs[i].ret, body: embed(p.funcs[i].body) },
         ),
+        rank: p.rank,
+        rec: p.rec,
         entry: p.entry,
     }
 }
 
-proof fn embed_args_len(es: Seq<Expr>, i: nat)
+pub proof fn embed_args_len(es: Seq<Expr>, i: nat)
     ensures
         embed_args(es, i).len() == (if i >= es.len() { 0 } else { (es.len() - i) as nat }),
     decreases es.len() - i,
@@ -405,7 +410,7 @@ proof fn embed_args_len(es: Seq<Expr>, i: nat)
     }
 }
 
-proof fn embed_args_at(es: Seq<Expr>, i: nat, k: nat)
+pub proof fn embed_args_at(es: Seq<Expr>, i: nat, k: nat)
     requires
         i <= k < es.len(),
     ensures

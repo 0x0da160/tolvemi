@@ -34,3 +34,4 @@ pub mod value;
 pub mod xmeaning;
 pub mod xsem;
 pub mod xshort;
+pub mod xtyping;
