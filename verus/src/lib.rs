@@ -31,4 +31,6 @@ pub mod surface;
 pub mod syntax;
 pub mod syntax_proof;
 pub mod value;
+pub mod xmeaning;
 pub mod xsem;
+pub mod xshort;
