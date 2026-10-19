@@ -77,6 +77,8 @@ pub enum Kw {
     All,
     Find,
     SortBy,
+    /// v1.6：loop（文脈キーワード。式の位置で直後が `(` か `<` のとき語として読む。loop は型引数を持たないので `<` は読めず、それ以外は変数）
+    Loop,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -138,6 +140,7 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::All => seq!['a', 'l', 'l'],
         Kw::Find => seq!['f', 'i', 'n', 'd'],
         Kw::SortBy => seq!['s', 'o', 'r', 't', '_', 'b', 'y'],
+        Kw::Loop => seq!['l', 'o', 'o', 'p'],
     }
 }
 
@@ -252,6 +255,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::CharOf)
         } else if c4(s, 'f', 'i', 'n', 'd') {
             Some(Kw::Find)
+        } else if c4(s, 'l', 'o', 'o', 'p') {
+            Some(Kw::Loop)
         } else {
             None
         }
@@ -453,10 +458,10 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
 }
 
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
-/// v1.5 の hof の語も、同じく変数・引数・束縛の名前に使える。
+/// v1.5 の hof の語と v1.6 の loop も、同じく変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
     kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry || k == Kw::Ok || k == Kw::Err
-        || kw_hf(k) is Some
+        || kw_hf(k) is Some || k == Kw::Loop
 }
 
 /// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
@@ -593,6 +598,8 @@ pub enum Sx {
     SumMatch(Box<Sx>, Seq<(Spat, Sx)>),
     /// v1.5：hof(xs, |x| e)（hof の語、被験の列、binder、本体）。binder は IDENT か文脈キーワード。
     Hof(Hf, Box<Sx>, Seq<char>, Box<Sx>),
+    /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）。binder は IDENT か文脈キーワード。
+    Loop(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。束縛の名前は bind（IDENT か文脈キーワード。`_` も名前として読む）。
@@ -735,6 +742,13 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         Sx::Hof(h, l, x, b) => seq![Tok::Kw(hkw(h)), Tok::Sym('(')] + te(
             *l,
             seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
+        ),
+        Sx::Loop(i, m, x, b) => seq![Tok::Kw(Kw::Loop), Tok::Sym('(')] + te(
+            *i,
+            seq![Tok::Sym(',')] + te(
+                *m,
+                seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
+            ),
         ),
     }
 }
@@ -1044,6 +1058,13 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
         Sx::Hof(h, l, x, b) => kwt(hkw(h)) + (seq!['('] + fe(
             *l,
             seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
+        )),
+        Sx::Loop(i, m, x, b) => kwt(Kw::Loop) + (seq!['('] + fe(
+            *i,
+            seq![',', ' '] + fe(
+                *m,
+                seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
+            ),
         )),
     }
 }
@@ -1750,6 +1771,37 @@ pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                     } else {
                         None
                     }
+                } else if k == Kw::Loop {
+                    // loop(init, max, |x| b)：語の直後が `(`（loop は `<` の形を持たない）。初期値、上限、binder、本体、閉じ括弧。
+                    if sym(ts, i + 1, '(') {
+                        match pe(ts, i + 2, d1, td) {
+                            Some((a, j)) => if sym(ts, j, ',') {
+                                match pe(ts, j + 1, d1, td) {
+                                    Some((m, q)) => if sym(ts, q, ',') && sym(ts, q + 1, '|') && sym(ts, q + 3, '|') {
+                                        match bdt(ts, q + 2) {
+                                            Some(x) => match pe(ts, q + 4, d1, td) {
+                                                Some((b, u)) => if sym(ts, u, ')') {
+                                                    Some((Sx::Loop(Box::new(a), Box::new(m), x, Box::new(b)), u + 1))
+                                                } else {
+                                                    None
+                                                },
+                                                None => None,
+                                            },
+                                            None => None,
+                                        }
+                                    } else {
+                                        None
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
                 } else if kw_hf(k) is Some {
                     // hof(e, |x| b)：語の直後が `(`（hof は `<` の形を持たない）。被験の列、binder、本体、閉じ括弧。
                     if sym(ts, i + 1, '(') {
@@ -2242,6 +2294,7 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::Rec(r, fs, b) => ident_ok(r) && bfs(fs, 0, d1, td) && bopt(b, d1, td),
             Sx::SumMatch(m, arms) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
             Sx::Hof(_, l, x, b) => name_ok(x) && bx(*l, d1, td) && bx(*b, d1, td),
+            Sx::Loop(i, m, x, b) => name_ok(x) && bx(*i, d1, td) && bx(*m, d1, td) && bx(*b, d1, td),
             _ => true,
         }
     }

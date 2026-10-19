@@ -483,6 +483,7 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::Rec(..) => fe_lex_rec(e, d, td, k, u),
         Sx::SumMatch(..) => fe_lex_sumatch(e, d, td, k, u),
         Sx::Hof(..) => fe_lex_hof(e, d, td, k, u),
+        Sx::Loop(..) => fe_lex_loop(e, d, td, k, u),
     }
 }
 
@@ -712,6 +713,7 @@ proof fn fe_lex_if(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
+#[verifier::rlimit(15)]
 proof fn fe_lex_fold(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         e is Fold,
@@ -1132,6 +1134,46 @@ proof fn fe_lex_hof(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
+/// 字句の補題：`loop(i, m, |x| b)`（後ろの字句は k。閉じ括弧 `)` が後ろを区切る）。
+proof fn fe_lex_loop(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is Loop,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::Loop(i, m, x, b) => {
+            ls(')', k, u);
+            fe_lex(*b, d1, td, seq![')'] + k, seq![Tok::Sym(')')] + u);
+            let kb = fe(*b, seq![')'] + k);
+            let ub = te(*b, seq![Tok::Sym(')')] + u);
+            // ", |x| " の後に本体
+            lbar(x, kb, ub);
+            let km = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + kb));
+            let um = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + ub;
+            // ", " の後に上限
+            fe_lex(*m, d1, td, km, um);
+            let km2 = fe(*m, km);
+            let um2 = te(*m, um);
+            lcs(km2, um2);
+            // "(" の後に初期値
+            fe_lex(*i, d1, td, seq![',', ' '] + km2, seq![Tok::Sym(',')] + um2);
+            let ki = fe(*i, seq![',', ' '] + km2);
+            let ui = te(*i, seq![Tok::Sym(',')] + um2);
+            ls('(', ki, ui);
+            lk(Kw::Loop, seq!['('] + ki, seq![Tok::Sym('(')] + ui);
+            assert(fe(e, k) =~= kwt(Kw::Loop) + (seq!['('] + ki));
+            assert(seq![Tok::Kw(Kw::Loop)] + (seq![Tok::Sym('(')] + ui) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
 /// 名前の並びが空でないとき、名前は IDENT で、先頭は ident_ok。
 proof fn nms_head(fs: Seq<Seq<char>>)
     requires
@@ -1444,6 +1486,7 @@ proof fn dsafe(tc: bool, k: Seq<char>)
 }
 
 /// レコード型の field の並び fs[i..] の字句。最後の field の後ろは閉じ部分（dclose）。
+#[verifier::rlimit(15)]
 pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
     requires
         bfds(fs, i, td),
@@ -1983,6 +2026,7 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         Sx::Rec(..) => fe_app_rec(e, k),
         Sx::SumMatch(..) => fe_app_sumatch(e, k),
         Sx::Hof(..) => fe_app_hof(e, k),
+        Sx::Loop(..) => fe_app_loop(e, k),
         _ => {},
     }
     assert(fe(e, k) =~= fe(e, z) + k);
@@ -2125,6 +2169,38 @@ proof fn fe_app_hof(e: Sx, k: Seq<char>)
         fe_app(*l, kl);
         fe_app(*l, zl);
         assert(fe(*l, kl) =~= fe(*l, zl) + k);
+        assert(fe(e, k) =~= fe(e, z) + k);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+/// loop の印字は後ろの続き k に対して結合する。
+proof fn fe_app_loop(e: Sx, k: Seq<char>)
+    requires
+        e is Loop,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Loop(i, m, x, b) = e {
+        fe_app(*b, seq![')'] + k);
+        fe_app(*b, seq![')'] + z);
+        let kb = fe(*b, seq![')'] + k);
+        let zb = fe(*b, seq![')'] + z);
+        assert(kb =~= zb + k);
+        let km = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + kb));
+        let zm = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + zb));
+        assert(km =~= zm + k);
+        fe_app(*m, km);
+        fe_app(*m, zm);
+        assert(fe(*m, km) =~= fe(*m, zm) + k);
+        let ki = seq![',', ' '] + fe(*m, km);
+        let zi = seq![',', ' '] + fe(*m, zm);
+        assert(ki =~= zi + k);
+        fe_app(*i, ki);
+        fe_app(*i, zi);
+        assert(fe(*i, ki) =~= fe(*i, zi) + k);
         assert(fe(e, k) =~= fe(e, z) + k);
     }
     assert(fe(e, k) =~= fe(e, z) + k);

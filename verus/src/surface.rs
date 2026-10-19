@@ -69,6 +69,8 @@ pub enum SExpr {
     SumMatch(Box<SExpr>, Vec<SPat>, Vec<SExpr>),
     /// v1.5：hof(e, |x| b)（hof の語、被験の列、binder、本体）
     Hof(Hf, Box<SExpr>, Vec<char>, Box<SExpr>),
+    /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）
+    Loop(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。
@@ -122,6 +124,7 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
         SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
         SExpr::Hof(h, l, x, b) => Sx::Hof(h, Box::new(vx(*l)), x@, Box::new(vx(*b))),
+        SExpr::Loop(i, m, x, b) => Sx::Loop(Box::new(vx(*i)), Box::new(vx(*m)), x@, Box::new(vx(*b))),
     }
 }
 
@@ -459,6 +462,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::CharOf)
         } else if c4e(w, 'f', 'i', 'n', 'd') {
             Some(Kw::Find)
+        } else if c4e(w, 'l', 'o', 'o', 'p') {
+            Some(Kw::Loop)
         } else {
             None
         }
@@ -1178,7 +1183,7 @@ fn soft_e(k: Kw) -> (r: bool)
 {
     match k {
         Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry | Kw::Ok | Kw::Err => true,
-        Kw::Map | Kw::Filter | Kw::Any | Kw::All | Kw::Find | Kw::SortBy => true,
+        Kw::Map | Kw::Filter | Kw::Any | Kw::All | Kw::Find | Kw::SortBy | Kw::Loop => true,
         _ => builtin_of(k).is_some(),
     }
 }
@@ -1382,6 +1387,7 @@ pub fn pp_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::All => pe_hof_e(ts, i, d, td, Hf::All),
             Kw::Find => pe_hof_e(ts, i, d, td, Hf::Find),
             Kw::SortBy => pe_hof_e(ts, i, d, td, Hf::SortBy),
+            Kw::Loop => pe_loop_e(ts, i, d, td),
             _ => pe_builtin_e(ts, i, d, td),
             }
         },
@@ -1879,6 +1885,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
                 && k != Kw::Pair && k != Kw::Let && k != Kw::If && k != Kw::Fold && k != Kw::MatchOption
                 && k != Kw::Ok && k != Kw::Err && k != Kw::MatchResult
                 && k != Kw::Map && k != Kw::Filter && k != Kw::Any && k != Kw::All && k != Kw::Find && k != Kw::SortBy
+                && k != Kw::Loop
         }),
     ensures
         pp_ok(ts@, i, d, td, r),
@@ -2247,6 +2254,52 @@ fn pe_hof_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize, h: Hf) -> (r: Option<
         return None;
     }
     Some((SExpr::Hof(h, Box::new(l), x, Box::new(b)), m + 1))
+}
+
+/// loop の本体（位置 i は loop の語。語の後に `(`、初期値、`,`、上限、`,`、`|x|`、本体、閉じ括弧）。
+fn pe_loop_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(Kw::Loop),
+        sym(vtoks(ts@), (i + 1) as nat, '(') || sym(vtoks(ts@), (i + 1) as nat, '<'),
+    ensures
+        pp_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    if !sym_e(ts, i + 1, '(') {
+        return None;
+    }
+    let (a, j) = match pe_e(ts, i + 2, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, j, ',') {
+        return None;
+    }
+    let (m, q) = match pe_e(ts, j + 1, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !(sym_e(ts, q, ',') && sym_e(ts, q + 1, '|') && sym_e(ts, q + 3, '|')) {
+        return None;
+    }
+    let x = match bdt_e(ts, q + 2) {
+        Some(x) => x,
+        None => return None,
+    };
+    if q + 4 > ts.len() {
+        return None;
+    }
+    let (b, u) = match pe_e(ts, q + 4, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, u, ')') {
+        return None;
+    }
+    Some((SExpr::Loop(Box::new(a), Box::new(m), x, Box::new(b)), u + 1))
 }
 
 /// 文脈語 `match` の綴り（予約語ではない識別子として読む）。
@@ -3298,6 +3351,7 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
         Kw::Any => push3(out, 'a', 'n', 'y'),
         Kw::All => push3(out, 'a', 'l', 'l'),
         Kw::Find => push4(out, 'f', 'i', 'n', 'd'),
+        Kw::Loop => push4(out, 'l', 'o', 'o', 'p'),
         Kw::SortBy => {
             push6(out, 's', 'o', 'r', 't', '_', 'b');
             push1(out, 'y');
@@ -3545,6 +3599,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Rec(..) => push_rec(out, e),
         SExpr::SumMatch(..) => push_summatch(out, e),
         SExpr::Hof(..) => push_hof(out, e),
+        SExpr::Loop(..) => push_loop(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -3896,6 +3951,37 @@ fn push_hof(out: &mut Vec<char>, e: &SExpr)
             fe_app(vx(**b), seq![')'] + z);
             let kn = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
             fe_app(vx(**m), kn);
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
+/// loop の印字（`loop(初期値, 上限, |s| 本体)`）。
+fn push_loop(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Loop,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Loop(i, m, x, b) = e {
+        push_kw(out, Kw::Loop);
+        push1(out, '(');
+        push_e(out, i);
+        push2(out, ',', ' ');
+        push_e(out, m);
+        push3(out, ',', ' ', '|');
+        append_chars(out, x);
+        push2(out, '|', ' ');
+        push_e(out, b);
+        push1(out, ')');
+        proof {
+            fe_app(vx(**b), seq![')'] + z);
+            let km = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
+            fe_app(vx(**m), km);
+            fe_app(vx(**i), seq![',', ' '] + fe(vx(**m), km));
             assert(out@ =~= o + fe(vx(*e), z));
         }
     }

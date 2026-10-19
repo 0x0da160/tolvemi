@@ -125,6 +125,8 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
         Sx::SumMatch(..) => None,
         // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
         Sx::Hof(..) => None,
+        // loop も名前解決の対象外（字句・構文の段階だけで扱う）。
+        Sx::Loop(..) => None,
     }
 }
 
@@ -630,6 +632,8 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         SExpr::SumMatch(..) => None,
         // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
         SExpr::Hof(..) => None,
+        // loop も名前解決の対象外（字句・構文の段階だけで扱う）。
+        SExpr::Loop(..) => None,
     }
 }
 

@@ -277,6 +277,7 @@ pub proof fn te_app(e: Sx, k: Seq<Tok>)
         Sx::Rec(..) => te_app_rec(e, k),
         Sx::SumMatch(..) => te_app_sumatch(e, k),
         Sx::Hof(..) => te_app_hof(e, k),
+        Sx::Loop(..) => te_app_loop(e, k),
         _ => {},
     }
     assert(te(e, k) =~= te(e, z) + k);
@@ -436,6 +437,32 @@ proof fn te_app_hof(e: Sx, k: Seq<Tok>)
         assert(mid + te(*b, kb) =~= (mid + te(*b, zb)) + k);
         te_app(*l, mid + te(*b, kb));
         te_app(*l, mid + te(*b, zb));
+    }
+    assert(te(e, k) =~= te(e, z) + k);
+}
+
+proof fn te_app_loop(e: Sx, k: Seq<Tok>)
+    requires
+        e is Loop,
+    ensures
+        te(e, k) == te(e, Seq::empty()) + k,
+        te(e, Seq::empty()).len() > 0,
+        not_sym(te(e, Seq::empty())[0]),
+    decreases e, 0nat,
+{
+    let z = Seq::<Tok>::empty();
+    if let Sx::Loop(i, m, x, b) = e {
+        let kb = seq![Tok::Sym(')')] + k;
+        let zb = seq![Tok::Sym(')')] + z;
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
+        te_app(*b, kb);
+        te_app(*b, zb);
+        assert(mid + te(*b, kb) =~= (mid + te(*b, zb)) + k);
+        te_app(*m, mid + te(*b, kb));
+        te_app(*m, mid + te(*b, zb));
+        assert(seq![Tok::Sym(',')] + te(*m, mid + te(*b, kb)) =~= (seq![Tok::Sym(',')] + te(*m, mid + te(*b, zb))) + k);
+        te_app(*i, seq![Tok::Sym(',')] + te(*m, mid + te(*b, kb)));
+        te_app(*i, seq![Tok::Sym(',')] + te(*m, mid + te(*b, zb)));
     }
     assert(te(e, k) =~= te(e, z) + k);
 }
@@ -1322,6 +1349,7 @@ pub proof fn pp_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
         Sx::Rec(..) => pp_complete_rec(ts, i, d, td, e, k),
         Sx::SumMatch(..) => pp_complete_sumatch(ts, i, d, td, e, k),
         Sx::Hof(..) => pp_complete_hof(ts, i, d, td, e, k),
+        Sx::Loop(..) => pp_complete_loop(ts, i, d, td, e, k),
     }
 }
 
@@ -1732,6 +1760,45 @@ proof fn pp_complete_hof(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
         pe_complete(ts, j + 4, d1, td, *b, kb);
         te_app(*b, kb);
         at_end(ts, j + 4, te(*b, z), kb);
+        hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym(')')], k);
+    }
+}
+
+/// loop の完全性：`loop(i, m, |x| b)` の token 列から、pp が同じ式を読む（語の直後は `(`）。
+proof fn pp_complete_loop(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+    requires
+        pp_pre(ts, i, d, td, e, k),
+        e is Loop,
+    ensures
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
+{
+    if let Sx::Loop(a, m, x, b) = e {
+        let z = Seq::<Tok>::empty();
+        let d1 = (d - 1) as nat;
+        let kb = seq![Tok::Sym(')')] + k;
+        let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
+        let km = mid + te(*b, kb);
+        let ki = seq![Tok::Sym(',')] + te(*m, km);
+        hd(ts, i, seq![Tok::Kw(Kw::Loop), Tok::Sym('(')], te(*a, ki));
+        pe_complete(ts, i + 2, d1, td, *a, ki);
+        te_app(*a, ki);
+        at_end(ts, i + 2, te(*a, z), ki);
+        let j = (ts.len() - ki.len()) as nat;
+        hd(ts, j, seq![Tok::Sym(',')], te(*m, km));
+        pe_complete(ts, j + 1, d1, td, *m, km);
+        te_app(*m, km);
+        at_end(ts, j + 1, te(*m, z), km);
+        let p = (ts.len() - km.len()) as nat;
+        hd(ts, p, mid, te(*b, kb));
+        assert(ts[p + 0 as int] == mid[0]);
+        assert(ts[p + 1 as int] == mid[1]);
+        assert(ts[p + 2 as int] == mid[2]);
+        assert(ts[p + 3 as int] == mid[3]);
+        bdt_word(ts, p + 2, x);
+        pe_complete(ts, p + 4, d1, td, *b, kb);
+        te_app(*b, kb);
+        at_end(ts, p + 4, te(*b, z), kb);
         hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym(')')], k);
     }
 }
@@ -3204,6 +3271,8 @@ pub proof fn pp_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     pp_sound_inj(ts, i, d, td);
                 } else if k == Kw::MatchResult {
                     pp_sound_matchr(ts, i, d, td);
+                } else if k == Kw::Loop {
+                    pp_sound_loop(ts, i, d, td);
                 } else if kw_hf(k) is Some {
                     hf_kw_inv(k);
                     assert(soft(k));
@@ -3534,6 +3603,53 @@ proof fn pp_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                                         assert(suf(ts, q) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, u + 1)));
                                         assert(suf(ts, i) =~= te(e, suf(ts, u + 1)));
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// loop の健全性：語の直後が `(` で、初期値、`,`、上限、`,`、`|x|`、本体、`)` の形なら、pp はその式を読む。
+/// 語の直後が `<` なら loop は型引数を持たないので、pp は読まない（None）。
+proof fn pp_sound_loop(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    requires
+        d > 0,
+        i < ts.len(),
+        ts[i as int] == Tok::Kw(Kw::Loop),
+        sym(ts, i + 1, '(') || sym(ts, i + 1, '<'),
+    ensures
+        pp_post(ts, i, d, td),
+    decreases d, 0nat, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    if sym(ts, i + 1, '(') {
+        pe_sound(ts, i + 2, d1, td);
+        if let Some((a, j)) = pe(ts, i + 2, d1, td) {
+            if sym(ts, j, ',') {
+                pe_sound(ts, j + 1, d1, td);
+                if let Some((m, q)) = pe(ts, j + 1, d1, td) {
+                    if sym(ts, q, ',') && sym(ts, q + 1, '|') && sym(ts, q + 3, '|') {
+                        if let Some(x) = bdt(ts, q + 2) {
+                            bdt_sound(ts, q + 2);
+                            pe_sound(ts, q + 4, d1, td);
+                            if let Some((b, u)) = pe(ts, q + 4, d1, td) {
+                                if sym(ts, u, ')') {
+                                    pfx1(ts, i);
+                                    pfx1(ts, i + 1);
+                                    pfx1(ts, j);
+                                    pfx1(ts, q);
+                                    pfx1(ts, q + 1);
+                                    pfx1(ts, q + 2);
+                                    pfx1(ts, q + 3);
+                                    pfx1(ts, u);
+                                    let e = pp(ts, i, d, td)->Some_0.0;
+                                    let mid = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')];
+                                    assert(suf(ts, q) =~= mid + te(b, seq![Tok::Sym(')')] + suf(ts, u + 1)));
+                                    assert(suf(ts, i) =~= te(e, suf(ts, u + 1)));
                                 }
                             }
                         }
