@@ -65,6 +65,24 @@ pub enum SExpr {
     Fld(Box<SExpr>, Vec<Vec<char>>),
     /// v1.1：R { f: e, ..b }（名前と式は同じ長さの二つの列。省略できる base）
     Rec(Vec<char>, Vec<Vec<char>>, Vec<SExpr>, Option<Box<SExpr>>),
+    /// v1.4：match e { P => a, ... }（被験式と、枝のパターンと本体の二つの列。同じ長さで空でない）
+    SumMatch(Box<SExpr>, Vec<SPat>, Vec<SExpr>),
+}
+
+/// v1.4：match の枝の左辺（パターン）。
+pub enum SPat {
+    /// CTOR か CTOR "(" bind ("," bind)* ")"（構築子の名前と束縛の並び）
+    Ctor(Vec<char>, Vec<Vec<char>>),
+    /// ok "(" bind ")"
+    Ok(Vec<char>),
+    /// err "(" bind ")"
+    Err(Vec<char>),
+    /// some "(" bind ")"
+    Some(Vec<char>),
+    /// none
+    None,
+    /// _
+    Wild,
 }
 
 pub enum SDecl {
@@ -100,6 +118,7 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::MatchR(m, x, a, y, b) => Sx::MatchR(Box::new(vx(*m)), x@, Box::new(vx(*a)), y@, Box::new(vx(*b))),
         SExpr::Fld(a, ns) => Sx::Fld(Box::new(vx(*a)), vnames(ns@)),
         SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
+        SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
     }
 }
 
@@ -112,6 +131,25 @@ pub open spec fn vfields(ns: Seq<Vec<char>>, es: Seq<SExpr>) -> Seq<(Seq<char>, 
     decreases es,
 {
     Seq::new(ns.len(), |i: int| (ns[i]@, if 0 <= i < es.len() { vx(es[i]) } else { Sx::Unit }))
+}
+
+/// match の枝の左辺（パターン）の spec 値。
+pub open spec fn vpat(p: SPat) -> Spat {
+    match p {
+        SPat::Ctor(c, bs) => Spat::Ctor(c@, vnames(bs@)),
+        SPat::Ok(x) => Spat::Ok(x@),
+        SPat::Err(x) => Spat::Err(x@),
+        SPat::Some(x) => Spat::Some(x@),
+        SPat::None => Spat::None,
+        SPat::Wild => Spat::Wild,
+    }
+}
+
+/// match の枝の並び（パターンの列と本体の列から。二つの列は同じ長さ）。
+pub open spec fn varms(ps: Seq<SPat>, es: Seq<SExpr>) -> Seq<(Spat, Sx)>
+    decreases es,
+{
+    Seq::new(ps.len(), |i: int| (vpat(ps[i]), if 0 <= i < es.len() { vx(es[i]) } else { Sx::Unit }))
 }
 
 /// レコード式の省略できる base。
@@ -1069,7 +1107,8 @@ fn sym_e(ts: &Vec<ETok>, i: usize, c: char) -> (r: bool)
 fn kwat_e(ts: &Vec<ETok>, i: usize, k: Kw) -> (r: bool)
     requires
         small(ts@),
-        k == Kw::Fn || k == Kw::Entry || k == Kw::In,
+        k == Kw::Fn || k == Kw::Entry || k == Kw::In || k == Kw::Ok || k == Kw::Err || k == Kw::Some
+            || k == Kw::None,
     ensures
         r == kwat(vtoks(ts@), i as nat, k),
 {
@@ -1081,6 +1120,10 @@ fn kwat_e(ts: &Vec<ETok>, i: usize, k: Kw) -> (r: bool)
             (ETok::Kw(Kw::Fn), Kw::Fn) => true,
             (ETok::Kw(Kw::Entry), Kw::Entry) => true,
             (ETok::Kw(Kw::In), Kw::In) => true,
+            (ETok::Kw(Kw::Ok), Kw::Ok) => true,
+            (ETok::Kw(Kw::Err), Kw::Err) => true,
+            (ETok::Kw(Kw::Some), Kw::Some) => true,
+            (ETok::Kw(Kw::None), Kw::None) => true,
             _ => false,
         }
     } else {
@@ -1288,7 +1331,18 @@ pub fn pp_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
         } else {
             None
         },
-        ETok::Id(_) => pid_e(ts, i, d, td),
+        ETok::Id(x) => if mword_e(x) {
+            proof {
+                mword_word();
+                reveal_with_fuel(pp, 1);
+            }
+            match pm_e(ts, i, d, td) {
+                Some(r) => Some(r),
+                None => pid_e(ts, i, d, td),
+            }
+        } else {
+            pid_e(ts, i, d, td)
+        },
         ETok::Kw(k) => if soft_e(*k) && !sym_e(ts, i + 1, '(') && !sym_e(ts, i + 1, '<') {
             Some((SExpr::Var(kwt_e(*k)), i + 1))
         } else {
@@ -1320,6 +1374,7 @@ fn pid_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, us
         i < ts.len(),
         d > 0,
         ts@[i as int] is Id,
+        vtok(ts@[i as int]) == Tok::Id(mword()) ==> pm(vtoks(ts@), i as nat, d as nat, td as nat) is None,
     ensures
         pp_ok(ts@, i, d, td, r),
     decreases d, 0nat,
@@ -2130,6 +2185,289 @@ fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExp
     Some((SExpr::Match(Box::new(m), Box::new(n), x, Box::new(b)), u + 1))
 }
 
+/// 文脈語 `match` の綴り（予約語ではない識別子として読む）。
+fn mword_e(x: &Vec<char>) -> (r: bool)
+    ensures
+        r == (x@ == mword()),
+{
+    let mut w: Vec<char> = Vec::new();
+    w.push('m');
+    w.push('a');
+    w.push('t');
+    w.push('c');
+    w.push('h');
+    proof {
+        assert(w@ =~= mword());
+    }
+    eq_chars(x, &w)
+}
+
+/// 位置 i の `_`（ただの識別子として読む）。
+fn wild_e(ts: &Vec<ETok>, i: usize) -> (r: bool)
+    requires
+        small(ts@),
+    ensures
+        r == (i < ts.len() && vtok(ts@[i as int]) == Tok::Id(seq!['_'])),
+{
+    if i < ts.len() {
+        match &ts[i] {
+            ETok::Id(x) => {
+                let mut w: Vec<char> = Vec::new();
+                w.push('_');
+                proof {
+                    assert(w@ =~= seq!['_']);
+                }
+                eq_chars(x, &w)
+            },
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+/// `kw "(" bind ")"` の bind（位置 i は kw。閉じ括弧の後ろの位置は i + 4）。
+fn pwrap_e(ts: &Vec<ETok>, i: usize, k: Kw) -> (r: Option<Vec<char>>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+        k == Kw::Ok || k == Kw::Err || k == Kw::Some,
+    ensures
+        match r {
+            Some(x) => kwat(vtoks(ts@), i as nat, k) && sym(vtoks(ts@), (i + 1) as nat, '(') && bdt(
+                vtoks(ts@),
+                (i + 2) as nat,
+            ) == Some(x@) && sym(vtoks(ts@), (i + 3) as nat, ')'),
+            None => !(kwat(vtoks(ts@), i as nat, k) && sym(vtoks(ts@), (i + 1) as nat, '(') && bdt(
+                vtoks(ts@),
+                (i + 2) as nat,
+            ) is Some && sym(vtoks(ts@), (i + 3) as nat, ')')),
+        },
+{
+    if kwat_e(ts, i, k) && sym_e(ts, i + 1, '(') && sym_e(ts, i + 3, ')') {
+        bdt_e(ts, i + 2)
+    } else {
+        None
+    }
+}
+
+/// 構築子のパターンの束縛の並び `bind ("," bind)* ")"`（位置 i から。閉じ括弧の後ろの位置）。
+fn pbinds_e(ts: &Vec<ETok>, i: usize) -> (r: Option<(Vec<Vec<char>>, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((bs, j)) => pbinds(vtoks(ts@), i as nat) == Some((vnames(bs@), j as nat)) && j <= ts.len(),
+            None => pbinds(vtoks(ts@), i as nat) is None,
+        },
+{
+    let ghost tv = vtoks(ts@);
+    let mut bs: Vec<Vec<char>> = Vec::new();
+    let mut k = i;
+    proof {
+        assert(vnames(bs@) =~= Seq::<Seq<char>>::empty());
+        if let Some((w, m)) = pbinds(tv, i as nat) {
+            assert(Seq::<Seq<char>>::empty() + w =~= w);
+        }
+    }
+    loop
+        invariant
+            small(ts@),
+            tv == vtoks(ts@),
+            k <= ts.len(),
+            pbinds(tv, i as nat) == cat(vnames(bs@), pbinds(tv, k as nat)),
+        decreases ts.len() - k,
+    {
+        proof {
+            reveal_with_fuel(pbinds, 1);
+        }
+        let x = match bdt_e(ts, k) {
+            Some(x) => x,
+            None => return None,
+        };
+        if sym_e(ts, k + 1, ')') {
+            let ghost before = vnames(bs@);
+            let ghost xv = x@;
+            bs.push(x);
+            proof {
+                assert(vnames(bs@) =~= before + seq![xv]);
+                assert(pbinds(tv, k as nat) == Some((seq![xv], (k + 2) as nat)));
+            }
+            return Some((bs, k + 2));
+        } else if sym_e(ts, k + 1, ',') {
+            let ghost before = vnames(bs@);
+            let ghost xv = x@;
+            bs.push(x);
+            proof {
+                assert(vnames(bs@) =~= before + seq![xv]);
+                assert(pbinds(tv, k as nat) == cat(seq![xv], pbinds(tv, (k + 2) as nat)));
+                cat_app(before, seq![xv], pbinds(tv, (k + 2) as nat));
+            }
+            k = k + 2;
+        } else {
+            return None;
+        }
+    }
+}
+
+/// 枝の左辺（パターン）。位置 i はパターンの先頭で、戻り値はパターンと後ろの位置。
+fn ppat_e(ts: &Vec<ETok>, i: usize) -> (r: Option<(SPat, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((p, j)) => ppat(vtoks(ts@), i as nat) == Some((vpat(p), j as nat)) && j <= ts.len(),
+            None => ppat(vtoks(ts@), i as nat) is None,
+        },
+{
+    if let Some(c) = cidt_e(ts, i) {
+        if sym_e(ts, i + 1, '(') {
+            match pbinds_e(ts, i + 2) {
+                Some((bs, j)) => Some((SPat::Ctor(c, bs), j)),
+                None => None,
+            }
+        } else {
+            proof {
+                assert(vnames(Seq::<Vec<char>>::empty()) =~= Seq::<Seq<char>>::empty());
+            }
+            Some((SPat::Ctor(c, Vec::new()), i + 1))
+        }
+    } else if let Some(x) = pwrap_e(ts, i, Kw::Ok) {
+        Some((SPat::Ok(x), i + 4))
+    } else if let Some(x) = pwrap_e(ts, i, Kw::Err) {
+        Some((SPat::Err(x), i + 4))
+    } else if let Some(x) = pwrap_e(ts, i, Kw::Some) {
+        Some((SPat::Some(x), i + 4))
+    } else if kwat_e(ts, i, Kw::None) {
+        Some((SPat::None, i + 1))
+    } else if wild_e(ts, i) {
+        Some((SPat::Wild, i + 1))
+    } else {
+        None
+    }
+}
+
+/// 枝の並び（一つ以上）と、閉じ括弧 `}` の後ろの位置（位置 i は最初の枝のパターン）。
+fn parm1_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<SPat>, Vec<SExpr>, usize)>)
+    requires
+        small(ts@),
+        i <= ts.len(),
+    ensures
+        match r {
+            Some((ps, es, k)) => parm1(vtoks(ts@), i as nat, d as nat, td as nat) == Some((varms(ps@, es@), k as nat))
+                && k <= ts.len(),
+            None => parm1(vtoks(ts@), i as nat, d as nat, td as nat) is None,
+        },
+    decreases d, 3nat,
+{
+    let ghost tv = vtoks(ts@);
+    let mut ps: Vec<SPat> = Vec::new();
+    let mut es: Vec<SExpr> = Vec::new();
+    let mut k = i;
+    proof {
+        assert(varms(ps@, es@) =~= Seq::<(Spat, Sx)>::empty());
+        if let Some((w, m)) = parm1(tv, i as nat, d as nat, td as nat) {
+            assert(Seq::<(Spat, Sx)>::empty() + w =~= w);
+        }
+    }
+    loop
+        invariant
+            small(ts@),
+            tv == vtoks(ts@),
+            k <= ts.len(),
+            ps@.len() == es@.len(),
+            parm1(tv, i as nat, d as nat, td as nat) == cat(varms(ps@, es@), parm1(tv, k as nat, d as nat, td as nat)),
+        decreases ts.len() - k,
+    {
+        proof {
+            reveal_with_fuel(parm1, 1);
+        }
+        let (p, j) = match ppat_e(ts, k) {
+            Some(r) => r,
+            None => return None,
+        };
+        if !(sym_e(ts, j, '=') && sym_e(ts, j + 1, '>')) {
+            return None;
+        }
+        let (b, m) = match pe_e(ts, j + 2, d, td) {
+            Some(r) => r,
+            None => return None,
+        };
+        if sym_e(ts, m, '}') {
+            let ghost ps0 = ps@;
+            let ghost es0 = es@;
+            let ghost pv = vpat(p);
+            let ghost bv = vx(b);
+            ps.push(p);
+            es.push(b);
+            proof {
+                assert(ps@.subrange(0, ps0.len() as int) =~= ps0);
+                assert(es@.subrange(0, es0.len() as int) =~= es0);
+                varms_push(ps0, es0, ps@, es@);
+                assert(parm1(tv, k as nat, d as nat, td as nat) == Some((seq![(pv, bv)], (m + 1) as nat)));
+                assert(varms(ps@, es@) =~= varms(ps0, es0) + seq![(pv, bv)]);
+            }
+            return Some((ps, es, m + 1));
+        } else if sym_e(ts, m, ',') && k < m {
+            let ghost ps0 = ps@;
+            let ghost es0 = es@;
+            let ghost pv = vpat(p);
+            let ghost bv = vx(b);
+            ps.push(p);
+            es.push(b);
+            proof {
+                assert(ps@.subrange(0, ps0.len() as int) =~= ps0);
+                assert(es@.subrange(0, es0.len() as int) =~= es0);
+                varms_push(ps0, es0, ps@, es@);
+                assert(parm1(tv, k as nat, d as nat, td as nat) == cat(
+                    seq![(pv, bv)],
+                    parm1(tv, (m + 1) as nat, d as nat, td as nat),
+                ));
+                assert(varms(ps@, es@) =~= varms(ps0, es0) + seq![(pv, bv)]);
+                cat_app(varms(ps0, es0), seq![(pv, bv)], parm1(tv, (m + 1) as nat, d as nat, td as nat));
+            }
+            k = m + 1;
+        } else {
+            return None;
+        }
+    }
+}
+
+/// match 式の読み直し（位置 i は文脈語 `match`）。被験式の後ろは `{`、枝の並び、閉じ括弧。
+fn pm_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+    ensures
+        match r {
+            Some((e, j)) => pm(vtoks(ts@), i as nat, d as nat, td as nat) == Some((vx(e), j as nat)) && j <= ts.len(),
+            None => pm(vtoks(ts@), i as nat, d as nat, td as nat) is None,
+        },
+    decreases d, 0nat,
+{
+    proof {
+        reveal_with_fuel(pm, 1);
+    }
+    let (m, j) = match pe_e(ts, i + 1, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, j, '{') {
+        return None;
+    }
+    let (ps, es, k) = match parm1_e(ts, j + 1, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    proof {
+        reveal_with_fuel(vx, 1);
+    }
+    Some((SExpr::SumMatch(Box::new(m), ps, es), k))
+}
+
 fn pe_inj_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
     requires
         nv(vtoks(ts@), i as nat),
@@ -2225,6 +2563,28 @@ fn pe_matchr_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SEx
     Some((SExpr::MatchR(Box::new(m), x, Box::new(a), y, Box::new(b)), u + 1))
 }
 
+/// 枝を一つ足した並び（先頭の並びは元のまま）の varms は、元の varms に一つ足したものと同じ。
+proof fn varms_push(ps0: Seq<SPat>, es0: Seq<SExpr>, ps1: Seq<SPat>, es1: Seq<SExpr>)
+    requires
+        ps0.len() == es0.len(),
+        ps1.len() == ps0.len() + 1,
+        es1.len() == es0.len() + 1,
+        ps1.subrange(0, ps0.len() as int) =~= ps0,
+        es1.subrange(0, es0.len() as int) =~= es0,
+    ensures
+        varms(ps1, es1) == varms(ps0, es0) + seq![(vpat(ps1[ps0.len() as int]), vx(es1[es0.len() as int]))],
+{
+    let n = ps0.len() as int;
+    let x = (vpat(ps1[n]), vx(es1[n]));
+    assert forall|t: int| 0 <= t < n + 1 implies varms(ps1, es1)[t] == (varms(ps0, es0) + seq![x])[t] by {
+        if t < n {
+            assert(ps1[t] == ps0[t]);
+            assert(es1[t] == es0[t]);
+        }
+    }
+    assert(varms(ps1, es1) =~= varms(ps0, es0) + seq![x]);
+}
+
 proof fn vxs_push(a: Vec<SExpr>, b: Vec<SExpr>, e: SExpr)
     requires
         b@ == a@.push(e),
@@ -2238,6 +2598,16 @@ pub open spec fn cat<T>(u: Seq<T>, o: Option<(Seq<T>, nat)>) -> Option<(Seq<T>, 
     match o {
         Some((w, m)) => Some((u + w, m)),
         None => None,
+    }
+}
+
+/// 連結の結合：cat で先に w を付けてから u を付けるのは、u + w を付けるのと同じ。
+proof fn cat_app<T>(u: Seq<T>, w: Seq<T>, o: Option<(Seq<T>, nat)>)
+    ensures
+        cat(u, cat(w, o)) == cat(u + w, o),
+{
+    if let Some((x, m)) = o {
+        assert(u + (w + x) =~= (u + w) + x);
     }
 }
 
@@ -3082,6 +3452,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::MatchR(..) => push_matchr(out, e),
         SExpr::Fld(..) => push_fld(out, e),
         SExpr::Rec(..) => push_rec(out, e),
+        SExpr::SumMatch(..) => push_summatch(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -3410,7 +3781,190 @@ fn push_match(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
-#[verifier::rlimit(50)]
+/// match 式の印字（`match 被験式 { 枝 }`）。
+fn push_summatch(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is SumMatch,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::SumMatch(m, ps, es) = e {
+        push5(out, 'm', 'a', 't', 'c', 'h');
+        push1(out, ' ');
+        push_e(out, m);
+        push3(out, ' ', '{', ' ');
+        push_arms(out, ps, es);
+        proof {
+            reveal_with_fuel(vx, 1);
+            reveal_with_fuel(fe, 1);
+            fe_app(vx(**m), seq![' ', '{', ' '] + farms(varms(ps@, es@), 0, seq![' ', '}']));
+            assert(seq![' ', '}'] + z =~= seq![' ', '}']);
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
+/// 枝の一つの展開（枝 i は「パターン ` => ` 本体」で、後ろは次の枝、最後の枝なら閉じ括弧 tl）。
+proof fn farms_step(v: Seq<(Spat, Sx)>, i: nat, tl: Seq<char>)
+    requires
+        i < v.len(),
+    ensures
+        farms(v, i, tl) == fpat(v[i as int].0, Seq::empty()) + (seq![' ', '=', '>', ' '] + fe(
+            v[i as int].1,
+            Seq::empty(),
+        )) + (if i + 1 == v.len() {
+            tl
+        } else {
+            seq![',', ' '] + farms(v, (i + 1) as nat, tl)
+        }),
+{
+    reveal_with_fuel(farms, 1);
+    let p = v[i as int].0;
+    let body = v[i as int].1;
+    let t = if i + 1 == v.len() { tl } else { seq![',', ' '] + farms(v, (i + 1) as nat, tl) };
+    fe_app(body, t);
+    fpat_app(p, Seq::empty(), seq![' ', '=', '>', ' '] + fe(body, t));
+    assert(Seq::<char>::empty() + (seq![' ', '=', '>', ' '] + fe(body, t)) =~= seq![' ', '=', '>', ' '] + fe(body, t));
+    assert(seq![' ', '=', '>', ' '] + fe(body, t) =~= (seq![' ', '=', '>', ' '] + fe(body, Seq::empty())) + t);
+}
+
+/// match の枝の並びと閉じ括弧 ` }`（枝は「パターン ` => ` 本体」、枝の間は `, `）。
+/// 本体の列が枝より短いときは unit を出す（対応する本体のない枝。varms と同じ）。
+fn push_arms(out: &mut Vec<char>, ps: &Vec<SPat>, es: &Vec<SExpr>)
+    ensures
+        final(out)@ == old(out)@ + farms(varms(ps@, es@), 0, seq![' ', '}']),
+    decreases es, 0nat,
+{
+    let ghost o = out@;
+    let ghost v = varms(ps@, es@);
+    let ghost tl = seq![' ', '}'];
+    let mut i: usize = 0;
+    proof {
+        reveal_with_fuel(farms, 1);
+    }
+    while i < ps.len()
+        invariant
+            v == varms(ps@, es@),
+            i <= ps@.len(),
+            o + farms(v, 0, tl) == out@ + farms(v, i as nat, tl),
+        decreases ps@.len() - i,
+    {
+        proof {
+            vstd::std_specs::vec::axiom_vec_index_decreases(*ps, i as int);
+            assert(v[i as int].0 == vpat(ps@[i as int]));
+            if (i as int) < es@.len() {
+                assert(v[i as int].1 == vx(es@[i as int]));
+            } else {
+                assert(v[i as int].1 == Sx::Unit);
+            }
+        }
+        let ghost before = out@;
+        push_pat(out, &ps[i]);
+        push4(out, ' ', '=', '>', ' ');
+        if i < es.len() {
+            proof {
+                vstd::std_specs::vec::axiom_vec_index_decreases(*es, i as int);
+            }
+            push_e(out, &es[i]);
+        } else {
+            push_kw(out, Kw::Unit);
+        }
+        if i + 1 < ps.len() {
+            push2(out, ',', ' ');
+        }
+        proof {
+            farms_step(v, i as nat, tl);
+            if i + 1 == ps@.len() {
+                reveal_with_fuel(farms, 1);
+            }
+        }
+        i += 1;
+    }
+    push2(out, ' ', '}');
+    proof {
+        reveal_with_fuel(farms, 1);
+        assert(out@ =~= o + farms(v, 0, tl));
+    }
+}
+
+/// 枝の左辺（パターン）の印字（後ろに続きを付けない）。
+fn push_pat(out: &mut Vec<char>, p: &SPat)
+    ensures
+        final(out)@ == old(out)@ + fpat(vpat(*p), Seq::empty()),
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    match p {
+        SPat::Ctor(c, bs) => {
+            append_chars(out, c);
+            if bs.len() > 0 {
+                push1(out, '(');
+                push_binds(out, bs);
+                push1(out, ')');
+                proof {
+                    fbinds_app(vnames(bs@), 0, z, seq![')']);
+                    assert(z + seq![')'] =~= seq![')'] + z);
+                }
+            }
+        },
+        SPat::Ok(x) => {
+            push_kw(out, Kw::Ok);
+            push1(out, '(');
+            append_chars(out, x);
+            push1(out, ')');
+        },
+        SPat::Err(x) => {
+            push_kw(out, Kw::Err);
+            push1(out, '(');
+            append_chars(out, x);
+            push1(out, ')');
+        },
+        SPat::Some(x) => {
+            push_kw(out, Kw::Some);
+            push1(out, '(');
+            append_chars(out, x);
+            push1(out, ')');
+        },
+        SPat::None => push_kw(out, Kw::None),
+        SPat::Wild => push1(out, '_'),
+    }
+    proof {
+        assert(out@ =~= o + fpat(vpat(*p), z));
+    }
+}
+
+/// 構築子のパターンの束縛の並び（閉じ括弧の前まで）。
+fn push_binds(out: &mut Vec<char>, bs: &Vec<Vec<char>>)
+    ensures
+        final(out)@ == old(out)@ + fbinds(vnames(bs@), 0, Seq::empty()),
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    let ghost v = vnames(bs@);
+    let mut i: usize = 0;
+    while i < bs.len()
+        invariant
+            v == vnames(bs@),
+            i <= bs@.len(),
+            o + fbinds(v, 0, z) == out@ + (if i < bs@.len() { fbinds(v, i as nat, z) } else { z }),
+        decreases bs@.len() - i,
+    {
+        proof {
+            reveal_with_fuel(fbinds, 1);
+            assert(v[i as int] == bs@[i as int]@);
+        }
+        append_chars(out, &bs[i]);
+        if i + 1 < bs.len() {
+            push2(out, ',', ' ');
+        }
+        i += 1;
+    }
+}
+
+#[verifier::rlimit(100)]
 fn push_inj(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Inj,

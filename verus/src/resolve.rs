@@ -121,6 +121,8 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
         },
         // レコードは検証済みの核にまだ入っていない（段階 2）。
         Sx::Fld(..) | Sx::Rec(..) => None,
+        // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
+        Sx::SumMatch(..) => None,
     }
 }
 
@@ -622,6 +624,8 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         SExpr::MatchR(..) => rx_matchr_e(fs, sc, e),
         // レコードは検証済みの核にまだ入っていない（段階 2）。
         SExpr::Fld(..) | SExpr::Rec(..) => None,
+        // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
+        SExpr::SumMatch(..) => None,
     }
 }
 

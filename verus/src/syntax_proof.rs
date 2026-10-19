@@ -367,7 +367,7 @@ pub proof fn lcs(s: Seq<char>, u: Seq<Tok>)
 
 // ------------------------------------------------------------------ 正準ソースの字句解析
 
-#[verifier::rlimit(120)]
+#[verifier::rlimit(200)]
 pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
     requires
         lex(k) == Some(u),
@@ -465,6 +465,7 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::MatchR(..) => fe_lex_matchr(e, d, td, k, u),
         Sx::Fld(..) => fe_lex_fld(e, d, td, k, u),
         Sx::Rec(..) => fe_lex_rec(e, d, td, k, u),
+        Sx::SumMatch(..) => fe_lex_sumatch(e, d, td, k, u),
     }
 }
 
@@ -890,6 +891,190 @@ proof fn fe_lex_match(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         assert(u5 =~= seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')]
             + te(*b, seq![Tok::Sym(')')] + u));
         assert(seq![Tok::Kw(Kw::MatchOption)] + (seq![Tok::Sym('(')] + um) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
+/// 文脈語 `match` は予約語でなく、字句として Id になる。
+pub proof fn mword_word()
+    ensures
+        is_word(mword()),
+        word_tok(mword()) == Tok::Id(mword()),
+        ident_ok(mword()),
+{
+    let w = mword();
+    assert(w.len() == 5 && w[0] == 'm' && w[1] == 'a' && w[2] == 't' && w[3] == 'c' && w[4] == 'h');
+    assert forall|i: int| 0 < i < w.len() implies ident_char(#[trigger] w[i]) by {}
+    assert(kw_of(w) is None);
+}
+
+/// 枝の矢印 ` => ` の後に s（`=` と `>` は別々の記号）。
+proof fn arrow_lex(s: Seq<char>, u: Seq<Tok>)
+    requires
+        lex(s) == Some(u),
+    ensures
+        lex(seq![' ', '=', '>', ' '] + s) == Some(seq![Tok::Sym('='), Tok::Sym('>')] + u),
+{
+    lw(' ', s, u);
+    ls('>', seq![' '] + s, u);
+    ls('=', seq!['>'] + (seq![' '] + s), seq![Tok::Sym('>')] + u);
+    assert(seq![Tok::Sym('='), Tok::Sym('>')] + u =~= seq![Tok::Sym('=')] + (seq![Tok::Sym('>')] + u));
+    lw(' ', seq!['='] + (seq!['>'] + (seq![' '] + s)), seq![Tok::Sym('='), Tok::Sym('>')] + u);
+    assert(seq![' ', '=', '>', ' '] + s =~= seq![' '] + (seq!['='] + (seq!['>'] + (seq![' '] + s))));
+}
+
+/// 構築子のパターンの束縛の並びの字句（後ろは wsafe な k）。
+proof fn fbinds_lex(bs: Seq<Seq<char>>, i: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        bnames(bs),
+        lex(k) == Some(u),
+        wsafe(k),
+    ensures
+        lex(fbinds(bs, i, k)) == Some(tbinds(bs, i, u)),
+    decreases bs.len() - i,
+{
+    if i >= bs.len() {
+    } else if i + 1 == bs.len() {
+        ln(bs[i as int], k, u);
+    } else {
+        fbinds_lex(bs, i + 1, k, u);
+        let r = fbinds(bs, i + 1, k);
+        let ur = tbinds(bs, i + 1, u);
+        lcs(r, ur);
+        ln(bs[i as int], seq![',', ' '] + r, seq![Tok::Sym(',')] + ur);
+        assert(fbinds(bs, i, k) =~= bs[i as int] + (seq![',', ' '] + r));
+        assert(tbinds(bs, i, u) =~= seq![word_tok(bs[i as int]), Tok::Sym(',')] + ur);
+    }
+}
+
+/// 予約語の綴り kw（ok・err・some）と束縛 `kw "(" x ")"` の字句（後ろは wsafe な k）。
+proof fn fpat_kwx(kw: Kw, x: Seq<char>, k: Seq<char>, u: Seq<Tok>)
+    requires
+        name_ok(x),
+        lex(k) == Some(u),
+        wsafe(k),
+    ensures
+        lex(kwt(kw) + (seq!['('] + (x + (seq![')'] + k)))) == Some(
+            seq![Tok::Kw(kw), Tok::Sym('('), word_tok(x), Tok::Sym(')')] + u,
+        ),
+{
+    ls(')', k, u);
+    ln(x, seq![')'] + k, seq![Tok::Sym(')')] + u);
+    assert(seq![word_tok(x), Tok::Sym(')')] + u =~= seq![word_tok(x)] + (seq![Tok::Sym(')')] + u));
+    ls('(', x + (seq![')'] + k), seq![word_tok(x), Tok::Sym(')')] + u);
+    lk(kw, seq!['('] + (x + (seq![')'] + k)), seq![Tok::Sym('(')] + (seq![word_tok(x), Tok::Sym(')')] + u));
+    assert(seq![Tok::Kw(kw), Tok::Sym('('), word_tok(x), Tok::Sym(')')] + u =~= seq![Tok::Kw(kw)] + (seq![Tok::Sym('('), word_tok(x), Tok::Sym(')')] + u));
+}
+
+/// 枝の左辺（パターン）の字句（後ろは wsafe な k）。
+proof fn fpat_lex(p: Spat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        bpat(p),
+        lex(k) == Some(u),
+        wsafe(k),
+    ensures
+        lex(fpat(p, k)) == Some(tpat(p, u)),
+{
+    match p {
+        Spat::Ctor(c, bs) => {
+            if bs.len() == 0 {
+                ln(c, k, u);
+            } else {
+                ls(')', k, u);
+                fbinds_lex(bs, 0, seq![')'] + k, seq![Tok::Sym(')')] + u);
+                ls('(', fbinds(bs, 0, seq![')'] + k), tbinds(bs, 0, seq![Tok::Sym(')')] + u));
+                ln(c, seq!['('] + fbinds(bs, 0, seq![')'] + k), seq![Tok::Sym('(')] + tbinds(bs, 0, seq![Tok::Sym(')')] + u));
+            }
+        },
+        Spat::Ok(x) => fpat_kwx(Kw::Ok, x, k, u),
+        Spat::Err(x) => fpat_kwx(Kw::Err, x, k, u),
+        Spat::Some(x) => fpat_kwx(Kw::Some, x, k, u),
+        Spat::None => lk(Kw::None, k, u),
+        Spat::Wild => {
+            assert(is_word(seq!['_']));
+            lword(seq!['_'], k, u);
+        },
+    }
+}
+
+/// 枝の並び（位置 i から）の字句。tail は後ろの続きで、安全な字句で始まる。
+proof fn farms_lex(arms: Seq<(Spat, Sx)>, i: nat, d: nat, td: nat, tail: Seq<char>, tu: Seq<Tok>)
+    requires
+        barms(arms, i, d, td),
+        lex(tail) == Some(tu),
+        safe(tail),
+    ensures
+        lex(farms(arms, i, tail)) == Some(tarms(arms, i, tu)),
+    decreases arms, arms.len() - i,
+{
+    reveal_with_fuel(barms, 1);
+    if i < arms.len() {
+        let p = arms[i as int].0;
+        let body = arms[i as int].1;
+        let last = i + 1 == arms.len();
+        let kt = if last { tail } else { seq![',', ' '] + farms(arms, i + 1, tail) };
+        let ut = if last { tu } else { seq![Tok::Sym(',')] + tarms(arms, i + 1, tu) };
+        assert(lex(kt) == Some(ut)) by {
+            if !last {
+                farms_lex(arms, i + 1, d, td, tail, tu);
+                lcs(farms(arms, i + 1, tail), tarms(arms, i + 1, tu));
+            }
+        }
+        assert(safe(kt)) by {
+            if !last {
+                assert(kt[0] == ',');
+            }
+        }
+        fe_lex(body, d, td, kt, ut);
+        let kb = fe(body, kt);
+        let ub = te(body, ut);
+        arrow_lex(kb, ub);
+        fpat_lex(p, seq![' ', '=', '>', ' '] + kb, seq![Tok::Sym('='), Tok::Sym('>')] + ub);
+        assert(farms(arms, i, tail) =~= fpat(p, seq![' ', '=', '>', ' '] + kb));
+        assert(tarms(arms, i, tu) =~= tpat(p, seq![Tok::Sym('='), Tok::Sym('>')] + ub));
+    }
+}
+
+/// 字句の補題：`match e { 枝 }`（後ろの字句は k。閉じ括弧 `}` が後ろを区切る）。
+proof fn fe_lex_sumatch(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is SumMatch,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::SumMatch(m, arms) => {
+            ls('}', k, u);
+            lw(' ', seq!['}'] + k, seq![Tok::Sym('}')] + u);
+            assert(seq![' ', '}'] + k =~= seq![' '] + (seq!['}'] + k));
+            let kc = seq![' ', '}'] + k;
+            let uc = seq![Tok::Sym('}')] + u;
+            assert(kc[0] == ' ');
+            farms_lex(arms, 0, d1, td, kc, uc);
+            let ka = farms(arms, 0, kc);
+            let ua = tarms(arms, 0, uc);
+            lw(' ', ka, ua);
+            ls('{', seq![' '] + ka, ua);
+            lw(' ', seq!['{'] + (seq![' '] + ka), seq![Tok::Sym('{')] + ua);
+            let km = seq![' ', '{', ' '] + ka;
+            let um = seq![Tok::Sym('{')] + ua;
+            assert(km =~= seq![' '] + (seq!['{'] + (seq![' '] + ka)));
+            assert(km[0] == ' ');
+            assert(safe(km) && wsafe(km));
+            fe_lex(*m, d1, td, km, um);
+            let kmm = fe(*m, km);
+            let umm = te(*m, um);
+            lw(' ', kmm, umm);
+            mword_word();
+            lword(mword(), seq![' '] + kmm, umm);
+            assert(fe(e, k) =~= mword() + (seq![' '] + kmm));
+            assert(te(e, u) =~= seq![word_tok(mword())] + umm);
         },
         _ => {},
     }
@@ -1386,10 +1571,11 @@ proof fn fvars_lex(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat, tail: Seq<cha
 }
 
 /// 文脈語 `type` は予約語でなく、字句として Id になる。
-proof fn tyw_word()
+pub proof fn tyw_word()
     ensures
         is_word(tyw()),
         word_tok(tyw()) == Tok::Id(tyw()),
+        ident_ok(tyw()),
 {
     let w = tyw();
     assert(w.len() == 4 && w[0] == 't' && w[1] == 'y' && w[2] == 'p' && w[3] == 'e');
@@ -1743,6 +1929,7 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
             fe_app(*a, fdots(fs, z));
         },
         Sx::Rec(..) => fe_app_rec(e, k),
+        Sx::SumMatch(..) => fe_app_sumatch(e, k),
         _ => {},
     }
     assert(fe(e, k) =~= fe(e, z) + k);
@@ -1863,6 +2050,93 @@ proof fn fe_app_match(e: Sx, k: Seq<char>)
         assert(km =~= zm + k);
         fe_app(*m, km);
         fe_app(*m, zm);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+/// 束縛の並びは後ろの続き q に k を続けても、k は最後に付く。
+pub proof fn fbinds_app(bs: Seq<Seq<char>>, i: nat, q: Seq<char>, k: Seq<char>)
+    ensures
+        fbinds(bs, i, q + k) == fbinds(bs, i, q) + k,
+    decreases bs.len() - i,
+{
+    if i >= bs.len() {
+    } else if i + 1 == bs.len() {
+        assert(bs[i as int] + (q + k) =~= (bs[i as int] + q) + k);
+    } else {
+        fbinds_app(bs, i + 1, q, k);
+        assert(bs[i as int] + (seq![',', ' '] + fbinds(bs, i + 1, q + k))
+            =~= (bs[i as int] + (seq![',', ' '] + fbinds(bs, i + 1, q))) + k);
+    }
+    assert(fbinds(bs, i, q + k) =~= fbinds(bs, i, q) + k);
+}
+
+/// 枝の左辺の印字は後ろの続き q に k を続けても、k は最後に付く。
+pub proof fn fpat_app(p: Spat, q: Seq<char>, k: Seq<char>)
+    ensures
+        fpat(p, q + k) == fpat(p, q) + k,
+{
+    match p {
+        Spat::Ctor(c, bs) => {
+            if bs.len() > 0 {
+                fbinds_app(bs, 0, seq![')'] + q, k);
+                assert(seq![')'] + (q + k) =~= (seq![')'] + q) + k);
+            }
+        },
+        _ => {},
+    }
+    assert(fpat(p, q + k) =~= fpat(p, q) + k);
+}
+
+/// 枝の並びは後ろの続き k に対して結合する。
+pub proof fn farms_app(arms: Seq<(Spat, Sx)>, i: nat, k: Seq<char>)
+    ensures
+        farms(arms, i, k) == farms(arms, i, Seq::empty()) + k,
+    decreases arms, arms.len() - i,
+{
+    let z = Seq::<char>::empty();
+    if i < arms.len() {
+        let p = arms[i as int].0;
+        let body = arms[i as int].1;
+        if i + 1 == arms.len() {
+            fe_app(body, k);
+            let q = seq![' ', '=', '>', ' '] + fe(body, z);
+            assert(seq![' ', '=', '>', ' '] + fe(body, k) =~= q + k);
+            fpat_app(p, q, k);
+        } else {
+            farms_app(arms, i + 1, k);
+            let q = seq![',', ' '] + farms(arms, i + 1, z);
+            assert(seq![',', ' '] + farms(arms, i + 1, k) =~= q + k);
+            fe_app(body, q + k);
+            fe_app(body, q);
+            assert(fe(body, q + k) =~= fe(body, q) + k);
+            let r = seq![' ', '=', '>', ' '] + fe(body, q);
+            assert(seq![' ', '=', '>', ' '] + fe(body, q + k) =~= r + k);
+            fpat_app(p, r, k);
+        }
+    }
+    assert(farms(arms, i, k) =~= farms(arms, i, z) + k);
+}
+
+/// `match e { 枝 }` の印字は後ろの続き k に対して結合する。
+proof fn fe_app_sumatch(e: Sx, k: Seq<char>)
+    requires
+        e is SumMatch,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::SumMatch(m, arms) = e {
+        farms_app(arms, 0, seq![' ', '}']);
+        farms_app(arms, 0, seq![' ', '}'] + k);
+        assert(farms(arms, 0, seq![' ', '}'] + k) =~= farms(arms, 0, seq![' ', '}']) + k);
+        let y = seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}']);
+        assert(seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}'] + k) =~= y + k);
+        fe_app(*m, y);
+        fe_app(*m, y + k);
+        assert(fe(*m, y + k) =~= fe(*m, y) + k);
+        assert(seq![' ', '}'] + z =~= seq![' ', '}']);
     }
     assert(fe(e, k) =~= fe(e, z) + k);
 }

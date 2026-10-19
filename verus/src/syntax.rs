@@ -526,6 +526,24 @@ pub enum Sx {
     Fld(Box<Sx>, Seq<Seq<char>>),
     /// v1.1：R { f: e, ..b }（フィールドの並びと、省略できる base）
     Rec(Seq<char>, Seq<(Seq<char>, Sx)>, Option<Box<Sx>>),
+    /// v1.4：match e { P => a, ... }（枝の並びは空でない）
+    SumMatch(Box<Sx>, Seq<(Spat, Sx)>),
+}
+
+/// v1.4：match の枝の左辺（パターン）。束縛の名前は bind（IDENT か文脈キーワード。`_` も名前として読む）。
+pub enum Spat {
+    /// CTOR か CTOR "(" bind ("," bind)* ")"
+    Ctor(Seq<char>, Seq<Seq<char>>),
+    /// ok "(" bind ")"
+    Ok(Seq<char>),
+    /// err "(" bind ")"
+    Err(Seq<char>),
+    /// some "(" bind ")"
+    Some(Seq<char>),
+    /// none
+    None,
+    /// _
+    Wild,
 }
 
 pub enum Sd {
@@ -540,6 +558,11 @@ pub enum Sd {
 /// 宣言の先頭で読む文脈語 `type` の綴り（予約語ではない）。
 pub open spec fn tyw() -> Seq<char> {
     seq!['t', 'y', 'p', 'e']
+}
+
+/// 式の先頭で読む文脈語 `match` の綴り（予約語ではない）。
+pub open spec fn mword() -> Seq<char> {
+    seq!['m', 'a', 't', 'c', 'h']
 }
 
 /// 後置（受ける式として許す形）：Let と整数は、続く `.f` と読み違えるか、字句に入らないので受けない。
@@ -643,6 +666,54 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         ),
         Sx::Fld(a, fs) => te(*a, tdots(fs, k)),
         Sx::Rec(r, fs, b) => seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, rtail(fs.len() > 0, b, k)),
+        Sx::SumMatch(m, arms) => seq![word_tok(mword())] + te(*m, seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')] + k)),
+    }
+}
+
+/// 枝の左辺（パターン）の字句（後ろに k）。
+pub open spec fn tpat(p: Spat, k: Seq<Tok>) -> Seq<Tok> {
+    match p {
+        Spat::Ctor(c, bs) => if bs.len() == 0 {
+            seq![word_tok(c)] + k
+        } else {
+            seq![word_tok(c), Tok::Sym('(')] + tbinds(bs, 0, seq![Tok::Sym(')')] + k)
+        },
+        Spat::Ok(x) => seq![Tok::Kw(Kw::Ok), Tok::Sym('('), word_tok(x), Tok::Sym(')')] + k,
+        Spat::Err(x) => seq![Tok::Kw(Kw::Err), Tok::Sym('('), word_tok(x), Tok::Sym(')')] + k,
+        Spat::Some(x) => seq![Tok::Kw(Kw::Some), Tok::Sym('('), word_tok(x), Tok::Sym(')')] + k,
+        Spat::None => seq![Tok::Kw(Kw::None)] + k,
+        Spat::Wild => seq![word_tok(seq!['_'])] + k,
+    }
+}
+
+/// 構築子のパターンの束縛の並び（字句。後ろに k）。
+pub open spec fn tbinds(bs: Seq<Seq<char>>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+    decreases bs.len() - i,
+{
+    if i >= bs.len() {
+        k
+    } else if i + 1 == bs.len() {
+        seq![word_tok(bs[i as int])] + k
+    } else {
+        seq![word_tok(bs[i as int]), Tok::Sym(',')] + tbinds(bs, i + 1, k)
+    }
+}
+
+/// match の枝の並び（字句）：枝は「パターン `=` `>` 本体」、枝の間は `,`、最後の後ろに k。
+pub open spec fn tarms(arms: Seq<(Spat, Sx)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+    decreases arms, arms.len() - i,
+{
+    if i >= arms.len() {
+        k
+    } else {
+        tpat(arms[i as int].0, seq![Tok::Sym('='), Tok::Sym('>')] + te(
+            arms[i as int].1,
+            if i + 1 == arms.len() {
+                k
+            } else {
+                seq![Tok::Sym(',')] + tarms(arms, i + 1, k)
+            },
+        ))
     }
 }
 
@@ -900,6 +971,54 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
         } else {
             seq![' '] + ffe(fs, 0, frtail(fs.len() > 0, b, k))
         }),
+        Sx::SumMatch(m, arms) => mword() + (seq![' '] + fe(*m, seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}'] + k))),
+    }
+}
+
+/// 枝の左辺（パターン）の字句（後ろに k）。
+pub open spec fn fpat(p: Spat, k: Seq<char>) -> Seq<char> {
+    match p {
+        Spat::Ctor(c, bs) => if bs.len() == 0 {
+            c + k
+        } else {
+            c + (seq!['('] + fbinds(bs, 0, seq![')'] + k))
+        },
+        Spat::Ok(x) => kwt(Kw::Ok) + (seq!['('] + (x + (seq![')'] + k))),
+        Spat::Err(x) => kwt(Kw::Err) + (seq!['('] + (x + (seq![')'] + k))),
+        Spat::Some(x) => kwt(Kw::Some) + (seq!['('] + (x + (seq![')'] + k))),
+        Spat::None => kwt(Kw::None) + k,
+        Spat::Wild => seq!['_'] + k,
+    }
+}
+
+/// 構築子のパターンの束縛の並び（字句。後ろに k）。
+pub open spec fn fbinds(bs: Seq<Seq<char>>, i: nat, k: Seq<char>) -> Seq<char>
+    decreases bs.len() - i,
+{
+    if i >= bs.len() {
+        k
+    } else if i + 1 == bs.len() {
+        bs[i as int] + k
+    } else {
+        bs[i as int] + (seq![',', ' '] + fbinds(bs, i + 1, k))
+    }
+}
+
+/// match の枝の並び（字句）：枝は「パターン ` => ` 本体」、枝の間は `, `、最後の後ろに tail。
+pub open spec fn farms(arms: Seq<(Spat, Sx)>, i: nat, tail: Seq<char>) -> Seq<char>
+    decreases arms, arms.len() - i,
+{
+    if i >= arms.len() {
+        tail
+    } else {
+        fpat(arms[i as int].0, seq![' ', '=', '>', ' '] + fe(
+            arms[i as int].1,
+            if i + 1 == arms.len() {
+                tail
+            } else {
+                seq![',', ' '] + farms(arms, i + 1, tail)
+            },
+        ))
     }
 }
 
@@ -1278,7 +1397,7 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
 
 /// 後置（`.f`）を除く基本の式。d は式の入れ子の深さ上限、td は型の深さ上限。
 pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
-    decreases d, 0nat, 0nat,
+    decreases d, 0nat, 1nat,
 {
     if d == 0 || i >= ts.len() {
         None
@@ -1298,6 +1417,8 @@ pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
             },
             Tok::Id(x) => if !ident_ok(x) {
                 None
+            } else if x == mword() && pm(ts, i, d, td) is Some {
+                pm(ts, i, d, td)
             } else if sym(ts, i + 1, '(') {
                 match pargs(ts, i + 2, d1, td) {
                     Some((es, j)) => Some((Sx::Call(x, es), j)),
@@ -1686,6 +1807,100 @@ pub open spec fn pargs1(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<Sx
     }
 }
 
+/// `match e { 枝 }` の本体（位置 i は `match` の語）。被験式の後に `{`、枝の並び、閉じ括弧まで。
+/// 後ろが被験式の形でなければ None（pp が変数などとして読み直す）。
+pub open spec fn pm(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
+    decreases d, 0nat, 0nat,
+{
+    if d == 0 {
+        None
+    } else {
+        let d1 = (d - 1) as nat;
+        match pe(ts, i + 1, d1, td) {
+            Some((m, j)) => if sym(ts, j, '{') {
+                match parm1(ts, j + 1, d1, td) {
+                    Some((arms, k)) => Some((Sx::SumMatch(Box::new(m), arms), k)),
+                    None => None,
+                }
+            } else {
+                None
+            },
+            None => None,
+        }
+    }
+}
+
+/// 枝の並び（一つ以上）と、閉じ括弧 `}` の後の位置。枝の間は `,`、末尾に `,` は書かない（字句と枝の並びを一対一に対応させるため）。
+pub open spec fn parm1(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Spat, Sx)>, nat)>
+    decreases d, 2nat, ts.len() - i,
+{
+    match ppat(ts, i) {
+        Some((p, j)) => if sym(ts, j, '=') && sym(ts, j + 1, '>') {
+            match pe(ts, j + 2, d, td) {
+                Some((b, m)) => if sym(ts, m, '}') {
+                    Some((seq![(p, b)], m + 1))
+                } else if sym(ts, m, ',') && i < m {
+                    match parm1(ts, m + 1, d, td) {
+                        Some((arms, k)) => Some((seq![(p, b)] + arms, k)),
+                        None => None,
+                    }
+                } else {
+                    None
+                },
+                None => None,
+            }
+        } else {
+            None
+        },
+        None => None,
+    }
+}
+
+/// 枝の左辺（パターン）：位置 i から、パターンと後ろの位置。
+pub open spec fn ppat(ts: Seq<Tok>, i: nat) -> Option<(Spat, nat)> {
+    if cidt(ts, i) is Some {
+        if sym(ts, i + 1, '(') {
+            match pbinds(ts, i + 2) {
+                Some((bs, j)) => Some((Spat::Ctor(cidt(ts, i)->Some_0, bs), j)),
+                None => None,
+            }
+        } else {
+            Some((Spat::Ctor(cidt(ts, i)->Some_0, Seq::empty()), i + 1))
+        }
+    } else if kwat(ts, i, Kw::Ok) && sym(ts, i + 1, '(') && bdt(ts, i + 2) is Some && sym(ts, i + 3, ')') {
+        Some((Spat::Ok(bdt(ts, i + 2)->Some_0), i + 4))
+    } else if kwat(ts, i, Kw::Err) && sym(ts, i + 1, '(') && bdt(ts, i + 2) is Some && sym(ts, i + 3, ')') {
+        Some((Spat::Err(bdt(ts, i + 2)->Some_0), i + 4))
+    } else if kwat(ts, i, Kw::Some) && sym(ts, i + 1, '(') && bdt(ts, i + 2) is Some && sym(ts, i + 3, ')') {
+        Some((Spat::Some(bdt(ts, i + 2)->Some_0), i + 4))
+    } else if kwat(ts, i, Kw::None) {
+        Some((Spat::None, i + 1))
+    } else if i < ts.len() && ts[i as int] == Tok::Id(seq!['_']) {
+        Some((Spat::Wild, i + 1))
+    } else {
+        None
+    }
+}
+
+/// 構築子の束縛の並び `bind ("," bind)* ")"`（位置 i から。閉じ括弧の後の位置）。
+pub open spec fn pbinds(ts: Seq<Tok>, i: nat) -> Option<(Seq<Seq<char>>, nat)>
+    decreases ts.len() - i,
+{
+    match bdt(ts, i) {
+        Some(x) => if sym(ts, i + 1, ')') {
+            Some((seq![x], i + 2))
+        } else if sym(ts, i + 1, ',') {
+            match pbinds(ts, i + 2) {
+                Some((xs, j)) => Some((seq![x] + xs, j)),
+                None => None,
+            }
+        } else {
+            None
+        },
+        None => None,
+    }
+}
+
 /// `[ params ] ")"`
 pub open spec fn pparams(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, nat)> {
     if sym(ts, i, ')') {
@@ -1928,6 +2143,7 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::MatchR(m, x, a, y, b) => name_ok(x) && name_ok(y) && bx(*m, d1, td) && bx(*a, d1, td) && bx(*b, d1, td),
             Sx::Fld(a, fs) => recv_ok(*a) && fs.len() > 0 && nms(fs) && bx(*a, d, td),
             Sx::Rec(r, fs, b) => ident_ok(r) && bfs(fs, 0, d1, td) && bopt(b, d1, td),
+            Sx::SumMatch(m, arms) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
             _ => true,
         }
     }
@@ -1941,6 +2157,27 @@ pub open spec fn bopt(b: Option<Box<Sx>>, d: nat, td: nat) -> bool
         Some(x) => bx(*x, d, td),
         None => true,
     }
+}
+
+/// 枝の左辺：構築子の名前は大文字で始まる IDENT、束縛の名前は名前（`_` も含む）。
+pub open spec fn bpat(p: Spat) -> bool {
+    match p {
+        Spat::Ctor(c, bs) => cname_ok(c) && bnames(bs),
+        Spat::Ok(x) | Spat::Err(x) | Spat::Some(x) => name_ok(x),
+        Spat::None | Spat::Wild => true,
+    }
+}
+
+/// 束縛の並びの名前は、すべて名前（`_` も含む）。
+pub open spec fn bnames(bs: Seq<Seq<char>>) -> bool {
+    forall|j: int| 0 <= j < bs.len() ==> name_ok(#[trigger] bs[j])
+}
+
+/// 枝の並び（位置 i から）：左辺は正しく、本体は深さ内。
+pub open spec fn barms(arms: Seq<(Spat, Sx)>, i: nat, d: nat, td: nat) -> bool
+    decreases arms, arms.len() - i,
+{
+    i >= arms.len() || (bpat(arms[i as int].0) && bx(arms[i as int].1, d, td) && barms(arms, i + 1, d, td))
 }
 
 pub open spec fn bxs(es: Seq<Sx>, i: nat, d: nat, td: nat) -> bool
