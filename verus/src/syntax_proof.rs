@@ -168,6 +168,22 @@ pub proof fn hf_kw_inv(k: Kw)
 {
 }
 
+/// dict の組込みの語は、その組込みに戻る。
+pub proof fn dop_kw(d: Dop)
+    ensures
+        kw_dop(dkw(d)) == Some(d),
+{
+}
+
+/// 語が dict の組込みなら、その組込みの語はもとの語。
+pub proof fn dop_kw_inv(k: Kw)
+    requires
+        kw_dop(k) is Some,
+    ensures
+        dkw(kw_dop(k)->Some_0) == k,
+{
+}
+
 /// 変数・束縛の名前（IDENT か文脈キーワード）の字句。
 pub proof fn ln(x: Seq<char>, s: Seq<char>, u: Seq<Tok>)
     requires
@@ -484,6 +500,8 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::SumMatch(..) => fe_lex_sumatch(e, d, td, k, u),
         Sx::Hof(..) => fe_lex_hof(e, d, td, k, u),
         Sx::Loop(..) => fe_lex_loop(e, d, td, k, u),
+        Sx::DictNew(..) => fe_lex_dictnew(e, d, td, k, u),
+        Sx::DictOp(..) => fe_lex_dictop(e, d, td, k, u),
     }
 }
 
@@ -1169,6 +1187,62 @@ proof fn fe_lex_loop(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             lk(Kw::Loop, seq!['('] + ki, seq![Tok::Sym('(')] + ui);
             assert(fe(e, k) =~= kwt(Kw::Loop) + (seq!['('] + ki));
             assert(seq![Tok::Kw(Kw::Loop)] + (seq![Tok::Sym('(')] + ui) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
+/// 字句の補題：`dict<A, B>()`（後ろの字句は k。閉じ括弧 `)` が後ろを区切る）。
+proof fn fe_lex_dictnew(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is DictNew,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    match e {
+        Sx::DictNew(a, b) => {
+            ls(')', k, u);
+            ls('(', seq![')'] + k, seq![Tok::Sym(')')] + u);
+            ls('>', seq!['('] + (seq![')'] + k), seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u));
+            let kc = seq!['>'] + (seq!['('] + (seq![')'] + k));
+            let uc = seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u));
+            assert(kc =~= seq!['>', '(', ')'] + k);
+            assert(uc =~= seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + u);
+            ft_lex(b, kc, uc);
+            let kt = seq![',', ' '] + ft(b, kc);
+            let ut = seq![Tok::Sym(',')] + tt(b, uc);
+            lcs(ft(b, kc), tt(b, uc));
+            ft_lex(a, kt, ut);
+            ls('<', ft(a, kt), tt(a, ut));
+            lk(Kw::Dict, seq!['<'] + ft(a, kt), seq![Tok::Sym('<')] + tt(a, ut));
+            assert(seq![Tok::Kw(Kw::Dict)] + (seq![Tok::Sym('<')] + tt(a, ut)) =~= te(e, u));
+        },
+        _ => {},
+    }
+}
+
+/// 字句の補題：`dict` の組込み `op(引数)`（後ろの字句は k。閉じ括弧が後ろを区切る）。
+proof fn fe_lex_dictop(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is DictOp,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::DictOp(op, es) => {
+            fargs_lex(es, 0, d1, td, k, u);
+            ls('(', fargs(es, 0, k), targs(es, 0, u));
+            lk(dkw(op), seq!['('] + fargs(es, 0, k), seq![Tok::Sym('(')] + targs(es, 0, u));
+            assert(seq![Tok::Kw(dkw(op))] + (seq![Tok::Sym('(')] + targs(es, 0, u)) =~= te(e, u));
         },
         _ => {},
     }
@@ -1944,6 +2018,7 @@ pub proof fn fpay_app(ps: Seq<Ty>, k: Seq<char>)
 }
 
 /// 直和型の構築子の並びは後ろの続きに対して結合する。
+#[verifier::rlimit(10)]
 pub proof fn fvars_app(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<char>)
     ensures
         fvars(vs, i, k) == fvars(vs, i, Seq::empty()) + k,
@@ -2027,6 +2102,22 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         Sx::SumMatch(..) => fe_app_sumatch(e, k),
         Sx::Hof(..) => fe_app_hof(e, k),
         Sx::Loop(..) => fe_app_loop(e, k),
+        Sx::DictNew(a, b) => {
+            let kb = seq!['>', '(', ')'] + k;
+            let zb = seq!['>', '(', ')'] + z;
+            assert(kb =~= zb + k);
+            ft_app(b, kb);
+            ft_app(b, zb);
+            let kt = seq![',', ' '] + ft(b, kb);
+            let zt = seq![',', ' '] + ft(b, zb);
+            assert(kt =~= zt + k);
+            ft_app(a, kt);
+            ft_app(a, zt);
+        },
+        Sx::DictOp(_, es) => {
+            fargs_app(es, 0, k);
+            fargs_app(es, 0, z);
+        },
         _ => {},
     }
     assert(fe(e, k) =~= fe(e, z) + k);

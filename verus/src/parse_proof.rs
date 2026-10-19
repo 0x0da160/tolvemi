@@ -278,6 +278,38 @@ pub proof fn te_app(e: Sx, k: Seq<Tok>)
         Sx::SumMatch(..) => te_app_sumatch(e, k),
         Sx::Hof(..) => te_app_hof(e, k),
         Sx::Loop(..) => te_app_loop(e, k),
+        Sx::DictNew(..) => te_app_dict(e, k),
+        Sx::DictOp(..) => te_app_dict(e, k),
+        _ => {},
+    }
+    assert(te(e, k) =~= te(e, z) + k);
+}
+
+/// dict の式の token 列は後ろの続き k に対して結合する（dict<A, B>() は型の列、組込みは引数の列）。
+proof fn te_app_dict(e: Sx, k: Seq<Tok>)
+    requires
+        e is DictNew || e is DictOp,
+    ensures
+        te(e, k) == te(e, Seq::empty()) + k,
+        te(e, Seq::empty()).len() > 0,
+        not_sym(te(e, Seq::empty())[0]),
+    decreases e, 0nat,
+{
+    let z = Seq::<Tok>::empty();
+    match e {
+        Sx::DictNew(a, b) => {
+            let kb = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k;
+            let zb = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + z;
+            tt_app(b, kb);
+            tt_app(b, zb);
+            assert(kb =~= zb + k);
+            tt_app(a, seq![Tok::Sym(',')] + tt(b, kb));
+            tt_app(a, seq![Tok::Sym(',')] + tt(b, zb));
+        },
+        Sx::DictOp(_, es) => {
+            targs_app(es, 0, k);
+            targs_app(es, 0, z);
+        },
         _ => {},
     }
     assert(te(e, k) =~= te(e, z) + k);
@@ -1350,6 +1382,8 @@ pub proof fn pp_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
         Sx::SumMatch(..) => pp_complete_sumatch(ts, i, d, td, e, k),
         Sx::Hof(..) => pp_complete_hof(ts, i, d, td, e, k),
         Sx::Loop(..) => pp_complete_loop(ts, i, d, td, e, k),
+        Sx::DictNew(..) => pp_complete_dictnew(ts, i, d, td, e, k),
+        Sx::DictOp(..) => pp_complete_dictop(ts, i, d, td, e, k),
     }
 }
 
@@ -1800,6 +1834,48 @@ proof fn pp_complete_loop(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<T
         te_app(*b, kb);
         at_end(ts, p + 4, te(*b, z), kb);
         hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym(')')], k);
+    }
+}
+
+/// dict<A, B>() の完全性：`dict<A, B>()` の token 列から、pp が同じ式を読む（語の直後は `<`）。
+proof fn pp_complete_dictnew(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+    requires
+        pp_pre(ts, i, d, td, e, k),
+        e is DictNew,
+    ensures
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
+{
+    if let Sx::DictNew(a, b) = e {
+        let z = Seq::<Tok>::empty();
+        let kb = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k;
+        let kt = seq![Tok::Sym(',')] + tt(b, kb);
+        hd(ts, i, seq![Tok::Kw(Kw::Dict), Tok::Sym('<')], tt(a, kt));
+        pt_complete(ts, i + 2, td, a, kt);
+        tt_app(a, kt);
+        at_end(ts, i + 2, tt(a, z), kt);
+        let j = (ts.len() - kt.len()) as nat;
+        hd(ts, j, seq![Tok::Sym(',')], tt(b, kb));
+        pt_complete(ts, j + 1, td, b, kb);
+        tt_app(b, kb);
+        at_end(ts, j + 1, tt(b, z), kb);
+        hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')], k);
+    }
+}
+
+/// dict の組込みの完全性：`op(引数)` の token 列から、pp が同じ呼出しを読む（語の直後は `(`）。
+proof fn pp_complete_dictop(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
+    requires
+        pp_pre(ts, i, d, td, e, k),
+        e is DictOp,
+    ensures
+        pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
+    decreases d, 2nat, e,
+{
+    if let Sx::DictOp(op, es) = e {
+        hd(ts, i, seq![Tok::Kw(dkw(op)), Tok::Sym('(')], targs(es, 0, k));
+        pargs_complete(ts, i + 2, (d - 1) as nat, td, es, k);
+        dop_kw(op);
     }
 }
 
@@ -3273,6 +3349,12 @@ pub proof fn pp_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     pp_sound_matchr(ts, i, d, td);
                 } else if k == Kw::Loop {
                     pp_sound_loop(ts, i, d, td);
+                } else if k == Kw::Dict {
+                    pp_sound_dictnew(ts, i, d, td);
+                } else if kw_dop(k) is Some {
+                    dop_kw_inv(k);
+                    assert(soft(k));
+                    pp_sound_dictop(ts, i, d, td, kw_dop(k)->Some_0);
                 } else if kw_hf(k) is Some {
                     hf_kw_inv(k);
                     assert(soft(k));
@@ -3656,6 +3738,70 @@ proof fn pp_sound_loop(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     }
                 }
             }
+        }
+    }
+}
+
+/// dict<A, B>() の健全性：語の直後が `<` で、二つの型、`(`、`)` の形なら、pp はその式を読む。
+proof fn pp_sound_dictnew(ts: Seq<Tok>, i: nat, d: nat, td: nat)
+    requires
+        d > 0,
+        i < ts.len(),
+        ts[i as int] == Tok::Kw(Kw::Dict),
+        nv(ts, i),
+    ensures
+        pp_post(ts, i, d, td),
+    decreases d, 0nat, 0nat,
+{
+    if sym(ts, i + 1, '<') {
+        pt_sound(ts, i + 2, td);
+        if let Some((a, j)) = pt(ts, i + 2, td) {
+            if sym(ts, j, ',') {
+                pt_sound(ts, j + 1, td);
+                if let Some((b, m)) = pt(ts, j + 1, td) {
+                    if sym(ts, m, '>') && sym(ts, m + 1, '(') && sym(ts, m + 2, ')') {
+                        pfx1(ts, i);
+                        pfx1(ts, i + 1);
+                        pfx1(ts, j);
+                        pfx1(ts, m);
+                        pfx1(ts, m + 1);
+                        pfx1(ts, m + 2);
+                        let kc = seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + suf(ts, m + 3);
+                        assert(suf(ts, m) =~= kc);
+                        assert(suf(ts, j + 1) =~= tt(b, kc));
+                        assert(suf(ts, j) =~= seq![Tok::Sym(',')] + tt(b, kc));
+                        let e = pp(ts, i, d, td)->Some_0.0;
+                        assert(e == Sx::DictNew(a, b));
+                        assert(suf(ts, i) =~= te(e, suf(ts, m + 3)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// dict の組込みの健全性：語の直後が `(` で、引数の列と閉じ括弧の形なら、pp はその呼出しを読む。
+/// 語の直後が `<` なら型引数を持たないので、pp は読まない（None）。
+proof fn pp_sound_dictop(ts: Seq<Tok>, i: nat, d: nat, td: nat, op: Dop)
+    requires
+        d > 0,
+        i < ts.len(),
+        ts[i as int] == Tok::Kw(dkw(op)),
+        sym(ts, i + 1, '(') || sym(ts, i + 1, '<'),
+    ensures
+        pp_post(ts, i, d, td),
+    decreases d, 0nat, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    if sym(ts, i + 1, '(') {
+        pargs_sound(ts, i + 2, d1, td);
+        if let Some((es, j)) = pargs(ts, i + 2, d1, td) {
+            pfx1(ts, i);
+            pfx1(ts, i + 1);
+            dop_kw(op);
+            let e = pp(ts, i, d, td)->Some_0.0;
+            assert(e == Sx::DictOp(op, es));
+            assert(suf(ts, i) =~= te(e, suf(ts, j)));
         }
     }
 }

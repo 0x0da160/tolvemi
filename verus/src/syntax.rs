@@ -79,6 +79,18 @@ pub enum Kw {
     SortBy,
     /// v1.6：loop（文脈キーワード。式の位置で直後が `(` か `<` のとき語として読む。loop は型引数を持たないので `<` は読めず、それ以外は変数）
     Loop,
+    /// v1.9：dict<K, V>()（文脈キーワード。式の位置で直後が `<` のとき語として読む。型引数を持つので `(` だけの形はない）
+    Dict,
+    /// v1.9：dict の九つの組込み（文脈キーワード。式の位置で直後が `(` のとき語として読む。型引数を持たないので `<` は読めず、それ以外は変数）
+    DictGet,
+    DictPut,
+    DictRemove,
+    DictHas,
+    DictSize,
+    DictKeys,
+    DictValues,
+    DictEntries,
+    DictFrom,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -141,6 +153,16 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Find => seq!['f', 'i', 'n', 'd'],
         Kw::SortBy => seq!['s', 'o', 'r', 't', '_', 'b', 'y'],
         Kw::Loop => seq!['l', 'o', 'o', 'p'],
+        Kw::Dict => seq!['d', 'i', 'c', 't'],
+        Kw::DictGet => seq!['d', 'i', 'c', 't', '_', 'g', 'e', 't'],
+        Kw::DictPut => seq!['d', 'i', 'c', 't', '_', 'p', 'u', 't'],
+        Kw::DictRemove => seq!['d', 'i', 'c', 't', '_', 'r', 'e', 'm', 'o', 'v', 'e'],
+        Kw::DictHas => seq!['d', 'i', 'c', 't', '_', 'h', 'a', 's'],
+        Kw::DictSize => seq!['d', 'i', 'c', 't', '_', 's', 'i', 'z', 'e'],
+        Kw::DictKeys => seq!['d', 'i', 'c', 't', '_', 'k', 'e', 'y', 's'],
+        Kw::DictValues => seq!['d', 'i', 'c', 't', '_', 'v', 'a', 'l', 'u', 'e', 's'],
+        Kw::DictEntries => seq!['d', 'i', 'c', 't', '_', 'e', 'n', 't', 'r', 'i', 'e', 's'],
+        Kw::DictFrom => seq!['d', 'i', 'c', 't', '_', 'f', 'r', 'o', 'm'],
     }
 }
 
@@ -257,6 +279,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Find)
         } else if c4(s, 'l', 'o', 'o', 'p') {
             Some(Kw::Loop)
+        } else if c4(s, 'd', 'i', 'c', 't') {
+            Some(Kw::Dict)
         } else {
             None
         }
@@ -299,6 +323,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
     } else if s.len() == 8 {
         if c6(s, 'c', 'o', 'n', 't', 'a', 'i') && s[6] == 'n' && s[7] == 's' {
             Some(Kw::Contains)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'g') && s[6] == 'e' && s[7] == 't' {
+            Some(Kw::DictGet)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'p') && s[6] == 'u' && s[7] == 't' {
+            Some(Kw::DictPut)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'h') && s[6] == 'a' && s[7] == 's' {
+            Some(Kw::DictHas)
         } else {
             None
         }
@@ -307,6 +337,22 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::ToString)
         } else if c6(s, 'p', 'a', 'r', 's', 'e', '_') && s[6] == 'i' && s[7] == 'n' && s[8] == 't' {
             Some(Kw::ParseInt)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 's') && s[6] == 'i' && s[7] == 'z' && s[8] == 'e' {
+            Some(Kw::DictSize)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'k') && s[6] == 'e' && s[7] == 'y' && s[8] == 's' {
+            Some(Kw::DictKeys)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'f') && s[6] == 'r' && s[7] == 'o' && s[8] == 'm' {
+            Some(Kw::DictFrom)
+        } else {
+            None
+        }
+    } else if s.len() == 11 {
+        if c6(s, 'd', 'i', 'c', 't', '_', 'r') && s[6] == 'e' && s[7] == 'm' && s[8] == 'o' && s[9] == 'v'
+            && s[10] == 'e' {
+            Some(Kw::DictRemove)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'v') && s[6] == 'a' && s[7] == 'l' && s[8] == 'u' && s[9] == 'e'
+            && s[10] == 's' {
+            Some(Kw::DictValues)
         } else {
             None
         }
@@ -317,6 +363,9 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
         } else if c6(s, 'm', 'a', 't', 'c', 'h', '_') && s[6] == 'r' && s[7] == 'e' && s[8] == 's' && s[9] == 'u'
             && s[10] == 'l' && s[11] == 't' {
             Some(Kw::MatchResult)
+        } else if c6(s, 'd', 'i', 'c', 't', '_', 'e') && s[6] == 'n' && s[7] == 't' && s[8] == 'r' && s[9] == 'i'
+            && s[10] == 'e' && s[11] == 's' {
+            Some(Kw::DictEntries)
         } else {
             None
         }
@@ -422,6 +471,51 @@ pub open spec fn kw_hf(k: Kw) -> Option<Hf> {
     }
 }
 
+/// v1.9：dict の九つの組込み（文脈キーワード）。語の直後が `(` のとき、型引数を持たない呼出しとして読む。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Dop {
+    Get,
+    Put,
+    Remove,
+    Has,
+    Size,
+    Keys,
+    Values,
+    Entries,
+    From,
+}
+
+/// dict の組込みの語（キーワードの token）。
+pub open spec fn dkw(d: Dop) -> Kw {
+    match d {
+        Dop::Get => Kw::DictGet,
+        Dop::Put => Kw::DictPut,
+        Dop::Remove => Kw::DictRemove,
+        Dop::Has => Kw::DictHas,
+        Dop::Size => Kw::DictSize,
+        Dop::Keys => Kw::DictKeys,
+        Dop::Values => Kw::DictValues,
+        Dop::Entries => Kw::DictEntries,
+        Dop::From => Kw::DictFrom,
+    }
+}
+
+/// 語が dict の組込みなら、その組込み。
+pub open spec fn kw_dop(k: Kw) -> Option<Dop> {
+    match k {
+        Kw::DictGet => Some(Dop::Get),
+        Kw::DictPut => Some(Dop::Put),
+        Kw::DictRemove => Some(Dop::Remove),
+        Kw::DictHas => Some(Dop::Has),
+        Kw::DictSize => Some(Dop::Size),
+        Kw::DictKeys => Some(Dop::Keys),
+        Kw::DictValues => Some(Dop::Values),
+        Kw::DictEntries => Some(Dop::Entries),
+        Kw::DictFrom => Some(Dop::From),
+        _ => None,
+    }
+}
+
 // ------------------------------------------------------------------ 文字の分類（§4.2）
 
 pub open spec fn is_alpha(c: char) -> bool {
@@ -458,10 +552,10 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
 }
 
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
-/// v1.5 の hof の語と v1.6 の loop も、同じく変数・引数・束縛の名前に使える。
+/// v1.5 の hof の語と v1.6 の loop、v1.9 の dict の語も、同じく変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
     kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry || k == Kw::Ok || k == Kw::Err
-        || kw_hf(k) is Some || k == Kw::Loop
+        || kw_hf(k) is Some || k == Kw::Loop || kw_dop(k) is Some || k == Kw::Dict
 }
 
 /// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
@@ -600,6 +694,10 @@ pub enum Sx {
     Hof(Hf, Box<Sx>, Seq<char>, Box<Sx>),
     /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）。binder は IDENT か文脈キーワード。
     Loop(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
+    /// v1.9：dict<K, V>()（空の辞書。型の引数は核の Ty。Dict 型の引数は表面に載せない）
+    DictNew(Ty, Ty),
+    /// v1.9：dict の組込み呼出し（組込みの語と、引数の列）
+    DictOp(Dop, Seq<Sx>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。束縛の名前は bind（IDENT か文脈キーワード。`_` も名前として読む）。
@@ -750,6 +848,11 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
                 seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
             ),
         ),
+        Sx::DictNew(a, b) => seq![Tok::Kw(Kw::Dict), Tok::Sym('<')] + tt(
+            a,
+            seq![Tok::Sym(',')] + tt(b, seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + k),
+        ),
+        Sx::DictOp(d, es) => seq![Tok::Kw(dkw(d)), Tok::Sym('(')] + targs(es, 0, k),
     }
 }
 
@@ -1066,6 +1169,11 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
                 seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
             ),
         )),
+        Sx::DictNew(a, b) => kwt(Kw::Dict) + (seq!['<'] + ft(
+            a,
+            seq![',', ' '] + ft(b, seq!['>', '(', ')'] + k),
+        )),
+        Sx::DictOp(d, es) => kwt(dkw(d)) + (seq!['('] + fargs(es, 0, k)),
     }
 }
 
@@ -1826,6 +1934,37 @@ pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                     } else {
                         None
                     }
+                } else if k == Kw::Dict {
+                    // dict<K, V>()：語の直後が `<`（`(` の形は持たない）。二つの型、`(`、`)`。
+                    if sym(ts, i + 1, '<') {
+                        match pt(ts, i + 2, td) {
+                            Some((a, j)) => if sym(ts, j, ',') {
+                                match pt(ts, j + 1, td) {
+                                    Some((b, m)) => if sym(ts, m, '>') && sym(ts, m + 1, '(') && sym(ts, m + 2, ')') {
+                                        Some((Sx::DictNew(a, b), m + 3))
+                                    } else {
+                                        None
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else if kw_dop(k) is Some {
+                    // dict の組込み：語の直後が `(`（型引数を持たないので `<` は読めない）。引数の列、閉じ括弧。
+                    if sym(ts, i + 1, '(') {
+                        match pargs(ts, i + 2, d1, td) {
+                            Some((es, j)) => Some((Sx::DictOp(kw_dop(k)->Some_0, es), j)),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     match kw_b(k) {
                         Some(b) => if sym(ts, i + 1, '(') {
@@ -2295,6 +2434,8 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::SumMatch(m, arms) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
             Sx::Hof(_, l, x, b) => name_ok(x) && bx(*l, d1, td) && bx(*b, d1, td),
             Sx::Loop(i, m, x, b) => name_ok(x) && bx(*i, d1, td) && bx(*m, d1, td) && bx(*b, d1, td),
+            Sx::DictNew(a, b) => bt(a, td) && bt(b, td),
+            Sx::DictOp(_, es) => bxs(es, 0, d1, td),
             _ => true,
         }
     }

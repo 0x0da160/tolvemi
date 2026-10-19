@@ -71,6 +71,10 @@ pub enum SExpr {
     Hof(Hf, Box<SExpr>, Vec<char>, Box<SExpr>),
     /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）
     Loop(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
+    /// v1.9：dict<A, B>()（空の辞書。型の引数は核の Ty）
+    DictNew(Ty, Ty),
+    /// v1.9：dict の組込み呼出し（組込みの語と、引数の列）
+    DictOp(Dop, Vec<SExpr>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。
@@ -125,6 +129,8 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
         SExpr::Hof(h, l, x, b) => Sx::Hof(h, Box::new(vx(*l)), x@, Box::new(vx(*b))),
         SExpr::Loop(i, m, x, b) => Sx::Loop(Box::new(vx(*i)), Box::new(vx(*m)), x@, Box::new(vx(*b))),
+        SExpr::DictNew(a, b) => Sx::DictNew(a, b),
+        SExpr::DictOp(d, es) => Sx::DictOp(d, vxs(es)),
     }
 }
 
@@ -464,6 +470,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Find)
         } else if c4e(w, 'l', 'o', 'o', 'p') {
             Some(Kw::Loop)
+        } else if c4e(w, 'd', 'i', 'c', 't') {
+            Some(Kw::Dict)
         } else {
             None
         }
@@ -506,6 +514,12 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
     } else if n == 8 {
         if c6e(w, 'c', 'o', 'n', 't', 'a', 'i') && w[6] == 'n' && w[7] == 's' {
             Some(Kw::Contains)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'g') && w[6] == 'e' && w[7] == 't' {
+            Some(Kw::DictGet)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'p') && w[6] == 'u' && w[7] == 't' {
+            Some(Kw::DictPut)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'h') && w[6] == 'a' && w[7] == 's' {
+            Some(Kw::DictHas)
         } else {
             None
         }
@@ -514,6 +528,22 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::ToString)
         } else if c6e(w, 'p', 'a', 'r', 's', 'e', '_') && w[6] == 'i' && w[7] == 'n' && w[8] == 't' {
             Some(Kw::ParseInt)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 's') && w[6] == 'i' && w[7] == 'z' && w[8] == 'e' {
+            Some(Kw::DictSize)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'k') && w[6] == 'e' && w[7] == 'y' && w[8] == 's' {
+            Some(Kw::DictKeys)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'f') && w[6] == 'r' && w[7] == 'o' && w[8] == 'm' {
+            Some(Kw::DictFrom)
+        } else {
+            None
+        }
+    } else if n == 11 {
+        if c6e(w, 'd', 'i', 'c', 't', '_', 'r') && w[6] == 'e' && w[7] == 'm' && w[8] == 'o' && w[9] == 'v'
+            && w[10] == 'e' {
+            Some(Kw::DictRemove)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'v') && w[6] == 'a' && w[7] == 'l' && w[8] == 'u' && w[9] == 'e'
+            && w[10] == 's' {
+            Some(Kw::DictValues)
         } else {
             None
         }
@@ -524,6 +554,9 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
         } else if c6e(w, 'm', 'a', 't', 'c', 'h', '_') && w[6] == 'r' && w[7] == 'e' && w[8] == 's' && w[9] == 'u'
             && w[10] == 'l' && w[11] == 't' {
             Some(Kw::MatchResult)
+        } else if c6e(w, 'd', 'i', 'c', 't', '_', 'e') && w[6] == 'n' && w[7] == 't' && w[8] == 'r' && w[9] == 'i'
+            && w[10] == 'e' && w[11] == 's' {
+            Some(Kw::DictEntries)
         } else {
             None
         }
@@ -1184,6 +1217,8 @@ fn soft_e(k: Kw) -> (r: bool)
     match k {
         Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry | Kw::Ok | Kw::Err => true,
         Kw::Map | Kw::Filter | Kw::Any | Kw::All | Kw::Find | Kw::SortBy | Kw::Loop => true,
+        Kw::Dict | Kw::DictGet | Kw::DictPut | Kw::DictRemove | Kw::DictHas | Kw::DictSize | Kw::DictKeys
+            | Kw::DictValues | Kw::DictEntries | Kw::DictFrom => true,
         _ => builtin_of(k).is_some(),
     }
 }
@@ -1388,6 +1423,16 @@ pub fn pp_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::Find => pe_hof_e(ts, i, d, td, Hf::Find),
             Kw::SortBy => pe_hof_e(ts, i, d, td, Hf::SortBy),
             Kw::Loop => pe_loop_e(ts, i, d, td),
+            Kw::Dict => pe_dictnew_e(ts, i, d, td),
+            Kw::DictGet => pe_dictop_e(ts, i, d, td, Dop::Get),
+            Kw::DictPut => pe_dictop_e(ts, i, d, td, Dop::Put),
+            Kw::DictRemove => pe_dictop_e(ts, i, d, td, Dop::Remove),
+            Kw::DictHas => pe_dictop_e(ts, i, d, td, Dop::Has),
+            Kw::DictSize => pe_dictop_e(ts, i, d, td, Dop::Size),
+            Kw::DictKeys => pe_dictop_e(ts, i, d, td, Dop::Keys),
+            Kw::DictValues => pe_dictop_e(ts, i, d, td, Dop::Values),
+            Kw::DictEntries => pe_dictop_e(ts, i, d, td, Dop::Entries),
+            Kw::DictFrom => pe_dictop_e(ts, i, d, td, Dop::From),
             _ => pe_builtin_e(ts, i, d, td),
             }
         },
@@ -1886,6 +1931,9 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
                 && k != Kw::Ok && k != Kw::Err && k != Kw::MatchResult
                 && k != Kw::Map && k != Kw::Filter && k != Kw::Any && k != Kw::All && k != Kw::Find && k != Kw::SortBy
                 && k != Kw::Loop
+                && k != Kw::Dict && k != Kw::DictGet && k != Kw::DictPut && k != Kw::DictRemove && k != Kw::DictHas
+                && k != Kw::DictSize && k != Kw::DictKeys && k != Kw::DictValues && k != Kw::DictEntries
+                && k != Kw::DictFrom
         }),
     ensures
         pp_ok(ts@, i, d, td, r),
@@ -2300,6 +2348,68 @@ fn pe_loop_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr
         return None;
     }
     Some((SExpr::Loop(Box::new(a), Box::new(m), x, Box::new(b)), u + 1))
+}
+
+/// dict<A, B>() の本体（位置 i は dict の語。語の後に `<`、二つの型、`(`、`)`）。
+fn pe_dictnew_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr, usize)>)
+    requires
+        nv(vtoks(ts@), i as nat),
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(Kw::Dict),
+    ensures
+        pp_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+    }
+    if !sym_e(ts, i + 1, '<') {
+        return None;
+    }
+    let (a, j) = match pt_e(ts, i + 2, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, j, ',') {
+        return None;
+    }
+    let (b, m) = match pt_e(ts, j + 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !(sym_e(ts, m, '>') && sym_e(ts, m + 1, '(') && sym_e(ts, m + 2, ')')) {
+        return None;
+    }
+    Some((SExpr::DictNew(a, b), m + 3))
+}
+
+/// dict の組込み呼出しの本体（位置 i は組込みの語。語の後に `(`、引数の列、閉じ括弧）。
+fn pe_dictop_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize, h: Dop) -> (r: Option<(SExpr, usize)>)
+    requires
+        nv(vtoks(ts@), i as nat),
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(dkw(h)),
+    ensures
+        pp_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+        dop_kw(h);
+    }
+    if !sym_e(ts, i + 1, '(') {
+        return None;
+    }
+    match pargs_e(ts, i + 2, d - 1, td) {
+        Some((es, j)) => Some((SExpr::DictOp(h, es), j)),
+        None => None,
+    }
 }
 
 /// 文脈語 `match` の綴り（予約語ではない識別子として読む）。
@@ -3359,6 +3469,70 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
                 assert(out@ =~= old(out)@ + kwt(k));
             }
         },
+        Kw::Dict => push4(out, 'd', 'i', 'c', 't'),
+        Kw::DictGet => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push3(out, 'g', 'e', 't');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictPut => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push3(out, 'p', 'u', 't');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictRemove => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push6(out, 'r', 'e', 'm', 'o', 'v', 'e');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictHas => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push3(out, 'h', 'a', 's');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictSize => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push4(out, 's', 'i', 'z', 'e');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictKeys => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push4(out, 'k', 'e', 'y', 's');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictValues => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push6(out, 'v', 'a', 'l', 'u', 'e', 's');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictEntries => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push7(out, 'e', 'n', 't', 'r', 'i', 'e', 's');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+        Kw::DictFrom => {
+            push5(out, 'd', 'i', 'c', 't', '_');
+            push4(out, 'f', 'r', 'o', 'm');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
     }
 }
 
@@ -3374,6 +3548,24 @@ fn hkw_e(h: Hf) -> (r: Kw)
         Hf::All => Kw::All,
         Hf::Find => Kw::Find,
         Hf::SortBy => Kw::SortBy,
+    }
+}
+
+/// dict の組込みの語（キーワードの token）の exec 版。
+fn dkw_e(d: Dop) -> (r: Kw)
+    ensures
+        r == dkw(d),
+{
+    match d {
+        Dop::Get => Kw::DictGet,
+        Dop::Put => Kw::DictPut,
+        Dop::Remove => Kw::DictRemove,
+        Dop::Has => Kw::DictHas,
+        Dop::Size => Kw::DictSize,
+        Dop::Keys => Kw::DictKeys,
+        Dop::Values => Kw::DictValues,
+        Dop::Entries => Kw::DictEntries,
+        Dop::From => Kw::DictFrom,
     }
 }
 
@@ -3600,6 +3792,12 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::SumMatch(..) => push_summatch(out, e),
         SExpr::Hof(..) => push_hof(out, e),
         SExpr::Loop(..) => push_loop(out, e),
+        SExpr::DictNew(..) => push_dictnew(out, e),
+        SExpr::DictOp(d, es) => {
+            push_kw(out, dkw_e(*d));
+            push1(out, '(');
+            push_args(out, es);
+        },
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -3987,6 +4185,31 @@ fn push_loop(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
+/// dict<A, B>() の印字（`dict<A, B>()`）。
+fn push_dictnew(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is DictNew,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::DictNew(a, b) = e {
+        push_kw(out, Kw::Dict);
+        push1(out, '<');
+        push_ty(out, a);
+        push2(out, ',', ' ');
+        push_ty(out, b);
+        push3(out, '>', '(', ')');
+        proof {
+            ft_app(*b, seq!['>', '(', ')'] + z);
+            ft_app(*a, seq![',', ' '] + ft(*b, seq!['>', '(', ')'] + z));
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
 /// match 式の印字（`match 被験式 { 枝 }`）。
 fn push_summatch(out: &mut Vec<char>, e: &SExpr)
     requires
@@ -4039,6 +4262,7 @@ proof fn farms_step(v: Seq<(Spat, Sx)>, i: nat, tl: Seq<char>)
 
 /// match の枝の並びと閉じ括弧 ` }`（枝は「パターン ` => ` 本体」、枝の間は `, `）。
 /// 本体の列が枝より短いときは unit を出す（対応する本体のない枝。varms と同じ）。
+#[verifier::rlimit(15)]
 fn push_arms(out: &mut Vec<char>, ps: &Vec<SPat>, es: &Vec<SExpr>)
     ensures
         final(out)@ == old(out)@ + farms(varms(ps@, es@), 0, seq![' ', '}']),
