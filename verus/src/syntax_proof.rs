@@ -152,6 +152,22 @@ pub proof fn kw_inv(x: Seq<char>)
     assert(kwt(kw_of(x)->Some_0) =~= x);
 }
 
+/// hof の語は、その hof に戻る。
+pub proof fn hf_kw(h: Hf)
+    ensures
+        kw_hf(hkw(h)) == Some(h),
+{
+}
+
+/// 語が hof の語なら、その hof の語はもとの語。
+pub proof fn hf_kw_inv(k: Kw)
+    requires
+        kw_hf(k) is Some,
+    ensures
+        hkw(kw_hf(k)->Some_0) == k,
+{
+}
+
 /// 変数・束縛の名前（IDENT か文脈キーワード）の字句。
 pub proof fn ln(x: Seq<char>, s: Seq<char>, u: Seq<Tok>)
     requires
@@ -466,6 +482,7 @@ pub proof fn fe_lex(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         Sx::Fld(..) => fe_lex_fld(e, d, td, k, u),
         Sx::Rec(..) => fe_lex_rec(e, d, td, k, u),
         Sx::SumMatch(..) => fe_lex_sumatch(e, d, td, k, u),
+        Sx::Hof(..) => fe_lex_hof(e, d, td, k, u),
     }
 }
 
@@ -1075,6 +1092,41 @@ proof fn fe_lex_sumatch(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             lword(mword(), seq![' '] + kmm, umm);
             assert(fe(e, k) =~= mword() + (seq![' '] + kmm));
             assert(te(e, u) =~= seq![word_tok(mword())] + umm);
+        },
+        _ => {},
+    }
+}
+
+/// 字句の補題：`hof(e, |x| b)`（後ろの字句は k。閉じ括弧 `)` が後ろを区切る）。
+proof fn fe_lex_hof(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        e is Hof,
+        bx(e, d, td),
+        lex(k) == Some(u),
+        fsafe(e, k),
+    ensures
+        lex(fe(e, k)) == Some(te(e, u)),
+    decreases e, 0nat,
+{
+    let d1 = (d - 1) as nat;
+    match e {
+        Sx::Hof(h, l, x, b) => {
+            ls(')', k, u);
+            fe_lex(*b, d1, td, seq![')'] + k, seq![Tok::Sym(')')] + u);
+            let kb = fe(*b, seq![')'] + k);
+            let ub = te(*b, seq![Tok::Sym(')')] + u);
+            // ", |x| " の後に本体
+            lbar(x, kb, ub);
+            let k5 = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + kb));
+            let u5 = seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + ub;
+            assert(k5[0] == ',');
+            fe_lex(*l, d1, td, k5, u5);
+            let kl = fe(*l, k5);
+            let ul = te(*l, u5);
+            ls('(', kl, ul);
+            lk(hkw(h), seq!['('] + kl, seq![Tok::Sym('(')] + ul);
+            assert(fe(e, k) =~= kwt(hkw(h)) + (seq!['('] + kl));
+            assert(seq![Tok::Kw(hkw(h))] + (seq![Tok::Sym('(')] + ul) =~= te(e, u));
         },
         _ => {},
     }
@@ -1930,6 +1982,7 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         },
         Sx::Rec(..) => fe_app_rec(e, k),
         Sx::SumMatch(..) => fe_app_sumatch(e, k),
+        Sx::Hof(..) => fe_app_hof(e, k),
         _ => {},
     }
     assert(fe(e, k) =~= fe(e, z) + k);
@@ -2050,6 +2103,29 @@ proof fn fe_app_match(e: Sx, k: Seq<char>)
         assert(km =~= zm + k);
         fe_app(*m, km);
         fe_app(*m, zm);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+/// hof の印字は後ろの続き k に対して結合する。
+proof fn fe_app_hof(e: Sx, k: Seq<char>)
+    requires
+        e is Hof,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Hof(h, l, x, b) = e {
+        fe_app(*b, seq![')'] + k);
+        fe_app(*b, seq![')'] + z);
+        let kl = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k)));
+        let zl = seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + z)));
+        assert(kl =~= zl + k);
+        fe_app(*l, kl);
+        fe_app(*l, zl);
+        assert(fe(*l, kl) =~= fe(*l, zl) + k);
+        assert(fe(e, k) =~= fe(e, z) + k);
     }
     assert(fe(e, k) =~= fe(e, z) + k);
 }

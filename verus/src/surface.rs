@@ -67,6 +67,8 @@ pub enum SExpr {
     Rec(Vec<char>, Vec<Vec<char>>, Vec<SExpr>, Option<Box<SExpr>>),
     /// v1.4：match e { P => a, ... }（被験式と、枝のパターンと本体の二つの列。同じ長さで空でない）
     SumMatch(Box<SExpr>, Vec<SPat>, Vec<SExpr>),
+    /// v1.5：hof(e, |x| b)（hof の語、被験の列、binder、本体）
+    Hof(Hf, Box<SExpr>, Vec<char>, Box<SExpr>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。
@@ -119,6 +121,7 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::Fld(a, ns) => Sx::Fld(Box::new(vx(*a)), vnames(ns@)),
         SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
         SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
+        SExpr::Hof(h, l, x, b) => Sx::Hof(h, Box::new(vx(*l)), x@, Box::new(vx(*b))),
     }
 }
 
@@ -412,6 +415,12 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Max)
         } else if c3e(w, 'e', 'r', 'r') {
             Some(Kw::Err)
+        } else if c3e(w, 'm', 'a', 'p') {
+            Some(Kw::Map)
+        } else if c3e(w, 'a', 'n', 'y') {
+            Some(Kw::Any)
+        } else if c3e(w, 'a', 'l', 'l') {
+            Some(Kw::All)
         } else {
             None
         }
@@ -448,6 +457,8 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::Code)
         } else if c4e(w, 'c', 'h', 'a', 'r') {
             Some(Kw::CharOf)
+        } else if c4e(w, 'f', 'i', 'n', 'd') {
+            Some(Kw::Find)
         } else {
             None
         }
@@ -474,12 +485,16 @@ pub fn kw_of_e(w: &Vec<char>) -> (r: Option<Kw>)
             Some(Kw::TString)
         } else if c6e(w, 'R', 'e', 's', 'u', 'l', 't') {
             Some(Kw::TResult)
+        } else if c6e(w, 'f', 'i', 'l', 't', 'e', 'r') {
+            Some(Kw::Filter)
         } else {
             None
         }
     } else if n == 7 {
         if c6e(w, 'r', 'e', 'v', 'e', 'r', 's') && w[6] == 'e' {
             Some(Kw::Reverse)
+        } else if c6e(w, 's', 'o', 'r', 't', '_', 'b') && w[6] == 'y' {
+            Some(Kw::SortBy)
         } else {
             None
         }
@@ -1163,6 +1178,7 @@ fn soft_e(k: Kw) -> (r: bool)
 {
     match k {
         Kw::List | Kw::Some | Kw::None | Kw::Pair | Kw::Entry | Kw::Ok | Kw::Err => true,
+        Kw::Map | Kw::Filter | Kw::Any | Kw::All | Kw::Find | Kw::SortBy => true,
         _ => builtin_of(k).is_some(),
     }
 }
@@ -1360,6 +1376,12 @@ pub fn pp_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
             Kw::MatchOption => pe_match_e(ts, i, d, td),
             Kw::Ok | Kw::Err => pe_inj_e(ts, i, d, td),
             Kw::MatchResult => pe_matchr_e(ts, i, d, td),
+            Kw::Map => pe_hof_e(ts, i, d, td, Hf::Map),
+            Kw::Filter => pe_hof_e(ts, i, d, td, Hf::Filter),
+            Kw::Any => pe_hof_e(ts, i, d, td, Hf::Any),
+            Kw::All => pe_hof_e(ts, i, d, td, Hf::All),
+            Kw::Find => pe_hof_e(ts, i, d, td, Hf::Find),
+            Kw::SortBy => pe_hof_e(ts, i, d, td, Hf::SortBy),
             _ => pe_builtin_e(ts, i, d, td),
             }
         },
@@ -1856,6 +1878,7 @@ fn pe_builtin_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SE
             k != Kw::True && k != Kw::False && k != Kw::Unit && k != Kw::List && k != Kw::Some && k != Kw::None
                 && k != Kw::Pair && k != Kw::Let && k != Kw::If && k != Kw::Fold && k != Kw::MatchOption
                 && k != Kw::Ok && k != Kw::Err && k != Kw::MatchResult
+                && k != Kw::Map && k != Kw::Filter && k != Kw::Any && k != Kw::All && k != Kw::Find && k != Kw::SortBy
         }),
     ensures
         pp_ok(ts@, i, d, td, r),
@@ -2183,6 +2206,47 @@ fn pe_match_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExp
         return None;
     }
     Some((SExpr::Match(Box::new(m), Box::new(n), x, Box::new(b)), u + 1))
+}
+
+/// hof の本体（位置 i は hof の語。語の後に `(`、被験の列、`,`、`|x|`、本体、閉じ括弧）。
+fn pe_hof_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize, h: Hf) -> (r: Option<(SExpr, usize)>)
+    requires
+        small(ts@),
+        i < ts.len(),
+        d > 0,
+        vtok(ts@[i as int]) == Tok::Kw(hkw(h)),
+        sym(vtoks(ts@), (i + 1) as nat, '(') || sym(vtoks(ts@), (i + 1) as nat, '<'),
+    ensures
+        pp_ok(ts@, i, d, td, r),
+    decreases d, 0nat,
+{
+    let ghost tv = vtoks(ts@);
+    proof {
+        assert(tv[i as int] == vtok(ts@[i as int]));
+        pp_hof_unfold(tv, i as nat, d as nat, td as nat, h);
+    }
+    if !sym_e(ts, i + 1, '(') {
+        return None;
+    }
+    let (l, j) = match pe_e(ts, i + 2, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if j + 4 > ts.len() || !(sym_e(ts, j, ',') && sym_e(ts, j + 1, '|') && sym_e(ts, j + 3, '|')) {
+        return None;
+    }
+    let x = match bdt_e(ts, j + 2) {
+        Some(x) => x,
+        None => return None,
+    };
+    let (b, m) = match pe_e(ts, j + 4, d - 1, td) {
+        Some(r) => r,
+        None => return None,
+    };
+    if !sym_e(ts, m, ')') {
+        return None;
+    }
+    Some((SExpr::Hof(h, Box::new(l), x, Box::new(b)), m + 1))
 }
 
 /// 文脈語 `match` の綴り（予約語ではない識別子として読む）。
@@ -3229,6 +3293,33 @@ fn push_kw(out: &mut Vec<char>, k: Kw)
                 assert(out@ =~= old(out)@ + kwt(k));
             }
         },
+        Kw::Map => push3(out, 'm', 'a', 'p'),
+        Kw::Filter => push6(out, 'f', 'i', 'l', 't', 'e', 'r'),
+        Kw::Any => push3(out, 'a', 'n', 'y'),
+        Kw::All => push3(out, 'a', 'l', 'l'),
+        Kw::Find => push4(out, 'f', 'i', 'n', 'd'),
+        Kw::SortBy => {
+            push6(out, 's', 'o', 'r', 't', '_', 'b');
+            push1(out, 'y');
+            proof {
+                assert(out@ =~= old(out)@ + kwt(k));
+            }
+        },
+    }
+}
+
+/// hof の語（キーワードの token）の exec 版。
+fn hkw_e(h: Hf) -> (r: Kw)
+    ensures
+        r == hkw(h),
+{
+    match h {
+        Hf::Map => Kw::Map,
+        Hf::Filter => Kw::Filter,
+        Hf::Any => Kw::Any,
+        Hf::All => Kw::All,
+        Hf::Find => Kw::Find,
+        Hf::SortBy => Kw::SortBy,
     }
 }
 
@@ -3453,6 +3544,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
         SExpr::Fld(..) => push_fld(out, e),
         SExpr::Rec(..) => push_rec(out, e),
         SExpr::SumMatch(..) => push_summatch(out, e),
+        SExpr::Hof(..) => push_hof(out, e),
     }
     proof {
         assert(out@ =~= o + fe(vx(*e), z));
@@ -3718,7 +3810,7 @@ fn push_let(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
-#[verifier::rlimit(60)]
+#[verifier::rlimit(65)]
 fn push_fold(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Fold,
@@ -3776,6 +3868,34 @@ fn push_match(out: &mut Vec<char>, e: &SExpr)
             let kn = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
             fe_app(vx(**n), kn);
             fe_app(vx(**m), seq![',', ' '] + fe(vx(**n), kn));
+            assert(out@ =~= o + fe(vx(*e), z));
+        }
+    }
+}
+
+/// hof の印字（`hof(被験式, |x| 本体)`）。
+fn push_hof(out: &mut Vec<char>, e: &SExpr)
+    requires
+        e is Hof,
+    ensures
+        final(out)@ == old(out)@ + fe(vx(*e), Seq::empty()),
+    decreases e, 0nat,
+{
+    let ghost o = out@;
+    let ghost z = Seq::<char>::empty();
+    if let SExpr::Hof(h, m, x, b) = e {
+        push_kw(out, hkw_e(*h));
+        push1(out, '(');
+        push_e(out, m);
+        push3(out, ',', ' ', '|');
+        append_chars(out, x);
+        push2(out, '|', ' ');
+        push_e(out, b);
+        push1(out, ')');
+        proof {
+            fe_app(vx(**b), seq![')'] + z);
+            let kn = seq![',', ' ', '|'] + (x@ + (seq!['|', ' '] + fe(vx(**b), seq![')'] + z)));
+            fe_app(vx(**m), kn);
             assert(out@ =~= o + fe(vx(*e), z));
         }
     }

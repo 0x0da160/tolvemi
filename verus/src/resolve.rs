@@ -123,6 +123,8 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
         Sx::Fld(..) | Sx::Rec(..) => None,
         // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
         Sx::SumMatch(..) => None,
+        // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
+        Sx::Hof(..) => None,
     }
 }
 
@@ -626,6 +628,8 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         SExpr::Fld(..) | SExpr::Rec(..) => None,
         // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
         SExpr::SumMatch(..) => None,
+        // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
+        SExpr::Hof(..) => None,
     }
 }
 

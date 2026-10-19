@@ -70,6 +70,13 @@ pub enum Kw {
     Ok,
     Err,
     MatchResult,
+    /// v1.5：hof の 6 語（文脈キーワード）
+    Map,
+    Filter,
+    Any,
+    All,
+    Find,
+    SortBy,
 }
 
 pub open spec fn kwt(k: Kw) -> Seq<char> {
@@ -125,6 +132,12 @@ pub open spec fn kwt(k: Kw) -> Seq<char> {
         Kw::Ok => seq!['o', 'k'],
         Kw::Err => seq!['e', 'r', 'r'],
         Kw::MatchResult => seq!['m', 'a', 't', 'c', 'h', '_', 'r', 'e', 's', 'u', 'l', 't'],
+        Kw::Map => seq!['m', 'a', 'p'],
+        Kw::Filter => seq!['f', 'i', 'l', 't', 'e', 'r'],
+        Kw::Any => seq!['a', 'n', 'y'],
+        Kw::All => seq!['a', 'l', 'l'],
+        Kw::Find => seq!['f', 'i', 'n', 'd'],
+        Kw::SortBy => seq!['s', 'o', 'r', 't', '_', 'b', 'y'],
     }
 }
 
@@ -195,6 +208,12 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Max)
         } else if c3(s, 'e', 'r', 'r') {
             Some(Kw::Err)
+        } else if c3(s, 'm', 'a', 'p') {
+            Some(Kw::Map)
+        } else if c3(s, 'a', 'n', 'y') {
+            Some(Kw::Any)
+        } else if c3(s, 'a', 'l', 'l') {
+            Some(Kw::All)
         } else {
             None
         }
@@ -231,6 +250,8 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::Code)
         } else if c4(s, 'c', 'h', 'a', 'r') {
             Some(Kw::CharOf)
+        } else if c4(s, 'f', 'i', 'n', 'd') {
+            Some(Kw::Find)
         } else {
             None
         }
@@ -257,12 +278,16 @@ pub open spec fn kw_of(s: Seq<char>) -> Option<Kw> {
             Some(Kw::TString)
         } else if c6(s, 'R', 'e', 's', 'u', 'l', 't') {
             Some(Kw::TResult)
+        } else if c6(s, 'f', 'i', 'l', 't', 'e', 'r') {
+            Some(Kw::Filter)
         } else {
             None
         }
     } else if s.len() == 7 {
         if c6(s, 'r', 'e', 'v', 'e', 'r', 's') && s[6] == 'e' {
             Some(Kw::Reverse)
+        } else if c6(s, 's', 'o', 'r', 't', '_', 'b') && s[6] == 'y' {
+            Some(Kw::SortBy)
         } else {
             None
         }
@@ -356,6 +381,42 @@ pub open spec fn kw_b(k: Kw) -> Option<Builtin> {
     }
 }
 
+/// v1.5：関数を渡す組込み。`hof(xs, |x| e)` の形で、語の綴りは文脈キーワード（§4.2）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Hf {
+    Map,
+    Filter,
+    Any,
+    All,
+    Find,
+    SortBy,
+}
+
+/// hof の語（キーワードの token）。
+pub open spec fn hkw(h: Hf) -> Kw {
+    match h {
+        Hf::Map => Kw::Map,
+        Hf::Filter => Kw::Filter,
+        Hf::Any => Kw::Any,
+        Hf::All => Kw::All,
+        Hf::Find => Kw::Find,
+        Hf::SortBy => Kw::SortBy,
+    }
+}
+
+/// 語が hof の語なら、その hof。
+pub open spec fn kw_hf(k: Kw) -> Option<Hf> {
+    match k {
+        Kw::Map => Some(Hf::Map),
+        Kw::Filter => Some(Hf::Filter),
+        Kw::Any => Some(Hf::Any),
+        Kw::All => Some(Hf::All),
+        Kw::Find => Some(Hf::Find),
+        Kw::SortBy => Some(Hf::SortBy),
+        _ => None,
+    }
+}
+
 // ------------------------------------------------------------------ 文字の分類（§4.2）
 
 pub open spec fn is_alpha(c: char) -> bool {
@@ -392,8 +453,10 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
 }
 
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
+/// v1.5 の hof の語も、同じく変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
     kw_b(k) is Some || k == Kw::List || k == Kw::Some || k == Kw::None || k == Kw::Pair || k == Kw::Entry || k == Kw::Ok || k == Kw::Err
+        || kw_hf(k) is Some
 }
 
 /// 変数・引数・束縛の名前：IDENT か文脈キーワード。関数名と entry の名前は IDENT（`ident_ok`）に限る。
@@ -528,6 +591,8 @@ pub enum Sx {
     Rec(Seq<char>, Seq<(Seq<char>, Sx)>, Option<Box<Sx>>),
     /// v1.4：match e { P => a, ... }（枝の並びは空でない）
     SumMatch(Box<Sx>, Seq<(Spat, Sx)>),
+    /// v1.5：hof(xs, |x| e)（hof の語、被験の列、binder、本体）。binder は IDENT か文脈キーワード。
+    Hof(Hf, Box<Sx>, Seq<char>, Box<Sx>),
 }
 
 /// v1.4：match の枝の左辺（パターン）。束縛の名前は bind（IDENT か文脈キーワード。`_` も名前として読む）。
@@ -667,6 +732,10 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         Sx::Fld(a, fs) => te(*a, tdots(fs, k)),
         Sx::Rec(r, fs, b) => seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, rtail(fs.len() > 0, b, k)),
         Sx::SumMatch(m, arms) => seq![word_tok(mword())] + te(*m, seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')] + k)),
+        Sx::Hof(h, l, x, b) => seq![Tok::Kw(hkw(h)), Tok::Sym('(')] + te(
+            *l,
+            seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
+        ),
     }
 }
 
@@ -972,6 +1041,10 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
             seq![' '] + ffe(fs, 0, frtail(fs.len() > 0, b, k))
         }),
         Sx::SumMatch(m, arms) => mword() + (seq![' '] + fe(*m, seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}'] + k))),
+        Sx::Hof(h, l, x, b) => kwt(hkw(h)) + (seq!['('] + fe(
+            *l,
+            seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
+        )),
     }
 }
 
@@ -1677,6 +1750,30 @@ pub open spec fn pp(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
                     } else {
                         None
                     }
+                } else if kw_hf(k) is Some {
+                    // hof(e, |x| b)：語の直後が `(`（hof は `<` の形を持たない）。被験の列、binder、本体、閉じ括弧。
+                    if sym(ts, i + 1, '(') {
+                        match pe(ts, i + 2, d1, td) {
+                            Some((l, j)) => if sym(ts, j, ',') && sym(ts, j + 1, '|') && sym(ts, j + 3, '|') {
+                                match bdt(ts, j + 2) {
+                                    Some(x) => match pe(ts, j + 4, d1, td) {
+                                        Some((b, m)) => if sym(ts, m, ')') {
+                                            Some((Sx::Hof(kw_hf(k)->Some_0, Box::new(l), x, Box::new(b)), m + 1))
+                                        } else {
+                                            None
+                                        },
+                                        None => None,
+                                    },
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    }
                 } else {
                     match kw_b(k) {
                         Some(b) => if sym(ts, i + 1, '(') {
@@ -2144,6 +2241,7 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::Fld(a, fs) => recv_ok(*a) && fs.len() > 0 && nms(fs) && bx(*a, d, td),
             Sx::Rec(r, fs, b) => ident_ok(r) && bfs(fs, 0, d1, td) && bopt(b, d1, td),
             Sx::SumMatch(m, arms) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
+            Sx::Hof(_, l, x, b) => name_ok(x) && bx(*l, d1, td) && bx(*b, d1, td),
             _ => true,
         }
     }
