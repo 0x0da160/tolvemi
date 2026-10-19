@@ -168,6 +168,7 @@ pub open spec fn fname(d: Sd) -> Seq<char> {
         Sd::Fn(f, _, _, _) => f,
         Sd::Entry(x) => x,
         Sd::RecTy(r, _, _) => r,
+        Sd::Sum(r, _) => r,
     }
 }
 
@@ -195,6 +196,7 @@ pub open spec fn rfunc(fs: Seq<Seq<char>>, d: Sd) -> Option<Func> {
         },
         Sd::Entry(_) => None,
         Sd::RecTy(_, _, _) => None,
+        Sd::Sum(_, _) => None,
     }
 }
 
@@ -909,7 +911,7 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
             }
         },
         SDecl::Entry(_) => None,
-        SDecl::RecTy(_, _, _) => None,
+        SDecl::RecTy(_, _, _) | SDecl::Sum(_, _) => None,
     }
 }
 
@@ -966,8 +968,8 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
                     assert(e0.push(v[i as int]->Entry_0) =~= Seq::new(ents@.len(), |m: int| v[ents@[m] as int]->Entry_0));
                 }
             },
-            // レコード宣言は名前解決の対象外（段階 2 で型名の一意性を検査する）。
-            SDecl::RecTy(_, _, _) => {
+            // レコード宣言と直和宣言は名前解決の対象外（段階 2 で型名の一意性を検査する）。
+            SDecl::RecTy(_, _, _) | SDecl::Sum(_, _) => {
                 proof {
                     assert(fns_upto(v, (i + 1) as nat) == f0);
                     assert(ents_upto(v, (i + 1) as nat) == e0);

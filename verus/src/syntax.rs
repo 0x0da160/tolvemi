@@ -533,6 +533,8 @@ pub enum Sd {
     Entry(Seq<char>),
     /// v1.1：type R = { f: T, ... }（末尾の `,` の有無を持つ。整形がトークン列を変えないため）
     RecTy(Seq<char>, Seq<(Seq<char>, Ty)>, bool),
+    /// v1.4：type S = V1 | V2(T, U)（構築子の名前と、中身の型の並び）
+    Sum(Seq<char>, Seq<(Seq<char>, Seq<Ty>)>),
 }
 
 /// 宣言の先頭で読む文脈語 `type` の綴り（予約語ではない）。
@@ -739,6 +741,68 @@ pub open spec fn tps(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
     }
 }
 
+/// 大文字（構築子の名前の先頭）。
+pub open spec fn is_upper(c: char) -> bool {
+    0x41 <= c as u32 && c as u32 <= 0x5a
+}
+
+/// 構築子の名前：IDENT で、先頭が大文字。
+pub open spec fn cname_ok(c: Seq<char>) -> bool {
+    c.len() > 0 && ident_ok(c) && is_upper(c[0])
+}
+
+/// 位置 i の構築子の名前（大文字で始まる IDENT）。
+pub open spec fn cidt(ts: Seq<Tok>, i: nat) -> Option<Seq<char>> {
+    match idt(ts, i) {
+        Some(c) => if c.len() > 0 && is_upper(c[0]) {
+            Some(c)
+        } else {
+            None
+        },
+        None => None,
+    }
+}
+
+/// 中身の型の並び `T, U, ...`（tail の前まで）。
+pub open spec fn tts(ps: Seq<Ty>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+    decreases ps.len() - i,
+{
+    if i >= ps.len() {
+        k
+    } else if i + 1 == ps.len() {
+        tt(ps[i as int], k)
+    } else {
+        tt(ps[i as int], seq![Tok::Sym(',')] + tts(ps, i + 1, k))
+    }
+}
+
+/// 構築子の中身：空なら何もなく、そうでなければ `(` 型の並び `)`。
+pub open spec fn tpay(ps: Seq<Ty>, k: Seq<Tok>) -> Seq<Tok> {
+    if ps.len() == 0 {
+        k
+    } else {
+        seq![Tok::Sym('(')] + tts(ps, 0, seq![Tok::Sym(')')] + k)
+    }
+}
+
+/// 直和型の構築子の並び（`|` で区切り、最後の後ろに k）。
+pub open spec fn tvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+    decreases vs.len() - i,
+{
+    if i >= vs.len() {
+        k
+    } else {
+        seq![word_tok(vs[i as int].0)] + tpay(
+            vs[i as int].1,
+            if i + 1 == vs.len() {
+                k
+            } else {
+                seq![Tok::Sym('|')] + tvars(vs, i + 1, k)
+            },
+        )
+    }
+}
+
 pub open spec fn tdecl(d: Sd, k: Seq<Tok>) -> Seq<Tok> {
     match d {
         Sd::Fn(f, ps, r, b) => seq![Tok::Kw(Kw::Fn), Tok::Id(f), Tok::Sym('(')] + tps(
@@ -748,6 +812,7 @@ pub open spec fn tdecl(d: Sd, k: Seq<Tok>) -> Seq<Tok> {
         ),
         Sd::Entry(x) => seq![Tok::Kw(Kw::Entry), Tok::Id(x)] + k,
         Sd::RecTy(r, fs, tc) => seq![Tok::Id(tyw()), word_tok(r), Tok::Sym('='), Tok::Sym('{')] + tfd(fs, 0, tc, seq![Tok::Sym('}')] + k),
+        Sd::Sum(r, vs) => seq![Tok::Id(tyw()), word_tok(r), Tok::Sym('=')] + tvars(vs, 0, k),
     }
 }
 
@@ -919,6 +984,7 @@ pub open spec fn fd(d: Sd, k: Seq<char>) -> Seq<char> {
             0,
             (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + seq!['\n'] + k,
         ))),
+        Sd::Sum(r, vs) => seq!['t', 'y', 'p', 'e', ' '] + (r + (seq![' ', '=', ' '] + fvars(vs, 0, seq!['\n'] + k))),
     }
 }
 
@@ -937,6 +1003,46 @@ pub open spec fn ffd(fs: Seq<(Seq<char>, Ty)>, i: nat, tail: Seq<char>) -> Seq<c
                 seq![',', ' '] + ffd(fs, i + 1, tail)
             },
         ))
+    }
+}
+
+/// 型の並び `T, U, ...` の字句（tail の前まで）。
+pub open spec fn ftys(ps: Seq<Ty>, i: nat, tail: Seq<char>) -> Seq<char>
+    decreases ps.len() - i,
+{
+    if i >= ps.len() {
+        tail
+    } else if i + 1 == ps.len() {
+        ft(ps[i as int], tail)
+    } else {
+        ft(ps[i as int], seq![',', ' '] + ftys(ps, i + 1, tail))
+    }
+}
+
+/// 構築子の中身の字句：空なら rest だけ、そうでなければ `(` 型の並び `)` と rest。
+pub open spec fn fpay(ps: Seq<Ty>, rest: Seq<char>) -> Seq<char> {
+    if ps.len() == 0 {
+        rest
+    } else {
+        seq!['('] + ftys(ps, 0, seq![')'] + rest)
+    }
+}
+
+/// 直和型の構築子の並びの字句（` | ` で区切り、最後の後ろに tail）。
+pub open spec fn fvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, tail: Seq<char>) -> Seq<char>
+    decreases vs.len() - i,
+{
+    if i >= vs.len() {
+        tail
+    } else {
+        vs[i as int].0 + fpay(
+            vs[i as int].1,
+            if i + 1 == vs.len() {
+                tail
+            } else {
+                seq![' ', '|', ' '] + fvars(vs, i + 1, tail)
+            },
+        )
     }
 }
 
@@ -1654,6 +1760,11 @@ pub open spec fn pd(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sd, nat)> 
                     Some((fs, tc, j)) => Some((Sd::RecTy(r, fs, tc), j)),
                     None => None,
                 }
+            } else if sym(ts, i + 2, '=') {
+                match pvars(ts, i + 3, td) {
+                    Some((vs, j)) => Some((Sd::Sum(r, vs), j)),
+                    None => None,
+                }
             } else {
                 None
             },
@@ -1689,6 +1800,59 @@ pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, 
             }
         } else {
             None
+        },
+        None => None,
+    }
+}
+
+/// 型の並び（一つ以上、カンマ区切り。閉じ括弧は読まない）。
+pub open spec fn ptys(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<Ty>, nat)>
+    decreases ts.len() - i,
+{
+    match pt(ts, i, td) {
+        Some((t, j)) => if sym(ts, j, ',') && i < j {
+            match ptys(ts, j + 1, td) {
+                Some((ps, m)) => Some((seq![t] + ps, m)),
+                None => None,
+            }
+        } else {
+            Some((seq![t], j))
+        },
+        None => None,
+    }
+}
+
+/// 構築子 `CTOR` か `CTOR "(" type ("," type)* ")"`（位置 i から）。名前、中身の型の並び、後ろの位置。
+pub open spec fn pvar(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<char>, Seq<Ty>, nat)> {
+    match cidt(ts, i) {
+        Some(c) => if sym(ts, i + 1, '(') {
+            match ptys(ts, i + 2, td) {
+                Some((ps, j)) => if sym(ts, j, ')') {
+                    Some((c, ps, j + 1))
+                } else {
+                    None
+                },
+                None => None,
+            }
+        } else {
+            Some((c, Seq::empty(), i + 1))
+        },
+        None => None,
+    }
+}
+
+/// 直和型の構築子の並び（`|` で区切る。位置 i から、一つ以上）。
+pub open spec fn pvars(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Seq<Ty>)>, nat)>
+    decreases ts.len() - i,
+{
+    match pvar(ts, i, td) {
+        Some((c, ps, j)) => if sym(ts, j, '|') && i < j {
+            match pvars(ts, j + 1, td) {
+                Some((vs, m)) => Some((seq![(c, ps)] + vs, m)),
+                None => None,
+            }
+        } else {
+            Some((seq![(c, ps)], j))
         },
         None => None,
     }
@@ -1812,11 +1976,26 @@ pub open spec fn bps(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
     i >= ps.len() || (name_ok(ps[i as int].0) && bt(ps[i as int].1, td) && bps(ps, i + 1, td))
 }
 
+/// 型の並びの深さ（bt）。
+pub open spec fn bts(ps: Seq<Ty>, i: nat, td: nat) -> bool
+    decreases ps.len() - i,
+{
+    i >= ps.len() || (bt(ps[i as int], td) && bts(ps, i + 1, td))
+}
+
+/// 直和型の構築子：名前は大文字で始まる IDENT、中身の型は深さ内。
+pub open spec fn bvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat) -> bool
+    decreases vs.len() - i,
+{
+    i >= vs.len() || (cname_ok(vs[i as int].0) && bts(vs[i as int].1, 0, td) && bvars(vs, i + 1, td))
+}
+
 pub open spec fn bd(x: Sd, d: nat, td: nat) -> bool {
     match x {
         Sd::Fn(f, ps, r, b) => ident_ok(f) && bps(ps, 0, td) && bt(r, td) && bx(b, d, td),
         Sd::Entry(x) => ident_ok(x),
         Sd::RecTy(r, fs, tc) => ident_ok(r) && fs.len() > 0 && bfds(fs, 0, td),
+        Sd::Sum(r, vs) => ident_ok(r) && vs.len() > 0 && bvars(vs, 0, td),
     }
 }
 

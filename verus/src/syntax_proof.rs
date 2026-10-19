@@ -1247,6 +1247,144 @@ pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq
     assert(tfd(fs, i, tc, seq![Tok::Sym('}')] + u) =~= seq![Tok::Id(x), Tok::Sym(':')] + tt(t, ut));
 }
 
+/// 型の並びの先頭の型は深さ内（残りの並びも深さ内）。
+pub proof fn bts_at(ps: Seq<Ty>, j: nat, td: nat)
+    requires
+        j < ps.len(),
+        bts(ps, j, td),
+    ensures
+        bt(ps[j as int], td),
+        bts(ps, j + 1, td),
+{
+}
+
+/// 直和型の構築子の並びの先頭：名前は大文字で始まる IDENT、中身の型は深さ内。
+pub proof fn bvars_at(vs: Seq<(Seq<char>, Seq<Ty>)>, j: nat, td: nat)
+    requires
+        j < vs.len(),
+        bvars(vs, j, td),
+    ensures
+        cname_ok(vs[j as int].0),
+        bts(vs[j as int].1, 0, td),
+        bvars(vs, j + 1, td),
+{
+}
+
+/// 型の並びの先頭の展開（token 側）。
+pub proof fn tts_head(ps: Seq<Ty>, i: nat, k: Seq<Tok>)
+    requires
+        i < ps.len(),
+    ensures
+        tts(ps, i, k) == tt(ps[i as int], if i + 1 == ps.len() { k } else { seq![Tok::Sym(',')] + tts(ps, i + 1, k) }),
+{
+}
+
+/// 直和型の構築子の並びの先頭の展開（token 側）。
+pub proof fn tvars_head(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
+    requires
+        i < vs.len(),
+    ensures
+        tvars(vs, i, k) == seq![word_tok(vs[i as int].0)] + tpay(
+            vs[i as int].1,
+            if i + 1 == vs.len() { k } else { seq![Tok::Sym('|')] + tvars(vs, i + 1, k) },
+        ),
+{
+}
+
+/// 型の並び `T, U, ...` の字句（後ろの続きは k。k は安全な字句で始まる）。
+proof fn ftys_lex(ps: Seq<Ty>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        i < ps.len(),
+        bts(ps, i, td),
+        lex(k) == Some(u),
+        safe(k),
+    ensures
+        lex(ftys(ps, i, k)) == Some(tts(ps, i, u)),
+    decreases ps.len() - i,
+{
+    bts_at(ps, i, td);
+    if i + 1 == ps.len() {
+        ft_lex(ps[i as int], k, u);
+        assert(ftys(ps, i, k) == ft(ps[i as int], k));
+        tts_head(ps, i, u);
+    } else {
+        ftys_lex(ps, i + 1, td, k, u);
+        lcs(ftys(ps, i + 1, k), tts(ps, i + 1, u));
+        ft_lex(ps[i as int], seq![',', ' '] + ftys(ps, i + 1, k), seq![Tok::Sym(',')] + tts(ps, i + 1, u));
+        assert(ftys(ps, i, k) == ft(ps[i as int], seq![',', ' '] + ftys(ps, i + 1, k)));
+        tts_head(ps, i, u);
+    }
+}
+
+/// 構築子の中身の字句（空なら rest だけ、そうでなければ `(` 型の並び `)` と rest）。
+proof fn fpay_lex(ps: Seq<Ty>, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        bts(ps, 0, td),
+        lex(k) == Some(u),
+    ensures
+        lex(fpay(ps, k)) == Some(tpay(ps, u)),
+{
+    if ps.len() > 0 {
+        ls(')', k, u);
+        ftys_lex(ps, 0, td, seq![')'] + k, seq![Tok::Sym(')')] + u);
+        ls('(', ftys(ps, 0, seq![')'] + k), tts(ps, 0, seq![Tok::Sym(')')] + u));
+        assert(fpay(ps, k) == seq!['('] + ftys(ps, 0, seq![')'] + k));
+        assert(tpay(ps, u) == seq![Tok::Sym('(')] + tts(ps, 0, seq![Tok::Sym(')')] + u));
+    }
+}
+
+/// 構築子の中身の字句は、字句の区切りとして安全（空白でも識別子文字でもない）。
+proof fn fpay_wsafe(ps: Seq<Ty>, k: Seq<char>)
+    requires
+        wsafe(k),
+    ensures
+        wsafe(fpay(ps, k)),
+{
+    if ps.len() > 0 {
+        assert(fpay(ps, k)[0] == '(');
+    }
+}
+
+/// 直和型の構築子の並び vs[i..] の字句（最後の後ろは tail、字句は u）。
+proof fn fvars_lex(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat, tail: Seq<char>, u: Seq<Tok>)
+    requires
+        i < vs.len(),
+        bvars(vs, i, td),
+        lex(tail) == Some(u),
+        wsafe(tail),
+    ensures
+        lex(fvars(vs, i, tail)) == Some(tvars(vs, i, u)),
+    decreases vs.len() - i,
+{
+    bvars_at(vs, i, td);
+    let x = vs[i as int];
+    let last = i + 1 == vs.len();
+    let kr = if last { tail } else { seq![' ', '|', ' '] + fvars(vs, i + 1, tail) };
+    let ur = if last { u } else { seq![Tok::Sym('|')] + tvars(vs, i + 1, u) };
+    assert(lex(kr) == Some(ur)) by {
+        if !last {
+            fvars_lex(vs, i + 1, td, tail, u);
+            let kn = fvars(vs, i + 1, tail);
+            let un = tvars(vs, i + 1, u);
+            lw(' ', kn, un);
+            ls('|', seq![' '] + kn, un);
+            lw(' ', seq!['|'] + (seq![' '] + kn), seq![Tok::Sym('|')] + un);
+            assert(seq![' ', '|', ' '] + kn =~= seq![' '] + (seq!['|'] + (seq![' '] + kn)));
+        }
+    }
+    assert(wsafe(kr)) by {
+        if !last {
+            assert(kr[0] == ' ');
+        }
+    }
+    fpay_lex(x.1, td, kr, ur);
+    fpay_wsafe(x.1, kr);
+    word_id(x.0);
+    li(x.0, fpay(x.1, kr), tpay(x.1, ur));
+    assert(fvars(vs, i, tail) == x.0 + fpay(x.1, kr));
+    tvars_head(vs, i, u);
+}
+
 /// 文脈語 `type` は予約語でなく、字句として Id になる。
 proof fn tyw_word()
     ensures
@@ -1287,6 +1425,34 @@ proof fn fd_lex_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, td: nat, tc: bool,
     lword(tyw(), seq![' '] + (r + s5), seq![Tok::Id(r)] + t4);
     assert(fd(Sd::RecTy(r, fs, tc), k) =~= tyw() + (seq![' '] + (r + s5)));
     assert(tdecl(Sd::RecTy(r, fs, tc), u) =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t4));
+}
+
+/// 直和型の宣言一行 `type S = V1 | V2(T, U)` の字句（後ろの字句は k）。
+proof fn fd_lex_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<Ty>)>, td: nat, k: Seq<char>, u: Seq<Tok>)
+    requires
+        ident_ok(r),
+        vs.len() > 0,
+        bvars(vs, 0, td),
+        lex(k) == Some(u),
+    ensures
+        lex(fd(Sd::Sum(r, vs), k)) == Some(tdecl(Sd::Sum(r, vs), u)),
+{
+    lw('\n', k, u);
+    fvars_lex(vs, 0, td, seq!['\n'] + k, u);
+    let kv = fvars(vs, 0, seq!['\n'] + k);
+    let uv = tvars(vs, 0, u);
+    lw(' ', kv, uv);
+    ls('=', seq![' '] + kv, uv);
+    lw(' ', seq!['='] + (seq![' '] + kv), seq![Tok::Sym('=')] + uv);
+    let s = seq![' '] + (seq!['='] + (seq![' '] + kv));
+    let t = seq![Tok::Sym('=')] + uv;
+    word_id(r);
+    li(r, s, t);
+    lw(' ', r + s, seq![Tok::Id(r)] + t);
+    tyw_word();
+    lword(tyw(), seq![' '] + (r + s), seq![Tok::Id(r)] + t);
+    assert(fd(Sd::Sum(r, vs), k) =~= tyw() + (seq![' '] + (r + s)));
+    assert(tdecl(Sd::Sum(r, vs), u) =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t));
 }
 
 #[verifier::rlimit(60)]
@@ -1331,6 +1497,7 @@ pub proof fn fd_lex(x: Sd, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             assert(seq![Tok::Kw(Kw::Entry)] + (seq![Tok::Id(n)] + u) =~= tdecl(x, u));
         },
         Sd::RecTy(r, fs, tc) => fd_lex_recty(r, fs, td, tc, k, u),
+        Sd::Sum(r, vs) => fd_lex_sum(r, vs, td, k, u),
     }
 }
 
@@ -1460,6 +1627,59 @@ pub proof fn ffd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
         }
     }
     assert(ffd(fs, i, k) =~= ffd(fs, i, Seq::empty()) + k);
+}
+
+/// 型の並びは後ろの続きに対して結合する。
+pub proof fn ftys_app(ps: Seq<Ty>, i: nat, k: Seq<char>)
+    ensures
+        ftys(ps, i, k) == ftys(ps, i, Seq::empty()) + k,
+    decreases ps.len() - i,
+{
+    let z = Seq::<char>::empty();
+    if i < ps.len() {
+        if i + 1 == ps.len() {
+            ft_app(ps[i as int], k);
+            ft_app(ps[i as int], z);
+        } else {
+            ftys_app(ps, i + 1, k);
+            ft_app(ps[i as int], seq![',', ' '] + ftys(ps, i + 1, k));
+            ft_app(ps[i as int], seq![',', ' '] + ftys(ps, i + 1, z));
+        }
+    }
+    assert(ftys(ps, i, k) =~= ftys(ps, i, z) + k);
+}
+
+/// 構築子の中身は後ろの続きに対して結合する。
+pub proof fn fpay_app(ps: Seq<Ty>, k: Seq<char>)
+    ensures
+        fpay(ps, k) == fpay(ps, Seq::empty()) + k,
+{
+    let z = Seq::<char>::empty();
+    if ps.len() > 0 {
+        ftys_app(ps, 0, seq![')'] + k);
+        ftys_app(ps, 0, seq![')'] + z);
+    }
+    assert(fpay(ps, k) =~= fpay(ps, z) + k);
+}
+
+/// 直和型の構築子の並びは後ろの続きに対して結合する。
+pub proof fn fvars_app(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<char>)
+    ensures
+        fvars(vs, i, k) == fvars(vs, i, Seq::empty()) + k,
+    decreases vs.len() - i,
+{
+    let z = Seq::<char>::empty();
+    if i < vs.len() {
+        if i + 1 == vs.len() {
+            fpay_app(vs[i as int].1, k);
+            fpay_app(vs[i as int].1, z);
+        } else {
+            fvars_app(vs, i + 1, k);
+            fpay_app(vs[i as int].1, seq![' ', '|', ' '] + fvars(vs, i + 1, k));
+            fpay_app(vs[i as int].1, seq![' ', '|', ' '] + fvars(vs, i + 1, z));
+        }
+    }
+    assert(fvars(vs, i, k) =~= fvars(vs, i, z) + k);
 }
 
 #[verifier::rlimit(60)]
@@ -1696,6 +1916,17 @@ proof fn fd_app_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, tc: bool, k: Seq<c
     assert(fd(Sd::RecTy(r, fs, tc), k) =~= fd(Sd::RecTy(r, fs, tc), z) + k);
 }
 
+/// 直和型の宣言一行は後ろの続きに対して結合する。
+proof fn fd_app_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<Ty>)>, k: Seq<char>)
+    ensures
+        fd(Sd::Sum(r, vs), k) == fd(Sd::Sum(r, vs), Seq::empty()) + k,
+{
+    let z = Seq::<char>::empty();
+    fvars_app(vs, 0, seq!['\n'] + k);
+    fvars_app(vs, 0, seq!['\n'] + z);
+    assert(fd(Sd::Sum(r, vs), k) =~= fd(Sd::Sum(r, vs), z) + k);
+}
+
 pub proof fn fd_app(x: Sd, k: Seq<char>)
     ensures
         fd(x, k) == fd(x, Seq::empty()) + k,
@@ -1717,6 +1948,9 @@ pub proof fn fd_app(x: Sd, k: Seq<char>)
     }
     if let Sd::RecTy(r, fs, tc) = x {
         fd_app_recty(r, fs, tc, k);
+    }
+    if let Sd::Sum(r, vs) = x {
+        fd_app_sum(r, vs, k);
     }
     assert(fd(x, k) =~= fd(x, z) + k);
 }
