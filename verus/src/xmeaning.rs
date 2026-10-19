@@ -20,7 +20,7 @@ pub open spec fn xevals_to(xp: XProg, env: Map<nat, Val>, e: XExpr, v: Val) -> b
 }
 
 /// 本体が核の写しのとき、源の map の評価は燃料を増やしても変わらない。
-proof fn xmap_mono(p: Prog, n: nat, m: nat, env: Map<nat, Val>, x: nat, g: Expr, items: Seq<Val>, j: nat)
+pub proof fn xmap_mono(p: Prog, n: nat, m: nat, env: Map<nat, Val>, x: nat, g: Expr, items: Seq<Val>, j: nat)
     requires
         n <= m,
         xmap(embed_prog(p), n, env, x, embed(g), items, j) is Done,
@@ -43,7 +43,7 @@ proof fn xmap_mono(p: Prog, n: nat, m: nat, env: Map<nat, Val>, x: nat, g: Expr,
 }
 
 /// 要素ごとの本体の値 gv[j..] から、源の map は gv[j..] を返す（燃料の存在）。
-proof fn xmap_from_each(p: Prog, env: Map<nat, Val>, x: nat, g: Expr, items: Seq<Val>, gv: Seq<Val>, j: nat)
+pub proof fn xmap_from_each(p: Prog, env: Map<nat, Val>, x: nat, g: Expr, items: Seq<Val>, gv: Seq<Val>, j: nat)
     requires
         gv.len() == items.len(),
         j <= items.len(),

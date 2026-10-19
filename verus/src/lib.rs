@@ -26,6 +26,8 @@ pub mod proof;
 pub mod records_exec;
 pub mod records_proof;
 pub mod resolve;
+pub mod sortmeaning;
+pub mod sortspec;
 pub mod spec;
 pub mod surface;
 pub mod syntax;

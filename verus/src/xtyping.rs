@@ -151,6 +151,14 @@ pub open spec fn ty_x(xp: XProg, r: nat, ctx: Map<nat, Ty>, e: XExpr) -> Option<
             },
             None => None,
         },
+        XExpr::SortBy(xs, x, k) => match ty_x(xp, r, ctx, *xs) {
+            Some(tx) => if tx is List && ty_x(xp, r, ctx.insert(x, *tx->List_0), *k) == Some(Ty::Int) {
+                Some(tx)
+            } else {
+                None
+            },
+            None => None,
+        },
     }
 }
 
@@ -254,7 +262,7 @@ proof fn ty_args_embed(p: Prog, r: nat, ctx: Map<nat, Ty>, es: Seq<Expr>, i: nat
 // ------------------------------------------------------------------ 核の書換えの型（源の型と一致）
 
 /// 畳み込みの型：xs が List(s)、init が ta、本体が ctx に acc:ta と item:s を足した下で ta なら、畳み込みは ta。
-proof fn fold_typing(
+pub proof fn fold_typing(
     p: Prog,
     r: nat,
     ctx: Map<nat, Ty>,
@@ -277,7 +285,7 @@ proof fn fold_typing(
 }
 
 /// 空の列の型：List(t, [])。
-proof fn ty_nil(p: Prog, r: nat, ctx: Map<nat, Ty>, t: Ty)
+pub proof fn ty_nil(p: Prog, r: nat, ctx: Map<nat, Ty>, t: Ty)
     ensures
         ty_expr(p, r, ctx, Expr::List(t, Seq::empty())) == Some(Ty::List(Box::new(t))),
 {
@@ -288,7 +296,7 @@ proof fn ty_nil(p: Prog, r: nat, ctx: Map<nat, Ty>, t: Ty)
 }
 
 /// cons の型：先頭が t、後ろが List(t) なら、cons は List(t)。
-proof fn ty_cons(p: Prog, r: nat, ctx: Map<nat, Ty>, a: Expr, b: Expr, t: Ty)
+pub proof fn ty_cons(p: Prog, r: nat, ctx: Map<nat, Ty>, a: Expr, b: Expr, t: Ty)
     requires
         ty_expr(p, r, ctx, a) == Some(t),
         ty_expr(p, r, ctx, b) == Some(Ty::List(Box::new(t))),
@@ -303,7 +311,7 @@ proof fn ty_cons(p: Prog, r: nat, ctx: Map<nat, Ty>, a: Expr, b: Expr, t: Ty)
 }
 
 /// reverse の型：List(t) の列の reverse は List(t)。
-proof fn ty_reverse(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr, t: Ty)
+pub proof fn ty_reverse(p: Prog, r: nat, ctx: Map<nat, Ty>, e: Expr, t: Ty)
     requires
         ty_expr(p, r, ctx, e) == Some(Ty::List(Box::new(t))),
     ensures

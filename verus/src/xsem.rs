@@ -4,9 +4,10 @@
 //! 評価器 `xeval` は核の `eval` と同じ燃料の数え方を使う。hof の形は要素を左から順に評価し、
 //! any・all・find は結果が決まった要素で止まる（後の要素の述語は評価しない）。
 //! 核だけの式は `embed` で写し、同じ燃料で同じ結果になることを示す（保存性）。
-//! sort_by・loop・dict は、それぞれの決定（OD-3・OD-4・OD-6）の後に加える。
+//! sort_by は OD-3 の決定（挿入の手順、sortspec.rs）の後に加えた。loop・dict は、それぞれの決定（OD-4・OD-6）の後に加える。
 
 use crate::bigstep::*;
+use crate::sortspec::*;
 use crate::spec::*;
 use vstd::prelude::*;
 
@@ -41,6 +42,8 @@ pub enum XExpr {
     All(Box<XExpr>, nat, Box<XExpr>),
     /// hof：find(xs, |x| c)。最初に真になった要素の Some、無ければ None。
     Find(Box<XExpr>, nat, Box<XExpr>),
+    /// hof：sort_by(xs, |x| k)。鍵 k の昇順に、鍵が等しい要素は元の順のまま並べる（挿入の手順）。
+    SortBy(Box<XExpr>, nat, Box<XExpr>),
 }
 
 pub struct XFunc {
@@ -166,6 +169,18 @@ pub open spec fn xeval(xp: XProg, fuel: nat, env: Map<nat, Val>, e: XExpr) -> Re
             },
             XExpr::Find(xs, x, c) => match xeval(xp, f, env, *xs) {
                 Res::Done(Val::List(s)) => xfind(xp, f, env, x, *c, s, 0),
+                Res::Done(_) => Res::Stuck,
+                r => r,
+            },
+            XExpr::SortBy(xs, x, k) => match xeval(xp, f, env, *xs) {
+                Res::Done(Val::List(s)) => match xmap(xp, f, env, x, *k, s, 0) {
+                    ResSeq::Done(kv) => match int_seq(kv) {
+                        Some(keys) => Res::Done(Val::List(sort_vals(s, keys))),
+                        None => Res::Stuck,
+                    },
+                    ResSeq::Stuck => Res::Stuck,
+                    ResSeq::OutOfFuel => Res::OutOfFuel,
+                },
                 Res::Done(_) => Res::Stuck,
                 r => r,
             },
