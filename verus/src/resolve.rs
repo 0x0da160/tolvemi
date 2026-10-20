@@ -1285,7 +1285,7 @@ proof fn nmissing_zero_all(upd: Seq<Option<Expr>>)
     }
 }
 
-proof fn nmissing_none(n: nat)
+pub proof fn nmissing_none(n: nat)
     ensures
         nmissing(Seq::new(n, |j: int| None::<Expr>)) == n,
     decreases n,
@@ -1321,7 +1321,7 @@ proof fn nmissing_set(u: Seq<Option<Expr>>, j: int, x: Expr)
 }
 
 /// 字段を置いた後、書いていない位置の数は、置く前から置いた字段の数を引いたもの（字段名は相異なる宣言の位置）。
-proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+pub proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
     requires
         i <= fls.len(),
         u.len() == decl.len(),
