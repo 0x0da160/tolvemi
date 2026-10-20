@@ -12,6 +12,8 @@
 //! exec の `resolve_e` が spec の `resolve` と同じ結果を返すことを証明する。
 
 use crate::ir::*;
+use crate::records_exec::*;
+use crate::records_proof::*;
 use crate::spec::*;
 use crate::surface::*;
 use crate::syntax::*;
@@ -521,9 +523,14 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
         Sx::Str(w) => Some(Expr::List(Ty::Char, str_exprs(w))),
         Sx::Bool(b) => Some(Expr::Bool(b)),
         Sx::Unit => Some(Expr::Unit),
-        Sx::Var(x) => match idx(sc, x, 0) {
-            Some(k) => Some(Expr::Var(k)),
-            None => None,
+        // 空の名前は識別子にならない。記録の字段の式の scope に足す空の名前（rec_expr）は、参照されない。
+        Sx::Var(x) => if x.len() == 0 {
+            None
+        } else {
+            match idx(sc, x, 0) {
+                Some(k) => Some(Expr::Var(k)),
+                None => None,
+            }
         },
         Sx::List(t, es) => match (to_ty(t, tb, tagged), rxs(fs, tb, tagged, sc, es, 0)) {
             (Some(u), Some(xs)) => Some(Expr::List(u, xs)),
@@ -593,8 +600,25 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
                 _ => None,
             }
         },
-        // レコードは検証済みの核にまだ入っていない（段階 2）。
-        Sx::Fld(..) | Sx::Rec(..) => None,
+        // 記録（段階 2 の S3a、印なし）：e.f の連鎖（持ち主は名前で引く）と、構築・更新（rec_expr）。
+        Sx::Fld(a, fls) => match rx(fs, tb, tagged, sc, *a) {
+            Some(x) => fld_chain(tb, x, fls, 0),
+            None => None,
+        },
+        Sx::Rec(r, fls, base) => match idx(tnames(tb), r, 0) {
+            Some(k) => if tb[k as int].2.len() == 0 || idx(sc, Seq::empty(), 0) is Some {
+                None
+            } else {
+                match base {
+                    None => rec_expr(fs, tb, tagged, sc, tb[k as int].2, fls, None),
+                    Some(b) => match rx(fs, tb, tagged, sc, *b) {
+                        Some(bx) => rec_expr(fs, tb, tagged, sc, tb[k as int].2, fls, Some(bx)),
+                        None => None,
+                    },
+                }
+            },
+            None => None,
+        },
         // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
         Sx::SumMatch(..) => None,
         // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
@@ -616,6 +640,179 @@ pub open spec fn rxs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq
             (Some(x), Some(xs)) => Some(seq![x] + xs),
             _ => None,
         }
+    }
+}
+
+// ------------------------------------------------------------------ 式の記録（段階 2 の S3a、印なし）
+
+/// 字段名 f の持ち主：名前表の k 番目以降で、字段の列に f を持つ最初の項目の（位置、字段の数）。
+/// 字段名はプログラム全体で一意（規則 4）なので、持ち主は一つだけ（records.rs の `owner` と同じ見方）。
+pub open spec fn owner_pos(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: Seq<char>, k: nat) -> Option<(nat, nat)>
+    decreases tb.len() - k,
+{
+    if k >= tb.len() {
+        None
+    } else {
+        match idx(tb[k as int].2, f, 0) {
+            Some(i) => Some((i, tb[k as int].2.len())),
+            None => owner_pos(tb, f, k + 1),
+        }
+    }
+}
+
+/// `e.f1…fn` の展開（records.rs の `field_access` を字段の順に重ねる）。i 番目の字段から。
+pub open spec fn fld_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat) -> Option<Expr>
+    decreases fls.len() - i,
+{
+    if i >= fls.len() {
+        Some(e)
+    } else {
+        match owner_pos(tb, fls[i as int], 0) {
+            Some((p, n)) => fld_chain(tb, rfield(e, p, n), fls, i + 1),
+            None => None,
+        }
+    }
+}
+
+/// fld_chain の一段（字段 i の持ち主が (p, m) のとき）。
+proof fn fld_chain_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, p: nat, m: nat)
+    requires
+        i < fls.len(),
+        owner_pos(tb, fls[i as int], 0) == Some((p, m)),
+    ensures
+        fld_chain(tb, e, fls, i) == fld_chain(tb, rfield(e, p, m), fls, i + 1),
+{
+    reveal_with_fuel(fld_chain, 2);
+}
+
+/// fld_chain の一段（字段 i に持ち主がないとき）。
+proof fn fld_chain_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
+    requires
+        i < fls.len(),
+        owner_pos(tb, fls[i as int], 0) is None,
+    ensures
+        fld_chain(tb, e, fls, i) is None,
+{
+    reveal_with_fuel(fld_chain, 2);
+}
+
+/// fld_chain の終わり（字段がすべて済んだとき）。
+proof fn fld_chain_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
+    requires
+        i >= fls.len(),
+    ensures
+        fld_chain(tb, e, fls, i) == Some(e),
+{
+    reveal_with_fuel(fld_chain, 2);
+}
+
+/// 書いた字段（fls の i 番目から）を宣言の位置に置く。u は宣言順の列（書いていない位置は None）。
+/// 宣言にない字段名、同じ字段の二度目、解決できない値は None（UNKNOWN-FIELD、DUPLICATE-FIELD）。
+pub open spec fn rec_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>) -> Option<Seq<Option<Expr>>>
+    decreases fls, fls.len() - i,
+{
+    if i >= fls.len() {
+        Some(u)
+    } else {
+        match idx(decl, fls[i as int].0, 0) {
+            Some(j) => if u[j as int] is Some {
+                None
+            } else {
+                match rx(fs, tb, tagged, sc, fls[i as int].1) {
+                    Some(x) => rec_upd(fs, tb, tagged, sc, decl, fls, i + 1, u.update(j as int, Some(x))),
+                    None => None,
+                }
+            },
+            None => None,
+        }
+    }
+}
+
+/// 書いた字段のない初期の列（宣言の数だけ None）。rec_upd の初期値として、spec と exec の両方で同じ項を使う。
+pub open spec fn none_upd(n: nat) -> Seq<Option<Expr>> {
+    Seq::new(n, |j: int| None::<Expr>)
+}
+
+/// rec_upd の一段（字段 i の名前が宣言に無いとき）。
+proof fn rec_upd_none_idx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+    requires
+        i < fls.len(),
+        idx(decl, fls[i as int].0, 0) is None,
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) is None,
+{
+    reveal_with_fuel(rec_upd, 2);
+}
+
+/// rec_upd の一段（字段 i の位置 j に、既に書いた字段があるとき：DUPLICATE-FIELD）。
+proof fn rec_upd_none_dup(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
+    requires
+        i < fls.len(),
+        idx(decl, fls[i as int].0, 0) == Some(j),
+        j < u.len(),
+        u[j as int] is Some,
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) is None,
+{
+    reveal_with_fuel(rec_upd, 2);
+}
+
+/// rec_upd の一段（字段 i の式が解決しないとき）。
+proof fn rec_upd_none_rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
+    requires
+        i < fls.len(),
+        idx(decl, fls[i as int].0, 0) == Some(j),
+        j < u.len(),
+        u[j as int] is None,
+        rx(fs, tb, tagged, sc, fls[i as int].1) is None,
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) is None,
+{
+    reveal_with_fuel(rec_upd, 2);
+}
+
+/// rec_upd の一段（字段 i を位置 j に置く）。
+proof fn rec_upd_step(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat, x: Expr)
+    requires
+        i < fls.len(),
+        idx(decl, fls[i as int].0, 0) == Some(j),
+        j < u.len(),
+        u[j as int] is None,
+        rx(fs, tb, tagged, sc, fls[i as int].1) == Some(x),
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) == rec_upd(fs, tb, tagged, sc, decl, fls, i + 1, u.update(j as int, Some(x))),
+{
+    reveal_with_fuel(rec_upd, 2);
+}
+
+/// rec_upd の終わり（字段がすべて済んだとき）。
+proof fn rec_upd_end(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+    requires
+        i >= fls.len(),
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) == Some(u),
+{
+    reveal_with_fuel(rec_upd, 2);
+}
+
+/// 記録の式の本体（bx は解決済みの base）。字段を宣言の位置に置き、records_exec の rrecord で拒否（MISSING-FIELD、
+/// BASE-REDUNDANT）と展開を決める。基を let で束縛するのは、基が変数でなく書いていない字段が二つ以上あるとき
+/// （rupdate と同じ条件）だけで、そのときは字段の式を一つ深い scope（空の名前を一つ足した列）で解決する。
+/// 空の名前は識別子にならず（rx の Var の腕）、この scope の番号を字段の式は読まない。
+pub open spec fn rec_expr(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
+    decreases fls, fls.len() + 1,
+{
+    let deep = match bx {
+        Some(b) => !(b is Var) && decl.len() >= fls.len() + 2,
+        None => false,
+    };
+    let sc2 = if deep { sc.push(Seq::empty()) } else { sc };
+    match rec_upd(fs, tb, tagged, sc2, decl, fls, 0, none_upd(decl.len())) {
+        Some(u) => match rrecord(u, bx, sc.len()) {
+            Ok(e) => Some(e),
+            Err(_) => None,
+        },
+        None => None,
     }
 }
 
@@ -753,6 +950,311 @@ pub proof fn idx_unique(s: Seq<Seq<char>>, k: int)
     }
 }
 
+/// 基を let で束縛するか（rupdate の条件の否定）。
+pub open spec fn deep_upd(upd: Seq<Option<Expr>>, base: Expr) -> bool {
+    !(base is Var) && nmissing(upd) > 1
+}
+
+/// 基が let で束縛されるか（rrecord の Some の場合）。
+pub open spec fn deep_opt(upd: Seq<Option<Expr>>, bx: Option<Expr>) -> bool {
+    match bx {
+        Some(b) => deep_upd(upd, b),
+        None => false,
+    }
+}
+
+/// 一つの引数の組込みは、引数が scope 整合なら scope 整合。
+proof fn builtin1_scoped(b: Builtin, x: Expr, n: nat)
+    requires
+        scoped(x, n),
+    ensures
+        scoped(Expr::Builtin(b, seq![x]), n),
+{
+    reveal_with_fuel(scoped_all, 2);
+    reveal_with_fuel(scoped, 2);
+    let es = seq![x];
+    assert(es.len() == 1);
+    assert(es[0] == x);
+    assert(scoped_all(es, n, 1));
+    assert(scoped_all(es, n, 0));
+    assert(scoped(Expr::Builtin(b, es), n));
+}
+
+proof fn snds_scoped(e: Expr, n: nat, i: nat)
+    requires
+        scoped(e, n),
+    ensures
+        scoped(snds(e, i), n),
+    decreases i,
+{
+    if i > 0 {
+        builtin1_scoped(Builtin::Snd, e, n);
+        snds_scoped(Expr::Builtin(Builtin::Snd, seq![e]), n, (i - 1) as nat);
+    }
+}
+
+proof fn rfield_scoped(e: Expr, p: nat, m: nat, n: nat)
+    requires
+        scoped(e, n),
+    ensures
+        scoped(rfield(e, p, m), n),
+{
+    snds_scoped(e, n, p);
+    if p + 1 < m {
+        builtin1_scoped(Builtin::Fst, snds(e, p), n);
+    }
+}
+
+proof fn fld_chain_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, n: nat)
+    requires
+        scoped(e, n),
+    ensures
+        fld_chain(tb, e, fls, i) matches Some(x) ==> scoped(x, n),
+    decreases fls.len() - i,
+{
+    if i < fls.len() {
+        if let Some((p, m)) = owner_pos(tb, fls[i as int], 0) {
+            rfield_scoped(e, p, m, n);
+            fld_chain_scoped(tb, rfield(e, p, m), fls, i + 1, n);
+        }
+    }
+}
+
+proof fn fill_scoped(u: Seq<Option<Expr>>, b: Expr, n: nat)
+    requires
+        scoped(b, n),
+        forall|k: int| 0 <= k < u.len() && (#[trigger] u[k]) is Some ==> scoped(u[k]->Some_0, n),
+    ensures
+        forall|k: int| 0 <= k < fill(u, b).len() ==> scoped(#[trigger] fill(u, b)[k], n),
+{
+    assert forall|k: int| 0 <= k < fill(u, b).len() implies scoped(#[trigger] fill(u, b)[k], n) by {
+        if u[k] is Some {
+            assert(fill(u, b)[k] == u[k]->Some_0);
+        } else {
+            assert(fill(u, b)[k] == rfield(b, k as nat, u.len()));
+            rfield_scoped(b, k as nat, u.len(), n);
+        }
+    }
+}
+
+proof fn rbuild_scoped(es: Seq<Expr>, n: nat)
+    requires
+        es.len() >= 1,
+        forall|k: int| 0 <= k < es.len() ==> scoped(#[trigger] es[k], n),
+    ensures
+        scoped(rbuild(es), n),
+    decreases es.len(),
+{
+    if es.len() > 1 {
+        let t = es.drop_first();
+        assert forall|k: int| 0 <= k < t.len() implies scoped(#[trigger] t[k], n) by {
+            assert(t[k] == es[k + 1]);
+        }
+        rbuild_scoped(t, n);
+        assert(rbuild(es) == Expr::Pair(Box::new(es[0]), Box::new(rbuild(t))));
+    }
+}
+
+proof fn rupdate_scoped(upd: Seq<Option<Expr>>, base: Expr, n: nat)
+    requires
+        upd.len() >= 1,
+        scoped(base, n),
+        forall|k: int| 0 <= k < upd.len() && (#[trigger] upd[k]) is Some ==> scoped(
+            upd[k]->Some_0,
+            if deep_upd(upd, base) { n + 1 } else { n },
+        ),
+    ensures
+        scoped(rupdate(upd, base, n), n),
+{
+    if deep_upd(upd, base) {
+        let body = rbuild(fill(upd, Expr::Var(n)));
+        assert(scoped(Expr::Var(n), n + 1));
+        fill_scoped(upd, Expr::Var(n), n + 1);
+        rbuild_scoped(fill(upd, Expr::Var(n)), n + 1);
+        assert(rupdate(upd, base, n) == Expr::Let(n, Box::new(base), Box::new(body)));
+    } else {
+        fill_scoped(upd, base, n);
+        rbuild_scoped(fill(upd, base), n);
+    }
+}
+
+proof fn nmissing_zero_all(upd: Seq<Option<Expr>>)
+    requires
+        nmissing(upd) == 0,
+    ensures
+        forall|k: int| 0 <= k < upd.len() ==> (#[trigger] upd[k]) is Some,
+    decreases upd.len(),
+{
+    if upd.len() > 0 {
+        nmissing_zero_all(upd.drop_last());
+        assert forall|k: int| 0 <= k < upd.len() implies (#[trigger] upd[k]) is Some by {
+            if k < upd.len() - 1 {
+                assert(upd.drop_last()[k] == upd[k]);
+            } else {
+                assert(upd.last() is Some);
+            }
+        }
+    }
+}
+
+proof fn nmissing_none(n: nat)
+    ensures
+        nmissing(Seq::new(n, |j: int| None::<Expr>)) == n,
+    decreases n,
+{
+    if n > 0 {
+        let s = Seq::new(n, |j: int| None::<Expr>);
+        assert(s.drop_last() =~= Seq::new((n - 1) as nat, |j: int| None::<Expr>));
+        nmissing_none((n - 1) as nat);
+    }
+}
+
+/// 空でない位置の一つを埋めると、書いていない位置の数が一つ減る。
+proof fn nmissing_set(u: Seq<Option<Expr>>, j: int, x: Expr)
+    requires
+        0 <= j < u.len(),
+        u[j] is None,
+    ensures
+        nmissing(u.update(j, Some(x))) + 1 == nmissing(u),
+    decreases u.len(),
+{
+    let v = u.update(j, Some(x));
+    assert(u.len() > 0);
+    if j == u.len() - 1 {
+        assert(v.drop_last() =~= u.drop_last());
+        assert(v.last() == Some(x));
+        assert(u.last() is None);
+    } else {
+        assert(v.drop_last() =~= u.drop_last().update(j, Some(x)));
+        assert(u.drop_last()[j] is None);
+        nmissing_set(u.drop_last(), j, x);
+        assert(v.last() == u.last());
+    }
+}
+
+/// 字段を置いた後、書いていない位置の数は、置く前から置いた字段の数を引いたもの（字段名は相異なる宣言の位置）。
+proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+    requires
+        i <= fls.len(),
+        u.len() == decl.len(),
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) matches Some(u2) ==> u2.len() == u.len() && nmissing(u2) + (fls.len()
+            - i) == nmissing(u),
+    decreases fls.len() - i,
+{
+    if i < fls.len() {
+        if let Some(j) = idx(decl, fls[i as int].0, 0) {
+            idx_props(decl, fls[i as int].0, 0);
+            if u[j as int] is None {
+                if let Some(x) = rx(fs, tb, tagged, sc, fls[i as int].1) {
+                    nmissing_set(u, j as int, x);
+                    rec_upd_count(fs, tb, tagged, sc, decl, fls, i + 1, u.update(j as int, Some(x)));
+                }
+            }
+        }
+    }
+}
+
+proof fn rec_upd_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+    requires
+        distinct(sc),
+        forall|k: int| 0 <= k < u.len() && (#[trigger] u[k]) is Some ==> scoped(u[k]->Some_0, sc.len()),
+    ensures
+        rec_upd(fs, tb, tagged, sc, decl, fls, i, u) matches Some(u2) ==> forall|k: int|
+            0 <= k < u2.len() && (#[trigger] u2[k]) is Some ==> scoped(u2[k]->Some_0, sc.len()),
+    decreases fls, fls.len() - i,
+{
+    if i < fls.len() {
+        if let Some(j) = idx(decl, fls[i as int].0, 0) {
+            if u[j as int] is None {
+                rx_scoped(fs, tb, tagged, sc, fls[i as int].1);
+                if let Some(x) = rx(fs, tb, tagged, sc, fls[i as int].1) {
+                    let u1 = u.update(j as int, Some(x));
+                    assert forall|k: int| 0 <= k < u1.len() && (#[trigger] u1[k]) is Some implies scoped(
+                        u1[k]->Some_0,
+                        sc.len(),
+                    ) by {
+                        if k != j {
+                            assert(u1[k] == u[k]);
+                        }
+                    }
+                    rec_upd_scoped(fs, tb, tagged, sc, decl, fls, i + 1, u1);
+                }
+            }
+        }
+    }
+}
+
+/// 記録の式の本体は、基と字段が scope 整合なら scope 整合（rec_expr の一つの場合の証明）。
+proof fn rec_expr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
+    requires
+        distinct(sc),
+        idx(sc, Seq::empty(), 0) is None,
+        decl.len() >= 1,
+        bx is Some ==> scoped(bx->Some_0, sc.len()),
+    ensures
+        rec_expr(fs, tb, tagged, sc, decl, fls, bx) matches Some(e) ==> scoped(e, sc.len()),
+    decreases fls, fls.len() + 1,
+{
+    let deep = match bx {
+        Some(b) => !(b is Var) && decl.len() >= fls.len() + 2,
+        None => false,
+    };
+    let sc2 = if deep { sc.push(Seq::empty()) } else { sc };
+    if deep {
+        idx_props(sc, Seq::empty(), 0);
+        assert(distinct(sc2)) by {
+            assert forall|p: int, q: int| 0 <= p < q < sc2.len() implies sc2[p] != sc2[q] by {
+                if q == sc.len() {
+                    assert(sc[p] != Seq::<char>::empty());
+                }
+            }
+        }
+    }
+    let u0 = Seq::new(decl.len(), |j: int| None::<Expr>);
+    assert(forall|k: int| 0 <= k < u0.len() && (#[trigger] u0[k]) is Some ==> scoped(u0[k]->Some_0, sc2.len()));
+    rec_upd_scoped(fs, tb, tagged, sc2, decl, fls, 0, u0);
+    rec_upd_count(fs, tb, tagged, sc2, decl, fls, 0, u0);
+    nmissing_none(decl.len());
+    if let Some(u) = rec_upd(fs, tb, tagged, sc2, decl, fls, 0, u0) {
+        assert(nmissing(u) + fls.len() == decl.len());
+        assert(deep_opt(u, bx) == deep);
+        rrecord_scoped(u, bx, sc.len());
+    }
+}
+
+proof fn rrecord_scoped(u: Seq<Option<Expr>>, bx: Option<Expr>, n: nat)
+    requires
+        u.len() >= 1,
+        bx is Some ==> scoped(bx->Some_0, n),
+        forall|k: int| 0 <= k < u.len() && (#[trigger] u[k]) is Some ==> scoped(
+            u[k]->Some_0,
+            if deep_opt(u, bx) { n + 1 } else { n },
+        ),
+    ensures
+        rrecord(u, bx, n) matches Ok(e) ==> scoped(e, n),
+{
+    match bx {
+        None => {
+            if nmissing(u) == 0 {
+                nmissing_zero_all(u);
+                let es = written(u);
+                assert(es.len() == u.len());
+                assert forall|k: int| 0 <= k < es.len() implies scoped(#[trigger] es[k], n) by {
+                    assert(u[k] is Some);
+                    assert(es[k] == u[k]->Some_0);
+                }
+                rbuild_scoped(es, n);
+            }
+        },
+        Some(b) => {
+            if nmissing(u) != 0 {
+                rupdate_scoped(u, b, n);
+            }
+        },
+    }
+}
+
 /// 解決した変数は可視変数の範囲内を指す（scope 整合性）。
 pub open spec fn scoped(e: Expr, n: nat) -> bool
     decreases e, 0nat,
@@ -780,13 +1282,154 @@ pub open spec fn scoped_all(es: Seq<Expr>, n: nat, i: nat) -> bool
     i >= es.len() || (scoped(es[i as int], n) && scoped_all(es, n, i + 1))
 }
 
+/// 記録の式（Sx::Rec）は scope 整合（rx_scoped の記録の腕。本体を分けて、rlimit を抑える）。
+proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is Rec,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::Rec(r, fls, base) = e {
+        idx_props(tnames(tb), r, 0);
+        if let Some(k) = idx(tnames(tb), r, 0) {
+            if tb[k as int].2.len() != 0 && idx(sc, Seq::empty(), 0) is None {
+                idx_props(sc, Seq::empty(), 0);
+                match base {
+                    None => rec_expr_scoped(fs, tb, tagged, sc, tb[k as int].2, fls, None),
+                    Some(b) => {
+                        rx_scoped(fs, tb, tagged, sc, *b);
+                        if let Some(bx) = rx(fs, tb, tagged, sc, *b) {
+                            rec_expr_scoped(fs, tb, tagged, sc, tb[k as int].2, fls, Some(bx));
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// rx_scoped の束縛（Let）の腕。rx_scoped の本体を腕ごとに分けて、rlimit を抑える。
+proof fn rx_let_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is Let,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::Let(x, a, b) = e {
+        idx_props(sc, x, 0);
+        rx_scoped(fs, tb, tagged, sc, *a);
+        if idx(sc, x, 0) is None {
+            let s2 = sc.push(x);
+            assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
+                if j == sc.len() {
+                    assert(sc[i] != x);
+                }
+            }
+            rx_scoped(fs, tb, tagged, s2, *b);
+        }
+    }
+}
+
+/// rx_scoped の畳み込み（Fold）の腕。
+proof fn rx_fold_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is Fold,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::Fold(l, i, a, x, b) = e {
+        idx_props(sc, a, 0);
+        idx_props(sc, x, 0);
+        rx_scoped(fs, tb, tagged, sc, *l);
+        rx_scoped(fs, tb, tagged, sc, *i);
+        if !(a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some) {
+            let s2 = sc.push(a).push(x);
+            assert forall|p: int, q: int| 0 <= p < q < s2.len() implies s2[p] != s2[q] by {
+                if q == sc.len() + 1 {
+                    if p < sc.len() {
+                        assert(sc[p] != x);
+                    }
+                } else if q == sc.len() {
+                    assert(sc[p] != a);
+                }
+            }
+            rx_scoped(fs, tb, tagged, s2, *b);
+        }
+    }
+}
+
+/// rx_scoped の一致（Match）の腕。
+proof fn rx_match_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is Match,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::Match(m, n, x, b) = e {
+        idx_props(sc, x, 0);
+        rx_scoped(fs, tb, tagged, sc, *m);
+        rx_scoped(fs, tb, tagged, sc, *n);
+        if idx(sc, x, 0) is None {
+            let s2 = sc.push(x);
+            assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
+                if j == sc.len() {
+                    assert(sc[i] != x);
+                }
+            }
+            rx_scoped(fs, tb, tagged, s2, *b);
+        }
+    }
+}
+
+/// rx_scoped の二つの束縛を持つ一致（MatchR）の腕。
+proof fn rx_matchr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is MatchR,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::MatchR(m, x, a, y, b) = e {
+        idx_props(sc, x, 0);
+        idx_props(sc, y, 0);
+        rx_scoped(fs, tb, tagged, sc, *m);
+        if idx(sc, x, 0) is None {
+            let s2 = sc.push(x);
+            assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
+                if j == sc.len() {
+                    assert(sc[i] != x);
+                }
+            }
+            rx_scoped(fs, tb, tagged, s2, *a);
+        }
+        if idx(sc, y, 0) is None {
+            let s3 = sc.push(y);
+            assert forall|i: int, j: int| 0 <= i < j < s3.len() implies s3[i] != s3[j] by {
+                if j == sc.len() {
+                    assert(sc[i] != y);
+                }
+            }
+            rx_scoped(fs, tb, tagged, s3, *b);
+        }
+    }
+}
+
 /// 名前解決の結果は scope 整合で、scope 内の名前は常に相異なる（シャドーがない）。
 pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
     ensures
         rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
-    decreases e, 0nat,
+    decreases e, 1nat,
 {
     match e {
         Sx::Var(x) => idx_props(sc, x, 0),
@@ -799,81 +1442,23 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
         },
         Sx::Builtin(_, es) => rxs_scoped(fs, tb, tagged, sc, es, 0),
         Sx::Call(_, es) => rxs_scoped(fs, tb, tagged, sc, es, 0),
-        Sx::Let(x, a, b) => {
-            idx_props(sc, x, 0);
-            rx_scoped(fs, tb, tagged, sc, *a);
-            if idx(sc, x, 0) is None {
-                let s2 = sc.push(x);
-                assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
-                    if j == sc.len() {
-                        assert(sc[i] != x);
-                    }
-                }
-                rx_scoped(fs, tb, tagged, s2, *b);
-            }
-        },
+        Sx::Let(..) => rx_let_scoped(fs, tb, tagged, sc, e),
         Sx::If(c, a, b) => {
             rx_scoped(fs, tb, tagged, sc, *c);
             rx_scoped(fs, tb, tagged, sc, *a);
             rx_scoped(fs, tb, tagged, sc, *b);
         },
-        Sx::Fold(l, i, a, x, b) => {
-            idx_props(sc, a, 0);
-            idx_props(sc, x, 0);
-            rx_scoped(fs, tb, tagged, sc, *l);
-            rx_scoped(fs, tb, tagged, sc, *i);
-            if !(a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some) {
-                let s2 = sc.push(a).push(x);
-                assert forall|p: int, q: int| 0 <= p < q < s2.len() implies s2[p] != s2[q] by {
-                    if q == sc.len() + 1 {
-                        if p < sc.len() {
-                            assert(sc[p] != x);
-                        }
-                    } else if q == sc.len() {
-                        assert(sc[p] != a);
-                    }
-                }
-                rx_scoped(fs, tb, tagged, s2, *b);
+        Sx::Fold(..) => rx_fold_scoped(fs, tb, tagged, sc, e),
+        Sx::Match(..) => rx_match_scoped(fs, tb, tagged, sc, e),
+        Sx::Fld(a, fls) => {
+            rx_scoped(fs, tb, tagged, sc, *a);
+            if let Some(x) = rx(fs, tb, tagged, sc, *a) {
+                fld_chain_scoped(tb, x, fls, 0, sc.len());
             }
         },
-        Sx::Match(m, n, x, b) => {
-            idx_props(sc, x, 0);
-            rx_scoped(fs, tb, tagged, sc, *m);
-            rx_scoped(fs, tb, tagged, sc, *n);
-            if idx(sc, x, 0) is None {
-                let s2 = sc.push(x);
-                assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
-                    if j == sc.len() {
-                        assert(sc[i] != x);
-                    }
-                }
-                rx_scoped(fs, tb, tagged, s2, *b);
-            }
-        },
+        Sx::Rec(..) => rx_rec_scoped(fs, tb, tagged, sc, e),
         Sx::Inj(_, _, _, a) => rx_scoped(fs, tb, tagged, sc, *a),
-        Sx::MatchR(m, x, a, y, b) => {
-            idx_props(sc, x, 0);
-            idx_props(sc, y, 0);
-            rx_scoped(fs, tb, tagged, sc, *m);
-            if idx(sc, x, 0) is None {
-                let s2 = sc.push(x);
-                assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
-                    if j == sc.len() {
-                        assert(sc[i] != x);
-                    }
-                }
-                rx_scoped(fs, tb, tagged, s2, *a);
-            }
-            if idx(sc, y, 0) is None {
-                let s3 = sc.push(y);
-                assert forall|i: int, j: int| 0 <= i < j < s3.len() implies s3[i] != s3[j] by {
-                    if j == sc.len() {
-                        assert(sc[i] != y);
-                    }
-                }
-                rx_scoped(fs, tb, tagged, s3, *b);
-            }
-        },
+        Sx::MatchR(..) => rx_matchr_scoped(fs, tb, tagged, sc, e),
         _ => {},
     }
 }
@@ -1750,9 +2335,13 @@ pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         },
         SExpr::Bool(b) => Some(EExpr::Bool(*b)),
         SExpr::Unit => Some(EExpr::Unit),
-        SExpr::Var(x) => match idx_e(sc, x) {
-            Some(k) => Some(EExpr::Var(k)),
-            None => None,
+        SExpr::Var(x) => if x.len() == 0 {
+            None
+        } else {
+            match idx_e(sc, x) {
+                Some(k) => Some(EExpr::Var(k)),
+                None => None,
+            }
         },
         SExpr::List(t, es) => match (to_ty_e(t, tb, tagged), rxs_e(fs, tb, tagged, sc, es)) {
             (Some(u), Some(xs)) => Some(EExpr::List(u, xs)),
@@ -1803,8 +2392,9 @@ pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
             _ => None,
         },
         SExpr::MatchR(..) => rx_matchr_e(fs, tb, tagged, sc, e),
-        // レコードは検証済みの核にまだ入っていない（段階 2）。
-        SExpr::Fld(..) | SExpr::Rec(..) => None,
+        // 記録（段階 2 の S3a、印なし）。
+        SExpr::Fld(..) => rx_fld_e(fs, tb, tagged, sc, e),
+        SExpr::Rec(..) => rx_rec_e(fs, tb, tagged, sc, e),
         // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
         SExpr::SumMatch(..) => None,
         // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
@@ -1902,6 +2492,344 @@ fn rx_match_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char
             (Some(rm), Some(rn), Some(rb)) => Some(EExpr::Match(Box::new(rm), Box::new(rn), k, Box::new(rb))),
             _ => None,
         }
+    } else {
+        None
+    }
+}
+
+/// 字段名の持ち主（owner_pos）の exec 版：名前表で字段名を持つ最初の項目の（位置、字段の数）。
+fn owner_pos_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>) -> (r: Option<(usize, usize)>)
+    ensures
+        match r {
+            Some((p, m)) => owner_pos(vtb(tb@), f@, 0) == Some((p as nat, m as nat)) && p < m,
+            None => owner_pos(vtb(tb@), f@, 0) is None,
+        },
+{
+    let ghost v = vtb(tb@);
+    let mut k: usize = 0;
+    while k < tb.len()
+        invariant
+            v == vtb(tb@),
+            k <= tb@.len(),
+            owner_pos(v, f@, 0) == owner_pos(v, f@, k as nat),
+        decreases tb@.len() - k,
+    {
+        proof {
+            assert(v[k as int].2 == vnames(tb@[k as int].2@));
+        }
+        match idx_e(&tb[k].2, f) {
+            Some(i) => {
+                return Some((i, tb[k].2.len()));
+            },
+            None => {},
+        }
+        k += 1;
+    }
+    None
+}
+
+/// `e.f1…fn` の展開（fld_chain）の再帰の版：字段 i から、持ち主の位置で rfield_e を重ねて次の字段へ。
+/// ループにしない（ループの頭では e の写しの関係が失われ、None の腕が示せないため）。
+fn fld_chain_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize) -> (r: Option<EExpr>)
+    requires
+        i <= ns.len(),
+    ensures
+        match r {
+            Some(x) => fld_chain(vtb(tb@), view_expr(e), vnames(ns@), i as nat) == Some(view_expr(x)),
+            None => fld_chain(vtb(tb@), view_expr(e), vnames(ns@), i as nat) is None,
+        },
+    decreases ns.len() - i,
+{
+    if i >= ns.len() {
+        proof {
+            fld_chain_end(vtb(tb@), view_expr(e), vnames(ns@), i as nat);
+        }
+        return Some(e);
+    }
+    let ghost v = vtb(tb@);
+    let ghost f = vnames(ns@);
+    match owner_pos_e(tb, &ns[i]) {
+        Some((p, m)) => {
+            let ghost cv = view_expr(e);
+            proof {
+                assert(f.len() == ns@.len());
+                assert(f[i as int] == ns@[i as int]@);
+                assert(owner_pos(v, f[i as int], 0) == Some((p as nat, m as nat)));
+                fld_chain_step(v, cv, f, i as nat, p as nat, m as nat);
+            }
+            let cur = rfield_e(e, p, m);
+            proof {
+                assert(view_expr(cur) == rfield(cv, p as nat, m as nat));
+            }
+            fld_chain_rec(tb, cur, ns, i + 1)
+        },
+        None => {
+            proof {
+                assert(f.len() == ns@.len());
+                assert(f[i as int] == ns@[i as int]@);
+                assert(owner_pos(v, f[i as int], 0) is None);
+                fld_chain_none(v, view_expr(e), f, i as nat);
+            }
+            None
+        },
+    }
+}
+
+/// `e.f1…fn` の展開（fld_chain）の exec 版：字段の名前の列の順に、持ち主の位置で rfield_e を重ねる（全体は字段 0 から）。
+fn fld_chain_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>) -> (r: Option<EExpr>)
+    ensures
+        match r {
+            Some(x) => fld_chain(vtb(tb@), view_expr(e), vnames(ns@), 0) == Some(view_expr(x)),
+            None => fld_chain(vtb(tb@), view_expr(e), vnames(ns@), 0) is None,
+        },
+{
+    fld_chain_rec(tb, e, ns, 0)
+}
+
+/// 宣言の位置 j に式を置く（view_upd の上での一回の更新と同じ）。
+fn set_upd_e(u: &mut Vec<Option<EExpr>>, j: usize, x: EExpr)
+    requires
+        j < u@.len(),
+    ensures
+        final(u)@.len() == old(u)@.len(),
+        view_upd(final(u)@) == view_upd(old(u)@).update(j as int, Some(view_expr(x))),
+{
+    let ghost up = u@;
+    let ghost xv = view_expr(x);
+    u.set(j, Some(x));
+    proof {
+        assert forall|k: int| 0 <= k < view_upd(up).len() implies view_upd(u@)[k] == view_upd(up).update(j as int, Some(xv))[k] by {
+            if k == j as int {
+            } else {
+                assert(u@[k] == up[k]);
+            }
+        }
+        assert(view_upd(u@) =~= view_upd(up).update(j as int, Some(xv)));
+    }
+}
+
+/// 書いた字段を宣言の位置に置く（rec_upd）の exec 版。字段の名前の列 ns と式の列 es は同じ長さで並ぶ
+/// （構文の解析が作る。式の列が短い分は Unit と写し、rec_upd の写しと同じ）。
+fn rec_upd_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<Option<EExpr>>>)
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(u) => u@.len() == decl@.len() && rec_upd(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(decl@), vfields(ns@, es@), 0, none_upd(
+                decl@.len(),
+            )) == Some(view_upd(u@)),
+            None => rec_upd(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(decl@), vfields(ns@, es@), 0, none_upd(
+                decl@.len(),
+            )) is None,
+        },
+    decreases es, 0nat,
+{
+    let ghost f = vnames(fs@);
+    let ghost tv = vtb(tb@);
+    let ghost d = vnames(decl@);
+    let ghost s = vnames(sc@);
+    let ghost s0 = sc@;
+    let ghost fl = vfields(ns@, es@);
+    let ghost u0 = none_upd(decl@.len());
+    let mut u: Vec<Option<EExpr>> = Vec::new();
+    let mut j0: usize = 0;
+    while j0 < decl.len()
+        invariant
+            j0 <= decl@.len(),
+            u@.len() == j0,
+            forall|k: int| 0 <= k < j0 ==> (#[trigger] u@[k]) is None,
+        decreases decl@.len() - j0,
+    {
+        u.push(None);
+        j0 += 1;
+    }
+    proof {
+        assert(view_upd(u@) =~= u0);
+    }
+    let mut i: usize = 0;
+    while i < ns.len()
+        invariant
+            f == vnames(fs@),
+            tv == vtb(tb@),
+            d == vnames(decl@),
+            s == vnames(sc@),
+            s0 == sc@,
+            s0 == old(sc)@,
+            fl == vfields(ns@, es@),
+            i <= ns@.len(),
+            u@.len() == decl@.len(),
+            rec_upd(f, tv, tagged, s, d, fl, 0, none_upd(decl@.len())) == rec_upd(f, tv, tagged, s, d, fl, i as nat, view_upd(u@)),
+        decreases ns.len() - i,
+    {
+        proof {
+            assert(fl[i as int].0 == ns@[i as int]@);
+            if i < es@.len() {
+                assert(fl[i as int].1 == vx(es@[i as int]));
+            } else {
+                assert(fl[i as int].1 == Sx::Unit);
+            }
+        }
+        let j = match idx_e(decl, &ns[i]) {
+            Some(j) => j,
+            None => {
+                proof {
+                    rec_upd_none_idx(f, tv, tagged, s, d, fl, i as nat, view_upd(u@));
+                }
+                return None;
+            },
+        };
+        if let Some(_) = &u[j] {
+            proof {
+                assert(view_upd(u@)[j as int] is Some);
+                rec_upd_none_dup(f, tv, tagged, s, d, fl, i as nat, view_upd(u@), j as nat);
+            }
+            return None;
+        }
+        let ghost ui = view_upd(u@);
+        proof {
+            assert(u@[j as int] is None);
+            assert(ui[j as int] is None);
+        }
+        if i < es.len() {
+            match rx_e(fs, tb, tagged, sc, &es[i]) {
+                Some(y) => {
+                    proof {
+                        assert(fl[i as int].1 == vx(es@[i as int]));
+                        rec_upd_step(f, tv, tagged, s, d, fl, i as nat, ui, j as nat, view_expr(y));
+                    }
+                    set_upd_e(&mut u, j, y);
+                },
+                None => {
+                    proof {
+                        assert(fl[i as int].1 == vx(es@[i as int]));
+                        rec_upd_none_rx(f, tv, tagged, s, d, fl, i as nat, ui, j as nat);
+                    }
+                    return None;
+                },
+            }
+        } else {
+            proof {
+                assert(fl[i as int].1 == Sx::Unit);
+                assert(rx(f, tv, tagged, s, Sx::Unit) == Some(Expr::Unit));
+                rec_upd_step(f, tv, tagged, s, d, fl, i as nat, ui, j as nat, Expr::Unit);
+            }
+            set_upd_e(&mut u, j, EExpr::Unit);
+        }
+        i += 1;
+    }
+    proof {
+        rec_upd_end(f, tv, tagged, s, d, fl, i as nat, view_upd(u@));
+    }
+    Some(u)
+}
+
+/// 記録の式の本体（rec_expr）の exec 版。基（解決済み）を受け、字段を置いて records_exec の record_e で拒否と展開を決める。
+/// 基を let で束縛するときだけ、字段の式は空の名前を一つ足した scope で解決する（spec の rec_expr と同じ）。
+fn rec_expr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
+    requires
+        decl@.len() >= 1,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rec_expr(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(decl@), vfields(ns@, es@), view_slot(base))
+                == Some(view_expr(x)),
+            None => rec_expr(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(decl@), vfields(ns@, es@), view_slot(base))
+                is None,
+        },
+    decreases es, 1nat,
+{
+    let deep = match &base {
+        Some(e) => match e {
+            EExpr::Var(_) => false,
+            _ => ns.len() <= decl.len() && decl.len() - ns.len() >= 2,
+        },
+        None => false,
+    };
+    proof {
+        if let Some(e) = &base {
+            assert(view_expr(*e) is Var <==> (*e) is Var);
+        }
+    }
+    let ghost s0 = sc@;
+    if deep {
+        sc.push(Vec::new());
+        proof {
+            vnames_push(s0, sc@[s0.len() as int]);
+        }
+    }
+    let r_u = rec_upd_e(fs, tb, tagged, sc, decl, ns, es);
+    if deep {
+        let _ = sc.pop();
+    }
+    match r_u {
+        Some(u) => match record_e(u, base, sc.len()) {
+            Ok(x) => Some(x),
+            Err(_) => None,
+        },
+        None => None,
+    }
+}
+
+/// 記録の式（SExpr::Rec）の exec 版：名前表の記録（字段を持つ項目）と、空の名前の束縛との衝突を見て、rec_expr に渡す。
+fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+    requires
+        e is Rec,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
+        },
+    decreases e, 0nat,
+{
+    if let SExpr::Rec(r, ns, es, base) = e {
+        let k = match tidx_e(tb, r) {
+            Some(k) => k,
+            None => return None,
+        };
+        if tb[k].2.len() == 0 {
+            return None;
+        }
+        let empty: Vec<char> = Vec::new();
+        match idx_e(sc, &empty) {
+            Some(_) => return None,
+            None => {},
+        }
+        let decl = &tb[k].2;
+        proof {
+            assert(decl@ == tb@[k as int].2@);
+            assert(decl@.len() >= 1);
+            assert(vx(*e) == Sx::Rec(r@, vfields(ns@, es@), vbase(*base)));
+        }
+        match base {
+            None => rec_expr_e(fs, tb, tagged, sc, decl, ns, es, None),
+            Some(b) => match rx_e(fs, tb, tagged, sc, b) {
+                Some(bx) => rec_expr_e(fs, tb, tagged, sc, decl, ns, es, Some(bx)),
+                None => None,
+            },
+        }
+    } else {
+        None
+    }
+}
+
+/// 記録の参照（SExpr::Fld）の exec 版：受ける式を解決し、字段の連鎖を展開する。
+fn rx_fld_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+    requires
+        e is Fld,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
+        },
+    decreases e, 0nat,
+{
+    if let SExpr::Fld(a, ns) = e {
+        let inner = match rx_e(fs, tb, tagged, sc, a) {
+            Some(x) => x,
+            None => return None,
+        };
+        fld_chain_e(tb, inner, ns)
     } else {
         None
     }

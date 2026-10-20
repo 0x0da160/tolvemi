@@ -10,6 +10,11 @@
 //! S2c：再帰する直和型の項（記録と直和型の項は拒否する。recursive.rs:563）の parity。信頼側が受理するが
 //!     設計の規則が禁じる形は、既知の食い違いとして固定する（信頼側は変えない）。
 //!
+//! V4（S3a）：式の符号（記録の構築と参照：UNKNOWN-FIELD、MISSING-FIELD、DUPLICATE-FIELD、BASE-REDUNDANT、
+//!     UNKNOWN-TYPE）の受理・拒否が、信頼側の符号と一致する。
+//! V5（S3a）：記録の式の実行。記録を展開せずに検証済みの compile_source と run_input_json に渡した出力が、
+//!     信頼側の実行（展開してから検証済みの評価器で走らせる）と一致する。基を let で束縛する形を含む。
+//!
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 
@@ -17,6 +22,11 @@ use tlvm::api::*;
 use tlvm::nominal::Tags;
 use tlvm::profiles::*;
 use tlvm::syntax::Decl;
+use tlvm::embed::Program;
+use tlvm::plain::encode_plain_with;
+use tlvm::values::DecodeResult;
+use tlvm_verified::eval::Limits;
+use tlvm_verified::pipeline::{compile_source, run_input_json, Compiled, InputRun};
 use tlvm_verified::resolve::{decl_numbers_e, resolve_e};
 use tlvm_verified::surface::{parse_e, SDecl};
 
@@ -253,5 +263,100 @@ fn s2c_known_gaps_trusted_accepts_what_the_rule_forbids() {
     for src in KNOWN_GAPS {
         assert!(trusted(src).is_none(), "信頼側が拒否した（既知の食い違いが閉じた。表を直す）: {src}");
         assert!(!verified_accepts(src), "検証済みが受理した（規則に反する）: {src}");
+    }
+}
+
+// ---------------------------------------------------------------- V4：式の符号（記録の構築と参照）
+
+/// (プログラム, 信頼側の期待する拒否の符号。受理なら None)。名前の段階の符号だけを選ぶ（型検査の符号は含めない）。
+const V4: &[(&str, Option<&str>)] = &[
+    ("type P = { a: Int, b: Int }\nfn g(x: Int) -> P = P { a: x, b: 2, c: 3 }\nentry g\n", Some("E-RECORD-UNKNOWN-FIELD")),
+    ("type P = { a: Int, b: Int }\nfn g(x: Int) -> P = P { a: x }\nentry g\n", Some("E-RECORD-MISSING-FIELD")),
+    ("type P = { a: Int, b: Int }\nfn g(x: Int) -> P = P { a: x, a: 2, b: 3 }\nentry g\n", Some("E-RECORD-DUPLICATE-FIELD")),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> P = P { a: 1, b: 2, ..p }\nentry g\n", Some("E-RECORD-BASE-REDUNDANT")),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> P = P { a: 1, c: 2, ..p }\nentry g\n", Some("E-RECORD-UNKNOWN-FIELD")),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> P = Q { a: 1, ..p }\nentry g\n", Some("E-RECORD-UNKNOWN-TYPE")),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> P = p.zz\nentry g\n", Some("E-RECORD-UNKNOWN-FIELD")),
+    ("type P = { a: Int, b: Int }\nfn g(x: Int) -> P = P { a: x, b: 2 }\nentry g\n", None),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> P = P { a: 1, ..p }\nentry g\n", None),
+    ("type P = { a: Int, b: Int }\nfn g(p: P) -> Int = p.a\nentry g\n", None),
+    ("type T = { a: Int, b: Int, c: Int }\nfn mk(x: Int) -> T = T { a: x, b: 2, c: 3 }\nfn g(x: Int) -> T = T { a: 1, ..mk(x) }\nentry g\n", None),
+];
+
+#[test]
+fn v4_record_expression_codes_agree_with_the_verified_resolver() {
+    for &(src, want) in V4 {
+        check(src, want);
+    }
+}
+
+// ---------------------------------------------------------------- V5：記録の式の実行
+
+/// 検証済みの入口：記録を展開せずに検証済みの compile_source（rank と rec は信頼側の型付きの値から）へ渡し、
+/// 検証済みの run_input_json で実行する。
+fn verified_run(src: &str, input: &str) -> String {
+    let typed = match compile(src.as_bytes(), &StaticProfile::default()) {
+        SourceCompile::Result(CompileResult::Accepted { program, .. }) => program,
+        _ => panic!("信頼側が受理しない: {src}"),
+    };
+    let rank: Vec<usize> = typed
+        .program
+        .functions()
+        .map(|f| typed.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+        .collect();
+    let rec: Vec<bool> = typed.program.functions().map(|f| f.rec).collect();
+    let p = StaticProfile::default();
+    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let chars: Vec<char> = src.chars().collect();
+    let prog = match compile_source(&chars, d, td, rank, rec) {
+        Compiled::Accepted(prog) => prog,
+        _ => panic!("検証済みが受理しない: {src}"),
+    };
+    // 入力は信頼側の復号（embed.rs の run_plain と同じ）で値の JSON に直してから、検証済みの復号器へ渡す。
+    let tv = match decode_plain_input(&typed.input_type, input.as_bytes(), &InputProfile::default()) {
+        DecodeResult::Decoded(tv) => tv,
+        _ => panic!("入力の復号が失敗: {src}"),
+    };
+    let lim = Limits {
+        steps: 1_000_000,
+        integer_bits: 4_096,
+        allocated_nodes: 1_000_000,
+        max_depth: 100_000,
+        max_slots: 100_000,
+    };
+    match run_input_json(&prog, &tv.text, tv.json_depth, lim) {
+        // 出力は正準の値の JSON なので、信頼側の run_json と同じく plain JSON に直して比べる。
+        InputRun::Ran(Ok(out), _, _) => encode_plain_with(&typed.output_type, &out, false)
+            .unwrap_or_else(|e| panic!("出力の plain JSON への写しが失敗 ({e}): {src}")),
+        InputRun::NotWellFormed => panic!("検証済みの run が整形でないと判定: {src}"),
+        InputRun::InputRejected => panic!("検証済みの run が入力を拒否: {src}"),
+        InputRun::Ran(Err(_), _, _) => panic!("検証済みの run が打ち切られた: {src}"),
+    }
+}
+
+/// (プログラム, 入力の plain JSON, 期待する出力)。二つ目は、基が呼出し（変数でない）で書いていない字段が二つの
+/// 形（基を let で束縛する）と、一つの形（基を置く）を含む。
+const V5: &[(&str, &str, &str)] = &[
+    (
+        "type P = { a: Int, b: Int }\nfn f(p: P) -> P = P { a: p.b, ..p }\nfn g(x: Int) -> Int = f(P { a: x, b: 7 }).a\nentry g\n",
+        "3",
+        "7",
+    ),
+    (
+        "type T = { a: Int, b: Int, c: Int }\nfn mk(x: Int) -> T = T { a: x, b: 2, c: 3 }\nfn wl(x: Int) -> T = T { a: x, ..mk(x) }\nfn wr(x: Int) -> T = T { a: 1, b: x, ..mk(x) }\nfn g(x: Int) -> Int = add(wl(x).b, wr(x).c)\nentry g\n",
+        "10",
+        "5",
+    ),
+];
+
+#[test]
+fn v5_record_expressions_run_on_the_verified_path() {
+    for &(src, input, want) in V5 {
+        let trusted = Program::compile(src)
+            .unwrap_or_else(|_| panic!("信頼側が受理しない: {src}"))
+            .run_json(input)
+            .unwrap_or_else(|_| panic!("信頼側の実行が失敗: {src}"));
+        assert_eq!(trusted, want, "信頼側の出力が違う: {src}");
+        assert_eq!(verified_run(src, input), want, "検証済みの出力が違う: {src}");
     }
 }
