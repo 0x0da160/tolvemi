@@ -7,6 +7,8 @@
 //! V2：記録と直和型をまたぐ型名の重複（E-RECORD-DUPLICATE-TYPE）。宣言の順を変えても拒否する。
 //! V3：記録、直和型、再帰する直和型を混ぜた corpus で、検証済みの宣言の番号（`decl_numbers_e`）が、
 //!     信頼側の `Tags::of` の番号と宣言ごとに一致する。関数と entry を挟む形を含み、数え方が違えば食い違う。
+//! S2c：再帰する直和型の項（記録と直和型の項は拒否する。recursive.rs:563）の parity。信頼側が受理するが
+//!     設計の規則が禁じる形は、既知の食い違いとして固定する（信頼側は変えない）。
 //!
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
@@ -200,4 +202,56 @@ fn v3_numbers_agree_with_tags_of() {
     }
     assert!(position_differs, "corpus に、宣言の位置で数えた番号と違う例がない");
     assert!(records_only_differs, "corpus に、記録だけで数えた番号と違う例がない");
+}
+
+// ---------------------------------------------------------------- S2c：再帰する直和型の項と、前方の参照
+
+/// 再帰する直和型の項（v1.14）：項の型は Int、Bool、その型自身に限る。信頼側（recursive.rs:563）が拒否する形は、
+/// 検証済みも拒否する。受理する形は両方が受理する。
+const S2C_RECURSIVE: &[(&str, Option<&str>)] = &[
+    // 記録の項（前に宣言した記録、後に宣言した記録）
+    ("type P = { a: Int }\ntype L = Nil | Cons(P, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    ("type L = Nil | Cons(P, L)\ntype P = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    ("type R = { s: L }\ntype L = Nil | Cons(R, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    // 直和型の項（前に宣言した直和型）、Unit、List の項
+    ("type S = V | W\ntype L = Nil | Cons(S, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    ("type L = Nil | Cons(Unit, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    ("type L = Nil | Cons(List<Int>, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    // 受理：Int、Bool、その型自身の項だけ（一つだけの自己参照も）
+    ("type T = Leaf | Node(T, Int, T)\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    ("type T = Leaf | Node(T, Bool, T)\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    ("type L = Nil | Cons(L)\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    // 受理：再帰する直和型を字段の型に使う記録、再帰しない直和型が記録を項に持つ、再帰する直和型を項に持つ直和型
+    ("type L = Nil | Cons(Int, L)\ntype Q = { b: L }\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    ("type P = { a: Int }\ntype S = V(P) | W\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    ("type L = Nil | Cons(Int, L)\ntype M = Q(L) | N\nfn f(a: Int) -> Int = a\nentry f\n", None),
+];
+
+/// 既知の食い違い：信頼側が受理するが、設計の規則（§3.1 行 125：字段と直和型の中身は前に宣言した型に限る。
+/// v1.14：再帰する直和型の項は Int、Bool、その型自身に限る）が禁じる形。信頼側のコードは変えない。
+/// 検証済みは規則に従って拒否する。信頼側が直ると、このテストが落ちて、食い違いが閉じたと分かる。
+const KNOWN_GAPS: &[&str] = &[
+    // 再帰する直和型の項に、別の再帰する直和型（v1.14 では自分自身だけ）。kind_of は再帰する型の名前を全部通す（recursive.rs:104-109）
+    "type K = Z | S(Int, K)\ntype L = Nil | Cons(K, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+    // 相互再帰：後に宣言した型を項に持つ。両方とも再帰する直和型になり、kind_of が通す（recursive.rs:104-109）
+    "type A = X(B) | Y\ntype B = Z(A)\nfn f(a: Int) -> Int = a\nentry f\n",
+    // 再帰する直和型の項に、後に宣言した再帰する直和型。展開が前方の参照を書き換えてから検査する（recursive.rs:157、api.rs:325）
+    "type M = Q(L, M) | N\ntype L = Nil | Cons(Int, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+    // 再帰しない直和型の項に、後に宣言した再帰する直和型。同じ理由で前方の参照が見えない（recursive.rs:157、api.rs:325）
+    "type M = Q(L) | N\ntype L = Nil | Cons(Int, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+];
+
+#[test]
+fn s2c_recursive_sum_items_agree_with_the_trusted_side() {
+    for (src, want) in S2C_RECURSIVE {
+        check(src, *want);
+    }
+}
+
+#[test]
+fn s2c_known_gaps_trusted_accepts_what_the_rule_forbids() {
+    for src in KNOWN_GAPS {
+        assert!(trusted(src).is_none(), "信頼側が拒否した（既知の食い違いが閉じた。表を直す）: {src}");
+        assert!(!verified_accepts(src), "検証済みが受理した（規則に反する）: {src}");
+    }
 }

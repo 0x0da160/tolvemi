@@ -83,6 +83,37 @@ pub open spec fn vars_ok(vs: Seq<(Seq<char>, Seq<SType>)>, tb: Seq<(Seq<char>, O
     forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> tyn(vs[i].1[a], tb)
 }
 
+/// 型が名前 r を書いている（入れ子の中も）。再帰する直和型かどうかの判定に使う（trusted の recursive_names）。
+pub open spec fn sty_mentions(t: SType, r: Seq<char>) -> bool
+    decreases t,
+{
+    match t {
+        SType::Int => false,
+        SType::Bool => false,
+        SType::Unit => false,
+        SType::Char => false,
+        SType::List(a) => sty_mentions(*a, r),
+        SType::Option(a) => sty_mentions(*a, r),
+        SType::Pair(a, b) => sty_mentions(*a, r) || sty_mentions(*b, r),
+        SType::Result(a, b) => sty_mentions(*a, r) || sty_mentions(*b, r),
+        SType::Named(x) => x == r,
+        SType::Dict(a, b) => sty_mentions(*a, r) || sty_mentions(*b, r),
+    }
+}
+
+/// 再帰する直和型の項の型は、Int、Bool、その型自身のどれか（v1.14）。
+pub open spec fn sty_rec_item(t: SType, r: Seq<char>) -> bool {
+    t is Int || t is Bool || (t is Named && t->Named_0 == r)
+}
+
+/// 直和型の項（r は直和型の名前）は、どれも r を書かない（再帰しない）か、どれも Int、Bool、r のどれか（再帰する）。
+/// 再帰する直和型の規則は v1.14 のとおり。不透明にして、exec の二つの判定と結び付ける。
+#[verifier::opaque]
+pub open spec fn rec_items(vs: Seq<(Seq<char>, Seq<SType>)>, r: Seq<char>) -> bool {
+    (forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> !sty_mentions(#[trigger] vs[i].1[a], r))
+        || (forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> sty_rec_item(#[trigger] vs[i].1[a], r))
+}
+
 /// 記録の字段 i から末尾までの印なしの展開。右結合の Pair の入れ子で、末尾の字段の型はそのまま
 /// （trusted の records.rs の record_type と同じ形）。
 pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> Option<Ty>
@@ -112,7 +143,7 @@ pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd
         } else {
             Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs))))
         },
-        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) {
+        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) || !rec_items(vs, r) {
             None
         } else {
             Some(tb.push((r, None, Seq::empty())))
@@ -143,7 +174,7 @@ proof fn tb_push_rec_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: S
 
 proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
     requires
-        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))),
+        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) || !rec_items(vs, r),
     ensures
         tb_push(tb, Sd::Sum(r, vs)) is None,
 {
@@ -154,6 +185,7 @@ proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: S
     requires
         idx(tnames(tb), r, 0) is None,
         vars_ok(vs, tb.push((r, None, Seq::empty()))),
+        rec_items(vs, r),
     ensures
         tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty()))),
 {
@@ -1301,6 +1333,130 @@ fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, V
     true
 }
 
+/// 型が名前を書いているか（sty_mentions の exec 版）。
+fn sty_mentions_e(t: &STy, r: &Vec<char>) -> (res: bool)
+    ensures
+        res == sty_mentions(vty(*t), r@),
+    decreases t,
+{
+    match t {
+        STy::Int => false,
+        STy::Bool => false,
+        STy::Unit => false,
+        STy::Char => false,
+        STy::List(a) => sty_mentions_e(a, r),
+        STy::Option(a) => sty_mentions_e(a, r),
+        STy::Pair(a, b) => sty_mentions_e(a, r) || sty_mentions_e(b, r),
+        STy::Result(a, b) => sty_mentions_e(a, r) || sty_mentions_e(b, r),
+        STy::Named(x) => eq_chars(x, r),
+        STy::Dict(a, b) => sty_mentions_e(a, r) || sty_mentions_e(b, r),
+    }
+}
+
+/// 再帰する直和型の項か（sty_rec_item の exec 版）。
+fn sty_rec_item_e(t: &STy, r: &Vec<char>) -> (res: bool)
+    ensures
+        res == sty_rec_item(vty(*t), r@),
+{
+    match t {
+        STy::Int => true,
+        STy::Bool => true,
+        STy::Named(x) => eq_chars(x, r),
+        _ => false,
+    }
+}
+
+/// 直和型の項のどれも名前 r を書かない（rec_items の一つ目の選択肢）。
+fn plain_items_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>) -> (res: bool)
+    ensures
+        res == (forall|i: int, a: int| 0 <= i < vvars(vs@).len() && 0 <= a < vvars(vs@)[i].1.len() ==> !sty_mentions(#[trigger] vvars(vs@)[i].1[a], r@)),
+{
+    let mut a: usize = 0;
+    while a < vs.len()
+        invariant
+            a <= vs@.len(),
+            forall|c: int, k: int| 0 <= c < a && 0 <= k < vs@[c].1@.len() ==> !sty_mentions(vty(vs@[c].1@[k]), r@),
+        decreases vs@.len() - a,
+    {
+        let mut b: usize = 0;
+        while b < vs[a].1.len()
+            invariant
+                a < vs@.len(),
+                b <= vs@[a as int].1@.len(),
+                forall|c: int, k: int| 0 <= c < a && 0 <= k < vs@[c].1@.len() ==> !sty_mentions(vty(vs@[c].1@[k]), r@),
+                forall|k: int| 0 <= k < b ==> !sty_mentions(vty(vs@[a as int].1@[k]), r@),
+            decreases vs@[a as int].1@.len() - b,
+        {
+            if sty_mentions_e(&vs[a].1[b], r) {
+                proof {
+                    assert(vvars(vs@)[a as int].1[b as int] == vty(vs@[a as int].1@[b as int]));
+                }
+                return false;
+            }
+            b += 1;
+        }
+        a += 1;
+    }
+    proof {
+        assert forall|i: int, k: int| 0 <= i < vvars(vs@).len() && 0 <= k < vvars(vs@)[i].1.len() implies !sty_mentions(#[trigger] vvars(vs@)[i].1[k], r@) by {
+            assert(vvars(vs@)[i].1[k] == vty(vs@[i].1@[k]));
+        }
+    }
+    true
+}
+
+/// 直和型の項のどれも、Int、Bool、r のどれか（rec_items の二つ目の選択肢）。
+fn each_items_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>) -> (res: bool)
+    ensures
+        res == (forall|i: int, a: int| 0 <= i < vvars(vs@).len() && 0 <= a < vvars(vs@)[i].1.len() ==> sty_rec_item(#[trigger] vvars(vs@)[i].1[a], r@)),
+{
+    let mut a: usize = 0;
+    while a < vs.len()
+        invariant
+            a <= vs@.len(),
+            forall|c: int, k: int| 0 <= c < a && 0 <= k < vs@[c].1@.len() ==> sty_rec_item(vty(vs@[c].1@[k]), r@),
+        decreases vs@.len() - a,
+    {
+        let mut b: usize = 0;
+        while b < vs[a].1.len()
+            invariant
+                a < vs@.len(),
+                b <= vs@[a as int].1@.len(),
+                forall|c: int, k: int| 0 <= c < a && 0 <= k < vs@[c].1@.len() ==> sty_rec_item(vty(vs@[c].1@[k]), r@),
+                forall|k: int| 0 <= k < b ==> sty_rec_item(vty(vs@[a as int].1@[k]), r@),
+            decreases vs@[a as int].1@.len() - b,
+        {
+            if !sty_rec_item_e(&vs[a].1[b], r) {
+                proof {
+                    assert(vvars(vs@)[a as int].1[b as int] == vty(vs@[a as int].1@[b as int]));
+                }
+                return false;
+            }
+            b += 1;
+        }
+        a += 1;
+    }
+    proof {
+        assert forall|i: int, k: int| 0 <= i < vvars(vs@).len() && 0 <= k < vvars(vs@)[i].1.len() implies sty_rec_item(#[trigger] vvars(vs@)[i].1[k], r@) by {
+            assert(vvars(vs@)[i].1[k] == vty(vs@[i].1@[k]));
+        }
+    }
+    true
+}
+
+/// 直和型の項の規則（rec_items の exec 版）。再帰しない形か、再帰する形（Int、Bool、r だけ）であること。
+fn rec_items_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>) -> (res: bool)
+    ensures
+        res == rec_items(vvars(vs@), r@),
+{
+    let plain = plain_items_e(vs, r);
+    let each = each_items_e(vs, r);
+    proof {
+        reveal(rec_items);
+    }
+    plain || each
+}
+
 /// 宣言を名前表の末尾に足す（tb_push の exec 版）。足せないときは None。
 /// 字段と直和型の中身は、移す前の名前表 tb だけを引いて調べ（ループは補助関数に置く）、通ったあとで tb を移して足す。
 fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>>)
@@ -1381,6 +1537,13 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
                 assert(vars_ok(vvars(vs@), vtb(out@)) == vars_ok(vvars(vs@), vtb(tb@).push((r@, None, Seq::empty()))));
             }
             if !vars_ok_e(vs, &out) {
+                proof {
+                    tb_push_sum_none(vtb(tb@), r@, vvars(vs@));
+                    assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
+                }
+                return None;
+            }
+            if !rec_items_e(vs, r) {
                 proof {
                     tb_push_sum_none(vtb(tb@), r@, vvars(vs@));
                     assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
