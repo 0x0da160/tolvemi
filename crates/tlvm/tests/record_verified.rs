@@ -27,7 +27,9 @@ use tlvm::plain::encode_plain_with;
 use tlvm::values::DecodeResult;
 use tlvm_verified::eval::Limits;
 use tlvm_verified::pipeline::{compile_source, run_input_json, Compiled, InputRun};
-use tlvm_verified::resolve::{decl_numbers_e, resolve_e};
+use tlvm_verified::check::check_prog;
+use tlvm_verified::ir::EProg;
+use tlvm_verified::resolve::{decl_numbers_e, resolve_e, resolve_tagged_e};
 use tlvm_verified::surface::{parse_e, SDecl};
 
 const MISMATCH: &str = "E-INTERNAL-VERIFIED-MISMATCH";
@@ -358,5 +360,61 @@ fn v5_record_expressions_run_on_the_verified_path() {
             .unwrap_or_else(|_| panic!("信頼側の実行が失敗: {src}"));
         assert_eq!(trusted, want, "信頼側の出力が違う: {src}");
         assert_eq!(verified_run(src, input), want, "検証済みの出力が違う: {src}");
+    }
+}
+
+/// V6（段階 2 の S3b）：記録の参照 x.v で、x の型の印と字段 v の持ち主の印が違うと、印つきの写しの eq の両辺の型が
+/// 違い、検証済みの型検査（check_prog）が拒否する。印なしの写しは構造だけを見るので、同じ形なら受理する（対照）。
+/// パイプラインは記録を信頼側の展開で消してから解決するため、ここは印つきの解決（resolve_tagged_e）と
+/// 検証済みの型検査を直接使う。
+const V6: &[(&str, bool)] = &[
+    ("type A = { a: Int }\ntype B = { v: Int }\nfn f(x: A) -> Int = x.v\nentry f\n", false),
+    ("type A = { a: Int }\ntype B = { v: Int }\nfn f(x: B) -> Int = x.v\nentry f\n", true),
+    ("type A = { a: Int, b: Int }\ntype B = { v: Int, w: Int }\nfn f(x: A) -> Int = x.v\nentry f\n", false),
+    ("type A = { a: Int, b: Int }\ntype B = { v: Int, w: Int }\nfn f(x: B) -> Int = add(x.v, x.w)\nentry f\n", true),
+    // 更新（..base）：基底は同じ記録の値なので受理され、別の名前（同じ形）の記録の値は基底の印の検査で拒否される。
+    ("type P = { a: Int, b: Int }\nfn f(p: P) -> P = P { a: p.b, ..p }\nentry f\n", true),
+    ("type P = { a: Int, b: Int }\ntype Q = { c: Int, d: Int }\nfn f(q: Q) -> P = P { a: 1, ..q }\nentry f\n", false),
+];
+
+/// 既知の食い違い（S3b）：字段の型が名前つきの記録のとき、印つきの写しの展開（表の項目）は印なしのため、
+/// 入れ子の印が付かない。信頼側は受理するが、印つきの写しは拒否する（resolve.rs の rec_from は印なしの展開を作り、
+/// to_ty の名前の腕は外側の印だけを付ける）。表を印つきに直せば、この試験は落ちるので、そのとき書き換える。
+const V6_KNOWN_GAP: &[&str] = &[
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(o: Out) -> Int = o.i.x\nentry f\n",
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(x: Int) -> Out = Out { i: In { x: x }, n: 2 }\nentry f\n",
+];
+
+#[test]
+fn s3b_known_gap_nested_named_fields_in_the_tagged_copy() {
+    for src in V6_KNOWN_GAP {
+        assert!(trusted(src).is_none(), "信頼側が拒否した: {src}");
+        let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
+        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
+        let n = funcs.len();
+        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印なしの型検査が通らない: {src}");
+        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let n = funcs.len();
+        assert!(
+            !check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }),
+            "既知の食い違いが閉じた（表を印つきに直した。この試験を書き換える）: {src}"
+        );
+    }
+}
+
+#[test]
+fn v6_tagged_records_are_checked_by_the_verified_core() {
+    for &(src, ok) in V6 {
+        let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
+        // 印なし（対照）：構造だけを見るので、受理される。
+        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
+        let n = funcs.len();
+        let untagged = EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry };
+        assert!(check_prog(&untagged), "印なしの型検査が通らない（対照）: {src}");
+        // 印つき：持ち主の印と値の印が違えば拒否される。
+        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let n = funcs.len();
+        let tagged = EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry };
+        assert_eq!(check_prog(&tagged), ok, "印つきの型検査の判定が違う: {src}");
     }
 }

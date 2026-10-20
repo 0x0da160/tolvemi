@@ -600,9 +600,9 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
                 _ => None,
             }
         },
-        // 記録（段階 2 の S3a、印なし）：e.f の連鎖（持ち主は名前で引く）と、構築・更新（rec_expr）。
+        // 記録（段階 2 の S3a の印なし、S3b の印つき）：e.f の連鎖（持ち主は名前で引く）と、構築・更新（rec_t）。
         Sx::Fld(a, fls) => match rx(fs, tb, tagged, sc, *a) {
-            Some(x) => fld_chain(tb, x, fls, 0),
+            Some(x) => if tagged { fld_chain_t(tb, x, fls, 0, sc.len()) } else { fld_chain(tb, x, fls, 0) },
             None => None,
         },
         Sx::Rec(r, fls, base) => match idx(tnames(tb), r, 0) {
@@ -610,9 +610,9 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
                 None
             } else {
                 match base {
-                    None => rec_expr(fs, tb, tagged, sc, tb[k as int].2, fls, None),
+                    None => rec_t(fs, tb, tagged, sc, k, tb[k as int].2, fls, None),
                     Some(b) => match rx(fs, tb, tagged, sc, *b) {
-                        Some(bx) => rec_expr(fs, tb, tagged, sc, tb[k as int].2, fls, Some(bx)),
+                        Some(bx) => rec_t(fs, tb, tagged, sc, k, tb[k as int].2, fls, Some(bx)),
                         None => None,
                     },
                 }
@@ -704,6 +704,165 @@ proof fn fld_chain_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr
         fld_chain(tb, e, fls, i) == Some(e),
 {
     reveal_with_fuel(fld_chain, 2);
+}
+
+// ------------------------------------------------------------------ 印つきの写し（段階 2 の S3b）
+
+/// 印の式（tag_val(k) に対応する式）。印は Pair<Unit, Unit> を k 段入れ子にした値（tag_val と同じ形）。
+pub open spec fn tag_expr(k: nat) -> Expr
+    decreases k,
+{
+    if k == 0 {
+        Expr::Pair(Box::new(Expr::Unit), Box::new(Expr::Unit))
+    } else {
+        Expr::Pair(Box::new(Expr::Unit), Box::new(tag_expr((k - 1) as nat)))
+    }
+}
+
+/// 印の式は変数を含まない（どの scope でも整合）。
+proof fn tag_expr_scoped(k: nat, n: nat)
+    ensures
+        scoped(tag_expr(k), n),
+    decreases k,
+{
+    reveal_with_fuel(scoped, 2);
+    if k > 0 {
+        tag_expr_scoped((k - 1) as nat, n);
+    }
+}
+
+/// 印つきの字段の参照の一段（S3b）。let t = e in let u = if eq(fst(t), tag(k)) then unit else unit in
+/// rfield(snd(t), i, n)。t は位置 d、u は位置 d + 1。持ち主の印 k と値の印が違えば、eq の両辺の型が違い、
+/// 核の型検査（ty_expr の Eq）が拒否する。
+pub open spec fn tfield(e: Expr, k: nat, i: nat, n: nat, d: nat) -> Expr {
+    Expr::Let(
+        d,
+        Box::new(e),
+        Box::new(Expr::Let(
+            d + 1,
+            Box::new(Expr::If(
+                Box::new(Expr::Builtin(
+                    Builtin::Eq,
+                    seq![Expr::Builtin(Builtin::Fst, seq![Expr::Var(d)]), tag_expr(k)],
+                )),
+                Box::new(Expr::Unit),
+                Box::new(Expr::Unit),
+            )),
+            Box::new(rfield(Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)]), i, n)),
+        )),
+    )
+}
+
+/// 二つの引数の組込み（eq など）の scope 整合。
+proof fn builtin2_scoped(b: Builtin, x: Expr, y: Expr, n: nat)
+    requires
+        scoped(x, n),
+        scoped(y, n),
+    ensures
+        scoped(Expr::Builtin(b, seq![x, y]), n),
+{
+    reveal_with_fuel(scoped_all, 3);
+    reveal_with_fuel(scoped, 2);
+    let es = seq![x, y];
+    assert(es.len() == 2);
+    assert(es[0] == x);
+    assert(es[1] == y);
+    assert(scoped_all(es, n, 2));
+    assert(scoped_all(es, n, 1));
+    assert(scoped_all(es, n, 0));
+}
+
+/// 印つきの字段の参照の一段は、e が位置 d の scope にあれば、d の scope にある。
+proof fn tfield_scoped(e: Expr, k: nat, i: nat, n: nat, d: nat)
+    requires
+        scoped(e, d),
+    ensures
+        scoped(tfield(e, k, i, n, d), d),
+{
+    reveal_with_fuel(scoped, 4);
+    tag_expr_scoped(k, d + 1);
+    assert(scoped(Expr::Var(d), d + 1));
+    builtin1_scoped(Builtin::Fst, Expr::Var(d), d + 1);
+    builtin2_scoped(Builtin::Eq, Expr::Builtin(Builtin::Fst, seq![Expr::Var(d)]), tag_expr(k), d + 1);
+    assert(scoped(Expr::Var(d), d + 2));
+    builtin1_scoped(Builtin::Snd, Expr::Var(d), d + 2);
+    rfield_scoped(Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)]), i, n, d + 2);
+}
+
+/// 字段名 f の持ち主（owner_pos と同じ探索）。宣言の番号 k、字段の位置 i、字段の数 n を返す。
+pub open spec fn owner_at(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: Seq<char>, k: nat) -> Option<(nat, nat, nat)>
+    decreases tb.len() - k,
+{
+    if k >= tb.len() {
+        None
+    } else {
+        match idx(tb[k as int].2, f, 0) {
+            Some(i) => Some((k, i, tb[k as int].2.len())),
+            None => owner_at(tb, f, k + 1),
+        }
+    }
+}
+
+/// `e.f1…fn` の印つきの展開（fld_chain の印つきの版）。持ち主の印で検査してから字段を取る。
+pub open spec fn fld_chain_t(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat) -> Option<Expr>
+    decreases fls.len() - i,
+{
+    if i >= fls.len() {
+        Some(e)
+    } else {
+        match owner_at(tb, fls[i as int], 0) {
+            Some((k, p, n)) => fld_chain_t(tb, tfield(e, k, p, n, d), fls, i + 1, d),
+            None => None,
+        }
+    }
+}
+
+/// fld_chain_t の一段（字段 i の持ち主が (k, p, n) のとき）。
+proof fn fld_chain_t_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, k: nat, p: nat, n: nat, d: nat)
+    requires
+        i < fls.len(),
+        owner_at(tb, fls[i as int], 0) == Some((k, p, n)),
+    ensures
+        fld_chain_t(tb, e, fls, i, d) == fld_chain_t(tb, tfield(e, k, p, n, d), fls, i + 1, d),
+{
+    reveal_with_fuel(fld_chain_t, 2);
+}
+
+/// fld_chain_t の一段（字段 i に持ち主がないとき）。
+proof fn fld_chain_t_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+    requires
+        i < fls.len(),
+        owner_at(tb, fls[i as int], 0) is None,
+    ensures
+        fld_chain_t(tb, e, fls, i, d) is None,
+{
+    reveal_with_fuel(fld_chain_t, 2);
+}
+
+/// fld_chain_t の終わり（字段がすべて済んだとき）。
+proof fn fld_chain_t_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+    requires
+        i >= fls.len(),
+    ensures
+        fld_chain_t(tb, e, fls, i, d) == Some(e),
+{
+    reveal_with_fuel(fld_chain_t, 2);
+}
+
+/// fld_chain_t の scope 整合。
+proof fn fld_chain_t_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+    requires
+        scoped(e, d),
+    ensures
+        fld_chain_t(tb, e, fls, i, d) matches Some(x) ==> scoped(x, d),
+    decreases fls.len() - i,
+{
+    if i < fls.len() {
+        if let Some((k, p, n)) = owner_at(tb, fls[i as int], 0) {
+            tfield_scoped(e, k, p, n, d);
+            fld_chain_t_scoped(tb, tfield(e, k, p, n, d), fls, i + 1, d);
+        }
+    }
 }
 
 /// 書いた字段（fls の i 番目から）を宣言の位置に置く。u は宣言順の列（書いていない位置は None）。
@@ -816,6 +975,25 @@ pub open spec fn rec_expr(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
     }
 }
 
+/// 記録の構築（S3b）。印なし（tagged = false）は rec_expr。印つきは、基底を印の検査で外してから rec_expr に渡し、
+/// 結果を pair(tag(k), ·) で包む（印つきの記録の値は印と展開の組）。k は記録の宣言の番号、基底の束縛は sc.len() の位置。
+pub open spec fn rec_t(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
+    decreases fls, fls.len() + 2,
+{
+    if tagged {
+        let bx2 = match bx {
+            Some(b) => Some(tfield(b, k, 0, 1, sc.len())),
+            None => None,
+        };
+        match rec_expr(fs, tb, tagged, sc, decl, fls, bx2) {
+            Some(e) => Some(Expr::Pair(Box::new(tag_expr(k)), Box::new(e))),
+            None => None,
+        }
+    } else {
+        rec_expr(fs, tb, tagged, sc, decl, fls, bx)
+    }
+}
+
 /// p[0..n] の関数宣言。
 pub open spec fn fns_upto(p: Seq<Sd>, n: nat) -> Seq<Sd>
     decreases n,
@@ -897,8 +1075,8 @@ pub open spec fn rfuncs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
 }
 
 /// プログラムの名前解決と entry 検査。関数列と entry の添字を返す。名前表は宣言から作る。
-/// 写しは印なし（tagged = false）。印つきの写しは S5b で pipeline から渡す。
-pub open spec fn resolve(p: Seq<Sd>) -> Option<(Seq<Func>, nat)> {
+/// 写しの印（tagged）を引数に取る。resolve は印なし（tagged = false）。印つきは resolve_tagged_e（S3b）。
+pub open spec fn resolve_t(p: Seq<Sd>, tagged: bool) -> Option<(Seq<Func>, nat)> {
     let ds = fns_upto(p, p.len());
     let fs = names_of(ds);
     let es = ents_upto(p, p.len());
@@ -907,7 +1085,7 @@ pub open spec fn resolve(p: Seq<Sd>) -> Option<(Seq<Func>, nat)> {
         Some(tb) => if !distinct(fs) || es.len() != 1 {
             None
         } else {
-            match (rfuncs(fs, tb, false, ds, ds.len()), idx(fs, es[0], 0)) {
+            match (rfuncs(fs, tb, tagged, ds, ds.len()), idx(fs, es[0], 0)) {
                 (Some(funcs), Some(g)) => if g < funcs.len() && funcs[g as int].params.len() == 1 {
                     Some((funcs, g))
                 } else {
@@ -917,6 +1095,11 @@ pub open spec fn resolve(p: Seq<Sd>) -> Option<(Seq<Func>, nat)> {
             }
         },
     }
+}
+
+/// 印なしの名前解決（resolve_t の印なしの場合）。
+pub open spec fn resolve(p: Seq<Sd>) -> Option<(Seq<Func>, nat)> {
+    resolve_t(p, false)
 }
 
 // ------------------------------------------------------------------ 性質
@@ -1282,6 +1465,56 @@ pub open spec fn scoped_all(es: Seq<Expr>, n: nat, i: nat) -> bool
     i >= es.len() || (scoped(es[i as int], n) && scoped_all(es, n, i + 1))
 }
 
+/// 構築（rec_t）の scope 整合（S3b の印つきの腕を含む）。印つきは基底の検査と印の pair を足す。
+proof fn rec_t_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
+    requires
+        distinct(sc),
+        idx(sc, Seq::empty(), 0) is None,
+        decl.len() >= 1,
+        bx is Some ==> scoped(bx->Some_0, sc.len()),
+    ensures
+        rec_t(fs, tb, tagged, sc, k, decl, fls, bx) matches Some(e) ==> scoped(e, sc.len()),
+    decreases fls, fls.len() + 2,
+{
+    reveal_with_fuel(scoped, 2);
+    if tagged {
+        let bx2 = match bx {
+            Some(b) => Some(tfield(b, k, 0, 1, sc.len())),
+            None => None,
+        };
+        if let Some(b) = bx {
+            tfield_scoped(b, k, 0, 1, sc.len());
+        }
+        rec_expr_scoped(fs, tb, tagged, sc, decl, fls, bx2);
+        if let Some(e) = rec_expr(fs, tb, tagged, sc, decl, fls, bx2) {
+            tag_expr_scoped(k, sc.len());
+        }
+    } else {
+        rec_expr_scoped(fs, tb, tagged, sc, decl, fls, bx);
+    }
+}
+
+/// 参照（Sx::Fld）の scope 整合（印なし・印つき）。rx_scoped の本体から分けて、rlimit を抑える。
+proof fn rx_fld_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+    requires
+        distinct(sc),
+        e is Fld,
+    ensures
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+    decreases e, 0nat,
+{
+    if let Sx::Fld(a, fls) = e {
+        rx_scoped(fs, tb, tagged, sc, *a);
+        if let Some(x) = rx(fs, tb, tagged, sc, *a) {
+            if tagged {
+                fld_chain_t_scoped(tb, x, fls, 0, sc.len());
+            } else {
+                fld_chain_scoped(tb, x, fls, 0, sc.len());
+            }
+        }
+    }
+}
+
 /// 記録の式（Sx::Rec）は scope 整合（rx_scoped の記録の腕。本体を分けて、rlimit を抑える）。
 proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
@@ -1297,11 +1530,11 @@ proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
             if tb[k as int].2.len() != 0 && idx(sc, Seq::empty(), 0) is None {
                 idx_props(sc, Seq::empty(), 0);
                 match base {
-                    None => rec_expr_scoped(fs, tb, tagged, sc, tb[k as int].2, fls, None),
+                    None => rec_t_scoped(fs, tb, tagged, sc, k as nat, tb[k as int].2, fls, None),
                     Some(b) => {
                         rx_scoped(fs, tb, tagged, sc, *b);
                         if let Some(bx) = rx(fs, tb, tagged, sc, *b) {
-                            rec_expr_scoped(fs, tb, tagged, sc, tb[k as int].2, fls, Some(bx));
+                            rec_t_scoped(fs, tb, tagged, sc, k as nat, tb[k as int].2, fls, Some(bx));
                         }
                     },
                 }
@@ -1450,12 +1683,7 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
         },
         Sx::Fold(..) => rx_fold_scoped(fs, tb, tagged, sc, e),
         Sx::Match(..) => rx_match_scoped(fs, tb, tagged, sc, e),
-        Sx::Fld(a, fls) => {
-            rx_scoped(fs, tb, tagged, sc, *a);
-            if let Some(x) = rx(fs, tb, tagged, sc, *a) {
-                fld_chain_scoped(tb, x, fls, 0, sc.len());
-            }
-        },
+        Sx::Fld(..) => rx_fld_scoped(fs, tb, tagged, sc, e),
         Sx::Rec(..) => rx_rec_scoped(fs, tb, tagged, sc, e),
         Sx::Inj(_, _, _, a) => rx_scoped(fs, tb, tagged, sc, *a),
         Sx::MatchR(..) => rx_matchr_scoped(fs, tb, tagged, sc, e),
@@ -2586,6 +2814,184 @@ fn fld_chain_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: 
     fld_chain_rec(tb, e, ns, 0)
 }
 
+/// 印の式の exec 版（tag_expr）：Pair(Unit, ·) の k 段の入れ子。
+fn tag_expr_e(k: usize) -> (r: EExpr)
+    ensures
+        view_expr(r) == tag_expr(k as nat),
+    decreases k,
+{
+    proof {
+        reveal_with_fuel(view_expr, 4);
+    }
+    if k == 0 {
+        let r = EExpr::Pair(Box::new(EExpr::Unit), Box::new(EExpr::Unit));
+        proof {
+            assert(view_expr(r) == Expr::Pair(Box::new(Expr::Unit), Box::new(Expr::Unit)));
+            assert(tag_expr(k as nat) == Expr::Pair(Box::new(Expr::Unit), Box::new(Expr::Unit)));
+        }
+        r
+    } else {
+        let rest = tag_expr_e(k - 1);
+        let ghost restv = view_expr(rest);
+        proof {
+            assert((k - 1) as nat == ((k as nat) - 1) as nat);
+        }
+        let r = EExpr::Pair(Box::new(EExpr::Unit), Box::new(rest));
+        proof {
+            assert(view_expr(r) == Expr::Pair(Box::new(Expr::Unit), Box::new(restv)));
+            assert(tag_expr(k as nat) == Expr::Pair(Box::new(Expr::Unit), Box::new(tag_expr(((k as nat) - 1) as nat))));
+        }
+        r
+    }
+}
+
+/// 印つきの字段の参照の exec 版（tfield）。d は t の位置、d1 は u の位置（d1 = d + 1）。
+/// 呼び出し側は scope に一つ足して d1 を得る（usize の加算を使わない）。
+fn tfield_e(e: EExpr, k: usize, i: usize, n: usize, d: usize, d1: usize) -> (r: EExpr)
+    requires
+        i < n,
+        d1 as int == d as int + 1,
+    ensures
+        view_expr(r) == tfield(view_expr(e), k as nat, i as nat, n as nat, d as nat),
+{
+    proof {
+        reveal_with_fuel(view_expr, 4);
+    }
+    let ghost ev = view_expr(e);
+    let mut fa: Vec<EExpr> = Vec::new();
+    fa.push(EExpr::Var(d));
+    proof {
+        assert(view_exprs(fa) =~= seq![Expr::Var(d as nat)]);
+    }
+    let fst = EExpr::Builtin(Builtin::Fst, fa);
+    let ghost fstv = view_expr(fst);
+    proof {
+        assert(fstv == Expr::Builtin(Builtin::Fst, seq![Expr::Var(d as nat)]));
+    }
+    let tg = tag_expr_e(k);
+    let ghost tgv = view_expr(tg);
+    let mut ea: Vec<EExpr> = Vec::new();
+    ea.push(fst);
+    ea.push(tg);
+    proof {
+        assert(view_exprs(ea) =~= seq![fstv, tgv]);
+    }
+    let cond = EExpr::Builtin(Builtin::Eq, ea);
+    let ghost condv = view_expr(cond);
+    proof {
+        assert(condv == Expr::Builtin(Builtin::Eq, seq![fstv, tgv]));
+    }
+    let mut sa: Vec<EExpr> = Vec::new();
+    sa.push(EExpr::Var(d));
+    proof {
+        assert(view_exprs(sa) =~= seq![Expr::Var(d as nat)]);
+    }
+    let snd = EExpr::Builtin(Builtin::Snd, sa);
+    let ghost sndv = view_expr(snd);
+    proof {
+        assert(sndv == Expr::Builtin(Builtin::Snd, seq![Expr::Var(d as nat)]));
+    }
+    let body = rfield_e(snd, i, n);
+    let ghost bodyv = view_expr(body);
+    proof {
+        assert(bodyv == rfield(sndv, i as nat, n as nat));
+    }
+    let guard = EExpr::If(Box::new(cond), Box::new(EExpr::Unit), Box::new(EExpr::Unit));
+    let ghost guardv = view_expr(guard);
+    proof {
+        assert(guardv == Expr::If(Box::new(condv), Box::new(Expr::Unit), Box::new(Expr::Unit)));
+    }
+    let inner = EExpr::Let(d1, Box::new(guard), Box::new(body));
+    let ghost innerv = view_expr(inner);
+    proof {
+        assert(innerv == Expr::Let((d1 as nat), Box::new(guardv), Box::new(bodyv)));
+        assert(d1 as nat == d as nat + 1);
+    }
+    let res = EExpr::Let(d, Box::new(e), Box::new(inner));
+    proof {
+        assert(view_expr(res) == Expr::Let(d as nat, Box::new(ev), Box::new(innerv)));
+    }
+    res
+}
+
+/// owner_at の exec 版：名前表で字段名を持つ最初の項目の（宣言の番号、字段の位置、字段の数）。
+fn owner_at_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>) -> (r: Option<(usize, usize, usize)>)
+    ensures
+        match r {
+            Some((k, p, m)) => owner_at(vtb(tb@), f@, 0) == Some((k as nat, p as nat, m as nat)) && p < m,
+            None => owner_at(vtb(tb@), f@, 0) is None,
+        },
+{
+    let ghost v = vtb(tb@);
+    let mut k: usize = 0;
+    while k < tb.len()
+        invariant
+            v == vtb(tb@),
+            k <= tb@.len(),
+            owner_at(v, f@, 0) == owner_at(v, f@, k as nat),
+        decreases tb@.len() - k,
+    {
+        proof {
+            assert(v[k as int].2 == vnames(tb@[k as int].2@));
+        }
+        match idx_e(&tb[k].2, f) {
+            Some(i) => {
+                return Some((k, i, tb[k].2.len()));
+            },
+            None => {},
+        }
+        k += 1;
+    }
+    None
+}
+
+/// fld_chain_t の exec 版（字段 i から、印の検査と字段の取り出しを重ねる）。d と d1 = d + 1 は束縛の位置。
+fn fld_chain_t_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize, d: usize, d1: usize) -> (r: Option<EExpr>)
+    requires
+        i <= ns.len(),
+        d1 as int == d as int + 1,
+    ensures
+        match r {
+            Some(x) => fld_chain_t(vtb(tb@), view_expr(e), vnames(ns@), i as nat, d as nat) == Some(view_expr(x)),
+            None => fld_chain_t(vtb(tb@), view_expr(e), vnames(ns@), i as nat, d as nat) is None,
+        },
+    decreases ns.len() - i,
+{
+    if i >= ns.len() {
+        proof {
+            fld_chain_t_end(vtb(tb@), view_expr(e), vnames(ns@), i as nat, d as nat);
+        }
+        return Some(e);
+    }
+    let ghost v = vtb(tb@);
+    let ghost f = vnames(ns@);
+    match owner_at_e(tb, &ns[i]) {
+        Some((k, p, m)) => {
+            let ghost cv = view_expr(e);
+            proof {
+                assert(f.len() == ns@.len());
+                assert(f[i as int] == ns@[i as int]@);
+                assert(owner_at(v, f[i as int], 0) == Some((k as nat, p as nat, m as nat)));
+                fld_chain_t_step(v, cv, f, i as nat, k as nat, p as nat, m as nat, d as nat);
+            }
+            let cur = tfield_e(e, k, p, m, d, d1);
+            proof {
+                assert(view_expr(cur) == tfield(cv, k as nat, p as nat, m as nat, d as nat));
+            }
+            fld_chain_t_rec(tb, cur, ns, i + 1, d, d1)
+        },
+        None => {
+            proof {
+                assert(f.len() == ns@.len());
+                assert(f[i as int] == ns@[i as int]@);
+                assert(owner_at(v, f[i as int], 0) is None);
+                fld_chain_t_none(v, view_expr(e), f, i as nat, d as nat);
+            }
+            None
+        },
+    }
+}
+
 /// 宣言の位置 j に式を置く（view_upd の上での一回の更新と同じ）。
 fn set_upd_e(u: &mut Vec<Option<EExpr>>, j: usize, x: EExpr)
     requires
@@ -2769,6 +3175,45 @@ fn rec_expr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char
     }
 }
 
+/// 構築（rec_t）の exec 版。印つきは基底を印の検査（tfield）で外してから rec_expr_e に渡し、pair(tag(k), ·) で包む。
+fn rec_t_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, k: usize, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
+    requires
+        decl@.len() >= 1,
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => rec_t(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), k as nat, vnames(decl@), vfields(ns@, es@), view_slot(base))
+                == Some(view_expr(x)),
+            None => rec_t(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), k as nat, vnames(decl@), vfields(ns@, es@), view_slot(base))
+                is None,
+        },
+    decreases es, 2nat,
+{
+    if tagged {
+        let base2: Option<EExpr> = match base {
+            Some(b) => {
+                let ghost s0 = sc@;
+                sc.push(Vec::new());
+                let d1 = sc.len();
+                let d = d1 - 1;
+                let t = tfield_e(b, k, 0, 1, d, d1);
+                let _ = sc.pop();
+                proof {
+                    assert(sc@ =~= s0);
+                }
+                Some(t)
+            },
+            None => None,
+        };
+        match rec_expr_e(fs, tb, tagged, sc, decl, ns, es, base2) {
+            Some(x) => Some(EExpr::Pair(Box::new(tag_expr_e(k)), Box::new(x))),
+            None => None,
+        }
+    } else {
+        rec_expr_e(fs, tb, tagged, sc, decl, ns, es, base)
+    }
+}
+
 /// 記録の式（SExpr::Rec）の exec 版：名前表の記録（字段を持つ項目）と、空の名前の束縛との衝突を見て、rec_expr に渡す。
 fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
@@ -2801,9 +3246,9 @@ fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
             assert(vx(*e) == Sx::Rec(r@, vfields(ns@, es@), vbase(*base)));
         }
         match base {
-            None => rec_expr_e(fs, tb, tagged, sc, decl, ns, es, None),
+            None => rec_t_e(fs, tb, tagged, sc, k, decl, ns, es, None),
             Some(b) => match rx_e(fs, tb, tagged, sc, b) {
-                Some(bx) => rec_expr_e(fs, tb, tagged, sc, decl, ns, es, Some(bx)),
+                Some(bx) => rec_t_e(fs, tb, tagged, sc, k, decl, ns, es, Some(bx)),
                 None => None,
             },
         }
@@ -2829,7 +3274,20 @@ fn rx_fld_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
             Some(x) => x,
             None => return None,
         };
-        fld_chain_e(tb, inner, ns)
+        if tagged {
+            let ghost s0 = sc@;
+            sc.push(Vec::new());
+            let d1 = sc.len();
+            let d = d1 - 1;
+            let r = fld_chain_t_rec(tb, inner, ns, 0, d, d1);
+            let _ = sc.pop();
+            proof {
+                assert(sc@ =~= s0);
+            }
+            r
+        } else {
+            fld_chain_e(tb, inner, ns)
+        }
     } else {
         None
     }
@@ -3060,11 +3518,11 @@ fn rfunc_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)
 }
 
 /// 名前解決と entry 検査。関数列と entry の添字を返す。写しは印なし（tagged = false）。
-pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
+fn resolve_e_t(p: &Vec<SDecl>, tagged: bool) -> (r: Option<(Vec<EFunc>, usize)>)
     ensures
         match r {
-            Some((fs, g)) => resolve(vds(p@)) == Some((vfuncs(fs@), g as nat)) && g < fs@.len(),
-            None => resolve(vds(p@)) is None,
+            Some((fs, g)) => resolve_t(vds(p@), tagged) == Some((vfuncs(fs@), g as nat)) && g < fs@.len(),
+            None => resolve_t(vds(p@), tagged) is None,
         },
 {
     let tb = match decl_table_e(p) {
@@ -3153,7 +3611,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             k <= fidx@.len(),
             out@.len() == k,
             decl_table(vds(p@), p@.len() as nat) == Some(tv),
-            rfuncs(fsv, tv, false, ds, k as nat) == Some(vfuncs(out@)),
+            rfuncs(fsv, tv, tagged, ds, k as nat) == Some(vfuncs(out@)),
         decreases fidx@.len() - k,
     {
         let j = fidx[k];
@@ -3161,7 +3619,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             assert(ds[k as int] == v[j as int]);
             assert(v[j as int] == vd(p@[j as int]));
         }
-        match rfunc_e(&names, &tb, false, &p[j]) {
+        match rfunc_e(&names, &tb, tagged, &p[j]) {
             Some(f) => {
                 let ghost o0 = out@;
                 out.push(f);
@@ -3172,9 +3630,9 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             },
             None => {
                 proof {
-                    rfuncs_none(fsv, tv, false, ds, (k + 1) as nat, ds.len());
-                    assert(rfuncs(fsv, tv, false, ds, ds.len()) is None);
-                    resolve_none(vds(p@), tv);
+                    rfuncs_none(fsv, tv, tagged, ds, (k + 1) as nat, ds.len());
+                    assert(rfuncs(fsv, tv, tagged, ds, ds.len()) is None);
+                    resolve_none(vds(p@), tv, tagged);
                 }
                 return None;
             },
@@ -3201,14 +3659,36 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
     Some((out, g))
 }
 
+/// 印なしの名前解決（resolve）の exec 版。パイプラインと既存の試験が使う。
+pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
+    ensures
+        match r {
+            Some((fs, g)) => resolve(vds(p@)) == Some((vfuncs(fs@), g as nat)) && g < fs@.len(),
+            None => resolve(vds(p@)) is None,
+        },
+{
+    resolve_e_t(p, false)
+}
+
+/// 印つきの名前解決（S3b）の exec 版。印つきの写しを検証済みの型検査（check_prog）へ渡す試験に使う。
+pub fn resolve_tagged_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
+    ensures
+        match r {
+            Some((fs, g)) => resolve_t(vds(p@), true) == Some((vfuncs(fs@), g as nat)) && g < fs@.len(),
+            None => resolve_t(vds(p@), true) is None,
+        },
+{
+    resolve_e_t(p, true)
+}
+
 /// 名前表が作れて、関数の解決が失敗すれば、resolve も失敗する（字段の名前の一意と entry の検査が
 /// 通らなくても、結果は None なので、ここでは仮定しない）。
-proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>)
+proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool)
     requires
         decl_table(p, p.len()) == Some(tb),
-        rfuncs(names_of(fns_upto(p, p.len())), tb, false, fns_upto(p, p.len()), fns_upto(p, p.len()).len()) is None,
+        rfuncs(names_of(fns_upto(p, p.len())), tb, tagged, fns_upto(p, p.len()), fns_upto(p, p.len()).len()) is None,
     ensures
-        resolve(p) is None,
+        resolve_t(p, tagged) is None,
 {
 }
 
