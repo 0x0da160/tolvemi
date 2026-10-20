@@ -1,7 +1,9 @@
 //! 名前解決（設計書 §5.1、§5.2、§11.2 の 3）。
 //!
 //! spec の `resolve` は表面 AST（名前付き）から名前解決済み AST（spec::Prog の関数列と entry）を作る。
-//! - トップレベル関数名は相異なる（`distinct(fs)`）。全関数は全体で可視で、前方参照できる。
+//! - トップレベル関数名は相異なり（`distinct(fs)`）。全関数は全体で可視で、前方参照できる。
+//! - 宣言した型（記録・直和型）の名前は相異なり、字段名はプログラム全体で一意（`decl_table`）。
+//!   宣言の字段の型と直和型の中身は、その宣言より前の型だけを引く。関数の注釈と本体は全部の型を引く。
 //! - 引数名は関数ごとに相異なる。
 //! - `let x = a in b` の x は b でだけ見え、外側の可視変数をシャドーできない。
 //! - fold の二 binder は相異なり、本体でだけ見え、外側をシャドーできない。
@@ -40,9 +42,152 @@ pub open spec fn str_exprs(w: Seq<char>) -> Seq<Expr> {
     Seq::new(w.len(), |i: int| Expr::Char(w[i] as u32 as int))
 }
 
-/// 表面の型から核の型へ。宣言された名前（Named）は段階 2 で表から引くので、ここでは None。
+/// 名前表の項目：宣言した型の名前、記録の印なしの展開（直和型は None）、記録の字段の名前（直和型は空）。
+/// 項目の位置が名義の番号になる（設計の B2）。字段の持ち主は、その字段名を持つ項目の位置。
+pub open spec fn tnames(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> Seq<Seq<char>> {
+    Seq::new(tb.len(), |i: int| tb[i].0)
+}
+
+/// 字段名 x は、名前表のどの記録の字段でもない（字段名はプログラム全体で一意：規則 4）。
+pub open spec fn fresh(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, x: Seq<char>) -> bool {
+    forall|j: int| 0 <= j < tb.len() ==> idx(tb[j].2, x, 0) is None
+}
+
+/// 型の名前が、名前表の項目だけを引く（規則 1）。構造は to_ty と同じ。
+pub open spec fn tyn(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool
+    decreases t,
+{
+    match t {
+        SType::Int => true,
+        SType::Bool => true,
+        SType::Unit => true,
+        SType::Char => true,
+        SType::List(a) => tyn(*a, tb),
+        SType::Option(a) => tyn(*a, tb),
+        SType::Pair(a, b) => tyn(*a, tb) && tyn(*b, tb),
+        SType::Result(a, b) => tyn(*a, tb) && tyn(*b, tb),
+        SType::Named(x) => idx(tnames(tb), x, 0) is Some,
+        SType::Dict(a, b) => tyn(*a, tb) && tyn(*b, tb),
+    }
+}
+
+/// 記録の字段の列：字段名は相異なり（規則 4）、どれもほかの記録の字段でなく、型は前の項目だけを引く（規則 1）。
+pub open spec fn fields_ok(fs: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool {
+    distinct(pnames(fs)) && forall|i: int| 0 <= i < fs.len() ==> fresh(tb, fs[i].0) && tyn(fs[i].1, tb)
+}
+
+/// 直和型の中身（構築子ごとの型の並び）は、前の項目だけを引く（規則 1）。
+pub open spec fn vars_ok(vs: Seq<(Seq<char>, Seq<SType>)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool {
+    forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> tyn(vs[i].1[a], tb)
+}
+
+/// 記録の字段 i から末尾までの印なしの展開。右結合の Pair の入れ子で、末尾の字段の型はそのまま
+/// （trusted の records.rs の record_type と同じ形）。
+pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> Option<Ty>
+    decreases fs.len() - i,
+{
+    if i >= fs.len() {
+        None
+    } else if i + 1 == fs.len() {
+        to_ty(fs[i as int].1, tb, false)
+    } else {
+        match (to_ty(fs[i as int].1, tb, false), rec_from(fs, i + 1, tb)) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        }
+    }
+}
+
+/// 宣言を名前表の末尾に足す。記録は、型名が新しく、字段の列が規則 1・4 を満たすときに足す。
+/// 直和型は、型名が新しく、中身の型が前の項目だけを引くときに足す（規則 1・3）。関数と entry は表に入らない。
+#[verifier::opaque]
+pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>> {
+    match d {
+        Sd::Fn(_, _, _, _) => Some(tb),
+        Sd::Entry(_) => Some(tb),
+        Sd::RecTy(r, fs, _) => if idx(tnames(tb), r, 0) is Some || !fields_ok(fs, tb) {
+            None
+        } else {
+            Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs))))
+        },
+        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb) {
+            None
+        } else {
+            Some(tb.push((r, None, Seq::empty())))
+        },
+    }
+}
+
+/// tb_push の場合分けの補題。tb_push は不透明で、ここでだけ開く。宣言の形（vd）を経由しても、
+/// 構築子の形で書いた結論と同じ項として扱えるようにする（exec 側で使う）。
+proof fn tb_push_rec_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
+    requires
+        idx(tnames(tb), r, 0) is Some || !fields_ok(fs, tb),
+    ensures
+        tb_push(tb, Sd::RecTy(r, fs, tc)) is None,
+{
+    reveal(tb_push);
+}
+
+proof fn tb_push_rec_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
+    requires
+        idx(tnames(tb), r, 0) is None,
+        fields_ok(fs, tb),
+    ensures
+        tb_push(tb, Sd::RecTy(r, fs, tc)) == Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs)))),
+{
+    reveal(tb_push);
+}
+
+proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
+    requires
+        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb),
+    ensures
+        tb_push(tb, Sd::Sum(r, vs)) is None,
+{
+    reveal(tb_push);
+}
+
+proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
+    requires
+        idx(tnames(tb), r, 0) is None,
+        vars_ok(vs, tb),
+    ensures
+        tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty()))),
+{
+    reveal(tb_push);
+}
+
+proof fn tb_push_other(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd)
+    requires
+        d matches Sd::Fn(..) || d matches Sd::Entry(..),
+    ensures
+        tb_push(tb, d) == Some(tb),
+{
+    reveal(tb_push);
+}
+
+/// 宣言の先頭 n 個の名前表（宣言の順）。どれかの宣言が規則に反すれば None。
+/// 型名と関数名の一致は許す（規則 5）。関数の注釈と本体は、ここで作る表の全部を引く（規則 2）。
+pub open spec fn decl_table(p: Seq<Sd>, n: nat) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>>
+    decreases n,
+{
+    if n == 0 {
+        Some(Seq::empty())
+    } else if n > p.len() {
+        None
+    } else {
+        match decl_table(p, (n - 1) as nat) {
+            Some(tb) => tb_push(tb, p[(n - 1) as int]),
+            None => None,
+        }
+    }
+}
+
+/// 表面の型から核の型へ。宣言された名前（Named）は名前表から引き、その項目の印なしの展開を返す（直和型は None）。
 /// Dict は v1.9 の消去で List<Pair<K, V>> になる（dict.rs の erase_in_place と同じ形）。
-pub open spec fn to_ty(t: SType) -> Option<Ty>
+/// `tagged` は印つきの写し（S2a では使わない。S2b で入る）。
+pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Option<Ty>
     decreases t,
 {
     match t {
@@ -50,24 +195,27 @@ pub open spec fn to_ty(t: SType) -> Option<Ty>
         SType::Bool => Some(Ty::Bool),
         SType::Unit => Some(Ty::Unit),
         SType::Char => Some(Ty::Char),
-        SType::List(a) => match to_ty(*a) {
+        SType::List(a) => match to_ty(*a, tb, tagged) {
             Some(u) => Some(Ty::List(Box::new(u))),
             None => None,
         },
-        SType::Option(a) => match to_ty(*a) {
+        SType::Option(a) => match to_ty(*a, tb, tagged) {
             Some(u) => Some(Ty::Option(Box::new(u))),
             None => None,
         },
-        SType::Pair(a, b) => match (to_ty(*a), to_ty(*b)) {
+        SType::Pair(a, b) => match (to_ty(*a, tb, tagged), to_ty(*b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
             _ => None,
         },
-        SType::Result(a, b) => match (to_ty(*a), to_ty(*b)) {
+        SType::Result(a, b) => match (to_ty(*a, tb, tagged), to_ty(*b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
             _ => None,
         },
-        SType::Named(_) => None,
-        SType::Dict(a, b) => match (to_ty(*a), to_ty(*b)) {
+        SType::Named(x) => match idx(tnames(tb), x, 0) {
+            Some(k) => tb[k as int].1,
+            None => None,
+        },
+        SType::Dict(a, b) => match (to_ty(*a, tb, tagged), to_ty(*b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::List(Box::new(Ty::Pair(Box::new(u), Box::new(v))))),
             _ => None,
         },
@@ -75,20 +223,20 @@ pub open spec fn to_ty(t: SType) -> Option<Ty>
 }
 
 /// 核の型の表現。to_ty が成功する型についてだけ使う（既定の Unit は、検査の済んだ呼出しでは現れない）。
-pub open spec fn ty_or_unit(t: SType) -> Ty {
-    match to_ty(t) {
+pub open spec fn ty_or_unit(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Ty {
+    match to_ty(t, tb, tagged) {
         Some(u) => u,
         None => Ty::Unit,
     }
 }
 
 /// 引数の型は全て核の型に写せる。
-pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>) -> bool {
-    forall|k: int| 0 <= k < ps.len() ==> to_ty(#[trigger] ps[k].1) is Some
+pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> bool {
+    forall|k: int| 0 <= k < ps.len() ==> to_ty(#[trigger] ps[k].1, tb, tagged) is Some
 }
 
-/// 式の名前解決。fs は関数名の列、sc は可視変数の列（外側から順）。
-pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
+/// 式の名前解決。fs は関数名の列、tb は名前表、sc は可視変数の列（外側から順）。
+pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
     decreases e, 0nat,
 {
     match e {
@@ -101,46 +249,46 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
             Some(k) => Some(Expr::Var(k)),
             None => None,
         },
-        Sx::List(t, es) => match (to_ty(t), rxs(fs, sc, es, 0)) {
+        Sx::List(t, es) => match (to_ty(t, tb, tagged), rxs(fs, tb, tagged, sc, es, 0)) {
             (Some(u), Some(xs)) => Some(Expr::List(u, xs)),
             _ => None,
         },
-        Sx::Some(a) => match rx(fs, sc, *a) {
+        Sx::Some(a) => match rx(fs, tb, tagged, sc, *a) {
             Some(x) => Some(Expr::Some(Box::new(x))),
             None => None,
         },
-        Sx::None(t) => match to_ty(t) {
+        Sx::None(t) => match to_ty(t, tb, tagged) {
             Some(u) => Some(Expr::None(u)),
             None => None,
         },
-        Sx::Pair(a, b) => match (rx(fs, sc, *a), rx(fs, sc, *b)) {
+        Sx::Pair(a, b) => match (rx(fs, tb, tagged, sc, *a), rx(fs, tb, tagged, sc, *b)) {
             (Some(x), Some(y)) => Some(Expr::Pair(Box::new(x), Box::new(y))),
             _ => None,
         },
-        Sx::Builtin(b, es) => match rxs(fs, sc, es, 0) {
+        Sx::Builtin(b, es) => match rxs(fs, tb, tagged, sc, es, 0) {
             Some(xs) => Some(Expr::Builtin(b, xs)),
             None => None,
         },
-        Sx::Call(f, es) => match (idx(fs, f, 0), rxs(fs, sc, es, 0)) {
+        Sx::Call(f, es) => match (idx(fs, f, 0), rxs(fs, tb, tagged, sc, es, 0)) {
             (Some(g), Some(xs)) => Some(Expr::Call(g, xs)),
             _ => None,
         },
         Sx::Let(x, a, b) => if idx(sc, x, 0) is Some {
             None
         } else {
-            match (rx(fs, sc, *a), rx(fs, sc.push(x), *b)) {
+            match (rx(fs, tb, tagged, sc, *a), rx(fs, tb, tagged, sc.push(x), *b)) {
                 (Some(ra), Some(rb)) => Some(Expr::Let(sc.len(), Box::new(ra), Box::new(rb))),
                 _ => None,
             }
         },
-        Sx::If(c, a, b) => match (rx(fs, sc, *c), rx(fs, sc, *a), rx(fs, sc, *b)) {
+        Sx::If(c, a, b) => match (rx(fs, tb, tagged, sc, *c), rx(fs, tb, tagged, sc, *a), rx(fs, tb, tagged, sc, *b)) {
             (Some(x), Some(y), Some(z)) => Some(Expr::If(Box::new(x), Box::new(y), Box::new(z))),
             _ => None,
         },
         Sx::Fold(l, i, a, x, b) => if a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some {
             None
         } else {
-            match (rx(fs, sc, *l), rx(fs, sc, *i), rx(fs, sc.push(a).push(x), *b)) {
+            match (rx(fs, tb, tagged, sc, *l), rx(fs, tb, tagged, sc, *i), rx(fs, tb, tagged, sc.push(a).push(x), *b)) {
                 (Some(rl), Some(ri), Some(rb)) => Some(
                     Expr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb)),
                 ),
@@ -150,19 +298,19 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
         Sx::Match(m, n, x, b) => if idx(sc, x, 0) is Some {
             None
         } else {
-            match (rx(fs, sc, *m), rx(fs, sc, *n), rx(fs, sc.push(x), *b)) {
+            match (rx(fs, tb, tagged, sc, *m), rx(fs, tb, tagged, sc, *n), rx(fs, tb, tagged, sc.push(x), *b)) {
                 (Some(rm), Some(rn), Some(rb)) => Some(Expr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb))),
                 _ => None,
             }
         },
-        Sx::Inj(ok, t, u, a) => match (to_ty(t), to_ty(u), rx(fs, sc, *a)) {
+        Sx::Inj(ok, t, u, a) => match (to_ty(t, tb, tagged), to_ty(u, tb, tagged), rx(fs, tb, tagged, sc, *a)) {
             (Some(t1), Some(u1), Some(x)) => Some(Expr::Inj(ok, t1, u1, Box::new(x))),
             _ => None,
         },
         Sx::MatchR(m, x, a, y, b) => if idx(sc, x, 0) is Some || idx(sc, y, 0) is Some {
             None
         } else {
-            match (rx(fs, sc, *m), rx(fs, sc.push(x), *a), rx(fs, sc.push(y), *b)) {
+            match (rx(fs, tb, tagged, sc, *m), rx(fs, tb, tagged, sc.push(x), *a), rx(fs, tb, tagged, sc.push(y), *b)) {
                 (Some(rm), Some(ra), Some(rb)) => Some(
                     Expr::MatchR(Box::new(rm), sc.len(), Box::new(ra), sc.len(), Box::new(rb)),
                 ),
@@ -182,13 +330,13 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
     }
 }
 
-pub open spec fn rxs(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<Expr>>
+pub open spec fn rxs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<Expr>>
     decreases es, es.len() - i,
 {
     if i >= es.len() {
         Some(Seq::empty())
     } else {
-        match (rx(fs, sc, es[i as int]), rxs(fs, sc, es, i + 1)) {
+        match (rx(fs, tb, tagged, sc, es[i as int]), rxs(fs, tb, tagged, sc, es, i + 1)) {
             (Some(x), Some(xs)) => Some(seq![x] + xs),
             _ => None,
         }
@@ -238,17 +386,18 @@ pub open spec fn pnames(ps: Seq<(Seq<char>, SType)>) -> Seq<Seq<char>> {
     Seq::new(ps.len(), |i: int| ps[i].0)
 }
 
-pub open spec fn rparams(ps: Seq<(Seq<char>, SType)>) -> Seq<(nat, Ty)> {
-    Seq::new(ps.len(), |k: int| (k as nat, ty_or_unit(ps[k].1)))
+pub open spec fn rparams(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Seq<(nat, Ty)> {
+    Seq::new(ps.len(), |k: int| (k as nat, ty_or_unit(ps[k].1, tb, tagged)))
 }
 
-pub open spec fn rfunc(fs: Seq<Seq<char>>, d: Sd) -> Option<Func> {
+/// 関数の宣言の名前解決。型の注釈と本体は、名前表の全部の項目を引く（規則 2）。
+pub open spec fn rfunc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, d: Sd) -> Option<Func> {
     match d {
-        Sd::Fn(_, ps, r, b) => if !distinct(pnames(ps)) || !params_ok(ps) || to_ty(r) is None {
+        Sd::Fn(_, ps, r, b) => if !distinct(pnames(ps)) || !params_ok(ps, tb, tagged) || to_ty(r, tb, tagged) is None {
             None
         } else {
-            match rx(fs, pnames(ps), b) {
-                Some(body) => Some(Func { params: rparams(ps), ret: ty_or_unit(r), body }),
+            match rx(fs, tb, tagged, pnames(ps), b) {
+                Some(body) => Some(Func { params: rparams(ps, tb, tagged), ret: ty_or_unit(r, tb, tagged), body }),
                 None => None,
             }
         },
@@ -259,7 +408,7 @@ pub open spec fn rfunc(fs: Seq<Seq<char>>, d: Sd) -> Option<Func> {
 }
 
 /// ds[0..n] の各関数の名前解決。
-pub open spec fn rfuncs(fs: Seq<Seq<char>>, ds: Seq<Sd>, n: nat) -> Option<Seq<Func>>
+pub open spec fn rfuncs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, ds: Seq<Sd>, n: nat) -> Option<Seq<Func>>
     decreases n,
 {
     if n == 0 {
@@ -267,29 +416,33 @@ pub open spec fn rfuncs(fs: Seq<Seq<char>>, ds: Seq<Sd>, n: nat) -> Option<Seq<F
     } else if n > ds.len() {
         None
     } else {
-        match (rfuncs(fs, ds, (n - 1) as nat), rfunc(fs, ds[n - 1])) {
+        match (rfuncs(fs, tb, tagged, ds, (n - 1) as nat), rfunc(fs, tb, tagged, ds[n - 1])) {
             (Some(a), Some(f)) => Some(a.push(f)),
             _ => None,
         }
     }
 }
 
-/// プログラムの名前解決と entry 検査。関数列と entry の添字を返す。
+/// プログラムの名前解決と entry 検査。関数列と entry の添字を返す。名前表は宣言から作る。
+/// 写しは印なし（tagged = false）。印つきの写しは S5b で pipeline から渡す。
 pub open spec fn resolve(p: Seq<Sd>) -> Option<(Seq<Func>, nat)> {
     let ds = fns_upto(p, p.len());
     let fs = names_of(ds);
     let es = ents_upto(p, p.len());
-    if !distinct(fs) || es.len() != 1 {
-        None
-    } else {
-        match (rfuncs(fs, ds, ds.len()), idx(fs, es[0], 0)) {
-            (Some(funcs), Some(g)) => if g < funcs.len() && funcs[g as int].params.len() == 1 {
-                Some((funcs, g))
-            } else {
-                None
-            },
-            _ => None,
-        }
+    match decl_table(p, p.len()) {
+        None => None,
+        Some(tb) => if !distinct(fs) || es.len() != 1 {
+            None
+        } else {
+            match (rfuncs(fs, tb, false, ds, ds.len()), idx(fs, es[0], 0)) {
+                (Some(funcs), Some(g)) => if g < funcs.len() && funcs[g as int].params.len() == 1 {
+                    Some((funcs, g))
+                } else {
+                    None
+                },
+                _ => None,
+            }
+        },
     }
 }
 
@@ -352,27 +505,27 @@ pub open spec fn scoped_all(es: Seq<Expr>, n: nat, i: nat) -> bool
 }
 
 /// 名前解決の結果は scope 整合で、scope 内の名前は常に相異なる（シャドーがない）。
-pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
+pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
     ensures
-        rx(fs, sc, e) matches Some(x) ==> scoped(x, sc.len()),
+        rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
     decreases e, 0nat,
 {
     match e {
         Sx::Var(x) => idx_props(sc, x, 0),
         Sx::Str(w) => str_scoped(w, sc.len(), 0),
-        Sx::List(_, es) => rxs_scoped(fs, sc, es, 0),
-        Sx::Some(a) => rx_scoped(fs, sc, *a),
+        Sx::List(_, es) => rxs_scoped(fs, tb, tagged, sc, es, 0),
+        Sx::Some(a) => rx_scoped(fs, tb, tagged, sc, *a),
         Sx::Pair(a, b) => {
-            rx_scoped(fs, sc, *a);
-            rx_scoped(fs, sc, *b);
+            rx_scoped(fs, tb, tagged, sc, *a);
+            rx_scoped(fs, tb, tagged, sc, *b);
         },
-        Sx::Builtin(_, es) => rxs_scoped(fs, sc, es, 0),
-        Sx::Call(_, es) => rxs_scoped(fs, sc, es, 0),
+        Sx::Builtin(_, es) => rxs_scoped(fs, tb, tagged, sc, es, 0),
+        Sx::Call(_, es) => rxs_scoped(fs, tb, tagged, sc, es, 0),
         Sx::Let(x, a, b) => {
             idx_props(sc, x, 0);
-            rx_scoped(fs, sc, *a);
+            rx_scoped(fs, tb, tagged, sc, *a);
             if idx(sc, x, 0) is None {
                 let s2 = sc.push(x);
                 assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
@@ -380,19 +533,19 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         assert(sc[i] != x);
                     }
                 }
-                rx_scoped(fs, s2, *b);
+                rx_scoped(fs, tb, tagged, s2, *b);
             }
         },
         Sx::If(c, a, b) => {
-            rx_scoped(fs, sc, *c);
-            rx_scoped(fs, sc, *a);
-            rx_scoped(fs, sc, *b);
+            rx_scoped(fs, tb, tagged, sc, *c);
+            rx_scoped(fs, tb, tagged, sc, *a);
+            rx_scoped(fs, tb, tagged, sc, *b);
         },
         Sx::Fold(l, i, a, x, b) => {
             idx_props(sc, a, 0);
             idx_props(sc, x, 0);
-            rx_scoped(fs, sc, *l);
-            rx_scoped(fs, sc, *i);
+            rx_scoped(fs, tb, tagged, sc, *l);
+            rx_scoped(fs, tb, tagged, sc, *i);
             if !(a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some) {
                 let s2 = sc.push(a).push(x);
                 assert forall|p: int, q: int| 0 <= p < q < s2.len() implies s2[p] != s2[q] by {
@@ -404,13 +557,13 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         assert(sc[p] != a);
                     }
                 }
-                rx_scoped(fs, s2, *b);
+                rx_scoped(fs, tb, tagged, s2, *b);
             }
         },
         Sx::Match(m, n, x, b) => {
             idx_props(sc, x, 0);
-            rx_scoped(fs, sc, *m);
-            rx_scoped(fs, sc, *n);
+            rx_scoped(fs, tb, tagged, sc, *m);
+            rx_scoped(fs, tb, tagged, sc, *n);
             if idx(sc, x, 0) is None {
                 let s2 = sc.push(x);
                 assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
@@ -418,14 +571,14 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         assert(sc[i] != x);
                     }
                 }
-                rx_scoped(fs, s2, *b);
+                rx_scoped(fs, tb, tagged, s2, *b);
             }
         },
-        Sx::Inj(_, _, _, a) => rx_scoped(fs, sc, *a),
+        Sx::Inj(_, _, _, a) => rx_scoped(fs, tb, tagged, sc, *a),
         Sx::MatchR(m, x, a, y, b) => {
             idx_props(sc, x, 0);
             idx_props(sc, y, 0);
-            rx_scoped(fs, sc, *m);
+            rx_scoped(fs, tb, tagged, sc, *m);
             if idx(sc, x, 0) is None {
                 let s2 = sc.push(x);
                 assert forall|i: int, j: int| 0 <= i < j < s2.len() implies s2[i] != s2[j] by {
@@ -433,7 +586,7 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         assert(sc[i] != x);
                     }
                 }
-                rx_scoped(fs, s2, *a);
+                rx_scoped(fs, tb, tagged, s2, *a);
             }
             if idx(sc, y, 0) is None {
                 let s3 = sc.push(y);
@@ -442,26 +595,26 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx)
                         assert(sc[i] != y);
                     }
                 }
-                rx_scoped(fs, s3, *b);
+                rx_scoped(fs, tb, tagged, s3, *b);
             }
         },
         _ => {},
     }
 }
 
-pub proof fn rxs_scoped(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat)
+pub proof fn rxs_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat)
     requires
         distinct(sc),
     ensures
-        rxs(fs, sc, es, i) matches Some(xs) ==> scoped_all(xs, sc.len(), 0),
+        rxs(fs, tb, tagged, sc, es, i) matches Some(xs) ==> scoped_all(xs, sc.len(), 0),
     decreases es, es.len() - i,
 {
     if i < es.len() {
-        rx_scoped(fs, sc, es[i as int]);
-        rxs_scoped(fs, sc, es, i + 1);
-        if let Some(xs) = rxs(fs, sc, es, i) {
-            let x = rx(fs, sc, es[i as int])->Some_0;
-            let ys = rxs(fs, sc, es, i + 1)->Some_0;
+        rx_scoped(fs, tb, tagged, sc, es[i as int]);
+        rxs_scoped(fs, tb, tagged, sc, es, i + 1);
+        if let Some(xs) = rxs(fs, tb, tagged, sc, es, i) {
+            let x = rx(fs, tb, tagged, sc, es[i as int])->Some_0;
+            let ys = rxs(fs, tb, tagged, sc, es, i + 1)->Some_0;
             scoped_all_cons(x, ys, sc.len(), 0);
         }
     }
@@ -507,6 +660,11 @@ proof fn scoped_all_cons(x: Expr, ys: Seq<Expr>, n: nat, i: nat)
 
 pub open spec fn vnames(v: Seq<Vec<char>>) -> Seq<Seq<char>> {
     Seq::new(v.len(), |i: int| v[i]@)
+}
+
+/// exec の名前表の view（字段名の Vec の列は vnames で写す）。
+pub open spec fn vtb(tb: Seq<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)> {
+    Seq::new(tb.len(), |i: int| (tb[i].0@, tb[i].1, vnames(tb[i].2@)))
 }
 
 fn idx_e(s: &Vec<Vec<char>>, x: &Vec<char>) -> (r: Option<usize>)
@@ -594,12 +752,51 @@ pub open spec fn cato(u: Seq<Expr>, o: Option<Seq<Expr>>) -> Option<Seq<Expr>> {
     }
 }
 
-/// 表面の型から核の型へ（to_ty の exec 版）。
-fn to_ty_e(t: &STy) -> (r: Option<Ty>)
+/// 名前表の中で名前 x の位置（to_ty の Named の腕と同じ）。
+fn tidx_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, x: &Vec<char>) -> (r: Option<usize>)
     ensures
         match r {
-            Some(u) => to_ty(vty(*t)) == Some(u),
-            None => to_ty(vty(*t)) is None,
+            Some(k) => idx(tnames(vtb(tb@)), x@, 0) == Some(k as nat) && k < tb@.len(),
+            None => idx(tnames(vtb(tb@)), x@, 0) is None,
+        },
+{
+    let ghost v = tnames(vtb(tb@));
+    let mut i: usize = 0;
+    while i < tb.len()
+        invariant
+            v == tnames(vtb(tb@)),
+            i <= tb@.len(),
+            idx(v, x@, 0) == idx(v, x@, i as nat),
+        decreases tb@.len() - i,
+    {
+        proof {
+            assert(v[i as int] == tb@[i as int].0@);
+        }
+        if eq_chars(&tb[i].0, x) {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 名前表の項目の印なしの展開を複製する。
+fn clone_opt(o: &Option<Ty>) -> (r: Option<Ty>)
+    ensures
+        r == *o,
+{
+    match o {
+        Some(u) => Some(ty_clone(u)),
+        None => None,
+    }
+}
+
+/// 表面の型から核の型へ（to_ty の exec 版）。
+fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool) -> (r: Option<Ty>)
+    ensures
+        match r {
+            Some(u) => to_ty(vty(*t), vtb(tb@), tagged) == Some(u),
+            None => to_ty(vty(*t), vtb(tb@), tagged) is None,
         },
     decreases t,
 {
@@ -608,36 +805,386 @@ fn to_ty_e(t: &STy) -> (r: Option<Ty>)
         STy::Bool => Some(Ty::Bool),
         STy::Unit => Some(Ty::Unit),
         STy::Char => Some(Ty::Char),
-        STy::List(a) => match to_ty_e(a) {
+        STy::List(a) => match to_ty_e(a, tb, tagged) {
             Some(u) => Some(Ty::List(Box::new(u))),
             None => None,
         },
-        STy::Option(a) => match to_ty_e(a) {
+        STy::Option(a) => match to_ty_e(a, tb, tagged) {
             Some(u) => Some(Ty::Option(Box::new(u))),
             None => None,
         },
-        STy::Pair(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+        STy::Pair(a, b) => match (to_ty_e(a, tb, tagged), to_ty_e(b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
             _ => None,
         },
-        STy::Result(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+        STy::Result(a, b) => match (to_ty_e(a, tb, tagged), to_ty_e(b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
             _ => None,
         },
-        STy::Named(_) => None,
-        STy::Dict(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+        STy::Named(x) => match tidx_e(tb, x) {
+            Some(k) => clone_opt(&tb[k].1),
+            None => None,
+        },
+        STy::Dict(a, b) => match (to_ty_e(a, tb, tagged), to_ty_e(b, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::List(Box::new(Ty::Pair(Box::new(u), Box::new(v))))),
             _ => None,
         },
     }
 }
 
-pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+/// 型の名前が、名前表の項目だけを引くか（tyn の exec 版）。
+fn tyn_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: bool)
+    ensures
+        r == tyn(vty(*t), vtb(tb@)),
+    decreases t,
+{
+    match t {
+        STy::Int => true,
+        STy::Bool => true,
+        STy::Unit => true,
+        STy::Char => true,
+        STy::List(a) => tyn_e(a, tb),
+        STy::Option(a) => tyn_e(a, tb),
+        STy::Pair(a, b) => tyn_e(a, tb) && tyn_e(b, tb),
+        STy::Result(a, b) => tyn_e(a, tb) && tyn_e(b, tb),
+        STy::Named(x) => tidx_e(tb, x).is_some(),
+        STy::Dict(a, b) => tyn_e(a, tb) && tyn_e(b, tb),
+    }
+}
+
+/// 字段名の列（pnames の exec 版）。
+fn field_names_e(fs: &Vec<(Vec<char>, STy)>) -> (r: Vec<Vec<char>>)
+    ensures
+        vnames(r@) == pnames(vps(fs@)),
+{
+    let mut out: Vec<Vec<char>> = Vec::new();
+    let mut i: usize = 0;
+    proof {
+        assert(vnames(out@) =~= pnames(vps(fs@)).subrange(0, 0));
+    }
+    while i < fs.len()
+        invariant
+            i <= fs@.len(),
+            vnames(out@) == pnames(vps(fs@)).subrange(0, i as int),
+        decreases fs@.len() - i,
+    {
+        let c = clone_chars(&fs[i].0);
+        let ghost o0 = out@;
+        proof {
+            assert(c@ == fs@[i as int].0@);
+        }
+        out.push(c);
+        proof {
+            vnames_push(o0, out@[o0.len() as int]);
+            assert(vnames(out@) =~= pnames(vps(fs@)).subrange(0, (i + 1) as int));
+        }
+        i += 1;
+    }
+    proof {
+        assert(pnames(vps(fs@)).subrange(0, fs@.len() as int) =~= pnames(vps(fs@)));
+    }
+    out
+}
+
+/// 字段名 x が、名前表のどの記録の字段でもないか（fresh の exec 版）。
+fn fresh_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, x: &Vec<char>) -> (r: bool)
+    ensures
+        r == fresh(vtb(tb@), x@),
+{
+    let mut j: usize = 0;
+    while j < tb.len()
+        invariant
+            j <= tb@.len(),
+            forall|a: int| 0 <= a < j ==> idx(vnames(tb@[a].2@), x@, 0) is None,
+        decreases tb@.len() - j,
+    {
+        if idx_e(&tb[j].2, x).is_some() {
+            proof {
+                assert(vtb(tb@)[j as int].2 == vnames(tb@[j as int].2@));
+            }
+            return false;
+        }
+        j += 1;
+    }
+    true
+}
+
+/// 記録の印なしの展開（rec_from(…, 0) の exec 版）。字段の列の末尾から組み立てる。
+fn rec_exp_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: Option<Ty>)
+    ensures
+        r == rec_from(vps(fs@), 0, vtb(tb@)),
+{
+    let n = fs.len();
+    if n == 0 {
+        return None;
+    }
+    let mut i: usize = n - 1;
+    let mut acc: Option<Ty> = to_ty_e(&fs[i].1, tb, false);
+    while i > 0
+        invariant
+            n == fs@.len(),
+            i < n,
+            acc == rec_from(vps(fs@), i as nat, vtb(tb@)),
+        decreases i,
+    {
+        i -= 1;
+        let u = to_ty_e(&fs[i].1, tb, false);
+        acc = match (u, acc) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        };
+    }
+    acc
+}
+
+/// 記録の字段の列が規則 1・4 を満たすか（fields_ok の exec 版）。fnv は fs の字段名の列。
+fn fields_ok_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, fnv: &Vec<Vec<char>>) -> (r: bool)
+    requires
+        fnv@.len() == fs@.len(),
+        vnames(fnv@) == pnames(vps(fs@)),
+    ensures
+        r == fields_ok(vps(fs@), vtb(tb@)),
+{
+    if !distinct_e(fnv) {
+        proof {
+            assert(!distinct(pnames(vps(fs@))));
+        }
+        return false;
+    }
+    let mut j: usize = 0;
+    while j < fs.len()
+        invariant
+            j <= fs@.len(),
+            fnv@.len() == fs@.len(),
+            vnames(fnv@) == pnames(vps(fs@)),
+            forall|a: int| 0 <= a < j ==> fresh(vtb(tb@), fnv@[a]@) && tyn(vty(fs@[a].1), vtb(tb@)),
+        decreases fs@.len() - j,
+    {
+        let fok = fresh_e(tb, &fnv[j]);
+        let tok = tyn_e(&fs[j].1, tb);
+        if !fok || !tok {
+            proof {
+                assert(vnames(fnv@)[j as int] == pnames(vps(fs@))[j as int]);
+                assert(pnames(vps(fs@))[j as int] == vps(fs@)[j as int].0);
+                assert(vnames(fnv@)[j as int] == fnv@[j as int]@);
+                assert(vps(fs@)[j as int].0 == fnv@[j as int]@);
+                assert(vps(fs@)[j as int].1 == vty(fs@[j as int].1));
+                assert(!(fresh(vtb(tb@), vps(fs@)[j as int].0) && tyn(vps(fs@)[j as int].1, vtb(tb@))));
+                assert(!fields_ok(vps(fs@), vtb(tb@)));
+            }
+            return false;
+        }
+        j += 1;
+    }
+    proof {
+        assert forall|i: int| 0 <= i < fs@.len() implies fresh(vtb(tb@), #[trigger] vps(fs@)[i].0) && tyn(vps(fs@)[i].1, vtb(tb@)) by {
+            assert(pnames(vps(fs@))[i] == vps(fs@)[i].0);
+            assert(vnames(fnv@)[i] == pnames(vps(fs@))[i]);
+            assert(vnames(fnv@)[i] == fnv@[i]@);
+            assert(vps(fs@)[i].0 == fnv@[i]@);
+            assert(vps(fs@)[i].1 == vty(fs@[i].1));
+        }
+        assert(distinct(pnames(vps(fs@))));
+        assert(fields_ok(vps(fs@), vtb(tb@)));
+    }
+    true
+}
+
+/// 直和型の中身の型が、名前表の前の項目だけを引くか（vars_ok の exec 版）。
+fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: bool)
+    ensures
+        r == vars_ok(vvars(vs@), vtb(tb@)),
+{
+    let mut a: usize = 0;
+    while a < vs.len()
+        invariant
+            a <= vs@.len(),
+            forall|c: int, b: int| 0 <= c < a && 0 <= b < vs@[c].1@.len() ==> tyn(vty(vs@[c].1@[b]), vtb(tb@)),
+        decreases vs@.len() - a,
+    {
+        let mut b: usize = 0;
+        while b < vs[a].1.len()
+            invariant
+                a < vs@.len(),
+                b <= vs@[a as int].1@.len(),
+                forall|c: int, k: int| 0 <= c < a && 0 <= k < vs@[c].1@.len() ==> tyn(vty(vs@[c].1@[k]), vtb(tb@)),
+                forall|k: int| 0 <= k < b ==> tyn(vty(vs@[a as int].1@[k]), vtb(tb@)),
+            decreases vs@[a as int].1@.len() - b,
+        {
+            let ok_t = tyn_e(&vs[a].1[b], tb);
+            if !ok_t {
+                proof {
+                    assert(vvars(vs@)[a as int].1[b as int] == vty(vs@[a as int].1@[b as int]));
+                    assert(!vars_ok(vvars(vs@), vtb(tb@)));
+                }
+                return false;
+            }
+            b += 1;
+        }
+        a += 1;
+    }
+    proof {
+        assert forall|i: int, k: int| 0 <= i < vvars(vs@).len() && 0 <= k < vvars(vs@)[i].1.len() implies tyn(#[trigger] vvars(vs@)[i].1[k], vtb(tb@)) by {
+            assert(vvars(vs@)[i].1[k] == vty(vs@[i].1@[k]));
+        }
+        assert(vars_ok(vvars(vs@), vtb(tb@)));
+    }
+    true
+}
+
+/// 宣言を名前表の末尾に足す（tb_push の exec 版）。足せないときは None。
+/// 字段と直和型の中身は、移す前の名前表 tb だけを引いて調べ（ループは補助関数に置く）、通ったあとで tb を移して足す。
+fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>>)
+    ensures
+        match r {
+            Some(nb) => tb_push(vtb(tb@), vd(*d)) == Some(vtb(nb@)),
+            None => tb_push(vtb(tb@), vd(*d)) is None,
+        },
+{
+    match d {
+        SDecl::Fn(_, _, _, _) => {
+            proof {
+                assert(vd(*d) matches Sd::Fn(..));
+                tb_push_other(vtb(tb@), vd(*d));
+            }
+            Some(tb)
+        },
+        SDecl::Entry(_) => {
+            proof {
+                assert(vd(*d) matches Sd::Entry(..));
+                tb_push_other(vtb(tb@), vd(*d));
+            }
+            Some(tb)
+        },
+        SDecl::RecTy(r, fs, tc) => {
+            proof {
+                assert(vd(*d) == Sd::RecTy(r@, vps(fs@), *tc));
+            }
+            if tidx_e(&tb, r).is_some() {
+                proof {
+                    tb_push_rec_none(vtb(tb@), r@, vps(fs@), *tc);
+                    assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::RecTy(r@, vps(fs@), *tc)));
+                }
+                return None;
+            }
+            let fnv = field_names_e(fs);
+            proof {
+                assert(vnames(fnv@).len() == fnv@.len());
+                assert(pnames(vps(fs@)).len() == vps(fs@).len());
+                assert(vps(fs@).len() == fs@.len());
+            }
+            if !fields_ok_e(fs, &tb, &fnv) {
+                proof {
+                    tb_push_rec_none(vtb(tb@), r@, vps(fs@), *tc);
+                    assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::RecTy(r@, vps(fs@), *tc)));
+                }
+                return None;
+            }
+            proof {
+                tb_push_rec_some(vtb(tb@), r@, vps(fs@), *tc);
+                assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::RecTy(r@, vps(fs@), *tc)));
+            }
+            let exp = rec_exp_e(fs, &tb);
+            let mut out = tb;
+            out.push((clone_chars(r), exp, fnv));
+            proof {
+                assert(vtb(out@) =~= vtb(tb@).push((r@, rec_from(vps(fs@), 0, vtb(tb@)), pnames(vps(fs@)))));
+            }
+            Some(out)
+        },
+        SDecl::Sum(r, vs) => {
+            proof {
+                assert(vd(*d) == Sd::Sum(r@, vvars(vs@)));
+            }
+            if tidx_e(&tb, r).is_some() {
+                proof {
+                    tb_push_sum_none(vtb(tb@), r@, vvars(vs@));
+                    assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
+                }
+                return None;
+            }
+            if !vars_ok_e(vs, &tb) {
+                proof {
+                    tb_push_sum_none(vtb(tb@), r@, vvars(vs@));
+                    assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
+                }
+                return None;
+            }
+            proof {
+                tb_push_sum_some(vtb(tb@), r@, vvars(vs@));
+                assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
+            }
+            let mut out = tb;
+            out.push((clone_chars(r), None, Vec::new()));
+            proof {
+                assert(vnames(Seq::<Vec<char>>::empty()) =~= Seq::<Seq<char>>::empty());
+                assert(vtb(out@) =~= vtb(tb@).push((r@, None, Seq::empty())));
+            }
+            Some(out)
+        },
+    }
+}
+
+/// 名前表の exec 版（decl_table の exec 版）。宣言の順に足す。規則に反すれば None。
+fn decl_table_e(p: &Vec<SDecl>) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>>)
+    ensures
+        match r {
+            Some(tb) => decl_table(vds(p@), p@.len() as nat) == Some(vtb(tb@)),
+            None => decl_table(vds(p@), p@.len() as nat) is None,
+        },
+{
+    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)> = Vec::new();
+    let mut i: usize = 0;
+    while i < p.len()
+        invariant
+            i <= p@.len(),
+            decl_table(vds(p@), i as nat) == Some(vtb(tb@)),
+        decreases p@.len() - i,
+    {
+        let ghost t0 = tb@;
+        match tb_push_e(tb, &p[i]) {
+            Some(nb) => {
+                tb = nb;
+            },
+            None => {
+                proof {
+                    assert(vds(p@)[i as int] == vd(p@[i as int]));
+                    assert(decl_table(vds(p@), i as nat) == Some(vtb(t0)));
+                    assert(decl_table(vds(p@), (i + 1) as nat) is None);
+                    decl_none_mono(vds(p@), (i + 1) as nat, p@.len() as nat);
+                }
+                return None;
+            },
+        }
+        proof {
+            assert(vds(p@)[i as int] == vd(p@[i as int]));
+            assert(decl_table(vds(p@), (i + 1) as nat) == Some(vtb(tb@)));
+        }
+        i += 1;
+    }
+    Some(tb)
+}
+
+/// 途中の宣言の名前表が無ければ、後の名前表も無い。
+proof fn decl_none_mono(p: Seq<Sd>, n: nat, m: nat)
+    requires
+        decl_table(p, n) is None,
+        n <= m,
+    ensures
+        decl_table(p, m) is None,
+    decreases m - n,
+{
+    if n < m {
+        decl_none_mono(p, n, (m - 1) as nat);
+    }
+}
+
+pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
-            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
         },
     decreases e, 1nat,
 {
@@ -670,55 +1217,55 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
             Some(k) => Some(EExpr::Var(k)),
             None => None,
         },
-        SExpr::List(t, es) => match (to_ty_e(t), rxs_e(fs, sc, es)) {
+        SExpr::List(t, es) => match (to_ty_e(t, tb, tagged), rxs_e(fs, tb, tagged, sc, es)) {
             (Some(u), Some(xs)) => Some(EExpr::List(u, xs)),
             _ => None,
         },
-        SExpr::Some(a) => match rx_e(fs, sc, a) {
+        SExpr::Some(a) => match rx_e(fs, tb, tagged, sc, a) {
             Some(x) => Some(EExpr::Some(Box::new(x))),
             None => None,
         },
-        SExpr::None(t) => match to_ty_e(t) {
+        SExpr::None(t) => match to_ty_e(t, tb, tagged) {
             Some(u) => Some(EExpr::None(u)),
             None => None,
         },
         SExpr::Pair(a, b) => {
-            let x = rx_e(fs, sc, a);
-            let y = rx_e(fs, sc, b);
+            let x = rx_e(fs, tb, tagged, sc, a);
+            let y = rx_e(fs, tb, tagged, sc, b);
             match (x, y) {
                 (Some(x), Some(y)) => Some(EExpr::Pair(Box::new(x), Box::new(y))),
                 _ => None,
             }
         },
-        SExpr::Builtin(b, es) => match rxs_e(fs, sc, es) {
+        SExpr::Builtin(b, es) => match rxs_e(fs, tb, tagged, sc, es) {
             Some(xs) => Some(EExpr::Builtin(*b, xs)),
             None => None,
         },
         SExpr::Call(g, es) => {
             let gi = idx_e(fs, g);
-            let xs = rxs_e(fs, sc, es);
+            let xs = rxs_e(fs, tb, tagged, sc, es);
             match (gi, xs) {
                 (Some(gi), Some(xs)) => Some(EExpr::Call(gi, xs)),
                 _ => None,
             }
         },
-        SExpr::Let(..) => rx_let_e(fs, sc, e),
+        SExpr::Let(..) => rx_let_e(fs, tb, tagged, sc, e),
         SExpr::If(c, a, b) => {
-            let x = rx_e(fs, sc, c);
-            let y = rx_e(fs, sc, a);
-            let z = rx_e(fs, sc, b);
+            let x = rx_e(fs, tb, tagged, sc, c);
+            let y = rx_e(fs, tb, tagged, sc, a);
+            let z = rx_e(fs, tb, tagged, sc, b);
             match (x, y, z) {
                 (Some(x), Some(y), Some(z)) => Some(EExpr::If(Box::new(x), Box::new(y), Box::new(z))),
                 _ => None,
             }
         },
-        SExpr::Fold(..) => rx_fold_e(fs, sc, e),
-        SExpr::Match(..) => rx_match_e(fs, sc, e),
-        SExpr::Inj(ok, t, u, a) => match (to_ty_e(t), to_ty_e(u), rx_e(fs, sc, a)) {
+        SExpr::Fold(..) => rx_fold_e(fs, tb, tagged, sc, e),
+        SExpr::Match(..) => rx_match_e(fs, tb, tagged, sc, e),
+        SExpr::Inj(ok, t, u, a) => match (to_ty_e(t, tb, tagged), to_ty_e(u, tb, tagged), rx_e(fs, tb, tagged, sc, a)) {
             (Some(t1), Some(u1), Some(x)) => Some(EExpr::Inj(*ok, t1, u1, Box::new(x))),
             _ => None,
         },
-        SExpr::MatchR(..) => rx_matchr_e(fs, sc, e),
+        SExpr::MatchR(..) => rx_matchr_e(fs, tb, tagged, sc, e),
         // レコードは検証済みの核にまだ入っていない（段階 2）。
         SExpr::Fld(..) | SExpr::Rec(..) => None,
         // match 式は名前解決の対象外（段階 1a の範囲では核に入れない）。
@@ -732,14 +1279,14 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
     }
 }
 
-fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_matchr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is MatchR,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
-            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -748,7 +1295,7 @@ fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: O
         if idx_e(sc, x).is_some() || idx_e(sc, y).is_some() {
             return None;
         }
-        let rm = rx_e(fs, sc, m);
+        let rm = rx_e(fs, tb, tagged, sc, m);
         if rm.is_none() {
             return None;
         }
@@ -757,7 +1304,7 @@ fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: O
         proof {
             vnames_push(s0, sc@[k as int]);
         }
-        let ra = rx_e(fs, sc, a);
+        let ra = rx_e(fs, tb, tagged, sc, a);
         sc.pop();
         proof {
             assert(sc@ =~= s0);
@@ -769,7 +1316,7 @@ fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: O
         proof {
             vnames_push(s0, sc@[k as int]);
         }
-        let rb = rx_e(fs, sc, b);
+        let rb = rx_e(fs, tb, tagged, sc, b);
         sc.pop();
         proof {
             assert(sc@ =~= s0);
@@ -783,14 +1330,14 @@ fn rx_matchr_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: O
     }
 }
 
-fn rx_match_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_match_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Match,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
-            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -799,8 +1346,8 @@ fn rx_match_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Op
         if idx_e(sc, x).is_some() {
             return None;
         }
-        let rm = rx_e(fs, sc, m);
-        let rn = rx_e(fs, sc, n);
+        let rm = rx_e(fs, tb, tagged, sc, m);
+        let rn = rx_e(fs, tb, tagged, sc, n);
         if rm.is_none() || rn.is_none() {
             return None;
         }
@@ -809,7 +1356,7 @@ fn rx_match_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Op
         proof {
             vnames_push(s0, sc@[k as int]);
         }
-        let rb = rx_e(fs, sc, b);
+        let rb = rx_e(fs, tb, tagged, sc, b);
         sc.pop();
         proof {
             assert(sc@ =~= s0);
@@ -823,14 +1370,14 @@ fn rx_match_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Op
     }
 }
 
-fn rx_let_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_let_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Let,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
-            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -839,7 +1386,7 @@ fn rx_let_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         if idx_e(sc, x).is_some() {
             return None;
         }
-        let ra = rx_e(fs, sc, a);
+        let ra = rx_e(fs, tb, tagged, sc, a);
         if ra.is_none() {
             return None;
         }
@@ -848,7 +1395,7 @@ fn rx_let_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         proof {
             vnames_push(s0, sc@[k as int]);
         }
-        let rb = rx_e(fs, sc, b);
+        let rb = rx_e(fs, tb, tagged, sc, b);
         sc.pop();
         proof {
             assert(sc@ =~= s0);
@@ -862,14 +1409,14 @@ fn rx_let_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
     }
 }
 
-fn rx_fold_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_fold_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Fold,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
-            None => rx(vnames(fs@), vnames(old(sc)@), vx(*e)) is None,
+            Some(x) => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) == Some(view_expr(x)),
+            None => rx(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -878,8 +1425,8 @@ fn rx_fold_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opt
         if eq_chars(a, x) || idx_e(sc, a).is_some() || idx_e(sc, x).is_some() {
             return None;
         }
-        let rl = rx_e(fs, sc, l);
-        let ri = rx_e(fs, sc, i);
+        let rl = rx_e(fs, tb, tagged, sc, l);
+        let ri = rx_e(fs, tb, tagged, sc, i);
         if rl.is_none() || ri.is_none() {
             return None;
         }
@@ -892,7 +1439,7 @@ fn rx_fold_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opt
             vnames_push(s0, s1[k as int]);
             vnames_push(s1, sc@[k1 as int]);
         }
-        let rb = rx_e(fs, sc, b);
+        let rb = rx_e(fs, tb, tagged, sc, b);
         sc.pop();
         sc.pop();
         proof {
@@ -907,16 +1454,17 @@ fn rx_fold_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opt
     }
 }
 
-pub fn rxs_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<EExpr>>)
+pub fn rxs_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<EExpr>>)
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(xs) => rxs(vnames(fs@), vnames(old(sc)@), vxs(*es), 0) == Some(view_exprs(xs)),
-            None => rxs(vnames(fs@), vnames(old(sc)@), vxs(*es), 0) is None,
+            Some(xs) => rxs(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vxs(*es), 0) == Some(view_exprs(xs)),
+            None => rxs(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vxs(*es), 0) is None,
         },
     decreases es, 0nat,
 {
     let ghost f = vnames(fs@);
+    let ghost tv = vtb(tb@);
     let ghost s = vnames(sc@);
     let ghost s0 = sc@;
     let ghost v = vxs(*es);
@@ -924,19 +1472,20 @@ pub fn rxs_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (
     let mut i: usize = 0;
     proof {
         assert(view_exprs(out) =~= Seq::<Expr>::empty());
-        if let Some(w) = rxs(f, s, v, 0) {
+        if let Some(w) = rxs(f, tv, tagged, s, v, 0) {
             assert(Seq::<Expr>::empty() + w =~= w);
         }
     }
     while i < es.len()
         invariant
             f == vnames(fs@),
+            tv == vtb(tb@),
             s == vnames(sc@),
             sc@ == s0,
             s0 == old(sc)@,
             v == vxs(*es),
             i <= es@.len(),
-            rxs(f, s, v, 0) == cato(view_exprs(out), rxs(f, s, v, i as nat)),
+            rxs(f, tv, tagged, s, v, 0) == cato(view_exprs(out), rxs(f, tv, tagged, s, v, i as nat)),
         decreases es@.len() - i,
     {
         proof {
@@ -944,13 +1493,13 @@ pub fn rxs_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (
             assert(v[i as int] == vx(es@[i as int]));
         }
         let ghost o0 = out;
-        match rx_e(fs, sc, &es[i]) {
+        match rx_e(fs, tb, tagged, sc, &es[i]) {
             Some(x) => {
                 let ghost xv = view_expr(x);
                 out.push(x);
                 proof {
                     view_exprs_push(o0, out, x);
-                    if let Some(w) = rxs(f, s, v, (i + 1) as nat) {
+                    if let Some(w) = rxs(f, tv, tagged, s, v, (i + 1) as nat) {
                         assert(view_exprs(o0) + (seq![xv] + w) =~= view_exprs(out) + w);
                     }
                 }
@@ -969,40 +1518,42 @@ pub open spec fn vfuncs(fs: Seq<EFunc>) -> Seq<Func> {
     Seq::new(fs.len(), |i: int| view_func(fs[i]))
 }
 
-fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
+fn rfunc_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, d: &SDecl) -> (r: Option<EFunc>)
     ensures
         match r {
-            Some(f) => rfunc(vnames(fs@), vd(*d)) == Some(view_func(f)),
-            None => rfunc(vnames(fs@), vd(*d)) is None,
+            Some(f) => rfunc(vnames(fs@), vtb(tb@), tagged, vd(*d)) == Some(view_func(f)),
+            None => rfunc(vnames(fs@), vtb(tb@), tagged, vd(*d)) is None,
         },
 {
     match d {
         SDecl::Fn(fname, ps, ret, body) => {
             let ghost pv = vps(ps@);
+            let ghost tv = vtb(tb@);
             let mut sc: Vec<Vec<char>> = Vec::new();
             let mut params: Vec<(usize, Ty)> = Vec::new();
             let mut i: usize = 0;
             while i < ps.len()
                 invariant
                     pv == vps(ps@),
+                    tv == vtb(tb@),
                     i <= ps@.len(),
                     vnames(sc@) == pnames(pv).subrange(0, i as int),
-                    view_params(params@) == rparams(pv).subrange(0, i as int),
+                    view_params(params@) == rparams(pv, tv, tagged).subrange(0, i as int),
                     sc@.len() == i as int,
                     vd(*d) == Sd::Fn(fname@, pv, vty(*ret), vx(*body)),
-                    forall|k: int| 0 <= k < i ==> to_ty(#[trigger] pv[k].1) is Some,
+                    forall|k: int| 0 <= k < i ==> to_ty(#[trigger] pv[k].1, tv, tagged) is Some,
                 decreases ps@.len() - i,
             {
                 let ghost s0 = sc@;
                 let ghost q0 = params@;
                 let (x, t) = &ps[i];
-                let u = match to_ty_e(t) {
+                let u = match to_ty_e(t, tb, tagged) {
                     Some(u) => u,
                     None => {
                         proof {
-                            assert(to_ty(pv[i as int].1) is None);
-                            assert(!params_ok(pv));
-                            assert(rfunc(vnames(fs@), vd(*d)) is None);
+                            assert(to_ty(pv[i as int].1, tv, tagged) is None);
+                            assert(!params_ok(pv, tv, tagged));
+                            assert(rfunc(vnames(fs@), tv, tagged, vd(*d)) is None);
                         }
                         return None;
                     },
@@ -1015,25 +1566,25 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
                     assert(vnames(sc@) == vnames(s0).push(x@));
                     assert(pnames(pv).subrange(0, i + 1) =~= pnames(pv).subrange(0, i as int).push(x@));
                     assert(view_params(params@) =~= view_params(q0).push((i as nat, u)));
-                    assert(rparams(pv).subrange(0, i + 1) =~= rparams(pv).subrange(0, i as int).push((i as nat, u)));
+                    assert(rparams(pv, tv, tagged).subrange(0, i + 1) =~= rparams(pv, tv, tagged).subrange(0, i as int).push((i as nat, u)));
                 }
                 i += 1;
             }
             proof {
                 assert(pnames(pv).subrange(0, i as int) =~= pnames(pv));
-                assert(rparams(pv).subrange(0, i as int) =~= rparams(pv));
+                assert(rparams(pv, tv, tagged).subrange(0, i as int) =~= rparams(pv, tv, tagged));
             }
             proof {
-                assert(params_ok(pv));
+                assert(params_ok(pv, tv, tagged));
             }
             if !distinct_e(&sc) {
                 return None;
             }
-            let ret1 = match to_ty_e(ret) {
+            let ret1 = match to_ty_e(ret, tb, tagged) {
                 Some(u) => u,
                 None => return None,
             };
-            match rx_e(fs, &mut sc, body) {
+            match rx_e(fs, tb, tagged, &mut sc, body) {
                 Some(b) => Some(EFunc { params, ret: ret1, body: b }),
                 None => None,
             }
@@ -1043,7 +1594,7 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
     }
 }
 
-/// 名前解決と entry 検査。関数列と entry の添字を返す。
+/// 名前解決と entry 検査。関数列と entry の添字を返す。写しは印なし（tagged = false）。
 pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
     ensures
         match r {
@@ -1051,7 +1602,15 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             None => resolve(vds(p@)) is None,
         },
 {
+    let tb = match decl_table_e(p) {
+        Some(t) => t,
+        None => return None,
+    };
+    let ghost tv = vtb(tb@);
     let ghost v = vds(p@);
+    proof {
+        assert(v.len() == p@.len());
+    }
     let mut names: Vec<Vec<char>> = Vec::new();
     let mut fidx: Vec<usize> = Vec::new();
     let mut ents: Vec<usize> = Vec::new();
@@ -1062,6 +1621,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
     while i < p.len()
         invariant
             v == vds(p@),
+            tv == vtb(tb@),
             i <= p@.len(),
             vnames(names@) == names_of(fns_upto(v, i as nat)),
             fns_upto(v, i as nat) == Seq::new(fidx@.len(), |m: int| v[fidx@[m] as int]),
@@ -1096,7 +1656,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
                     assert(e0.push(v[i as int]->Entry_0) =~= Seq::new(ents@.len(), |m: int| v[ents@[m] as int]->Entry_0));
                 }
             },
-            // レコード宣言と直和宣言は名前解決の対象外（段階 2 で型名の一意性を検査する）。
+            // 型の宣言（記録・直和型）は名前表（decl_table_e）が検査し、関数の名前解決の対象外。
             SDecl::RecTy(_, _, _) | SDecl::Sum(_, _) => {
                 proof {
                     assert(fns_upto(v, (i + 1) as nat) == f0);
@@ -1119,6 +1679,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
     while k < fidx.len()
         invariant
             v == vds(p@),
+            tv == vtb(tb@),
             ds == fns_upto(v, v.len()),
             fsv == names_of(ds),
             vnames(names@) == fsv,
@@ -1126,7 +1687,8 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             forall|m: int| 0 <= m < fidx@.len() ==> #[trigger] fidx@[m] < p@.len(),
             k <= fidx@.len(),
             out@.len() == k,
-            rfuncs(fsv, ds, k as nat) == Some(vfuncs(out@)),
+            decl_table(vds(p@), p@.len() as nat) == Some(tv),
+            rfuncs(fsv, tv, false, ds, k as nat) == Some(vfuncs(out@)),
         decreases fidx@.len() - k,
     {
         let j = fidx[k];
@@ -1134,7 +1696,7 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             assert(ds[k as int] == v[j as int]);
             assert(v[j as int] == vd(p@[j as int]));
         }
-        match rfunc_e(&names, &p[j]) {
+        match rfunc_e(&names, &tb, false, &p[j]) {
             Some(f) => {
                 let ghost o0 = out@;
                 out.push(f);
@@ -1145,7 +1707,9 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
             },
             None => {
                 proof {
-                    rfuncs_none(fsv, ds, (k + 1) as nat, ds.len());
+                    rfuncs_none(fsv, tv, false, ds, (k + 1) as nat, ds.len());
+                    assert(rfuncs(fsv, tv, false, ds, ds.len()) is None);
+                    resolve_none(vds(p@), tv);
                 }
                 return None;
             },
@@ -1172,17 +1736,28 @@ pub fn resolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
     Some((out, g))
 }
 
-/// 途中の関数が解決できなければ全体も解決できない。
-proof fn rfuncs_none(fs: Seq<Seq<char>>, ds: Seq<Sd>, n: nat, m: nat)
+/// 名前表が作れて、関数の解決が失敗すれば、resolve も失敗する（字段の名前の一意と entry の検査が
+/// 通らなくても、結果は None なので、ここでは仮定しない）。
+proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>)
     requires
-        rfuncs(fs, ds, n) is None,
+        decl_table(p, p.len()) == Some(tb),
+        rfuncs(names_of(fns_upto(p, p.len())), tb, false, fns_upto(p, p.len()), fns_upto(p, p.len()).len()) is None,
+    ensures
+        resolve(p) is None,
+{
+}
+
+/// 途中の関数が解決できなければ全体も解決できない。
+proof fn rfuncs_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, ds: Seq<Sd>, n: nat, m: nat)
+    requires
+        rfuncs(fs, tb, tagged, ds, n) is None,
         n <= m,
     ensures
-        rfuncs(fs, ds, m) is None,
+        rfuncs(fs, tb, tagged, ds, m) is None,
     decreases m - n,
 {
     if n < m {
-        rfuncs_none(fs, ds, n + 1, m);
+        rfuncs_none(fs, tb, tagged, ds, n + 1, m);
     }
 }
 
