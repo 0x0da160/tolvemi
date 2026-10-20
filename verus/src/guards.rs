@@ -1,15 +1,17 @@
-//! 書換えの後の大きさと式深さの上限（段階 0・SH7）。
+//! 書換えの後の大きさと式深さの上限（段階 0・SH7。式深さの上限は §18.1 の単位に合わせて改めた）。
 //!
 //! crates/tlvm/src/api.rs の書換え後の検査（check_rewritten_size と cross_check_at の式深さの判定）を、
 //! 検証済み部品の述語で書き直し、判定が検証済み部品の受理と一致することを示す。
 //!
 //! - 大きさ：書換えた文字列の UTF-8 の bytes（Rust の text.len()）が上限以下なら通る（境界を含む）。
-//! - 式深さ：検証済み parser が上限 d = 2E + 2 で受理すれば通る。parser の d は、入れ子の式の一段ごとに 1 減る
-//!   （§18.1 の式深さと同じ単位）。報告値 act は、受理する最小の d から ceil((d - 2) / 2) を取る（api.rs と同じ）。
+//!   書換えのないプログラムも同じ（オーナーの決定 2026-10-19 23:38）。
+//! - 式深さ：検証済み parser が上限 d = E（§18.1 の式深さ 256）で受理すれば通る。parser の d は、入れ子の式の深さを
+//!   一段ごとに 1 ずつ数える（§18.1 の式深さと同じ単位）。報告値 act は、受理する最小の d そのもの（半分にしない）。
+//!   診断用 parser の式の深さと d は同じ値になる（calls、loop の書換え、.tlvm の corpus で測定）。
 //!
 //! 信頼する仮定（未証明。名前を付けて引数や述語に書く。一覧は trust-boundary.toml の resource-limits-after-lowering）：
 //! - H26（h26）：loop だけの k 段の入れ子を書き換えた文字列は、検証済み parser が上限 d >= 26k + c で受理する
-//!   （c は 1 か 2）。書換え（hof::lower など）は未検証（段階 4）なので、仮定として書く。
+//!   （c は 1 か 2。HEAD での測定は c = 2）。書換え（hof::lower など）は未検証（段階 4）なので、仮定として書く。
 //! - T-mono（t_mono）：検証済み parser の受理は、上限 d について単調。未証明（段階 4 より前に証明するかは未定）。
 //! - 書換えの文字列を作る関数（format_program、hof::lower など）は未検証。この模型は、文字列を引数に取る。
 
@@ -165,18 +167,14 @@ pub open spec fn accepts(s: Seq<char>, d: nat, td: nat) -> bool {
     parse(s, d, td) is Some
 }
 
-/// api.rs の depth_bounds：式の深さの上限 e に対する、検証済み parser の上限 d（2e + 2）。
+/// api.rs の depth_bounds：式の深さの上限 e に対する、検証済み parser の上限 d（e そのもの）。
 pub open spec fn depth_bound(e: nat) -> nat {
-    2 * e + 2
+    e
 }
 
-/// api.rs の expr_depth_needed の報告値（act）：受理する最小の d から ceil((d - 2) / 2)。
+/// api.rs の expr_depth_needed の報告値（act）：受理する最小の d そのもの。
 pub open spec fn need_of(d: nat) -> nat {
-    if d >= 2 {
-        ((d - 1) / 2) as nat
-    } else {
-        0
-    }
+    d
 }
 
 /// 検証済み parser の受理の判定（api.rs の cross_check_at が式の深さの判定に使う）。
@@ -207,7 +205,7 @@ pub fn guards_pass(s: &Vec<char>, limit: usize, bound: usize, td: usize) -> (r: 
     rewritten_fits(s, limit) && depth_accepts(s, bound, td)
 }
 
-/// L5：報告値 act が上限 e より大きいのは、d が 2e + 2 より大きいときだけ（同値）。
+/// L5：報告値 act が上限 e より大きいのは、d が e より大きいときだけ（同値）。
 pub proof fn lemma_need_exceeds_iff(d: nat, e: nat)
     ensures
         need_of(d) > e <==> d > depth_bound(e),
@@ -222,8 +220,8 @@ pub open spec fn t_mono(td: nat) -> bool {
         d1 <= d2 && accepts(s, d1, td) ==> accepts(s, d2, td)
 }
 
-/// L6（T-mono を使う）：上限 2e + 2 で受理しない文字列が、ある上限 hi で受理するなら、
-/// hi は 2e + 2 より大きく、報告値 need_of(hi) は e より大きい。超過の報告は、実際に上限を超えたことを示す。
+/// L6（T-mono を使う）：上限 e で受理しない文字列が、ある上限 hi で受理するなら、
+/// hi は e より大きく、報告値 need_of(hi) は e より大きい。超過の報告は、実際に上限を超えたことを示す。
 pub proof fn lemma_depth_report_is_honest(s: Seq<char>, e: nat, hi: nat, td: nat)
     requires
         t_mono(td),
@@ -239,15 +237,14 @@ pub proof fn lemma_depth_report_is_honest(s: Seq<char>, e: nat, hi: nat, td: nat
     lemma_need_exceeds_iff(hi, e);
 }
 
-/// L7（算術）：loop だけの k 段の入れ子の数。c は 1 か 2。報告値は 13k。
-/// 上限 514（E = 256 の 2E + 2）では k < 20 で受理し、上限 256（§18.1 の読み）では k < 10 で受理する。
+/// L7（算術）：loop だけの k 段の入れ子の数。c は 1 か 2。報告値は 26k + c（HEAD の測定では c = 2）。
+/// 上限 E = 256 で受理するのは k < 10 だけ（k = 9 で d = 236、k = 10 で d = 262）。
 pub proof fn lemma_loop_nest_numbers(c: nat, k: nat)
     requires
         c == 1 || c == 2,
     ensures
-        need_of(26 * k + c) == 13 * k,
-        (26 * k + c <= depth_bound(256)) <==> k < 20,
-        (26 * k + c <= 256) <==> k < 10,
+        need_of(26 * k + c) == 26 * k + c,
+        (26 * k + c <= depth_bound(256)) <==> k < 10,
 {
 }
 
@@ -256,40 +253,24 @@ pub proof fn lemma_loop_nest_numbers(c: nat, k: nat)
 pub uninterp spec fn lowered_nest(k: nat) -> Seq<char>;
 
 /// H26（信頼する仮定、測定による）：lowered_nest(k) を上限 d で検証済み parser が受理するのは、d >= 26k + c のときだけ。
-/// c は 1 か 2（測定：報告値 act が 13k で、d は 26k + 1 か 26k + 2）。if で包んだ本体には当てはまらない。
+/// c は 1 か 2（HEAD での測定は c = 2。k = 1, 2, 3, 8, 9, 10, 11, 12, 19, 20 で d = 28, 54, 80, 210, 236, 262, 288, 314, 496, 522）。
+/// if で包んだ本体には当てはまらない（同じ段数で d = 27k + 3）。
 pub open spec fn h26(c: nat, td: nat) -> bool {
     forall|k: nat, d: nat| #[trigger] accepts(lowered_nest(k), d, td) == (26 * k + c <= d)
 }
 
-/// L8（H26 のもと）：loop だけの入れ子は、実装の上限 514 で k < 20 のとき受理し、k >= 20 で拒否する。
-/// 拒否のときの報告値は 13k（> 256）。§18.1 の 256 を同じ単位で読めば、受理は k < 10 だけになる。
+/// L8（H26 のもと）：loop だけの入れ子は、上限 E = 256 で k < 10 のとき受理し、k >= 10 で拒否する。
+/// 拒否のときの報告値は 26k + c（> 256）。api.rs の cross_check_at の判定と報告値は、この述語に一致する。
 pub proof fn lemma_loop_nest_guard(c: nat, td: nat, k: nat)
     requires
         c == 1 || c == 2,
         h26(c, td),
     ensures
-        accepts(lowered_nest(k), depth_bound(256), td) <==> k < 20,
-        accepts(lowered_nest(k), 256, td) <==> k < 10,
-        !accepts(lowered_nest(k), depth_bound(256), td) ==> need_of(26 * k + c) == 13 * k && 13 * k > 256,
+        accepts(lowered_nest(k), depth_bound(256), td) <==> k < 10,
+        !accepts(lowered_nest(k), depth_bound(256), td) ==> need_of(26 * k + c) > 256,
 {
     lemma_loop_nest_numbers(c, k);
     assert(accepts(lowered_nest(k), depth_bound(256), td) == (26 * k + c <= depth_bound(256)));
-    assert(accepts(lowered_nest(k), 256, td) == (26 * k + c <= 256));
-}
-
-/// L8（続き）：二つの読みの差。k が 10〜19 の入れ子は、実装では受理し、§18.1 の読みでは拒否する。
-pub proof fn lemma_loop_nest_gap(c: nat, td: nat)
-    requires
-        c == 1 || c == 2,
-        h26(c, td),
-    ensures
-        forall|k: nat| (accepts(lowered_nest(k), depth_bound(256), td) && !accepts(lowered_nest(k), 256, td))
-            <==> (10 <= k && k < 20),
-{
-    assert forall|k: nat| (accepts(lowered_nest(k), depth_bound(256), td) && !accepts(lowered_nest(k), 256, td))
-        <==> (10 <= k && k < 20) by {
-        lemma_loop_nest_guard(c, td, k);
-    }
 }
 
 } // verus!

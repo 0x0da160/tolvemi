@@ -226,6 +226,8 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             let o = check_program(&p, source.len(), profile);
             let r = result(o.diagnostics.clone(), Some(o));
             let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), &p);
+            // 書換えのないプログラムも、検証済み部品へ渡す文字列の大きさを検査する（オーナーの決定 2026-10-19 23:38）
+            let r = check_rewritten_size(&text, r, profile);
             SourceCompile::Result(cross_check(&text, r, profile))
         }
     }
@@ -366,11 +368,12 @@ pub fn without_rec_markers(source: &str, p: &Program) -> String {
     String::from_utf8(b).unwrap_or_default()
 }
 
-/// 検証済み parser に渡す式・型の入れ子の深さ上限。診断用 parser の上限（structural-limits）より
-/// 大きく取り、診断用 parser が受理したものを深さの数え方の違いで拒否しないようにする。
+/// 検証済み parser に渡す式・型の入れ子の深さ上限。式の上限は §18.1 の E そのもの（検証済み parser の d と診断用
+/// parser の式の深さは同じ単位で、書換えの後の式の深さもこの上限で検査する）。型の上限は 2T + 2 のまま（型の深さの
+/// 超過は診断用 parser が先に拒否するので、報告値には影響しない）。
 fn depth_bounds(p: &StaticProfile) -> (usize, usize) {
     (
-        p.expr_depth.saturating_mul(2).saturating_add(2),
+        p.expr_depth,
         p.type_depth.saturating_mul(2).saturating_add(2),
     )
 }
@@ -384,7 +387,8 @@ fn mismatch(why: &str) -> Diagnostic {
 
 /// 書換え後のプログラムの大きさの上限（§18.1）。型検査を通ったプログラムの、検証済み部品へ渡す文字列の bytes が
 /// 上限を超えれば拒否する。検証済み部品に渡す前に検査するので、上限を超える文字列は検証済み部品の検査に入らない。
-/// 型検査で拒否されたプログラムは書換えが途中までなので、大きさを測らない。
+/// 型検査で拒否されたプログラムは書換えが途中までなので、大きさを測らない。書換えのないプログラム（source の経路）も、
+/// 同じく検査する（オーナーの決定 2026-10-19 23:38）。
 fn check_rewritten_size(text: &str, r: CompileResult, profile: &StaticProfile) -> CompileResult {
     match r {
         CompileResult::Accepted { warnings, work, .. } if text.len() > profile.rewritten_bytes => {
@@ -415,7 +419,7 @@ fn cross_check(text: &str, r: CompileResult, profile: &StaticProfile) -> Compile
 }
 
 /// 検証済み parser が式の深さの上限で拒否したとき、受理に要る式の深さ（source と同じ単位）を返す。
-/// 上限を十分大きくすると受理するなら深さの超過で、その最小の上限から求める（拒否の理由が他にあれば None）。
+/// 上限を十分大きくすると受理するなら深さの超過で、受理する最小の上限 d をそのまま返す（拒否の理由が他にあれば None）。
 fn expr_depth_needed(chars: &Vec<char>, td: usize) -> Option<usize> {
     const HUGE: usize = 1 << 24;
     parse_e(chars, HUGE, td)?;
@@ -429,7 +433,7 @@ fn expr_depth_needed(chars: &Vec<char>, td: usize) -> Option<usize> {
             lo = mid;
         }
     }
-    Some(hi.saturating_sub(2).div_ceil(2))
+    Some(hi)
 }
 
 /// `cross_check` と同じ。深さの超過は `at`（書き換え前の最も深い loop の入れ子の位置）に E-LIMIT-STATIC-EXPR-DEPTH で報告する。

@@ -1,5 +1,6 @@
 //! §18.1：書換え後のプログラムの大きさの上限（`E-LIMIT-STATIC-REWRITTEN-BYTES`）。型検査を通ったプログラムの、
 //! 検証済み部品へ渡す文字列の bytes が上限を超えれば拒否する。境界は、観測値が上限以下なら通過する。
+//! 書換えのないプログラムも同じく検査する（オーナーの決定 2026-10-19 23:38）。
 
 use tlvm::api::{
     compile, compile_ast, parse_source, AstCompile, CompileResult, Parsed, SourceCompile,
@@ -155,6 +156,48 @@ fn rewritten_expression_depth_is_checked_after_lowering() {
         }
         _ => panic!("拒否されない: {src}"),
     }
-    // 十段なら書換えの後の深さも上限の内で受理する。
-    assert!(outcome(&nested_loops(10), &StaticProfile::default()).0);
+    // 九段なら書換えの後の深さ（236）も上限の内で受理する。十段は 262 で、上限（256）を超えて拒否する。
+    assert!(outcome(&nested_loops(9), &StaticProfile::default()).0);
+    assert_eq!(
+        outcome(&nested_loops(10), &StaticProfile::default()).1,
+        ["E-LIMIT-STATIC-EXPR-DEPTH"]
+    );
+}
+
+/// 書換えのない program（source の経路）。書換えの後の文字列は source と同じ bytes になる。
+const PLAIN: &str = "fn f(x: Int) -> Int = add(x, 1)\nentry f\n";
+
+#[test]
+fn rewritten_size_is_checked_without_a_rewrite() {
+    // 既定の上限（4 MiB）は source の上限（1 MiB）より大きいので、既定の profile では source の上限が先に働き、
+    // この検査は発火しない。上限を下げた profile で、書換えのない program の境界を確かめる。
+    let len = PLAIN.len();
+    assert!(outcome(PLAIN, &StaticProfile::default()).0);
+    let (ok, codes, act) = outcome(PLAIN, &sp(0));
+    assert!(!ok);
+    assert_eq!(codes, [CODE]);
+    assert_eq!(act, Some(len.to_string()));
+    assert!(outcome(PLAIN, &sp(len)).0);
+    assert_eq!(
+        outcome(PLAIN, &sp(len - 1)),
+        (false, vec![CODE], Some(len.to_string()))
+    );
+}
+
+#[test]
+fn rewritten_size_is_checked_without_a_rewrite_on_the_ast_path() {
+    let program = match parse_source(PLAIN.as_bytes(), &StaticProfile::default()) {
+        Parsed::Program(p) => p,
+        Parsed::Failed(_) => panic!("解析できない"),
+    };
+    let json = encode_ast(&program).unwrap();
+    let (ok, codes, act) = ast_outcome(&json, &sp(0));
+    assert!(!ok);
+    assert_eq!(codes, [CODE]);
+    let size: usize = act.expect("act は書換え後の bytes").parse().unwrap();
+    assert!(ast_outcome(&json, &sp(size)).0);
+    assert_eq!(
+        ast_outcome(&json, &sp(size - 1)),
+        (false, vec![CODE], Some(size.to_string()))
+    );
 }
