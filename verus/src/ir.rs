@@ -127,6 +127,8 @@ pub fn ty_clone(t: &Ty) -> (r: Ty)
         Ty::Option(a) => Ty::Option(Box::new(ty_clone(a))),
         Ty::Pair(a, b) => Ty::Pair(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
         Ty::Result(a, b) => Ty::Result(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
+        Ty::Named(n) => Ty::Named(*n),
+        Ty::Dict(a, b) => Ty::Dict(Box::new(ty_clone(a)), Box::new(ty_clone(b))),
     }
 }
 
@@ -139,6 +141,8 @@ pub fn ty_eq(s: &Ty, t: &Ty) -> (r: bool)
         (Ty::Int, Ty::Int) | (Ty::Bool, Ty::Bool) | (Ty::Unit, Ty::Unit) | (Ty::Char, Ty::Char) => true,
         (Ty::List(a), Ty::List(b)) | (Ty::Option(a), Ty::Option(b)) => ty_eq(a, b),
         (Ty::Pair(a, b), Ty::Pair(c, d)) | (Ty::Result(a, b), Ty::Result(c, d)) => ty_eq(a, c) && ty_eq(b, d),
+        (Ty::Named(a), Ty::Named(b)) => *a == *b,
+        (Ty::Dict(a, b), Ty::Dict(c, d)) => ty_eq(a, c) && ty_eq(b, d),
         _ => false,
     }
 }

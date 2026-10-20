@@ -1323,6 +1323,8 @@ pub fn jd_e(j: &EJ, t: &Ty) -> (r: Option<Rc<Value>>)
                         _ => None,
                     }
                 },
+                Ty::Named(_) => None,
+                Ty::Dict(_, _) => None,
             }
         },
         _ => None,

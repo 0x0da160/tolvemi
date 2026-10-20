@@ -42,6 +42,20 @@ pub open spec fn vtoks(ts: Seq<ETok>) -> Seq<Tok> {
     Seq::new(ts.len(), |i: int| vtok(ts[i]))
 }
 
+/// 表面の型の exec の表現（名前は Vec<char>。spec の SType への写像は vty）。
+pub enum STy {
+    Int,
+    Bool,
+    Unit,
+    Char,
+    List(Box<STy>),
+    Option(Box<STy>),
+    Pair(Box<STy>, Box<STy>),
+    Result(Box<STy>, Box<STy>),
+    Named(Vec<char>),
+    Dict(Box<STy>, Box<STy>),
+}
+
 pub enum SExpr {
     Int(Int),
     Chr(char),
@@ -49,9 +63,9 @@ pub enum SExpr {
     Bool(bool),
     Unit,
     Var(Vec<char>),
-    List(Ty, Vec<SExpr>),
+    List(STy, Vec<SExpr>),
     Some(Box<SExpr>),
-    None(Ty),
+    None(STy),
     Pair(Box<SExpr>, Box<SExpr>),
     Builtin(Builtin, Vec<SExpr>),
     Call(Vec<char>, Vec<SExpr>),
@@ -59,7 +73,7 @@ pub enum SExpr {
     If(Box<SExpr>, Box<SExpr>, Box<SExpr>),
     Fold(Box<SExpr>, Box<SExpr>, Vec<char>, Vec<char>, Box<SExpr>),
     Match(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
-    Inj(bool, Ty, Ty, Box<SExpr>),
+    Inj(bool, STy, STy, Box<SExpr>),
     MatchR(Box<SExpr>, Vec<char>, Box<SExpr>, Vec<char>, Box<SExpr>),
     /// v1.1：e.f1.f2…（名前の列は空でない）
     Fld(Box<SExpr>, Vec<Vec<char>>),
@@ -71,8 +85,8 @@ pub enum SExpr {
     Hof(Hf, Box<SExpr>, Vec<char>, Box<SExpr>),
     /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）
     Loop(Box<SExpr>, Box<SExpr>, Vec<char>, Box<SExpr>),
-    /// v1.9：dict<A, B>()（空の辞書。型の引数は核の Ty）
-    DictNew(Ty, Ty),
+    /// v1.9：dict<A, B>()（空の辞書。型の引数は表面の型）
+    DictNew(STy, STy),
     /// v1.9：dict の組込み呼出し（組込みの語と、引数の列）
     DictOp(Dop, Vec<SExpr>),
 }
@@ -94,12 +108,12 @@ pub enum SPat {
 }
 
 pub enum SDecl {
-    Fn(Vec<char>, Vec<(Vec<char>, Ty)>, Ty, SExpr),
+    Fn(Vec<char>, Vec<(Vec<char>, STy)>, STy, SExpr),
     Entry(Vec<char>),
     /// v1.1：type R = { f: T, ... }（末尾のカンマの有無を持つ）
-    RecTy(Vec<char>, Vec<(Vec<char>, Ty)>, bool),
+    RecTy(Vec<char>, Vec<(Vec<char>, STy)>, bool),
     /// v1.4：type S = V1 | V2(T, U)（構築子の名前と、中身の型の並び）
-    Sum(Vec<char>, Vec<(Vec<char>, Vec<Ty>)>),
+    Sum(Vec<char>, Vec<(Vec<char>, Vec<STy>)>),
 }
 
 pub open spec fn vx(e: SExpr) -> Sx
@@ -112,9 +126,9 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::Bool(b) => Sx::Bool(b),
         SExpr::Unit => Sx::Unit,
         SExpr::Var(x) => Sx::Var(x@),
-        SExpr::List(t, es) => Sx::List(t, vxs(es)),
+        SExpr::List(t, es) => Sx::List(vty(t), vxs(es)),
         SExpr::Some(a) => Sx::Some(Box::new(vx(*a))),
-        SExpr::None(t) => Sx::None(t),
+        SExpr::None(t) => Sx::None(vty(t)),
         SExpr::Pair(a, b) => Sx::Pair(Box::new(vx(*a)), Box::new(vx(*b))),
         SExpr::Builtin(b, es) => Sx::Builtin(b, vxs(es)),
         SExpr::Call(f, es) => Sx::Call(f@, vxs(es)),
@@ -122,14 +136,14 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::If(c, a, b) => Sx::If(Box::new(vx(*c)), Box::new(vx(*a)), Box::new(vx(*b))),
         SExpr::Fold(l, i, a, x, b) => Sx::Fold(Box::new(vx(*l)), Box::new(vx(*i)), a@, x@, Box::new(vx(*b))),
         SExpr::Match(m, n, x, b) => Sx::Match(Box::new(vx(*m)), Box::new(vx(*n)), x@, Box::new(vx(*b))),
-        SExpr::Inj(ok, t, u, a) => Sx::Inj(ok, t, u, Box::new(vx(*a))),
+        SExpr::Inj(ok, t, u, a) => Sx::Inj(ok, vty(t), vty(u), Box::new(vx(*a))),
         SExpr::MatchR(m, x, a, y, b) => Sx::MatchR(Box::new(vx(*m)), x@, Box::new(vx(*a)), y@, Box::new(vx(*b))),
         SExpr::Fld(a, ns) => Sx::Fld(Box::new(vx(*a)), vnames(ns@)),
         SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
         SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
         SExpr::Hof(h, l, x, b) => Sx::Hof(h, Box::new(vx(*l)), x@, Box::new(vx(*b))),
         SExpr::Loop(i, m, x, b) => Sx::Loop(Box::new(vx(*i)), Box::new(vx(*m)), x@, Box::new(vx(*b))),
-        SExpr::DictNew(a, b) => Sx::DictNew(a, b),
+        SExpr::DictNew(a, b) => Sx::DictNew(vty(a), vty(b)),
         SExpr::DictOp(d, es) => Sx::DictOp(d, vxs(es)),
     }
 }
@@ -180,17 +194,39 @@ pub open spec fn vxs(es: Vec<SExpr>) -> Seq<Sx>
     Seq::new(es@.len(), |i: int| if 0 <= i < es@.len() { vx(es@[i]) } else { Sx::Unit })
 }
 
-pub open spec fn vps(ps: Seq<(Vec<char>, Ty)>) -> Seq<(Seq<char>, Ty)> {
-    Seq::new(ps.len(), |i: int| (ps[i].0@, ps[i].1))
+/// 型の exec の表現から表面の型（spec）への写像。名前は字句の列に戻す。
+pub open spec fn vty(t: STy) -> SType
+    decreases t,
+{
+    match t {
+        STy::Int => SType::Int,
+        STy::Bool => SType::Bool,
+        STy::Unit => SType::Unit,
+        STy::Char => SType::Char,
+        STy::List(a) => SType::List(Box::new(vty(*a))),
+        STy::Option(a) => SType::Option(Box::new(vty(*a))),
+        STy::Pair(a, b) => SType::Pair(Box::new(vty(*a)), Box::new(vty(*b))),
+        STy::Result(a, b) => SType::Result(Box::new(vty(*a)), Box::new(vty(*b))),
+        STy::Named(x) => SType::Named(x@),
+        STy::Dict(a, b) => SType::Dict(Box::new(vty(*a)), Box::new(vty(*b))),
+    }
 }
 
-pub open spec fn vvars(vs: Seq<(Vec<char>, Vec<Ty>)>) -> Seq<(Seq<char>, Seq<Ty>)> {
-    Seq::new(vs.len(), |i: int| (vs[i].0@, vs[i].1@))
+pub open spec fn vtys(ts: Seq<STy>) -> Seq<SType> {
+    Seq::new(ts.len(), |i: int| vty(ts[i]))
+}
+
+pub open spec fn vps(ps: Seq<(Vec<char>, STy)>) -> Seq<(Seq<char>, SType)> {
+    Seq::new(ps.len(), |i: int| (ps[i].0@, vty(ps[i].1)))
+}
+
+pub open spec fn vvars(vs: Seq<(Vec<char>, Vec<STy>)>) -> Seq<(Seq<char>, Seq<SType>)> {
+    Seq::new(vs.len(), |i: int| (vs[i].0@, vtys(vs[i].1@)))
 }
 
 pub open spec fn vd(x: SDecl) -> Sd {
     match x {
-        SDecl::Fn(f, ps, r, b) => Sd::Fn(f@, vps(ps@), r, vx(b)),
+        SDecl::Fn(f, ps, r, b) => Sd::Fn(f@, vps(ps@), vty(r), vx(b)),
         SDecl::Entry(n) => Sd::Entry(n@),
         SDecl::RecTy(r, fs, tc) => Sd::RecTy(r@, vps(fs@), tc),
         SDecl::Sum(r, vs) => Sd::Sum(r@, vvars(vs@)),
@@ -1267,17 +1303,34 @@ fn bdt_e(ts: &Vec<ETok>, i: usize) -> (r: Option<Vec<char>>)
     }
 }
 
-pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
+/// 綴りが Dict か（型の名前として読むとき、直後の `<` で dict 型になる）。
+fn is_dict_e(x: &Vec<char>) -> (r: bool)
+    ensures
+        r == (x@ == dict_name()),
+{
+    let r = x.len() == 4 && x[0] == 'D' && x[1] == 'i' && x[2] == 'c' && x[3] == 't';
+    proof {
+        if r {
+            assert(x@ =~= dict_name());
+        }
+    }
+    r
+}
+
+pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(STy, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
     ensures
         match r {
-            Some((t, j)) => pt(vtoks(ts@), i as nat, d as nat) == Some((t, j as nat)) && j <= ts.len(),
+            Some((t, j)) => pt(vtoks(ts@), i as nat, d as nat) == Some((vty(t), j as nat)) && j <= ts.len(),
             None => pt(vtoks(ts@), i as nat, d as nat) is None,
         },
     decreases d,
 {
+    proof {
+        reveal_with_fuel(vty, 2);
+    }
     let ghost tv = vtoks(ts@);
     if d == 0 || i >= ts.len() {
         return None;
@@ -1287,14 +1340,40 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
     }
     let k = match &ts[i] {
         ETok::Kw(k) => *k,
+        ETok::Id(x) => {
+            proof {
+                tyname_ok_eq(x@);
+            }
+            if !ident_ok_e(x) {
+                return None;
+            }
+            if !is_dict_e(x) || !sym_e(ts, i + 1, '<') {
+                return Some((STy::Named(clone_chars(x)), i + 1));
+            }
+            return match pt_e(ts, i + 2, d - 1) {
+                Some((a, j)) => if sym_e(ts, j, ',') {
+                    match pt_e(ts, j + 1, d - 1) {
+                        Some((b, m)) => if sym_e(ts, m, '>') {
+                            Some((STy::Dict(Box::new(a), Box::new(b)), m + 1))
+                        } else {
+                            None
+                        },
+                        None => None,
+                    }
+                } else {
+                    None
+                },
+                None => None,
+            };
+        },
         _ => return None,
     };
     match k {
-        Kw::TInt => Some((Ty::Int, i + 1)),
-        Kw::TBool => Some((Ty::Bool, i + 1)),
-        Kw::TUnit => Some((Ty::Unit, i + 1)),
-        Kw::TChar => Some((Ty::Char, i + 1)),
-        Kw::TString => Some((Ty::List(Box::new(Ty::Char)), i + 1)),
+        Kw::TInt => Some((STy::Int, i + 1)),
+        Kw::TBool => Some((STy::Bool, i + 1)),
+        Kw::TUnit => Some((STy::Unit, i + 1)),
+        Kw::TChar => Some((STy::Char, i + 1)),
+        Kw::TString => Some((STy::List(Box::new(STy::Char)), i + 1)),
         Kw::TList | Kw::TOption => {
             if !sym_e(ts, i + 1, '<') {
                 return None;
@@ -1303,10 +1382,10 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
                 Some((a, j)) => if sym_e(ts, j, '>') {
                     let t = match k {
                         Kw::TList => match a {
-                            Ty::Char => return None,
-                            _ => Ty::List(Box::new(a)),
+                            STy::Char => return None,
+                            _ => STy::List(Box::new(a)),
                         },
-                        _ => Ty::Option(Box::new(a)),
+                        _ => STy::Option(Box::new(a)),
                     };
                     Some((t, j + 1))
                 } else {
@@ -1325,8 +1404,8 @@ pub fn pt_e(ts: &Vec<ETok>, i: usize, d: usize) -> (r: Option<(Ty, usize)>)
                         Some((b, m)) => if sym_e(ts, m, '>') {
                             Some((
                                 match k {
-                                    Kw::TPair => Ty::Pair(Box::new(a), Box::new(b)),
-                                    _ => Ty::Result(Box::new(a), Box::new(b)),
+                                    Kw::TPair => STy::Pair(Box::new(a), Box::new(b)),
+                                    _ => STy::Result(Box::new(a), Box::new(b)),
                                 },
                                 m + 1,
                             ))
@@ -1699,7 +1778,7 @@ fn prest_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<Vec
 }
 
 /// レコード型の字段の並び（位置 i から、閉じ括弧まで）。
-fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty)>, bool, usize)>)
+fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, STy)>, bool, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
@@ -1710,10 +1789,10 @@ fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty
         },
 {
     let ghost tv = vtoks(ts@);
-    let mut fs: Vec<(Vec<char>, Ty)> = Vec::new();
+    let mut fs: Vec<(Vec<char>, STy)> = Vec::new();
     let mut k = i;
     proof {
-        assert(vps(fs@) =~= Seq::<(Seq<char>, Ty)>::empty());
+        assert(vps(fs@) =~= Seq::<(Seq<char>, SType)>::empty());
     }
     loop
         invariant
@@ -1741,7 +1820,7 @@ fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty
                     let ghost fv = f@;
                     fs.push((f, t));
                     proof {
-                        assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
+                        assert(vps(fs@) =~= vps(bf) + seq![(fv, vty(fs@.last().1))]);
                     }
                     return Some((fs, false, j + 1));
                 } else if sym_e(ts, j, ',') && k < j {
@@ -1750,7 +1829,7 @@ fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty
                         let ghost fv = f@;
                         fs.push((f, t));
                         proof {
-                            assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
+                            assert(vps(fs@) =~= vps(bf) + seq![(fv, vty(fs@.last().1))]);
                         }
                         return Some((fs, true, j + 2));
                     }
@@ -1758,8 +1837,8 @@ fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty
                     let ghost fv = f@;
                     fs.push((f, t));
                     proof {
-                        assert(vps(fs@) =~= vps(bf) + seq![(fv, fs@.last().1)]);
-                        catf_app(vps(bf), seq![(fv, fs@.last().1)], pfds(tv, (j + 1) as nat, td as nat));
+                        assert(vps(fs@) =~= vps(bf) + seq![(fv, vty(fs@.last().1))]);
+                        catf_app(vps(bf), seq![(fv, vty(fs@.last().1))], pfds(tv, (j + 1) as nat, td as nat));
                     }
                     k = j + 1;
                 } else {
@@ -1808,8 +1887,8 @@ pub open spec fn catr(u: Seq<(Seq<char>, Sx)>, o: Option<(Seq<(Seq<char>, Sx)>, 
 }
 
 /// 型の字段の並びの連結（pfds の結果の前に字段を付ける）。
-pub open spec fn catf(u: Seq<(Seq<char>, Ty)>, o: Option<(Seq<(Seq<char>, Ty)>, bool, nat)>) -> Option<
-    (Seq<(Seq<char>, Ty)>, bool, nat),
+pub open spec fn catf(u: Seq<(Seq<char>, SType)>, o: Option<(Seq<(Seq<char>, SType)>, bool, nat)>) -> Option<
+    (Seq<(Seq<char>, SType)>, bool, nat),
 > {
     match o {
         Some((w, tc, m)) => Some((u + w, tc, m)),
@@ -1829,7 +1908,7 @@ proof fn catr_app(u: Seq<(Seq<char>, Sx)>, w: Seq<(Seq<char>, Sx)>, o: Option<(S
     }
 }
 
-proof fn catf_app(u: Seq<(Seq<char>, Ty)>, w: Seq<(Seq<char>, Ty)>, o: Option<(Seq<(Seq<char>, Ty)>, bool, nat)>)
+proof fn catf_app(u: Seq<(Seq<char>, SType)>, w: Seq<(Seq<char>, SType)>, o: Option<(Seq<(Seq<char>, SType)>, bool, nat)>)
     ensures
         catf(u, catf(w, o)) == catf(u + w, o),
 {
@@ -1842,7 +1921,7 @@ proof fn catf_app(u: Seq<(Seq<char>, Ty)>, w: Seq<(Seq<char>, Ty)>, o: Option<(S
 }
 
 /// 型の並びの連結（ptys の結果の前に型を付ける）。
-pub open spec fn catt(u: Seq<Ty>, o: Option<(Seq<Ty>, nat)>) -> Option<(Seq<Ty>, nat)> {
+pub open spec fn catt(u: Seq<SType>, o: Option<(Seq<SType>, nat)>) -> Option<(Seq<SType>, nat)> {
     match o {
         Some((w, m)) => Some((u + w, m)),
         None => None,
@@ -1850,8 +1929,8 @@ pub open spec fn catt(u: Seq<Ty>, o: Option<(Seq<Ty>, nat)>) -> Option<(Seq<Ty>,
 }
 
 /// 直和型の構築子の並びの連結（pvars の結果の前に構築子を付ける）。
-pub open spec fn catvs(u: Seq<(Seq<char>, Seq<Ty>)>, o: Option<(Seq<(Seq<char>, Seq<Ty>)>, nat)>) -> Option<
-    (Seq<(Seq<char>, Seq<Ty>)>, nat),
+pub open spec fn catvs(u: Seq<(Seq<char>, Seq<SType>)>, o: Option<(Seq<(Seq<char>, Seq<SType>)>, nat)>) -> Option<
+    (Seq<(Seq<char>, Seq<SType>)>, nat),
 > {
     match o {
         Some((w, m)) => Some((u + w, m)),
@@ -1859,7 +1938,7 @@ pub open spec fn catvs(u: Seq<(Seq<char>, Seq<Ty>)>, o: Option<(Seq<(Seq<char>, 
     }
 }
 
-proof fn catt_app(u: Seq<Ty>, w: Seq<Ty>, o: Option<(Seq<Ty>, nat)>)
+proof fn catt_app(u: Seq<SType>, w: Seq<SType>, o: Option<(Seq<SType>, nat)>)
     ensures
         catt(u, catt(w, o)) == catt(u + w, o),
 {
@@ -1871,7 +1950,7 @@ proof fn catt_app(u: Seq<Ty>, w: Seq<Ty>, o: Option<(Seq<Ty>, nat)>)
     }
 }
 
-proof fn catvs_app(u: Seq<(Seq<char>, Seq<Ty>)>, w: Seq<(Seq<char>, Seq<Ty>)>, o: Option<(Seq<(Seq<char>, Seq<Ty>)>, nat)>)
+proof fn catvs_app(u: Seq<(Seq<char>, Seq<SType>)>, w: Seq<(Seq<char>, Seq<SType>)>, o: Option<(Seq<(Seq<char>, Seq<SType>)>, nat)>)
     ensures
         catvs(u, catvs(w, o)) == catvs(u + w, o),
 {
@@ -2903,7 +2982,7 @@ pub fn pargs_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec
     }
 }
 
-pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Ty)>, usize)>)
+pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, STy)>, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
@@ -2915,9 +2994,9 @@ pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<ch
         },
 {
     let ghost tv = vtoks(ts@);
-    let mut ps: Vec<(Vec<char>, Ty)> = Vec::new();
+    let mut ps: Vec<(Vec<char>, STy)> = Vec::new();
     proof {
-        assert(vps(ps@) =~= Seq::<(Seq<char>, Ty)>::empty());
+        assert(vps(ps@) =~= Seq::<(Seq<char>, SType)>::empty());
     }
     if sym_e(ts, i, ')') {
         return Some((ps, i + 1));
@@ -2925,7 +3004,7 @@ pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<ch
     let mut k = i;
     proof {
         if let Some((w, m)) = pparams1(tv, k as nat, td as nat) {
-            assert(Seq::<(Seq<char>, Ty)>::empty() + w =~= w);
+            assert(Seq::<(Seq<char>, SType)>::empty() + w =~= w);
         }
     }
     loop
@@ -2952,14 +3031,14 @@ pub fn pparams_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<ch
         let ghost xv = x@;
         ps.push((x, t));
         proof {
-            assert(vps(ps@) =~= vps(ps0) + seq![(xv, t)]);
+            assert(vps(ps@) =~= vps(ps0) + seq![(xv, vty(t))]);
         }
         if sym_e(ts, j, ')') {
             return Some((ps, j + 1));
         } else if sym_e(ts, j, ',') && k < j {
             proof {
                 if let Some((w, m)) = pparams1(tv, (j + 1) as nat, td as nat) {
-                    assert(vps(ps0) + (seq![(xv, t)] + w) =~= vps(ps@) + w);
+                    assert(vps(ps0) + (seq![(xv, vty(t))] + w) =~= vps(ps@) + w);
                 }
             }
             k = j + 1;
@@ -2998,28 +3077,28 @@ fn cidt_e(ts: &Vec<ETok>, i: usize) -> (r: Option<Vec<char>>)
 }
 
 /// 型の並び（一つ以上、カンマ区切り。閉じ括弧は読まない）。
-fn ptys_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<Ty>, usize)>)
+fn ptys_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<STy>, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
     ensures
         match r {
-            Some((ps, j)) => ptys(vtoks(ts@), i as nat, td as nat) == Some((ps@, j as nat)) && j <= ts.len(),
+            Some((ps, j)) => ptys(vtoks(ts@), i as nat, td as nat) == Some((vtys(ps@), j as nat)) && j <= ts.len(),
             None => ptys(vtoks(ts@), i as nat, td as nat) is None,
         },
 {
     let ghost tv = vtoks(ts@);
-    let mut ps: Vec<Ty> = Vec::new();
+    let mut ps: Vec<STy> = Vec::new();
     let mut k = i;
     proof {
-        assert(ps@ =~= Seq::<Ty>::empty());
+        assert(ps@ =~= Seq::<STy>::empty());
     }
     loop
         invariant
             small(ts@),
             tv == vtoks(ts@),
             k <= ts.len(),
-            ptys(tv, i as nat, td as nat) == catt(ps@, ptys(tv, k as nat, td as nat)),
+            ptys(tv, i as nat, td as nat) == catt(vtys(ps@), ptys(tv, k as nat, td as nat)),
         decreases ts.len() - k,
     {
         proof {
@@ -3034,7 +3113,8 @@ fn ptys_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<Ty>, usize)>)
             ps.push(t);
             proof {
                 assert(ps@ =~= bf + seq![ps@.last()]);
-                catt_app(bf, seq![ps@.last()], ptys(tv, (j + 1) as nat, td as nat));
+                assert(vtys(ps@) =~= vtys(bf) + seq![vty(ps@.last())]);
+                catt_app(vtys(bf), seq![vty(ps@.last())], ptys(tv, (j + 1) as nat, td as nat));
             }
             k = j + 1;
         } else {
@@ -3042,6 +3122,7 @@ fn ptys_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<Ty>, usize)>)
             ps.push(t);
             proof {
                 assert(ps@ =~= bf + seq![ps@.last()]);
+                assert(vtys(ps@) =~= vtys(bf) + seq![vty(ps@.last())]);
             }
             return Some((ps, j));
         }
@@ -3049,13 +3130,13 @@ fn ptys_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<Ty>, usize)>)
 }
 
 /// 構築子 `CTOR` か `CTOR "(" type ("," type)* ")"`（位置 i から）。名前、中身の型の並び、後ろの位置。
-fn pvar_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<char>, Vec<Ty>, usize)>)
+fn pvar_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<char>, Vec<STy>, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
     ensures
         match r {
-            Some((c, ps, j)) => pvar(vtoks(ts@), i as nat, td as nat) == Some((c@, ps@, j as nat)) && j <= ts.len(),
+            Some((c, ps, j)) => pvar(vtoks(ts@), i as nat, td as nat) == Some((c@, vtys(ps@), j as nat)) && j <= ts.len(),
             None => pvar(vtoks(ts@), i as nat, td as nat) is None,
         },
 {
@@ -3079,7 +3160,7 @@ fn pvar_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<char>, Vec<Ty>
 }
 
 /// 直和型の構築子の並び（`|` で区切る。位置 i から、一つ以上）。
-fn pvars_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Vec<Ty>)>, usize)>)
+fn pvars_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, Vec<STy>)>, usize)>)
     requires
         small(ts@),
         i <= ts.len(),
@@ -3090,10 +3171,10 @@ fn pvars_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, V
         },
 {
     let ghost tv = vtoks(ts@);
-    let mut vs: Vec<(Vec<char>, Vec<Ty>)> = Vec::new();
+    let mut vs: Vec<(Vec<char>, Vec<STy>)> = Vec::new();
     let mut k = i;
     proof {
-        assert(vvars(vs@) =~= Seq::<(Seq<char>, Seq<Ty>)>::empty());
+        assert(vvars(vs@) =~= Seq::<(Seq<char>, Seq<SType>)>::empty());
     }
     loop
         invariant
@@ -3114,14 +3195,14 @@ fn pvars_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, V
         if sym_e(ts, j, '|') && k < j {
             vs.push((c, ps));
             proof {
-                assert(vvars(vs@) =~= bf + seq![(vs@.last().0@, vs@.last().1@)]);
-                catvs_app(bf, seq![(vs@.last().0@, vs@.last().1@)], pvars(tv, (j + 1) as nat, td as nat));
+                assert(vvars(vs@) =~= bf + seq![(vs@.last().0@, vtys(vs@.last().1@))]);
+                catvs_app(bf, seq![(vs@.last().0@, vtys(vs@.last().1@))], pvars(tv, (j + 1) as nat, td as nat));
             }
             k = j + 1;
         } else {
             vs.push((c, ps));
             proof {
-                assert(vvars(vs@) =~= bf + seq![(vs@.last().0@, vs@.last().1@)]);
+                assert(vvars(vs@) =~= bf + seq![(vs@.last().0@, vtys(vs@.last().1@))]);
             }
             return Some((vs, j));
         }
@@ -3569,44 +3650,59 @@ fn dkw_e(d: Dop) -> (r: Kw)
     }
 }
 
-fn push_ty(out: &mut Vec<char>, t: &Ty)
+/// 型の名前 Dict の綴りを書く。
+fn push_dict_e(out: &mut Vec<char>)
     ensures
-        final(out)@ == old(out)@ + ft(*t, Seq::empty()),
+        final(out)@ == old(out)@ + dict_name(),
+{
+    let ghost o = out@;
+    push2(out, 'D', 'i');
+    push2(out, 'c', 't');
+    proof {
+        assert(final(out)@ =~= o + seq!['D', 'i'] + seq!['c', 't']);
+        assert(o + seq!['D', 'i'] + seq!['c', 't'] =~= o + dict_name());
+    }
+}
+
+fn push_ty(out: &mut Vec<char>, t: &STy)
+    ensures
+        final(out)@ == old(out)@ + ft(vty(*t), Seq::empty()),
     decreases t,
 {
     let ghost o = out@;
     let ghost z = Seq::<char>::empty();
     match t {
-        Ty::Int => push_kw(out, Kw::TInt),
-        Ty::Bool => push_kw(out, Kw::TBool),
-        Ty::Unit => push_kw(out, Kw::TUnit),
-        Ty::Char => push_kw(out, Kw::TChar),
-        Ty::List(a) => match &**a {
-            Ty::Char => push_kw(out, Kw::TString),
+        STy::Int => push_kw(out, Kw::TInt),
+        STy::Bool => push_kw(out, Kw::TBool),
+        STy::Unit => push_kw(out, Kw::TUnit),
+        STy::Char => push_kw(out, Kw::TChar),
+        STy::Named(x) => append_chars(out, x),
+        STy::List(a) => match &**a {
+            STy::Char => push_kw(out, Kw::TString),
             _ => {
                 push_kw(out, Kw::TList);
                 push1(out, '<');
                 push_ty(out, a);
                 push1(out, '>');
                 proof {
-                    ft_app(**a, seq!['>'] + z);
-                    assert(out@ =~= o + ft(*t, z));
+                    ft_app(vty(**a), seq!['>'] + z);
+                    assert(out@ =~= o + ft(vty(*t), z));
                 }
             },
         },
-        Ty::Option(a) => {
+        STy::Option(a) => {
             push_kw(out, Kw::TOption);
             push1(out, '<');
             push_ty(out, a);
             push1(out, '>');
             proof {
-                ft_app(**a, seq!['>'] + z);
-                assert(out@ =~= o + ft(*t, z));
+                ft_app(vty(**a), seq!['>'] + z);
+                assert(out@ =~= o + ft(vty(*t), z));
             }
         },
-        Ty::Pair(a, b) | Ty::Result(a, b) => {
+        STy::Pair(a, b) | STy::Result(a, b) => {
             push_kw(out, match t {
-                Ty::Pair(..) => Kw::TPair,
+                STy::Pair(..) => Kw::TPair,
                 _ => Kw::TResult,
             });
             push1(out, '<');
@@ -3615,9 +3711,22 @@ fn push_ty(out: &mut Vec<char>, t: &Ty)
             push_ty(out, b);
             push1(out, '>');
             proof {
-                ft_app(**b, seq!['>'] + z);
-                ft_app(**a, seq![',', ' '] + ft(**b, seq!['>'] + z));
-                assert(out@ =~= o + ft(*t, z));
+                ft_app(vty(**b), seq!['>'] + z);
+                ft_app(vty(**a), seq![',', ' '] + ft(vty(**b), seq!['>'] + z));
+                assert(out@ =~= o + ft(vty(*t), z));
+            }
+        },
+        STy::Dict(a, b) => {
+            push_dict_e(out);
+            push1(out, '<');
+            push_ty(out, a);
+            push2(out, ',', ' ');
+            push_ty(out, b);
+            push1(out, '>');
+            proof {
+                ft_app(vty(**b), seq!['>'] + z);
+                ft_app(vty(**a), seq![',', ' '] + ft(vty(**b), seq!['>'] + z));
+                assert(out@ =~= o + ft(vty(*t), z));
             }
         },
     }
@@ -3737,7 +3846,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
             push2(out, '>', '(');
             push_args(out, es);
             proof {
-                ft_app(*t, seq!['>', '('] + fargs(vxs(*es), 0, z));
+                ft_app(vty(*t), seq!['>', '('] + fargs(vxs(*es), 0, z));
             }
         },
         SExpr::Some(a) => {
@@ -3756,7 +3865,7 @@ fn push_e(out: &mut Vec<char>, e: &SExpr)
             push1(out, '>');
             push2(out, '(', ')');
             proof {
-                ft_app(*t, seq!['>', '(', ')'] + z);
+                ft_app(vty(*t), seq!['>', '(', ')'] + z);
             }
         },
         SExpr::Pair(a, b) => {
@@ -3913,7 +4022,7 @@ fn push_fields(out: &mut Vec<char>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>)
 }
 
 /// レコード型の字段の並び（名前と型）。
-fn push_fds(out: &mut Vec<char>, fs: &Vec<(Vec<char>, Ty)>)
+fn push_fds(out: &mut Vec<char>, fs: &Vec<(Vec<char>, STy)>)
     ensures
         final(out)@ == old(out)@ + ffd(vps(fs@), 0, Seq::empty()),
 {
@@ -3937,8 +4046,8 @@ fn push_fds(out: &mut Vec<char>, fs: &Vec<(Vec<char>, Ty)>)
         push2(out, ':', ' ');
         push_ty(out, &fs[i].1);
         proof {
-            assert(v[i as int].1 == fs@[i as int].1);
-            ft_app(fs@[i as int].1, tail);
+            assert(v[i as int].1 == vty(fs@[i as int].1));
+            ft_app(vty(fs@[i as int].1), tail);
         }
         if i + 1 < fs.len() {
             push2(out, ',', ' ');
@@ -4155,6 +4264,7 @@ fn push_hof(out: &mut Vec<char>, e: &SExpr)
 }
 
 /// loop の印字（`loop(初期値, 上限, |s| 本体)`）。
+#[verifier::rlimit(10)]
 fn push_loop(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Loop,
@@ -4203,8 +4313,8 @@ fn push_dictnew(out: &mut Vec<char>, e: &SExpr)
         push_ty(out, b);
         push3(out, '>', '(', ')');
         proof {
-            ft_app(*b, seq!['>', '(', ')'] + z);
-            ft_app(*a, seq![',', ' '] + ft(*b, seq!['>', '(', ')'] + z));
+            ft_app(vty(*b), seq!['>', '(', ')'] + z);
+            ft_app(vty(*a), seq![',', ' '] + ft(vty(*b), seq!['>', '(', ')'] + z));
             assert(out@ =~= o + fe(vx(*e), z));
         }
     }
@@ -4416,13 +4526,14 @@ fn push_inj(out: &mut Vec<char>, e: &SExpr)
         proof {
             fe_app(vx(**a), seq![')'] + z);
             let ku = seq!['>', '('] + fe(vx(**a), seq![')'] + z);
-            ft_app(*u, ku);
-            ft_app(*t, seq![',', ' '] + ft(*u, ku));
+            ft_app(vty(*u), ku);
+            ft_app(vty(*t), seq![',', ' '] + ft(vty(*u), ku));
             assert(out@ =~= o + fe(vx(*e), z));
         }
     }
 }
 
+#[verifier::rlimit(10)]
 fn push_matchr(out: &mut Vec<char>, e: &SExpr)
     requires
         e is MatchR,
@@ -4536,7 +4647,7 @@ fn push_args(out: &mut Vec<char>, es: &Vec<SExpr>)
     }
 }
 
-fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, Ty)>)
+fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, STy)>)
     ensures
         final(out)@ == old(out)@ + fps(vps(ps@), 0, Seq::empty()),
 {
@@ -4559,7 +4670,7 @@ fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, Ty)>)
         let ghost before = out@;
         let (x, t) = &ps[i];
         proof {
-            assert(v[i as int] == (x@, *t));
+            assert(v[i as int] == (x@, vty(*t)));
         }
         append_chars(out, x);
         push2(out, ':', ' ');
@@ -4567,13 +4678,13 @@ fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, Ty)>)
         if i + 1 == ps.len() {
             push1(out, ')');
             proof {
-                ft_app(*t, seq![')'] + z);
+                ft_app(vty(*t), seq![')'] + z);
                 assert(before + fps(v, i as nat, z) =~= out@ + z);
             }
         } else {
             push2(out, ',', ' ');
             proof {
-                ft_app(*t, seq![',', ' '] + fps(v, (i + 1) as nat, z));
+                ft_app(vty(*t), seq![',', ' '] + fps(v, (i + 1) as nat, z));
                 assert(before + fps(v, i as nat, z) =~= out@ + fps(v, (i + 1) as nat, z));
             }
         }
@@ -4585,7 +4696,7 @@ fn push_params(out: &mut Vec<char>, ps: &Vec<(Vec<char>, Ty)>)
 }
 
 /// レコード型の宣言（`type R = { f: T, .. }`。末尾のカンマは tc）。
-fn push_recty(out: &mut Vec<char>, r: &Vec<char>, fs: &Vec<(Vec<char>, Ty)>, tc: bool)
+fn push_recty(out: &mut Vec<char>, r: &Vec<char>, fs: &Vec<(Vec<char>, STy)>, tc: bool)
     ensures
         final(out)@ == old(out)@ + fd(Sd::RecTy(r@, vps(fs@), tc), Seq::empty()),
 {
@@ -4613,9 +4724,9 @@ fn push_recty(out: &mut Vec<char>, r: &Vec<char>, fs: &Vec<(Vec<char>, Ty)>, tc:
 }
 
 /// 型の並び（カンマ区切り。後ろに続きはない）。
-fn push_stys(out: &mut Vec<char>, ps: &Vec<Ty>)
+fn push_stys(out: &mut Vec<char>, ps: &Vec<STy>)
     ensures
-        final(out)@ == old(out)@ + ftys(ps@, 0, Seq::empty()),
+        final(out)@ == old(out)@ + ftys(vtys(ps@), 0, Seq::empty()),
 {
     let ghost o = out@;
     let ghost z = Seq::<char>::empty();
@@ -4623,16 +4734,16 @@ fn push_stys(out: &mut Vec<char>, ps: &Vec<Ty>)
     while i < ps.len()
         invariant
             i <= ps@.len(),
-            o + ftys(ps@, 0, z) == out@ + (if i < ps@.len() { ftys(ps@, i as nat, z) } else { z }),
+            o + ftys(vtys(ps@), 0, z) == out@ + (if i < ps@.len() { ftys(vtys(ps@), i as nat, z) } else { z }),
         decreases ps@.len() - i,
     {
-        let ghost tail = if i + 1 == ps@.len() { z } else { seq![',', ' '] + ftys(ps@, (i + 1) as nat, z) };
+        let ghost tail = if i + 1 == ps@.len() { z } else { seq![',', ' '] + ftys(vtys(ps@), (i + 1) as nat, z) };
         proof {
             reveal_with_fuel(ftys, 1);
         }
         push_ty(out, &ps[i]);
         proof {
-            ft_app(ps@[i as int], tail);
+            ft_app(vty(ps@[i as int]), tail);
         }
         if i + 1 < ps.len() {
             push2(out, ',', ' ');
@@ -4642,9 +4753,9 @@ fn push_stys(out: &mut Vec<char>, ps: &Vec<Ty>)
 }
 
 /// 直和型の構築子一つ：名前と、中身の型の並び（空なら括弧もない）。
-fn push_svar(out: &mut Vec<char>, c: &Vec<char>, ps: &Vec<Ty>)
+fn push_svar(out: &mut Vec<char>, c: &Vec<char>, ps: &Vec<STy>)
     ensures
-        final(out)@ == old(out)@ + (c@ + fpay(ps@, Seq::empty())),
+        final(out)@ == old(out)@ + (c@ + fpay(vtys(ps@), Seq::empty())),
 {
     let ghost o = out@;
     let ghost z = Seq::<char>::empty();
@@ -4654,8 +4765,8 @@ fn push_svar(out: &mut Vec<char>, c: &Vec<char>, ps: &Vec<Ty>)
         push_stys(out, ps);
         push1(out, ')');
         proof {
-            ftys_app(ps@, 0, seq![')'] + z);
-            assert(out@ =~= o + (c@ + fpay(ps@, z)));
+            ftys_app(vtys(ps@), 0, seq![')'] + z);
+            assert(out@ =~= o + (c@ + fpay(vtys(ps@), z)));
         }
     } else {
         proof {
@@ -4665,7 +4776,7 @@ fn push_svar(out: &mut Vec<char>, c: &Vec<char>, ps: &Vec<Ty>)
 }
 
 /// 直和型の構築子の並び（` | ` で区切る。後ろに続きはない）。
-fn push_svars(out: &mut Vec<char>, vs: &Vec<(Vec<char>, Vec<Ty>)>)
+fn push_svars(out: &mut Vec<char>, vs: &Vec<(Vec<char>, Vec<STy>)>)
     ensures
         final(out)@ == old(out)@ + fvars(vvars(vs@), 0, Seq::empty()),
 {
@@ -4684,7 +4795,7 @@ fn push_svars(out: &mut Vec<char>, vs: &Vec<(Vec<char>, Vec<Ty>)>)
         proof {
             reveal_with_fuel(fvars, 1);
             assert(v[i as int].0 == vs@[i as int].0@);
-            assert(v[i as int].1 == vs@[i as int].1@);
+            assert(v[i as int].1 == vtys(vs@[i as int].1@));
             fpay_app(v[i as int].1, tail);
         }
         push_svar(out, &vs[i].0, &vs[i].1);
@@ -4696,7 +4807,7 @@ fn push_svars(out: &mut Vec<char>, vs: &Vec<(Vec<char>, Vec<Ty>)>)
 }
 
 /// 直和型の宣言（`type S = V1 | V2(T, U)` と改行）。
-fn push_sumty(out: &mut Vec<char>, r: &Vec<char>, vs: &Vec<(Vec<char>, Vec<Ty>)>)
+fn push_sumty(out: &mut Vec<char>, r: &Vec<char>, vs: &Vec<(Vec<char>, Vec<STy>)>)
     ensures
         final(out)@ == old(out)@ + fd(Sd::Sum(r@, vvars(vs@)), Seq::empty()),
 {
@@ -4734,8 +4845,8 @@ fn push_decl(out: &mut Vec<char>, x: &SDecl)
             proof {
                 fe_app(vx(*b), seq!['\n'] + z);
                 let kr = seq![' ', '=', ' '] + fe(vx(*b), seq!['\n'] + z);
-                ft_app(*r, kr);
-                fps_app(vps(ps@), 0, seq![' ', '-', '>', ' '] + ft(*r, kr));
+                ft_app(vty(*r), kr);
+                fps_app(vps(ps@), 0, seq![' ', '-', '>', ' '] + ft(vty(*r), kr));
             }
         },
         SDecl::Entry(n) => {

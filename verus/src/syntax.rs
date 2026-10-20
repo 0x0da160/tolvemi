@@ -551,6 +551,19 @@ pub open spec fn ident_ok(x: Seq<char>) -> bool {
     &&& kw_of(x) is None
 }
 
+/// 型の名前の判定（pt の IDENT 枝）。閉じた関数にして、pt の展開ごとに kw_of の表を展開しない。
+pub closed spec fn tyname_ok(x: Seq<char>) -> bool {
+    ident_ok(x)
+}
+
+/// tyname_ok は ident_ok と同じ（必要な所で開く）。
+pub proof fn tyname_ok_eq(x: Seq<char>)
+    ensures
+        tyname_ok(x) == ident_ok(x),
+{
+    reveal(tyname_ok);
+}
+
 /// v1.1 の文脈キーワード（差分仕様 §2a）：組み込み関数と値の構築子の名前。変数・引数・束縛の名前に使える。
 /// v1.5 の hof の語と v1.6 の loop、v1.9 の dict の語も、同じく変数・引数・束縛の名前に使える。
 pub open spec fn soft(k: Kw) -> bool {
@@ -662,6 +675,28 @@ pub enum Tok {
     Arrow,
 }
 
+/// 表面の型（§4.1）。核の Ty の構成子に、宣言された型の名前 Named と v1.9 の Dict を加えたもの。
+/// 名前は字句のまま持つ。名前を表に引くのは resolve.rs の仕事で、ここでは読むだけ。
+pub enum SType {
+    Int,
+    Bool,
+    Unit,
+    Char,
+    List(Box<SType>),
+    Option(Box<SType>),
+    Pair(Box<SType>, Box<SType>),
+    Result(Box<SType>, Box<SType>),
+    /// 宣言された型の名前（IDENT）。Dict も名前として読める（引数のない形だけ）。
+    Named(Seq<char>),
+    /// v1.9：Dict<K, V>（`Dict` の後ろの `<` で読む）
+    Dict(Box<SType>, Box<SType>),
+}
+
+/// v1.9 の dict 型の綴り `Dict`。予約語ではない（式の語は小文字の `dict`）。
+pub open spec fn dict_name() -> Seq<char> {
+    seq!['D', 'i', 'c', 't']
+}
+
 pub enum Sx {
     Int(int),
     Chr(char),
@@ -669,9 +704,9 @@ pub enum Sx {
     Bool(bool),
     Unit,
     Var(Seq<char>),
-    List(Ty, Seq<Sx>),
+    List(SType, Seq<Sx>),
     Some(Box<Sx>),
-    None(Ty),
+    None(SType),
     Pair(Box<Sx>, Box<Sx>),
     Builtin(Builtin, Seq<Sx>),
     Call(Seq<char>, Seq<Sx>),
@@ -681,7 +716,7 @@ pub enum Sx {
     /// match_option(m, n, |x| s)
     Match(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
     /// v1.4：ok<T, E>(x)（true）、err<T, E>(x)（false）
-    Inj(bool, Ty, Ty, Box<Sx>),
+    Inj(bool, SType, SType, Box<Sx>),
     /// v1.4：match_result(m, |x| a, |y| b)
     MatchR(Box<Sx>, Seq<char>, Box<Sx>, Seq<char>, Box<Sx>),
     /// v1.1：e.f1.f2…（後置、左結合。受ける式は recv_ok、field 名は IDENT で、列は空でない）
@@ -694,8 +729,8 @@ pub enum Sx {
     Hof(Hf, Box<Sx>, Seq<char>, Box<Sx>),
     /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）。binder は IDENT か文脈キーワード。
     Loop(Box<Sx>, Box<Sx>, Seq<char>, Box<Sx>),
-    /// v1.9：dict<K, V>()（空の辞書。型の引数は核の Ty。Dict 型の引数は表面に載せない）
-    DictNew(Ty, Ty),
+    /// v1.9：dict<K, V>()（空の辞書。型の引数は表面の型）
+    DictNew(SType, SType),
     /// v1.9：dict の組込み呼出し（組込みの語と、引数の列）
     DictOp(Dop, Seq<Sx>),
 }
@@ -717,12 +752,12 @@ pub enum Spat {
 }
 
 pub enum Sd {
-    Fn(Seq<char>, Seq<(Seq<char>, Ty)>, Ty, Sx),
+    Fn(Seq<char>, Seq<(Seq<char>, SType)>, SType, Sx),
     Entry(Seq<char>),
     /// v1.1：type R = { f: T, ... }（末尾の `,` の有無を持つ。整形がトークン列を変えないため）
-    RecTy(Seq<char>, Seq<(Seq<char>, Ty)>, bool),
+    RecTy(Seq<char>, Seq<(Seq<char>, SType)>, bool),
     /// v1.4：type S = V1 | V2(T, U)（構築子の名前と、中身の型の並び）
-    Sum(Seq<char>, Seq<(Seq<char>, Seq<Ty>)>),
+    Sum(Seq<char>, Seq<(Seq<char>, Seq<SType>)>),
 }
 
 /// 宣言の先頭で読む文脈語 `type` の綴り（予約語ではない）。
@@ -753,25 +788,30 @@ pub open spec fn ends_int(e: Sx) -> bool
 
 // ------------------------------------------------------------------ EBNF：AST の token 列（§4.1）
 
-pub open spec fn tt(t: Ty, k: Seq<Tok>) -> Seq<Tok>
+pub open spec fn tt(t: SType, k: Seq<Tok>) -> Seq<Tok>
     decreases t,
 {
     match t {
-        Ty::Int => seq![Tok::Kw(Kw::TInt)] + k,
-        Ty::Bool => seq![Tok::Kw(Kw::TBool)] + k,
-        Ty::Unit => seq![Tok::Kw(Kw::TUnit)] + k,
-        Ty::Char => seq![Tok::Kw(Kw::TChar)] + k,
-        Ty::List(a) => if *a == Ty::Char {
+        SType::Int => seq![Tok::Kw(Kw::TInt)] + k,
+        SType::Bool => seq![Tok::Kw(Kw::TBool)] + k,
+        SType::Unit => seq![Tok::Kw(Kw::TUnit)] + k,
+        SType::Char => seq![Tok::Kw(Kw::TChar)] + k,
+        SType::List(a) => if *a == SType::Char {
             seq![Tok::Kw(Kw::TString)] + k
         } else {
             seq![Tok::Kw(Kw::TList), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k)
         },
-        Ty::Option(a) => seq![Tok::Kw(Kw::TOption), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
-        Ty::Pair(a, b) => seq![Tok::Kw(Kw::TPair), Tok::Sym('<')] + tt(
+        SType::Option(a) => seq![Tok::Kw(Kw::TOption), Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + k),
+        SType::Pair(a, b) => seq![Tok::Kw(Kw::TPair), Tok::Sym('<')] + tt(
             *a,
             seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k),
         ),
-        Ty::Result(a, b) => seq![Tok::Kw(Kw::TResult), Tok::Sym('<')] + tt(
+        SType::Result(a, b) => seq![Tok::Kw(Kw::TResult), Tok::Sym('<')] + tt(
+            *a,
+            seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k),
+        ),
+        SType::Named(x) => seq![Tok::Id(x)] + k,
+        SType::Dict(a, b) => seq![Tok::Id(dict_name()), Tok::Sym('<')] + tt(
             *a,
             seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k),
         ),
@@ -946,7 +986,7 @@ pub open spec fn tfe(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>) -> Seq<To
 }
 
 /// レコード型の宣言の field の並び fs[i..]。最後の field の後ろに、末尾のカンマ tc があれば `,` を置き、tail（閉じ括弧を含む）が続く。
-pub open spec fn tfd(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>) -> Seq<Tok>
+pub open spec fn tfd(fs: Seq<(Seq<char>, SType)>, i: nat, tc: bool, tail: Seq<Tok>) -> Seq<Tok>
     decreases fs, fs.len() - i,
 {
     if i >= fs.len() {
@@ -981,7 +1021,7 @@ pub open spec fn targs(es: Seq<Sx>, i: nat, k: Seq<Tok>) -> Seq<Tok>
 }
 
 /// `[ params ] ")"`
-pub open spec fn tps(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+pub open spec fn tps(ps: Seq<(Seq<char>, SType)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
     decreases ps.len() - i,
 {
     if i >= ps.len() {
@@ -1021,7 +1061,7 @@ pub open spec fn cidt(ts: Seq<Tok>, i: nat) -> Option<Seq<char>> {
 }
 
 /// 中身の型の並び `T, U, ...`（tail の前まで）。
-pub open spec fn tts(ps: Seq<Ty>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+pub open spec fn tts(ps: Seq<SType>, i: nat, k: Seq<Tok>) -> Seq<Tok>
     decreases ps.len() - i,
 {
     if i >= ps.len() {
@@ -1034,7 +1074,7 @@ pub open spec fn tts(ps: Seq<Ty>, i: nat, k: Seq<Tok>) -> Seq<Tok>
 }
 
 /// 構築子の中身：空なら何もなく、そうでなければ `(` 型の並び `)`。
-pub open spec fn tpay(ps: Seq<Ty>, k: Seq<Tok>) -> Seq<Tok> {
+pub open spec fn tpay(ps: Seq<SType>, k: Seq<Tok>) -> Seq<Tok> {
     if ps.len() == 0 {
         k
     } else {
@@ -1043,7 +1083,7 @@ pub open spec fn tpay(ps: Seq<Ty>, k: Seq<Tok>) -> Seq<Tok> {
 }
 
 /// 直和型の構築子の並び（`|` で区切り、最後の後ろに k）。
-pub open spec fn tvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
+pub open spec fn tvars(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
     decreases vs.len() - i,
 {
     if i >= vs.len() {
@@ -1086,22 +1126,24 @@ pub open spec fn tds(p: Seq<Sd>, i: nat) -> Seq<Tok>
 
 // ------------------------------------------------------------------ 正準フォーマッタ（§4.3）
 
-pub open spec fn ft(t: Ty, k: Seq<char>) -> Seq<char>
+pub open spec fn ft(t: SType, k: Seq<char>) -> Seq<char>
     decreases t,
 {
     match t {
-        Ty::Int => kwt(Kw::TInt) + k,
-        Ty::Bool => kwt(Kw::TBool) + k,
-        Ty::Unit => kwt(Kw::TUnit) + k,
-        Ty::Char => kwt(Kw::TChar) + k,
-        Ty::List(a) => if *a == Ty::Char {
+        SType::Int => kwt(Kw::TInt) + k,
+        SType::Bool => kwt(Kw::TBool) + k,
+        SType::Unit => kwt(Kw::TUnit) + k,
+        SType::Char => kwt(Kw::TChar) + k,
+        SType::List(a) => if *a == SType::Char {
             kwt(Kw::TString) + k
         } else {
             kwt(Kw::TList) + (seq!['<'] + ft(*a, seq!['>'] + k))
         },
-        Ty::Option(a) => kwt(Kw::TOption) + (seq!['<'] + ft(*a, seq!['>'] + k)),
-        Ty::Pair(a, b) => kwt(Kw::TPair) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
-        Ty::Result(a, b) => kwt(Kw::TResult) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
+        SType::Option(a) => kwt(Kw::TOption) + (seq!['<'] + ft(*a, seq!['>'] + k)),
+        SType::Pair(a, b) => kwt(Kw::TPair) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
+        SType::Result(a, b) => kwt(Kw::TResult) + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
+        SType::Named(x) => x + k,
+        SType::Dict(a, b) => dict_name() + (seq!['<'] + ft(*a, seq![',', ' '] + ft(*b, seq!['>'] + k))),
     }
 }
 
@@ -1275,7 +1317,7 @@ pub open spec fn fargs(es: Seq<Sx>, i: nat, k: Seq<char>) -> Seq<char>
     }
 }
 
-pub open spec fn fps(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>) -> Seq<char>
+pub open spec fn fps(ps: Seq<(Seq<char>, SType)>, i: nat, k: Seq<char>) -> Seq<char>
     decreases ps.len() - i,
 {
     if i >= ps.len() {
@@ -1310,7 +1352,7 @@ pub open spec fn fd(d: Sd, k: Seq<char>) -> Seq<char> {
 }
 
 /// レコード型の宣言の field の並び fs[i..]（字句）。
-pub open spec fn ffd(fs: Seq<(Seq<char>, Ty)>, i: nat, tail: Seq<char>) -> Seq<char>
+pub open spec fn ffd(fs: Seq<(Seq<char>, SType)>, i: nat, tail: Seq<char>) -> Seq<char>
     decreases fs, fs.len() - i,
 {
     if i >= fs.len() {
@@ -1328,7 +1370,7 @@ pub open spec fn ffd(fs: Seq<(Seq<char>, Ty)>, i: nat, tail: Seq<char>) -> Seq<c
 }
 
 /// 型の並び `T, U, ...` の字句（tail の前まで）。
-pub open spec fn ftys(ps: Seq<Ty>, i: nat, tail: Seq<char>) -> Seq<char>
+pub open spec fn ftys(ps: Seq<SType>, i: nat, tail: Seq<char>) -> Seq<char>
     decreases ps.len() - i,
 {
     if i >= ps.len() {
@@ -1341,7 +1383,7 @@ pub open spec fn ftys(ps: Seq<Ty>, i: nat, tail: Seq<char>) -> Seq<char>
 }
 
 /// 構築子の中身の字句：空なら rest だけ、そうでなければ `(` 型の並び `)` と rest。
-pub open spec fn fpay(ps: Seq<Ty>, rest: Seq<char>) -> Seq<char> {
+pub open spec fn fpay(ps: Seq<SType>, rest: Seq<char>) -> Seq<char> {
     if ps.len() == 0 {
         rest
     } else {
@@ -1350,7 +1392,7 @@ pub open spec fn fpay(ps: Seq<Ty>, rest: Seq<char>) -> Seq<char> {
 }
 
 /// 直和型の構築子の並びの字句（` | ` で区切り、最後の後ろに tail）。
-pub open spec fn fvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, tail: Seq<char>) -> Seq<char>
+pub open spec fn fvars(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, tail: Seq<char>) -> Seq<char>
     decreases vs.len() - i,
 {
     if i >= vs.len() {
@@ -1530,22 +1572,22 @@ pub open spec fn bdt(ts: Seq<Tok>, i: nat) -> Option<Seq<char>> {
 }
 
 /// 型。深さ上限 d を超える入れ子は受理しない。
-pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
+pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(SType, nat)>
     decreases d,
 {
     if d == 0 || i >= ts.len() {
         None
     } else {
         match ts[i as int] {
-            Tok::Kw(Kw::TInt) => Some((Ty::Int, i + 1)),
-            Tok::Kw(Kw::TBool) => Some((Ty::Bool, i + 1)),
-            Tok::Kw(Kw::TUnit) => Some((Ty::Unit, i + 1)),
-            Tok::Kw(Kw::TChar) => Some((Ty::Char, i + 1)),
-            Tok::Kw(Kw::TString) => Some((Ty::List(Box::new(Ty::Char)), i + 1)),
+            Tok::Kw(Kw::TInt) => Some((SType::Int, i + 1)),
+            Tok::Kw(Kw::TBool) => Some((SType::Bool, i + 1)),
+            Tok::Kw(Kw::TUnit) => Some((SType::Unit, i + 1)),
+            Tok::Kw(Kw::TChar) => Some((SType::Char, i + 1)),
+            Tok::Kw(Kw::TString) => Some((SType::List(Box::new(SType::Char)), i + 1)),
             Tok::Kw(Kw::TList) => if sym(ts, i + 1, '<') {
                 match pt(ts, i + 2, (d - 1) as nat) {
-                    Some((a, j)) => if sym(ts, j, '>') && a != Ty::Char {
-                        Some((Ty::List(Box::new(a)), j + 1))
+                    Some((a, j)) => if sym(ts, j, '>') && a != SType::Char {
+                        Some((SType::List(Box::new(a)), j + 1))
                     } else {
                         None
                     },
@@ -1557,7 +1599,7 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
             Tok::Kw(Kw::TOption) => if sym(ts, i + 1, '<') {
                 match pt(ts, i + 2, (d - 1) as nat) {
                     Some((a, j)) => if sym(ts, j, '>') {
-                        Some((Ty::Option(Box::new(a)), j + 1))
+                        Some((SType::Option(Box::new(a)), j + 1))
                     } else {
                         None
                     },
@@ -1573,9 +1615,9 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
                             Some((b, m)) => if sym(ts, m, '>') {
                                 Some((
                                     if ts[i as int] == Tok::Kw(Kw::TPair) {
-                                        Ty::Pair(Box::new(a), Box::new(b))
+                                        SType::Pair(Box::new(a), Box::new(b))
                                     } else {
-                                        Ty::Result(Box::new(a), Box::new(b))
+                                        SType::Result(Box::new(a), Box::new(b))
                                     },
                                     m + 1,
                                 ))
@@ -1591,6 +1633,27 @@ pub open spec fn pt(ts: Seq<Tok>, i: nat, d: nat) -> Option<(Ty, nat)>
                 }
             } else {
                 None
+            },
+            Tok::Id(x) => if !tyname_ok(x) {
+                None
+            } else if x == dict_name() && sym(ts, i + 1, '<') {
+                match pt(ts, i + 2, (d - 1) as nat) {
+                    Some((a, j)) => if sym(ts, j, ',') {
+                        match pt(ts, j + 1, (d - 1) as nat) {
+                            Some((b, m)) => if sym(ts, m, '>') {
+                                Some((SType::Dict(Box::new(a), Box::new(b)), m + 1))
+                            } else {
+                                None
+                            },
+                            None => None,
+                        }
+                    } else {
+                        None
+                    },
+                    None => None,
+                }
+            } else {
+                Some((SType::Named(x), i + 1))
             },
             _ => None,
         }
@@ -2190,7 +2253,7 @@ pub open spec fn pbinds(ts: Seq<Tok>, i: nat) -> Option<(Seq<Seq<char>>, nat)>
 }
 
 /// `[ params ] ")"`
-pub open spec fn pparams(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, nat)> {
+pub open spec fn pparams(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, SType)>, nat)> {
     if sym(ts, i, ')') {
         Some((Seq::empty(), i + 1))
     } else {
@@ -2198,7 +2261,7 @@ pub open spec fn pparams(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char
     }
 }
 
-pub open spec fn pparams1(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, nat)>
+pub open spec fn pparams1(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, SType)>, nat)>
     decreases ts.len() - i,
 {
     match bdt(ts, i) {
@@ -2279,7 +2342,7 @@ pub open spec fn pd(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sd, nat)> 
 }
 
 /// レコード型の宣言の field の並び（閉じ括弧まで）。一つ以上で、最後の後ろに `,` を一つ許す。
-pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Ty)>, bool, nat)>
+pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, SType)>, bool, nat)>
     decreases ts.len() - i,
 {
     match idt(ts, i) {
@@ -2309,7 +2372,7 @@ pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, 
 }
 
 /// 型の並び（一つ以上、カンマ区切り。閉じ括弧は読まない）。
-pub open spec fn ptys(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<Ty>, nat)>
+pub open spec fn ptys(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<SType>, nat)>
     decreases ts.len() - i,
 {
     match pt(ts, i, td) {
@@ -2326,7 +2389,7 @@ pub open spec fn ptys(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<Ty>, nat)>
 }
 
 /// 構築子 `CTOR` か `CTOR "(" type ("," type)* ")"`（位置 i から）。名前、中身の型の並び、後ろの位置。
-pub open spec fn pvar(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<char>, Seq<Ty>, nat)> {
+pub open spec fn pvar(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<char>, Seq<SType>, nat)> {
     match cidt(ts, i) {
         Some(c) => if sym(ts, i + 1, '(') {
             match ptys(ts, i + 2, td) {
@@ -2345,7 +2408,7 @@ pub open spec fn pvar(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<char>, Seq<T
 }
 
 /// 直和型の構築子の並び（`|` で区切る。位置 i から、一つ以上）。
-pub open spec fn pvars(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Seq<Ty>)>, nat)>
+pub open spec fn pvars(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, Seq<SType>)>, nat)>
     decreases ts.len() - i,
 {
     match pvar(ts, i, td) {
@@ -2392,14 +2455,15 @@ pub open spec fn parse(s: Seq<char>, d: nat, td: nat) -> Option<Seq<Sd>> {
 
 // ------------------------------------------------------------------ 深さ上限と名前の妥当性
 
-pub open spec fn bt(t: Ty, d: nat) -> bool
+pub open spec fn bt(t: SType, d: nat) -> bool
     decreases t,
 {
     d > 0 && match t {
-        Ty::List(a) => *a == Ty::Char || bt(*a, (d - 1) as nat),
-        Ty::Option(a) => bt(*a, (d - 1) as nat),
-        Ty::Pair(a, b) | Ty::Result(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
-        _ => true,
+        SType::List(a) => *a == SType::Char || bt(*a, (d - 1) as nat),
+        SType::Option(a) => bt(*a, (d - 1) as nat),
+        SType::Pair(a, b) | SType::Result(a, b) | SType::Dict(a, b) => bt(*a, (d - 1) as nat) && bt(*b, (d - 1) as nat),
+        SType::Named(x) => ident_ok(x),
+        SType::Int | SType::Bool | SType::Unit | SType::Char => true,
     }
 }
 
@@ -2493,27 +2557,27 @@ pub open spec fn bfs(fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat) -> bool
 }
 
 /// レコード型の宣言の field：名前は IDENT で、型は深さ内。
-pub open spec fn bfds(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
+pub open spec fn bfds(fs: Seq<(Seq<char>, SType)>, i: nat, td: nat) -> bool
     decreases fs.len() - i,
 {
     i >= fs.len() || (ident_ok(fs[i as int].0) && bt(fs[i as int].1, td) && bfds(fs, i + 1, td))
 }
 
-pub open spec fn bps(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat) -> bool
+pub open spec fn bps(ps: Seq<(Seq<char>, SType)>, i: nat, td: nat) -> bool
     decreases ps.len() - i,
 {
     i >= ps.len() || (name_ok(ps[i as int].0) && bt(ps[i as int].1, td) && bps(ps, i + 1, td))
 }
 
 /// 型の並びの深さ（bt）。
-pub open spec fn bts(ps: Seq<Ty>, i: nat, td: nat) -> bool
+pub open spec fn bts(ps: Seq<SType>, i: nat, td: nat) -> bool
     decreases ps.len() - i,
 {
     i >= ps.len() || (bt(ps[i as int], td) && bts(ps, i + 1, td))
 }
 
 /// 直和型の構築子：名前は大文字で始まる IDENT、中身の型は深さ内。
-pub open spec fn bvars(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat) -> bool
+pub open spec fn bvars(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, td: nat) -> bool
     decreases vs.len() - i,
 {
     i >= vs.len() || (cname_ok(vs[i as int].0) && bts(vs[i as int].1, 0, td) && bvars(vs, i + 1, td))

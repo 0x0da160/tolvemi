@@ -654,6 +654,8 @@ pub open spec fn jd(j: J, t: Ty) -> Option<Val>
                             } else {
                                 None
                             },
+                            Ty::Named(_) => None,
+                            Ty::Dict(_, _) => None,
                         }
                     },
                     _ => None,

@@ -399,21 +399,94 @@ pub proof fn lcs(s: Seq<char>, u: Seq<Tok>)
 
 // ------------------------------------------------------------------ 正準ソースの字句解析
 
-#[verifier::rlimit(200)]
-pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
-    requires
-        lex(k) == Some(u),
-        safe(k),
-    ensures
-        lex(ft(t, k)) == Some(tt(t, u)),
+/// 型の中の名前は全て IDENT（字句として名前のまま戻る）。深さには依らない。
+pub open spec fn names_ok(t: SType) -> bool
     decreases t,
 {
     match t {
-        Ty::Int => lk(Kw::TInt, k, u),
-        Ty::Bool => lk(Kw::TBool, k, u),
-        Ty::Unit => lk(Kw::TUnit, k, u),
-        Ty::Char => lk(Kw::TChar, k, u),
-        Ty::List(a) => if *a == Ty::Char {
+        SType::Named(x) => ident_ok(x),
+        SType::List(a) | SType::Option(a) => names_ok(*a),
+        SType::Pair(a, b) | SType::Result(a, b) | SType::Dict(a, b) => names_ok(*a) && names_ok(*b),
+        SType::Int | SType::Bool | SType::Unit | SType::Char => true,
+    }
+}
+
+/// 型の深さの妥当性（bt）は名前の妥当性を含む。
+pub proof fn bt_names(t: SType, d: nat)
+    requires
+        bt(t, d),
+    ensures
+        names_ok(t),
+    decreases t,
+{
+    match t {
+        SType::List(a) => {
+            if *a != SType::Char {
+                bt_names(*a, (d - 1) as nat);
+            } else {
+                assert(names_ok(SType::Char));
+            }
+        },
+        SType::Option(a) => bt_names(*a, (d - 1) as nat),
+        SType::Pair(a, b) | SType::Result(a, b) | SType::Dict(a, b) => {
+            bt_names(*a, (d - 1) as nat);
+            bt_names(*b, (d - 1) as nat);
+        },
+        SType::Named(_) => {},
+        SType::Int | SType::Bool | SType::Unit | SType::Char => {},
+    }
+}
+
+/// 束縛（fs の i 番目、bfds）の型の名前は妥当。
+proof fn bfd_names(fs: Seq<(Seq<char>, SType)>, i: nat, td: nat)
+    requires
+        i < fs.len(),
+        bfds(fs, i, td),
+    ensures
+        names_ok(fs[i as int].1),
+{
+    reveal_with_fuel(bfds, 1);
+    bt_names(fs[i as int].1, td);
+}
+
+/// 束縛（ps の i 番目、bps）の型の名前は妥当。
+proof fn bp_names(ps: Seq<(Seq<char>, SType)>, i: nat, td: nat)
+    requires
+        i < ps.len(),
+        bps(ps, i, td),
+    ensures
+        names_ok(ps[i as int].1),
+{
+    reveal_with_fuel(bps, 1);
+    bt_names(ps[i as int].1, td);
+}
+
+/// Dict は IDENT（予約語ではない）で、字句は Id になる。
+pub proof fn dict_ident()
+    ensures
+        ident_ok(dict_name()),
+        word_tok(dict_name()) == Tok::Id(dict_name()),
+{
+    assert(ident_ok(dict_name()));
+    word_id(dict_name());
+}
+
+#[verifier::rlimit(200)]
+pub proof fn ft_lex(t: SType, k: Seq<char>, u: Seq<Tok>)
+    requires
+        lex(k) == Some(u),
+        safe(k),
+        names_ok(t),
+    ensures
+        lex(ft(t, k)) == Some(tt(t, u)),
+    decreases t, 1nat,
+{
+    match t {
+        SType::Int => lk(Kw::TInt, k, u),
+        SType::Bool => lk(Kw::TBool, k, u),
+        SType::Unit => lk(Kw::TUnit, k, u),
+        SType::Char => lk(Kw::TChar, k, u),
+        SType::List(a) => if *a == SType::Char {
             lk(Kw::TString, k, u);
         } else {
             let k1 = seq!['>'] + k;
@@ -425,7 +498,7 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
             assert(seq![Tok::Kw(Kw::TList)] + (seq![Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + u))
                 =~= tt(t, u));
         },
-        Ty::Option(a) => {
+        SType::Option(a) => {
             let k1 = seq!['>'] + k;
             ls('>', k, u);
             ft_lex(*a, k1, seq![Tok::Sym('>')] + u);
@@ -435,7 +508,7 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
             assert(seq![Tok::Kw(Kw::TOption)] + (seq![Tok::Sym('<')] + tt(*a, seq![Tok::Sym('>')] + u))
                 =~= tt(t, u));
         },
-        Ty::Pair(a, b) => {
+        SType::Pair(a, b) => {
             let kb = seq!['>'] + k;
             let ub = seq![Tok::Sym('>')] + u;
             ls('>', k, u);
@@ -449,7 +522,7 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
             lk(Kw::TPair, k2, seq![Tok::Sym('<')] + tt(*a, ua));
             assert(seq![Tok::Kw(Kw::TPair)] + (seq![Tok::Sym('<')] + tt(*a, ua)) =~= tt(t, u));
         },
-        Ty::Result(a, b) => {
+        SType::Result(a, b) => {
             let kb = seq!['>'] + k;
             let ub = seq![Tok::Sym('>')] + u;
             ls('>', k, u);
@@ -463,6 +536,42 @@ pub proof fn ft_lex(t: Ty, k: Seq<char>, u: Seq<Tok>)
             lk(Kw::TResult, k2, seq![Tok::Sym('<')] + tt(*a, ua));
             assert(seq![Tok::Kw(Kw::TResult)] + (seq![Tok::Sym('<')] + tt(*a, ua)) =~= tt(t, u));
         },
+        SType::Named(x) => {
+            word_id(x);
+            lword(x, k, u);
+        },
+        SType::Dict(_, _) => ft_lex_dict(t, k, u),
+    }
+}
+
+/// Dict<K, V> の字句（ft_lex から分けた。名前 Dict の語、`<`、K、`, `、V、`>` の順）。
+proof fn ft_lex_dict(t: SType, k: Seq<char>, u: Seq<Tok>)
+    requires
+        t is Dict,
+        lex(k) == Some(u),
+        safe(k),
+        names_ok(t),
+    ensures
+        lex(ft(t, k)) == Some(tt(t, u)),
+    decreases t, 0nat,
+{
+    match t {
+        SType::Dict(a, b) => {
+            let kb = seq!['>'] + k;
+            let ub = seq![Tok::Sym('>')] + u;
+            ls('>', k, u);
+            ft_lex(*b, kb, ub);
+            let ka = seq![',', ' '] + ft(*b, kb);
+            let ua = seq![Tok::Sym(',')] + tt(*b, ub);
+            lcs(ft(*b, kb), tt(*b, ub));
+            ft_lex(*a, ka, ua);
+            let k2 = seq!['<'] + ft(*a, ka);
+            ls('<', ft(*a, ka), tt(*a, ua));
+            dict_ident();
+            lword(dict_name(), k2, seq![Tok::Sym('<')] + tt(*a, ua));
+            assert(seq![Tok::Id(dict_name())] + (seq![Tok::Sym('<')] + tt(*a, ua)) =~= tt(t, u));
+        },
+        _ => {},
     }
 }
 
@@ -525,6 +634,7 @@ proof fn fe_lex_list(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         ls('>', seq!['('] + fargs(es, 0, k), seq![Tok::Sym('(')] + targs(es, 0, u));
         assert(ka =~= seq!['>'] + (seq!['('] + fargs(es, 0, k)));
         assert(ua =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + targs(es, 0, u)));
+        bt_names(t, td);
         ft_lex(t, ka, ua);
         ls('<', ft(t, ka), tt(t, ua));
         lk(Kw::List, seq!['<'] + ft(t, ka), seq![Tok::Sym('<')] + tt(t, ua));
@@ -578,6 +688,7 @@ proof fn fe_lex_none(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         ls('>', seq!['('] + (seq![')'] + k), seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u));
         assert(kc =~= seq!['>'] + (seq!['('] + (seq![')'] + k)));
         assert(uc =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u)));
+        bt_names(t, td);
         ft_lex(t, kc, uc);
         let ua = tt(t, uc);
         ls('<', ft(t, kc), ua);
@@ -809,10 +920,12 @@ proof fn fe_lex_inj(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
         let uw = seq![Tok::Sym('>'), Tok::Sym('(')] + ux;
         assert(kw =~= seq!['>'] + (seq!['('] + kx));
         assert(uw =~= seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + ux));
+        bt_names(w, td);
         ft_lex(w, kw, uw);
         lcs(ft(w, kw), tt(w, uw));
         let kt = seq![',', ' '] + ft(w, kw);
         let ut = seq![Tok::Sym(',')] + tt(w, uw);
+        bt_names(t, td);
         ft_lex(t, kt, ut);
         ls('<', ft(t, kt), tt(t, ut));
         let kk = if ok { Kw::Ok } else { Kw::Err };
@@ -1212,10 +1325,12 @@ proof fn fe_lex_dictnew(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             let uc = seq![Tok::Sym('>')] + (seq![Tok::Sym('(')] + (seq![Tok::Sym(')')] + u));
             assert(kc =~= seq!['>', '(', ')'] + k);
             assert(uc =~= seq![Tok::Sym('>'), Tok::Sym('('), Tok::Sym(')')] + u);
+            bt_names(b, td);
             ft_lex(b, kc, uc);
             let kt = seq![',', ' '] + ft(b, kc);
             let ut = seq![Tok::Sym(',')] + tt(b, uc);
             lcs(ft(b, kc), tt(b, uc));
+            bt_names(a, td);
             ft_lex(a, kt, ut);
             ls('<', ft(a, kt), tt(a, ut));
             lk(Kw::Dict, seq!['<'] + ft(a, kt), seq![Tok::Sym('<')] + tt(a, ut));
@@ -1498,7 +1613,7 @@ pub proof fn fargs_lex(es: Seq<Sx>, i: nat, d: nat, td: nat, k: Seq<char>, u: Se
 }
 
 #[verifier::rlimit(60)]
-pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+pub proof fn fps_lex(ps: Seq<(Seq<char>, SType)>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bps(ps, i, td),
         lex(k) == Some(u),
@@ -1518,6 +1633,7 @@ pub proof fn fps_lex(ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat, k: Seq<char>, u:
             lcs(fps(ps, i + 1, k), tps(ps, i + 1, u));
             (seq![',', ' '] + fps(ps, i + 1, k), seq![Tok::Sym(',')] + tps(ps, i + 1, u))
         };
+        bp_names(ps, i, td);
         ft_lex(t, kt, ut);
         lw(' ', ft(t, kt), tt(t, ut));
         ls(':', seq![' '] + ft(t, kt), tt(t, ut));
@@ -1561,7 +1677,7 @@ proof fn dsafe(tc: bool, k: Seq<char>)
 
 /// レコード型の field の並び fs[i..] の字句。最後の field の後ろは閉じ部分（dclose）。
 #[verifier::rlimit(15)]
-pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
+pub proof fn ffd_lex(fs: Seq<(Seq<char>, SType)>, i: nat, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
     requires
         bfds(fs, i, td),
         i < fs.len(),
@@ -1577,6 +1693,7 @@ pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq
     let tu = if tc { seq![Tok::Sym(',')] + (seq![Tok::Sym('}')] + u) } else { seq![Tok::Sym('}')] + u };
     let x = fs[i as int].0;
     let t = fs[i as int].1;
+    bfd_names(fs, i, td);
     let last = i + 1 == fs.len();
     let kt = if last { tl + k } else { seq![',', ' '] + ffd(fs, i + 1, tl + k) };
     let ut = if last { tu } else { seq![Tok::Sym(',')] + tfd(fs, i + 1, tc, seq![Tok::Sym('}')] + u) };
@@ -1602,7 +1719,7 @@ pub proof fn ffd_lex(fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat, tc: bool, k: Seq
 }
 
 /// 型の並びの先頭の型は深さ内（残りの並びも深さ内）。
-pub proof fn bts_at(ps: Seq<Ty>, j: nat, td: nat)
+pub proof fn bts_at(ps: Seq<SType>, j: nat, td: nat)
     requires
         j < ps.len(),
         bts(ps, j, td),
@@ -1613,7 +1730,7 @@ pub proof fn bts_at(ps: Seq<Ty>, j: nat, td: nat)
 }
 
 /// 直和型の構築子の並びの先頭：名前は大文字で始まる IDENT、中身の型は深さ内。
-pub proof fn bvars_at(vs: Seq<(Seq<char>, Seq<Ty>)>, j: nat, td: nat)
+pub proof fn bvars_at(vs: Seq<(Seq<char>, Seq<SType>)>, j: nat, td: nat)
     requires
         j < vs.len(),
         bvars(vs, j, td),
@@ -1625,7 +1742,7 @@ pub proof fn bvars_at(vs: Seq<(Seq<char>, Seq<Ty>)>, j: nat, td: nat)
 }
 
 /// 型の並びの先頭の展開（token 側）。
-pub proof fn tts_head(ps: Seq<Ty>, i: nat, k: Seq<Tok>)
+pub proof fn tts_head(ps: Seq<SType>, i: nat, k: Seq<Tok>)
     requires
         i < ps.len(),
     ensures
@@ -1634,7 +1751,7 @@ pub proof fn tts_head(ps: Seq<Ty>, i: nat, k: Seq<Tok>)
 }
 
 /// 直和型の構築子の並びの先頭の展開（token 側）。
-pub proof fn tvars_head(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
+pub proof fn tvars_head(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, k: Seq<Tok>)
     requires
         i < vs.len(),
     ensures
@@ -1646,7 +1763,7 @@ pub proof fn tvars_head(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
 }
 
 /// 型の並び `T, U, ...` の字句（後ろの続きは k。k は安全な字句で始まる）。
-proof fn ftys_lex(ps: Seq<Ty>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
+proof fn ftys_lex(ps: Seq<SType>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         i < ps.len(),
         bts(ps, i, td),
@@ -1657,6 +1774,7 @@ proof fn ftys_lex(ps: Seq<Ty>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     decreases ps.len() - i,
 {
     bts_at(ps, i, td);
+    bt_names(ps[i as int], td);
     if i + 1 == ps.len() {
         ft_lex(ps[i as int], k, u);
         assert(ftys(ps, i, k) == ft(ps[i as int], k));
@@ -1671,7 +1789,7 @@ proof fn ftys_lex(ps: Seq<Ty>, i: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
 }
 
 /// 構築子の中身の字句（空なら rest だけ、そうでなければ `(` 型の並び `)` と rest）。
-proof fn fpay_lex(ps: Seq<Ty>, td: nat, k: Seq<char>, u: Seq<Tok>)
+proof fn fpay_lex(ps: Seq<SType>, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         bts(ps, 0, td),
         lex(k) == Some(u),
@@ -1688,7 +1806,7 @@ proof fn fpay_lex(ps: Seq<Ty>, td: nat, k: Seq<char>, u: Seq<Tok>)
 }
 
 /// 構築子の中身の字句は、字句の区切りとして安全（空白でも識別子文字でもない）。
-proof fn fpay_wsafe(ps: Seq<Ty>, k: Seq<char>)
+proof fn fpay_wsafe(ps: Seq<SType>, k: Seq<char>)
     requires
         wsafe(k),
     ensures
@@ -1700,7 +1818,7 @@ proof fn fpay_wsafe(ps: Seq<Ty>, k: Seq<char>)
 }
 
 /// 直和型の構築子の並び vs[i..] の字句（最後の後ろは tail、字句は u）。
-proof fn fvars_lex(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat, tail: Seq<char>, u: Seq<Tok>)
+proof fn fvars_lex(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, td: nat, tail: Seq<char>, u: Seq<Tok>)
     requires
         i < vs.len(),
         bvars(vs, i, td),
@@ -1753,7 +1871,7 @@ pub proof fn tyw_word()
 }
 
 /// レコード型の宣言一行 `type R = { f: T, …, }` の字句（後ろの字句は k）。
-proof fn fd_lex_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
+proof fn fd_lex_recty(r: Seq<char>, fs: Seq<(Seq<char>, SType)>, td: nat, tc: bool, k: Seq<char>, u: Seq<Tok>)
     requires
         ident_ok(r),
         bfds(fs, 0, td),
@@ -1782,8 +1900,32 @@ proof fn fd_lex_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, td: nat, tc: bool,
     assert(tdecl(Sd::RecTy(r, fs, tc), u) =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t4));
 }
 
-/// 直和型の宣言一行 `type S = V1 | V2(T, U)` の字句（後ろの字句は k）。
-proof fn fd_lex_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<Ty>)>, td: nat, k: Seq<char>, u: Seq<Tok>)
+/// 直和型の頭 `type r = ` の字句（後ろは vs の字句 kv・uv）。型を含まない補題として分ける。
+proof fn fd_sum_head(r: Seq<char>, kv: Seq<char>, uv: Seq<Tok>)
+    requires
+        ident_ok(r),
+        lex(kv) == Some(uv),
+    ensures
+        lex(seq!['t', 'y', 'p', 'e', ' '] + (r + (seq![' ', '=', ' '] + kv))) == Some(
+            seq![Tok::Id(tyw()), Tok::Id(r), Tok::Sym('=')] + uv,
+        ),
+{
+    lw(' ', kv, uv);
+    ls('=', seq![' '] + kv, uv);
+    lw(' ', seq!['='] + (seq![' '] + kv), seq![Tok::Sym('=')] + uv);
+    let s = seq![' '] + (seq!['='] + (seq![' '] + kv));
+    let t = seq![Tok::Sym('=')] + uv;
+    word_id(r);
+    li(r, s, t);
+    lw(' ', r + s, seq![Tok::Id(r)] + t);
+    tyw_word();
+    lword(tyw(), seq![' '] + (r + s), seq![Tok::Id(r)] + t);
+    assert(seq!['t', 'y', 'p', 'e', ' '] + (r + (seq![' ', '=', ' '] + kv)) =~= tyw() + (seq![' '] + (r + s)));
+    assert(seq![Tok::Id(tyw()), Tok::Id(r), Tok::Sym('=')] + uv =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t));
+}
+
+/// 直和型宣言一行 `type S = V1 | V2(T, U)` の字句（後ろの字句は k）。
+proof fn fd_lex_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
         ident_ok(r),
         vs.len() > 0,
@@ -1796,18 +1938,10 @@ proof fn fd_lex_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<Ty>)>, td: nat, k: Seq
     fvars_lex(vs, 0, td, seq!['\n'] + k, u);
     let kv = fvars(vs, 0, seq!['\n'] + k);
     let uv = tvars(vs, 0, u);
-    lw(' ', kv, uv);
-    ls('=', seq![' '] + kv, uv);
-    lw(' ', seq!['='] + (seq![' '] + kv), seq![Tok::Sym('=')] + uv);
-    let s = seq![' '] + (seq!['='] + (seq![' '] + kv));
-    let t = seq![Tok::Sym('=')] + uv;
     word_id(r);
-    li(r, s, t);
-    lw(' ', r + s, seq![Tok::Id(r)] + t);
-    tyw_word();
-    lword(tyw(), seq![' '] + (r + s), seq![Tok::Id(r)] + t);
-    assert(fd(Sd::Sum(r, vs), k) =~= tyw() + (seq![' '] + (r + s)));
-    assert(tdecl(Sd::Sum(r, vs), u) =~= seq![Tok::Id(tyw())] + (seq![Tok::Id(r)] + t));
+    fd_sum_head(r, kv, uv);
+    assert(fd(Sd::Sum(r, vs), k) == seq!['t', 'y', 'p', 'e', ' '] + (r + (seq![' ', '=', ' '] + kv)));
+    assert(tdecl(Sd::Sum(r, vs), u) == seq![Tok::Id(tyw()), Tok::Id(r), Tok::Sym('=')] + uv);
 }
 
 #[verifier::rlimit(60)]
@@ -1828,6 +1962,7 @@ pub proof fn fd_lex(x: Sd, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
             ls('=', seq![' '] + kb, ub);
             lw(' ', seq!['='] + (seq![' '] + kb), seq![Tok::Sym('=')] + ub);
             assert(seq![' ', '=', ' '] + kb =~= seq![' '] + (seq!['='] + (seq![' '] + kb)));
+            bt_names(r, td);
             ft_lex(r, seq![' ', '=', ' '] + kb, seq![Tok::Sym('=')] + ub);
             let kr = ft(r, seq![' ', '=', ' '] + kb);
             let ur = tt(r, seq![Tok::Sym('=')] + ub);
@@ -1873,28 +2008,28 @@ pub proof fn fds_lex(p: Seq<Sd>, i: nat, d: nat, td: nat)
 // ------------------------------------------------------------------ 正準ソースの継続の分離
 
 #[verifier::rlimit(50)]
-pub proof fn ft_app(t: Ty, k: Seq<char>)
+pub proof fn ft_app(t: SType, k: Seq<char>)
     ensures
         ft(t, k) == ft(t, Seq::empty()) + k,
     decreases t,
 {
     let z = Seq::<char>::empty();
     match t {
-        Ty::List(a) => {
+        SType::List(a) => {
             ft_app(*a, seq!['>'] + k);
             ft_app(*a, seq!['>'] + z);
         },
-        Ty::Option(a) => {
+        SType::Option(a) => {
             ft_app(*a, seq!['>'] + k);
             ft_app(*a, seq!['>'] + z);
         },
-        Ty::Pair(a, b) | Ty::Result(a, b) => {
+        SType::Pair(a, b) | SType::Result(a, b) | SType::Dict(a, b) => {
             ft_app(*b, seq!['>'] + k);
             ft_app(*b, seq!['>'] + z);
             ft_app(*a, seq![',', ' '] + ft(*b, seq!['>'] + k));
             ft_app(*a, seq![',', ' '] + ft(*b, seq!['>'] + z));
         },
-        _ => {},
+        SType::Int | SType::Bool | SType::Unit | SType::Char | SType::Named(_) => {},
     }
     assert(ft(t, k) =~= ft(t, z) + k);
 }
@@ -1967,7 +2102,7 @@ proof fn fe_app_rec(e: Sx, k: Seq<char>)
 }
 
 /// レコード型の field の並びは後ろの続きに対して結合する。
-pub proof fn ffd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
+pub proof fn ffd_app(fs: Seq<(Seq<char>, SType)>, i: nat, k: Seq<char>)
     ensures
         ffd(fs, i, k) == ffd(fs, i, Seq::empty()) + k,
     decreases fs.len() - i,
@@ -1985,7 +2120,7 @@ pub proof fn ffd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
 }
 
 /// 型の並びは後ろの続きに対して結合する。
-pub proof fn ftys_app(ps: Seq<Ty>, i: nat, k: Seq<char>)
+pub proof fn ftys_app(ps: Seq<SType>, i: nat, k: Seq<char>)
     ensures
         ftys(ps, i, k) == ftys(ps, i, Seq::empty()) + k,
     decreases ps.len() - i,
@@ -2005,7 +2140,7 @@ pub proof fn ftys_app(ps: Seq<Ty>, i: nat, k: Seq<char>)
 }
 
 /// 構築子の中身は後ろの続きに対して結合する。
-pub proof fn fpay_app(ps: Seq<Ty>, k: Seq<char>)
+pub proof fn fpay_app(ps: Seq<SType>, k: Seq<char>)
     ensures
         fpay(ps, k) == fpay(ps, Seq::empty()) + k,
 {
@@ -2019,7 +2154,7 @@ pub proof fn fpay_app(ps: Seq<Ty>, k: Seq<char>)
 
 /// 直和型の構築子の並びは後ろの続きに対して結合する。
 #[verifier::rlimit(10)]
-pub proof fn fvars_app(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<char>)
+pub proof fn fvars_app(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, k: Seq<char>)
     ensures
         fvars(vs, i, k) == fvars(vs, i, Seq::empty()) + k,
     decreases vs.len() - i,
@@ -2078,20 +2213,7 @@ pub proof fn fe_app(e: Sx, k: Seq<char>)
         Sx::If(..) => fe_app_if(e, k),
         Sx::Fold(..) => fe_app_fold(e, k),
         Sx::Match(..) => fe_app_match(e, k),
-        Sx::Inj(_, t, u, a) => {
-            fe_app(*a, seq![')'] + k);
-            fe_app(*a, seq![')'] + z);
-            let ku = seq!['>', '('] + fe(*a, seq![')'] + k);
-            let zu = seq!['>', '('] + fe(*a, seq![')'] + z);
-            assert(ku =~= zu + k);
-            ft_app(u, ku);
-            ft_app(u, zu);
-            let kt = seq![',', ' '] + ft(u, ku);
-            let zt = seq![',', ' '] + ft(u, zu);
-            assert(kt =~= zt + k);
-            ft_app(t, kt);
-            ft_app(t, zt);
-        },
+        Sx::Inj(..) => fe_app_inj(e, k),
         Sx::MatchR(..) => fe_app_matchr(e, k),
         Sx::Fld(a, fs) => {
             fdots_app(fs, k);
@@ -2144,6 +2266,31 @@ proof fn fe_app_matchr(e: Sx, k: Seq<char>)
         assert(km =~= zm + k);
         fe_app(*m, km);
         fe_app(*m, zm);
+    }
+    assert(fe(e, k) =~= fe(e, z) + k);
+}
+
+proof fn fe_app_inj(e: Sx, k: Seq<char>)
+    requires
+        e is Inj,
+    ensures
+        fe(e, k) == fe(e, Seq::empty()) + k,
+    decreases e, 0nat,
+{
+    let z = Seq::<char>::empty();
+    if let Sx::Inj(_, t, u, a) = e {
+        fe_app(*a, seq![')'] + k);
+        fe_app(*a, seq![')'] + z);
+        let ku = seq!['>', '('] + fe(*a, seq![')'] + k);
+        let zu = seq!['>', '('] + fe(*a, seq![')'] + z);
+        assert(ku =~= zu + k);
+        ft_app(u, ku);
+        ft_app(u, zu);
+        let kt = seq![',', ' '] + ft(u, ku);
+        let zt = seq![',', ' '] + ft(u, zu);
+        assert(kt =~= zt + k);
+        ft_app(t, kt);
+        ft_app(t, zt);
     }
     assert(fe(e, k) =~= fe(e, z) + k);
 }
@@ -2402,7 +2549,7 @@ pub proof fn fargs_app(es: Seq<Sx>, i: nat, k: Seq<char>)
     assert(fargs(es, i, k) =~= fargs(es, i, z) + k);
 }
 
-pub proof fn fps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
+pub proof fn fps_app(ps: Seq<(Seq<char>, SType)>, i: nat, k: Seq<char>)
     ensures
         fps(ps, i, k) == fps(ps, i, Seq::empty()) + k,
     decreases ps.len() - i,
@@ -2422,7 +2569,7 @@ pub proof fn fps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<char>)
 }
 
 /// レコード型の宣言一行は後ろの続きに対して結合する。
-proof fn fd_app_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, tc: bool, k: Seq<char>)
+proof fn fd_app_recty(r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool, k: Seq<char>)
     ensures
         fd(Sd::RecTy(r, fs, tc), k) == fd(Sd::RecTy(r, fs, tc), Seq::empty()) + k,
 {
@@ -2434,7 +2581,7 @@ proof fn fd_app_recty(r: Seq<char>, fs: Seq<(Seq<char>, Ty)>, tc: bool, k: Seq<c
 }
 
 /// 直和型の宣言一行は後ろの続きに対して結合する。
-proof fn fd_app_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<Ty>)>, k: Seq<char>)
+proof fn fd_app_sum(r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>, k: Seq<char>)
     ensures
         fd(Sd::Sum(r, vs), k) == fd(Sd::Sum(r, vs), Seq::empty()) + k,
 {

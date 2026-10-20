@@ -24,6 +24,10 @@ pub enum Ty {
     Pair(Box<Ty>, Box<Ty>),
     /// v1.4：Result<T, E>（成功 ok と失敗 err の直和）
     Result(Box<Ty>, Box<Ty>),
+    /// 段階 2：宣言された型の名前（宣言の順の添字）。名前は resolve が表を引いて展開するので、核には現れない。
+    Named(nat),
+    /// v1.9：Dict<K, V>。resolve が List<Pair<K, V>> に消去するので、核には現れない。
+    Dict(Box<Ty>, Box<Ty>),
 }
 
 /// 有限木としての値。リストは要素の有限列。

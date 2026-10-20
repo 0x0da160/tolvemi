@@ -468,7 +468,8 @@ pub proof fn apply_sound(b: Builtin, ts: Seq<Ty>, vs: Seq<Val>)
 // ------------------------------------------------------------------ 停止性と型安全性
 
 /// 型の付いた式は、適合する環境で必ず値に評価され、その値は式の型を持つ。
-/// 証拠として燃料と値を返す。帰納法は（ランク、式、0）の辞書式順序。
+/// 証拠として燃料と値を返す。帰納法は（ランク、式、1）の辞書式順序。
+/// 式の形ごとの補助補題（`total_*`）は（ランク、式、0）の辞書式順序で、`total` の振り分けから呼ばれる。
 /// v1.7：`rec` の印のある関数があると呼出しでランクが下がらないので、`no_rec(p)` を前提にする。
 #[verifier::rlimit(100)]
 pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
@@ -477,6 +478,42 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
         no_rec(p),
         env_ok(env, ctx),
         ty_expr(p, r, ctx, e) is Some,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 1nat,
+{
+    match e {
+        Expr::Int(_) => total_leaf(p, r, ctx, env, e),
+        Expr::Bool(_) => total_leaf(p, r, ctx, env, e),
+        Expr::Unit => total_leaf(p, r, ctx, env, e),
+        Expr::Char(_) => total_leaf(p, r, ctx, env, e),
+        Expr::None(_) => total_leaf(p, r, ctx, env, e),
+        Expr::Var(_) => total_leaf(p, r, ctx, env, e),
+        Expr::List(_, _) => total_list(p, r, ctx, env, e),
+        Expr::Some(_) => total_some(p, r, ctx, env, e),
+        Expr::Pair(_, _) => total_pair(p, r, ctx, env, e),
+        Expr::Builtin(_, _) => total_builtin(p, r, ctx, env, e),
+        Expr::Call(_, _) => total_call(p, r, ctx, env, e),
+        Expr::Let(_, _, _) => total_let(p, r, ctx, env, e),
+        Expr::If(_, _, _) => total_if(p, r, ctx, env, e),
+        Expr::Fold(_, _, _, _, _) => total_fold_arm(p, r, ctx, env, e),
+        Expr::Match(_, _, _, _) => total_match(p, r, ctx, env, e),
+        Expr::Inj(_, _, _, _) => total_inj(p, r, ctx, env, e),
+        Expr::MatchR(_, _, _, _, _) => total_matchr(p, r, ctx, env, e),
+    }
+}
+
+// total の式の形ごとの補助補題。前提と保証は total と同じ。total から呼ばれ、部分式の total を呼ぶ。
+// 辞書式順序は（ランク、式、0）で、total の（ランク、式、1）より小さい。
+
+proof fn total_leaf(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Int || e is Bool || e is Unit || e is Char || e is None || e is Var,
     ensures
         eval(p, res.0, env, e) == Res::Done(res.1),
         val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
@@ -492,145 +529,312 @@ pub proof fn total(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Ex
             assert(ctx.contains_key(x));
             (1, env[x])
         },
-        Expr::List(t, es) => {
-            let (n, vs) = total_args(p, r, ctx, env, es, 0);
-            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
-            assert forall|i: int| 0 <= i < vs.len() implies #[trigger] val_type(vs[i], t) by {
-                assert(ts[i] == t);
-            }
-            val_type_list(vs, t);
-            (n + 1, Val::List(vs))
+        _ => {
+            assert(false);
+            (1, Val::Unit)
         },
-        Expr::Some(x) => {
-            let (n, v) = total(p, r, ctx, env, *x);
-            (n + 1, Val::Some(Box::new(v)))
-        },
-        Expr::Pair(a, b) => {
-            let (n1, va) = total(p, r, ctx, env, *a);
-            let (n2, vb) = total(p, r, ctx, env, *b);
+    }
+}
+
+proof fn total_list(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is List,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let t = e->List_0;
+    let es = e->List_1;
+    let (n, vs) = total_args(p, r, ctx, env, es, 0);
+    let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+    assert forall|i: int| 0 <= i < vs.len() implies #[trigger] val_type(vs[i], t) by {
+        assert(ts[i] == t);
+    }
+    val_type_list(vs, t);
+    (n + 1, Val::List(vs))
+}
+
+proof fn total_some(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Some,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let x = e->Some_0;
+    let (n, v) = total(p, r, ctx, env, *x);
+    (n + 1, Val::Some(Box::new(v)))
+}
+
+proof fn total_pair(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Pair,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let a = e->Pair_0;
+    let b = e->Pair_1;
+    let (n1, va) = total(p, r, ctx, env, *a);
+    let (n2, vb) = total(p, r, ctx, env, *b);
+    let n = max(n1, n2);
+    mono(p, n1, n, env, *a);
+    mono(p, n2, n, env, *b);
+    (n + 1, Val::Pair(Box::new(va), Box::new(vb)))
+}
+
+proof fn total_builtin(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Builtin,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let b = e->Builtin_0;
+    let es = e->Builtin_1;
+    let (n, vs) = total_args(p, r, ctx, env, es, 0);
+    let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+    apply_sound(b, ts, vs);
+    (n + 1, apply(b, vs)->Done_0)
+}
+
+proof fn total_call(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Call,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let g = e->Call_0;
+    let es = e->Call_1;
+    let (n1, vs) = total_args(p, r, ctx, env, es, 0);
+    let ts = ty_args(p, r, ctx, es, 0)->Some_0;
+    let fun = p.funcs[g as int];
+    assert(!p.rec[g as int]);
+    assert(p.rank[g as int] < r);
+    assert forall|k: int| 0 <= k < vs.len() implies val_type(#[trigger] vs[k], fun.params[k].1) by {
+        assert(ts[k] == fun.params[k].1);
+    }
+    bind_ok(fun.params, vs, vs.len());
+    let ctx2 = param_ctx(fun.params, fun.params.len());
+    let env2 = bind(fun.params, vs, vs.len());
+    assert(ty_expr(p, p.rank[g as int], ctx2, fun.body) == Some(fun.ret));
+    let (n2, w) = total(p, p.rank[g as int], ctx2, env2, fun.body);
+    let n = max(n1, n2);
+    mono_args(p, n1, n, env, es, 0);
+    mono(p, n2, n, env2, fun.body);
+    (n + 1, w)
+}
+
+proof fn total_let(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Let,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let x = e->Let_0;
+    let a = e->Let_1;
+    let b = e->Let_2;
+    let (n1, va) = total(p, r, ctx, env, *a);
+    let ta = ty_expr(p, r, ctx, *a)->Some_0;
+    env_ok_insert(env, ctx, x, va, ta);
+    let (n2, vb) = total(p, r, ctx.insert(x, ta), env.insert(x, va), *b);
+    let n = max(n1, n2);
+    mono(p, n1, n, env, *a);
+    mono(p, n2, n, env.insert(x, va), *b);
+    (n + 1, vb)
+}
+
+proof fn total_if(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is If,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let c = e->If_0;
+    let a = e->If_1;
+    let b = e->If_2;
+    let (n1, vc) = total(p, r, ctx, env, *c);
+    let (n2, v) = if vc == Val::Bool(true) {
+        total(p, r, ctx, env, *a)
+    } else {
+        total(p, r, ctx, env, *b)
+    };
+    let n = max(n1, n2);
+    mono(p, n1, n, env, *c);
+    mono(p, n2, n, env, *a);
+    mono(p, n2, n, env, *b);
+    (n + 1, v)
+}
+
+proof fn total_fold_arm(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Fold,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let xs = e->Fold_0;
+    let init = e->Fold_1;
+    let acc = e->Fold_2;
+    let item = e->Fold_3;
+    let body = e->Fold_4;
+    let (n1, vx) = total(p, r, ctx, env, *xs);
+    let (n2, v0) = total(p, r, ctx, env, *init);
+    let tx = ty_expr(p, r, ctx, *xs)->Some_0;
+    let ta = ty_expr(p, r, ctx, *init)->Some_0;
+    let te = *tx->List_0;
+    let s = vx->List_0;
+    assert(tx == Ty::List(Box::new(te)));
+    val_type_list(s, te);
+    let (n3, w) = total_fold(p, r, ctx, env, acc, item, *body, ta, te, s, 0, v0);
+    let n = max(max(n1, n2), n3);
+    mono(p, n1, n, env, *xs);
+    mono(p, n2, n, env, *init);
+    mono_fold(p, n3, n, env, acc, item, *body, s, 0, v0);
+    (n + 1, w)
+}
+
+proof fn total_match(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Match,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let m = e->Match_0;
+    let nb = e->Match_1;
+    let x = e->Match_2;
+    let sm = e->Match_3;
+    let (n1, vm) = total(p, r, ctx, env, *m);
+    let tm = ty_expr(p, r, ctx, *m)->Some_0;
+    let te = *tm->Option_0;
+    assert(tm == Ty::Option(Box::new(te)));
+    match vm {
+        Val::Some(v) => {
+            env_ok_insert(env, ctx, x, *v, te);
+            let (n2, w) = total(p, r, ctx.insert(x, te), env.insert(x, *v), *sm);
             let n = max(n1, n2);
-            mono(p, n1, n, env, *a);
-            mono(p, n2, n, env, *b);
-            (n + 1, Val::Pair(Box::new(va), Box::new(vb)))
-        },
-        Expr::Builtin(b, es) => {
-            let (n, vs) = total_args(p, r, ctx, env, es, 0);
-            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
-            apply_sound(b, ts, vs);
-            (n + 1, apply(b, vs)->Done_0)
-        },
-        Expr::Call(g, es) => {
-            let (n1, vs) = total_args(p, r, ctx, env, es, 0);
-            let ts = ty_args(p, r, ctx, es, 0)->Some_0;
-            let fun = p.funcs[g as int];
-            assert(!p.rec[g as int]);
-            assert(p.rank[g as int] < r);
-            assert forall|k: int| 0 <= k < vs.len() implies val_type(#[trigger] vs[k], fun.params[k].1) by {
-                assert(ts[k] == fun.params[k].1);
-            }
-            bind_ok(fun.params, vs, vs.len());
-            let ctx2 = param_ctx(fun.params, fun.params.len());
-            let env2 = bind(fun.params, vs, vs.len());
-            assert(ty_expr(p, p.rank[g as int], ctx2, fun.body) == Some(fun.ret));
-            let (n2, w) = total(p, p.rank[g as int], ctx2, env2, fun.body);
-            let n = max(n1, n2);
-            mono_args(p, n1, n, env, es, 0);
-            mono(p, n2, n, env2, fun.body);
+            mono(p, n1, n, env, *m);
+            mono(p, n2, n, env.insert(x, *v), *sm);
             (n + 1, w)
         },
-        Expr::Let(x, a, b) => {
-            let (n1, va) = total(p, r, ctx, env, *a);
-            let ta = ty_expr(p, r, ctx, *a)->Some_0;
-            env_ok_insert(env, ctx, x, va, ta);
-            let (n2, vb) = total(p, r, ctx.insert(x, ta), env.insert(x, va), *b);
+        _ => {
+            assert(vm is None);
+            let (n2, w) = total(p, r, ctx, env, *nb);
             let n = max(n1, n2);
-            mono(p, n1, n, env, *a);
-            mono(p, n2, n, env.insert(x, va), *b);
-            (n + 1, vb)
-        },
-        Expr::If(c, a, b) => {
-            let (n1, vc) = total(p, r, ctx, env, *c);
-            let (n2, v) = if vc == Val::Bool(true) {
-                total(p, r, ctx, env, *a)
-            } else {
-                total(p, r, ctx, env, *b)
-            };
-            let n = max(n1, n2);
-            mono(p, n1, n, env, *c);
-            mono(p, n2, n, env, *a);
-            mono(p, n2, n, env, *b);
-            (n + 1, v)
-        },
-        Expr::Fold(xs, init, acc, item, body) => {
-            let (n1, vx) = total(p, r, ctx, env, *xs);
-            let (n2, v0) = total(p, r, ctx, env, *init);
-            let tx = ty_expr(p, r, ctx, *xs)->Some_0;
-            let ta = ty_expr(p, r, ctx, *init)->Some_0;
-            let te = *tx->List_0;
-            let s = vx->List_0;
-            assert(tx == Ty::List(Box::new(te)));
-            val_type_list(s, te);
-            let (n3, w) = total_fold(p, r, ctx, env, acc, item, *body, ta, te, s, 0, v0);
-            let n = max(max(n1, n2), n3);
-            mono(p, n1, n, env, *xs);
-            mono(p, n2, n, env, *init);
-            mono_fold(p, n3, n, env, acc, item, *body, s, 0, v0);
+            mono(p, n1, n, env, *m);
+            mono(p, n2, n, env, *nb);
             (n + 1, w)
         },
-        Expr::Match(m, nb, x, sm) => {
-            let (n1, vm) = total(p, r, ctx, env, *m);
-            let tm = ty_expr(p, r, ctx, *m)->Some_0;
-            let te = *tm->Option_0;
-            assert(tm == Ty::Option(Box::new(te)));
-            match vm {
-                Val::Some(v) => {
-                    env_ok_insert(env, ctx, x, *v, te);
-                    let (n2, w) = total(p, r, ctx.insert(x, te), env.insert(x, *v), *sm);
-                    let n = max(n1, n2);
-                    mono(p, n1, n, env, *m);
-                    mono(p, n2, n, env.insert(x, *v), *sm);
-                    (n + 1, w)
-                },
-                _ => {
-                    assert(vm is None);
-                    let (n2, w) = total(p, r, ctx, env, *nb);
-                    let n = max(n1, n2);
-                    mono(p, n1, n, env, *m);
-                    mono(p, n2, n, env, *nb);
-                    (n + 1, w)
-                },
-            }
+    }
+}
+
+proof fn total_inj(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is Inj,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let ok = e->Inj_0;
+    let x = e->Inj_3;
+    let (n, v) = total(p, r, ctx, env, *x);
+    (n + 1, if ok { Val::Ok(Box::new(v)) } else { Val::Err(Box::new(v)) })
+}
+
+proof fn total_matchr(p: Prog, r: nat, ctx: Map<nat, Ty>, env: Map<nat, Val>, e: Expr) -> (res: (nat, Val))
+    requires
+        wf(p),
+        no_rec(p),
+        env_ok(env, ctx),
+        ty_expr(p, r, ctx, e) is Some,
+        e is MatchR,
+    ensures
+        eval(p, res.0, env, e) == Res::Done(res.1),
+        val_type(res.1, ty_expr(p, r, ctx, e)->Some_0),
+    decreases r, e, 0nat,
+{
+    let m = e->MatchR_0;
+    let x = e->MatchR_1;
+    let a = e->MatchR_2;
+    let y = e->MatchR_3;
+    let b = e->MatchR_4;
+    let (n1, vm) = total(p, r, ctx, env, *m);
+    let tm = ty_expr(p, r, ctx, *m)->Some_0;
+    let tl = *tm->Result_0;
+    let tr = *tm->Result_1;
+    assert(tm == Ty::Result(Box::new(tl), Box::new(tr)));
+    match vm {
+        Val::Ok(v) => {
+            env_ok_insert(env, ctx, x, *v, tl);
+            let (n2, w) = total(p, r, ctx.insert(x, tl), env.insert(x, *v), *a);
+            let n = max(n1, n2);
+            mono(p, n1, n, env, *m);
+            mono(p, n2, n, env.insert(x, *v), *a);
+            (n + 1, w)
         },
-        Expr::Inj(ok, t, u, x) => {
-            let (n, v) = total(p, r, ctx, env, *x);
-            (n + 1, if ok { Val::Ok(Box::new(v)) } else { Val::Err(Box::new(v)) })
-        },
-        Expr::MatchR(m, x, a, y, b) => {
-            let (n1, vm) = total(p, r, ctx, env, *m);
-            let tm = ty_expr(p, r, ctx, *m)->Some_0;
-            let tl = *tm->Result_0;
-            let tr = *tm->Result_1;
-            assert(tm == Ty::Result(Box::new(tl), Box::new(tr)));
-            match vm {
-                Val::Ok(v) => {
-                    env_ok_insert(env, ctx, x, *v, tl);
-                    let (n2, w) = total(p, r, ctx.insert(x, tl), env.insert(x, *v), *a);
-                    let n = max(n1, n2);
-                    mono(p, n1, n, env, *m);
-                    mono(p, n2, n, env.insert(x, *v), *a);
-                    (n + 1, w)
-                },
-                _ => {
-                    assert(vm is Err);
-                    let v = vm->Err_0;
-                    env_ok_insert(env, ctx, y, *v, tr);
-                    let (n2, w) = total(p, r, ctx.insert(y, tr), env.insert(y, *v), *b);
-                    let n = max(n1, n2);
-                    mono(p, n1, n, env, *m);
-                    mono(p, n2, n, env.insert(y, *v), *b);
-                    (n + 1, w)
-                },
-            }
+        _ => {
+            assert(vm is Err);
+            let v = vm->Err_0;
+            env_ok_insert(env, ctx, y, *v, tr);
+            let (n2, w) = total(p, r, ctx.insert(y, tr), env.insert(y, *v), *b);
+            let n = max(n1, n2);
+            mono(p, n1, n, env, *m);
+            mono(p, n2, n, env.insert(y, *v), *b);
+            (n + 1, w)
         },
     }
 }
@@ -697,7 +901,7 @@ pub proof fn total_fold(
     ensures
         eval_fold(p, res.0, env, acc, item, body, items, j, a) == Res::Done(res.1),
         val_type(res.1, ta),
-    decreases r, body, items.len() - j,
+    decreases r, body, items.len() - j + 1,
 {
     if j >= items.len() {
         (1, a)

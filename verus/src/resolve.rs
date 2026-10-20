@@ -40,6 +40,53 @@ pub open spec fn str_exprs(w: Seq<char>) -> Seq<Expr> {
     Seq::new(w.len(), |i: int| Expr::Char(w[i] as u32 as int))
 }
 
+/// 表面の型から核の型へ。宣言された名前（Named）は段階 2 で表から引くので、ここでは None。
+/// Dict は v1.9 の消去で List<Pair<K, V>> になる（dict.rs の erase_in_place と同じ形）。
+pub open spec fn to_ty(t: SType) -> Option<Ty>
+    decreases t,
+{
+    match t {
+        SType::Int => Some(Ty::Int),
+        SType::Bool => Some(Ty::Bool),
+        SType::Unit => Some(Ty::Unit),
+        SType::Char => Some(Ty::Char),
+        SType::List(a) => match to_ty(*a) {
+            Some(u) => Some(Ty::List(Box::new(u))),
+            None => None,
+        },
+        SType::Option(a) => match to_ty(*a) {
+            Some(u) => Some(Ty::Option(Box::new(u))),
+            None => None,
+        },
+        SType::Pair(a, b) => match (to_ty(*a), to_ty(*b)) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        },
+        SType::Result(a, b) => match (to_ty(*a), to_ty(*b)) {
+            (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
+            _ => None,
+        },
+        SType::Named(_) => None,
+        SType::Dict(a, b) => match (to_ty(*a), to_ty(*b)) {
+            (Some(u), Some(v)) => Some(Ty::List(Box::new(Ty::Pair(Box::new(u), Box::new(v))))),
+            _ => None,
+        },
+    }
+}
+
+/// 核の型の表現。to_ty が成功する型についてだけ使う（既定の Unit は、検査の済んだ呼出しでは現れない）。
+pub open spec fn ty_or_unit(t: SType) -> Ty {
+    match to_ty(t) {
+        Some(u) => u,
+        None => Ty::Unit,
+    }
+}
+
+/// 引数の型は全て核の型に写せる。
+pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>) -> bool {
+    forall|k: int| 0 <= k < ps.len() ==> to_ty(#[trigger] ps[k].1) is Some
+}
+
 /// 式の名前解決。fs は関数名の列、sc は可視変数の列（外側から順）。
 pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
     decreases e, 0nat,
@@ -54,15 +101,18 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
             Some(k) => Some(Expr::Var(k)),
             None => None,
         },
-        Sx::List(t, es) => match rxs(fs, sc, es, 0) {
-            Some(xs) => Some(Expr::List(t, xs)),
-            None => None,
+        Sx::List(t, es) => match (to_ty(t), rxs(fs, sc, es, 0)) {
+            (Some(u), Some(xs)) => Some(Expr::List(u, xs)),
+            _ => None,
         },
         Sx::Some(a) => match rx(fs, sc, *a) {
             Some(x) => Some(Expr::Some(Box::new(x))),
             None => None,
         },
-        Sx::None(t) => Some(Expr::None(t)),
+        Sx::None(t) => match to_ty(t) {
+            Some(u) => Some(Expr::None(u)),
+            None => None,
+        },
         Sx::Pair(a, b) => match (rx(fs, sc, *a), rx(fs, sc, *b)) {
             (Some(x), Some(y)) => Some(Expr::Pair(Box::new(x), Box::new(y))),
             _ => None,
@@ -105,9 +155,9 @@ pub open spec fn rx(fs: Seq<Seq<char>>, sc: Seq<Seq<char>>, e: Sx) -> Option<Exp
                 _ => None,
             }
         },
-        Sx::Inj(ok, t, u, a) => match rx(fs, sc, *a) {
-            Some(x) => Some(Expr::Inj(ok, t, u, Box::new(x))),
-            None => None,
+        Sx::Inj(ok, t, u, a) => match (to_ty(t), to_ty(u), rx(fs, sc, *a)) {
+            (Some(t1), Some(u1), Some(x)) => Some(Expr::Inj(ok, t1, u1, Box::new(x))),
+            _ => None,
         },
         Sx::MatchR(m, x, a, y, b) => if idx(sc, x, 0) is Some || idx(sc, y, 0) is Some {
             None
@@ -184,21 +234,21 @@ pub open spec fn names_of(ds: Seq<Sd>) -> Seq<Seq<char>> {
     Seq::new(ds.len(), |i: int| fname(ds[i]))
 }
 
-pub open spec fn pnames(ps: Seq<(Seq<char>, Ty)>) -> Seq<Seq<char>> {
+pub open spec fn pnames(ps: Seq<(Seq<char>, SType)>) -> Seq<Seq<char>> {
     Seq::new(ps.len(), |i: int| ps[i].0)
 }
 
-pub open spec fn rparams(ps: Seq<(Seq<char>, Ty)>) -> Seq<(nat, Ty)> {
-    Seq::new(ps.len(), |k: int| (k as nat, ps[k].1))
+pub open spec fn rparams(ps: Seq<(Seq<char>, SType)>) -> Seq<(nat, Ty)> {
+    Seq::new(ps.len(), |k: int| (k as nat, ty_or_unit(ps[k].1)))
 }
 
 pub open spec fn rfunc(fs: Seq<Seq<char>>, d: Sd) -> Option<Func> {
     match d {
-        Sd::Fn(_, ps, r, b) => if !distinct(pnames(ps)) {
+        Sd::Fn(_, ps, r, b) => if !distinct(pnames(ps)) || !params_ok(ps) || to_ty(r) is None {
             None
         } else {
             match rx(fs, pnames(ps), b) {
-                Some(body) => Some(Func { params: rparams(ps), ret: r, body }),
+                Some(body) => Some(Func { params: rparams(ps), ret: ty_or_unit(r), body }),
                 None => None,
             }
         },
@@ -544,6 +594,44 @@ pub open spec fn cato(u: Seq<Expr>, o: Option<Seq<Expr>>) -> Option<Seq<Expr>> {
     }
 }
 
+/// 表面の型から核の型へ（to_ty の exec 版）。
+fn to_ty_e(t: &STy) -> (r: Option<Ty>)
+    ensures
+        match r {
+            Some(u) => to_ty(vty(*t)) == Some(u),
+            None => to_ty(vty(*t)) is None,
+        },
+    decreases t,
+{
+    match t {
+        STy::Int => Some(Ty::Int),
+        STy::Bool => Some(Ty::Bool),
+        STy::Unit => Some(Ty::Unit),
+        STy::Char => Some(Ty::Char),
+        STy::List(a) => match to_ty_e(a) {
+            Some(u) => Some(Ty::List(Box::new(u))),
+            None => None,
+        },
+        STy::Option(a) => match to_ty_e(a) {
+            Some(u) => Some(Ty::Option(Box::new(u))),
+            None => None,
+        },
+        STy::Pair(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        },
+        STy::Result(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+            (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
+            _ => None,
+        },
+        STy::Named(_) => None,
+        STy::Dict(a, b) => match (to_ty_e(a), to_ty_e(b)) {
+            (Some(u), Some(v)) => Some(Ty::List(Box::new(Ty::Pair(Box::new(u), Box::new(v))))),
+            _ => None,
+        },
+    }
+}
+
 pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     ensures
         final(sc)@ == old(sc)@,
@@ -582,15 +670,18 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
             Some(k) => Some(EExpr::Var(k)),
             None => None,
         },
-        SExpr::List(t, es) => match rxs_e(fs, sc, es) {
-            Some(xs) => Some(EExpr::List(ty_clone(t), xs)),
-            None => None,
+        SExpr::List(t, es) => match (to_ty_e(t), rxs_e(fs, sc, es)) {
+            (Some(u), Some(xs)) => Some(EExpr::List(u, xs)),
+            _ => None,
         },
         SExpr::Some(a) => match rx_e(fs, sc, a) {
             Some(x) => Some(EExpr::Some(Box::new(x))),
             None => None,
         },
-        SExpr::None(t) => Some(EExpr::None(ty_clone(t))),
+        SExpr::None(t) => match to_ty_e(t) {
+            Some(u) => Some(EExpr::None(u)),
+            None => None,
+        },
         SExpr::Pair(a, b) => {
             let x = rx_e(fs, sc, a);
             let y = rx_e(fs, sc, b);
@@ -623,9 +714,9 @@ pub fn rx_e(fs: &Vec<Vec<char>>, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Opti
         },
         SExpr::Fold(..) => rx_fold_e(fs, sc, e),
         SExpr::Match(..) => rx_match_e(fs, sc, e),
-        SExpr::Inj(ok, t, u, a) => match rx_e(fs, sc, a) {
-            Some(x) => Some(EExpr::Inj(*ok, ty_clone(t), ty_clone(u), Box::new(x))),
-            None => None,
+        SExpr::Inj(ok, t, u, a) => match (to_ty_e(t), to_ty_e(u), rx_e(fs, sc, a)) {
+            (Some(t1), Some(u1), Some(x)) => Some(EExpr::Inj(*ok, t1, u1, Box::new(x))),
+            _ => None,
         },
         SExpr::MatchR(..) => rx_matchr_e(fs, sc, e),
         // レコードは検証済みの核にまだ入っていない（段階 2）。
@@ -886,7 +977,7 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
         },
 {
     match d {
-        SDecl::Fn(_, ps, ret, body) => {
+        SDecl::Fn(fname, ps, ret, body) => {
             let ghost pv = vps(ps@);
             let mut sc: Vec<Vec<char>> = Vec::new();
             let mut params: Vec<(usize, Ty)> = Vec::new();
@@ -897,20 +988,34 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
                     i <= ps@.len(),
                     vnames(sc@) == pnames(pv).subrange(0, i as int),
                     view_params(params@) == rparams(pv).subrange(0, i as int),
+                    sc@.len() == i as int,
+                    vd(*d) == Sd::Fn(fname@, pv, vty(*ret), vx(*body)),
+                    forall|k: int| 0 <= k < i ==> to_ty(#[trigger] pv[k].1) is Some,
                 decreases ps@.len() - i,
             {
                 let ghost s0 = sc@;
                 let ghost q0 = params@;
                 let (x, t) = &ps[i];
+                let u = match to_ty_e(t) {
+                    Some(u) => u,
+                    None => {
+                        proof {
+                            assert(to_ty(pv[i as int].1) is None);
+                            assert(!params_ok(pv));
+                            assert(rfunc(vnames(fs@), vd(*d)) is None);
+                        }
+                        return None;
+                    },
+                };
                 sc.push(clone_chars(x));
-                params.push((i, ty_clone(t)));
+                params.push((i, ty_clone(&u)));
                 proof {
                     vnames_push(s0, sc@[i as int]);
-                    assert(pv[i as int] == (x@, *t));
+                    assert(pv[i as int] == (x@, vty(*t)));
                     assert(vnames(sc@) == vnames(s0).push(x@));
                     assert(pnames(pv).subrange(0, i + 1) =~= pnames(pv).subrange(0, i as int).push(x@));
-                    assert(view_params(params@) =~= view_params(q0).push((i as nat, *t)));
-                    assert(rparams(pv).subrange(0, i + 1) =~= rparams(pv).subrange(0, i as int).push((i as nat, *t)));
+                    assert(view_params(params@) =~= view_params(q0).push((i as nat, u)));
+                    assert(rparams(pv).subrange(0, i + 1) =~= rparams(pv).subrange(0, i as int).push((i as nat, u)));
                 }
                 i += 1;
             }
@@ -918,11 +1023,18 @@ fn rfunc_e(fs: &Vec<Vec<char>>, d: &SDecl) -> (r: Option<EFunc>)
                 assert(pnames(pv).subrange(0, i as int) =~= pnames(pv));
                 assert(rparams(pv).subrange(0, i as int) =~= rparams(pv));
             }
+            proof {
+                assert(params_ok(pv));
+            }
             if !distinct_e(&sc) {
                 return None;
             }
+            let ret1 = match to_ty_e(ret) {
+                Some(u) => u,
+                None => return None,
+            };
             match rx_e(fs, &mut sc, body) {
-                Some(b) => Some(EFunc { params, ret: ty_clone(ret), body: b }),
+                Some(b) => Some(EFunc { params, ret: ret1, body: b }),
                 None => None,
             }
         },

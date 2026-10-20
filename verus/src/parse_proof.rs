@@ -20,6 +20,11 @@ pub open spec fn not_sym(t: Tok) -> bool {
     !(t is Sym)
 }
 
+/// 続き k は `<` で始まらない。型の名前 Dict の直後に `<` があると、dict 型の始まりに読まれてしまうため。
+pub open spec fn no_lt(k: Seq<Tok>) -> bool {
+    !(k.len() > 0 && k[0] == Tok::Sym('<'))
+}
+
 /// 列の分割：suf(ts, i) == a + b なら a は位置 i から並び、その後ろは b。
 pub proof fn hd(ts: Seq<Tok>, i: nat, a: Seq<Tok>, b: Seq<Tok>)
     requires
@@ -60,30 +65,30 @@ pub proof fn pre(ts: Seq<Tok>, i: nat, n: nat)
 
 // ------------------------------------------------------------------ token 写像の継続の分離
 
-pub proof fn tt_app(t: Ty, k: Seq<Tok>)
+pub proof fn tt_app(t: SType, k: Seq<Tok>)
     ensures
         tt(t, k) == tt(t, Seq::empty()) + k,
         tt(t, Seq::empty()).len() > 0,
-        tt(t, Seq::empty())[0] is Kw,
+        not_sym(tt(t, Seq::empty())[0]),
     decreases t,
 {
     let z = Seq::<Tok>::empty();
     match t {
-        Ty::List(a) => {
+        SType::List(a) => {
             tt_app(*a, seq![Tok::Sym('>')] + k);
             tt_app(*a, seq![Tok::Sym('>')] + z);
         },
-        Ty::Option(a) => {
+        SType::Option(a) => {
             tt_app(*a, seq![Tok::Sym('>')] + k);
             tt_app(*a, seq![Tok::Sym('>')] + z);
         },
-        Ty::Pair(a, b) | Ty::Result(a, b) => {
+        SType::Pair(a, b) | SType::Result(a, b) | SType::Dict(a, b) => {
             tt_app(*b, seq![Tok::Sym('>')] + k);
             tt_app(*b, seq![Tok::Sym('>')] + z);
             tt_app(*a, seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + k));
             tt_app(*a, seq![Tok::Sym(',')] + tt(*b, seq![Tok::Sym('>')] + z));
         },
-        _ => {},
+        SType::Int | SType::Bool | SType::Unit | SType::Char | SType::Named(_) => {},
     }
     assert(tt(t, k) =~= tt(t, z) + k);
 }
@@ -134,7 +139,7 @@ pub proof fn tfe_app(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>)
 }
 
 /// 型の字段の並び fs[i..] の結合。
-pub proof fn tfd_app(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+pub proof fn tfd_app(fs: Seq<(Seq<char>, SType)>, i: nat, tc: bool, tail: Seq<Tok>)
     ensures
         tfd(fs, i, tc, tail) == tfd(fs, i, tc, Seq::<Tok>::empty()) + tail,
     decreases fs, fs.len() - i,
@@ -175,7 +180,7 @@ pub proof fn tfe_shift(x: (Seq<char>, Sx), fs: Seq<(Seq<char>, Sx)>, i: nat, tai
     }
 }
 
-pub proof fn tfd_shift(x: (Seq<char>, Ty), fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+pub proof fn tfd_shift(x: (Seq<char>, SType), fs: Seq<(Seq<char>, SType)>, i: nat, tc: bool, tail: Seq<Tok>)
     ensures
         tfd(seq![x] + fs, i + 1, tc, tail) == tfd(fs, i, tc, tail),
     decreases fs.len() - i,
@@ -201,7 +206,7 @@ pub proof fn bfs_shift(x: (Seq<char>, Sx), fs: Seq<(Seq<char>, Sx)>, i: nat, d: 
     }
 }
 
-pub proof fn bfds_shift(x: (Seq<char>, Ty), fs: Seq<(Seq<char>, Ty)>, i: nat, td: nat)
+pub proof fn bfds_shift(x: (Seq<char>, SType), fs: Seq<(Seq<char>, SType)>, i: nat, td: nat)
     ensures
         bfds(seq![x] + fs, i + 1, td) == bfds(fs, i, td),
     decreases fs.len() - i,
@@ -616,7 +621,7 @@ pub proof fn targs_app(es: Seq<Sx>, i: nat, k: Seq<Tok>)
     assert(targs(es, i, k) =~= targs(es, i, z) + k);
 }
 
-pub proof fn tps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>)
+pub proof fn tps_app(ps: Seq<(Seq<char>, SType)>, i: nat, k: Seq<Tok>)
     ensures
         tps(ps, i, k) == tps(ps, i, Seq::empty()) + k,
         tps(ps, i, Seq::empty()).len() > 0,
@@ -637,7 +642,7 @@ pub proof fn tps_app(ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>)
 }
 
 /// 型の並びの後ろの結合。
-pub proof fn tts_app(ps: Seq<Ty>, i: nat, k: Seq<Tok>)
+pub proof fn tts_app(ps: Seq<SType>, i: nat, k: Seq<Tok>)
     ensures
         tts(ps, i, k) == tts(ps, i, Seq::<Tok>::empty()) + k,
     decreases ps.len() - i,
@@ -657,7 +662,7 @@ pub proof fn tts_app(ps: Seq<Ty>, i: nat, k: Seq<Tok>)
 }
 
 /// 構築子の中身の結合。
-pub proof fn tpay_app(ps: Seq<Ty>, k: Seq<Tok>)
+pub proof fn tpay_app(ps: Seq<SType>, k: Seq<Tok>)
     ensures
         tpay(ps, k) == tpay(ps, Seq::<Tok>::empty()) + k,
 {
@@ -671,7 +676,7 @@ pub proof fn tpay_app(ps: Seq<Ty>, k: Seq<Tok>)
 }
 
 /// 直和型の構築子の並びの結合。
-pub proof fn tvars_app(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
+pub proof fn tvars_app(vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, k: Seq<Tok>)
     ensures
         tvars(vs, i, k) == tvars(vs, i, Seq::<Tok>::empty()) + k,
     decreases vs.len() - i,
@@ -691,7 +696,7 @@ pub proof fn tvars_app(vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
 }
 
 /// 先頭の型を一つ取った並びの後ろ（位置を一つ進める）。
-pub proof fn tts_shift(x: Ty, ps: Seq<Ty>, i: nat, k: Seq<Tok>)
+pub proof fn tts_shift(x: SType, ps: Seq<SType>, i: nat, k: Seq<Tok>)
     ensures
         tts(seq![x] + ps, i + 1, k) == tts(ps, i, k),
     decreases ps.len() - i,
@@ -706,7 +711,7 @@ pub proof fn tts_shift(x: Ty, ps: Seq<Ty>, i: nat, k: Seq<Tok>)
 }
 
 /// 先頭の構築子を一つ取った並びの後ろ（位置を一つ進める）。
-pub proof fn tvars_shift(x: (Seq<char>, Seq<Ty>), vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, k: Seq<Tok>)
+pub proof fn tvars_shift(x: (Seq<char>, Seq<SType>), vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, k: Seq<Tok>)
     ensures
         tvars(seq![x] + vs, i + 1, k) == tvars(vs, i, k),
     decreases vs.len() - i,
@@ -720,7 +725,7 @@ pub proof fn tvars_shift(x: (Seq<char>, Seq<Ty>), vs: Seq<(Seq<char>, Seq<Ty>)>,
     }
 }
 
-pub proof fn bts_shift(x: Ty, ps: Seq<Ty>, i: nat, td: nat)
+pub proof fn bts_shift(x: SType, ps: Seq<SType>, i: nat, td: nat)
     ensures
         bts(seq![x] + ps, i + 1, td) == bts(ps, i, td),
     decreases ps.len() - i,
@@ -732,7 +737,7 @@ pub proof fn bts_shift(x: Ty, ps: Seq<Ty>, i: nat, td: nat)
     }
 }
 
-pub proof fn bvars_shift(x: (Seq<char>, Seq<Ty>), vs: Seq<(Seq<char>, Seq<Ty>)>, i: nat, td: nat)
+pub proof fn bvars_shift(x: (Seq<char>, Seq<SType>), vs: Seq<(Seq<char>, Seq<SType>)>, i: nat, td: nat)
     ensures
         bvars(seq![x] + vs, i + 1, td) == bvars(vs, i, td),
     decreases vs.len() - i,
@@ -787,11 +792,12 @@ pub proof fn at_end(ts: Seq<Tok>, i: nat, s: Seq<Tok>, k: Seq<Tok>)
 
 // ------------------------------------------------------------------ 完全性
 
-pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
+pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: SType, k: Seq<Tok>)
     requires
         i <= ts.len(),
         suf(ts, i) == tt(t, k),
         bt(t, d),
+        no_lt(k),
     ensures
         pt(ts, i, d) == Some((t, (ts.len() - k.len()) as nat)),
     decreases t,
@@ -799,7 +805,7 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
     let d1 = (d - 1) as nat;
     let z = Seq::<Tok>::empty();
     match t {
-        Ty::List(a) => if *a == Ty::Char {
+        SType::List(a) => if *a == SType::Char {
             hd(ts, i, seq![Tok::Kw(Kw::TString)], k);
         } else {
             let k1 = seq![Tok::Sym('>')] + k;
@@ -809,7 +815,7 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
             at_end(ts, i + 2, tt(*a, z), k1);
             hd(ts, (ts.len() - k1.len()) as nat, seq![Tok::Sym('>')], k);
         },
-        Ty::Option(a) => {
+        SType::Option(a) => {
             let k1 = seq![Tok::Sym('>')] + k;
             hd(ts, i, seq![Tok::Kw(Kw::TOption), Tok::Sym('<')], tt(*a, k1));
             pt_complete(ts, i + 2, d1, *a, k1);
@@ -817,7 +823,7 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
             at_end(ts, i + 2, tt(*a, z), k1);
             hd(ts, (ts.len() - k1.len()) as nat, seq![Tok::Sym('>')], k);
         },
-        Ty::Pair(a, b) => {
+        SType::Pair(a, b) => {
             let kb = seq![Tok::Sym('>')] + k;
             let ka = seq![Tok::Sym(',')] + tt(*b, kb);
             hd(ts, i, seq![Tok::Kw(Kw::TPair), Tok::Sym('<')], tt(*a, ka));
@@ -831,7 +837,7 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
             at_end(ts, j + 1, tt(*b, z), kb);
             hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym('>')], k);
         },
-        Ty::Result(a, b) => {
+        SType::Result(a, b) => {
             let kb = seq![Tok::Sym('>')] + k;
             let ka = seq![Tok::Sym(',')] + tt(*b, kb);
             hd(ts, i, seq![Tok::Kw(Kw::TResult), Tok::Sym('<')], tt(*a, ka));
@@ -845,10 +851,34 @@ pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: Ty, k: Seq<Tok>)
             at_end(ts, j + 1, tt(*b, z), kb);
             hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym('>')], k);
         },
-        Ty::Int => hd(ts, i, seq![Tok::Kw(Kw::TInt)], k),
-        Ty::Bool => hd(ts, i, seq![Tok::Kw(Kw::TBool)], k),
-        Ty::Unit => hd(ts, i, seq![Tok::Kw(Kw::TUnit)], k),
-        Ty::Char => hd(ts, i, seq![Tok::Kw(Kw::TChar)], k),
+        SType::Dict(a, b) => {
+            dict_ident();
+            tyname_ok_eq(dict_name());
+            let kb = seq![Tok::Sym('>')] + k;
+            let ka = seq![Tok::Sym(',')] + tt(*b, kb);
+            hd(ts, i, seq![Tok::Id(dict_name()), Tok::Sym('<')], tt(*a, ka));
+            pt_complete(ts, i + 2, d1, *a, ka);
+            tt_app(*a, ka);
+            at_end(ts, i + 2, tt(*a, z), ka);
+            let j = (ts.len() - ka.len()) as nat;
+            hd(ts, j, seq![Tok::Sym(',')], tt(*b, kb));
+            pt_complete(ts, j + 1, d1, *b, kb);
+            tt_app(*b, kb);
+            at_end(ts, j + 1, tt(*b, z), kb);
+            hd(ts, (ts.len() - kb.len()) as nat, seq![Tok::Sym('>')], k);
+        },
+        SType::Named(x) => {
+            tyname_ok_eq(x);
+            hd(ts, i, seq![Tok::Id(x)], k);
+            if x == dict_name() && k.len() > 0 {
+                assert(suf(ts, i + 1) == k);
+                assert(ts[(i + 1) as int] == k[0]);
+            }
+        },
+        SType::Int => hd(ts, i, seq![Tok::Kw(Kw::TInt)], k),
+        SType::Bool => hd(ts, i, seq![Tok::Kw(Kw::TBool)], k),
+        SType::Unit => hd(ts, i, seq![Tok::Kw(Kw::TUnit)], k),
+        SType::Char => hd(ts, i, seq![Tok::Kw(Kw::TChar)], k),
     }
 }
 
@@ -926,7 +956,7 @@ pub proof fn bfs_at(fs: Seq<(Seq<char>, Sx)>, j: nat, d: nat, td: nat)
 }
 
 /// 型の字段の並び fs[j] の位置の名前と型は、IDENT と深さ内の型。
-pub proof fn bfds_at(fs: Seq<(Seq<char>, Ty)>, j: nat, td: nat)
+pub proof fn bfds_at(fs: Seq<(Seq<char>, SType)>, j: nat, td: nat)
     requires
         j < fs.len(),
         bfds(fs, j, td),
@@ -950,7 +980,7 @@ pub proof fn bfs_one(f: Seq<char>, v: Sx, d: nat, td: nat)
 }
 
 /// 型の字段が一つだけの並びは、名前と型が深さ内なら健全。
-pub proof fn bfds_one(f: Seq<char>, t: Ty, td: nat)
+pub proof fn bfds_one(f: Seq<char>, t: SType, td: nat)
     requires
         ident_ok(f),
         bt(t, td),
@@ -991,7 +1021,7 @@ pub proof fn tfe_head(fs: Seq<(Seq<char>, Sx)>, i: nat, tail: Seq<Tok>)
 {
 }
 
-pub proof fn tfd_head(fs: Seq<(Seq<char>, Ty)>, i: nat, tc: bool, tail: Seq<Tok>)
+pub proof fn tfd_head(fs: Seq<(Seq<char>, SType)>, i: nat, tc: bool, tail: Seq<Tok>)
     requires
         i < fs.len(),
     ensures
@@ -1270,7 +1300,7 @@ proof fn pp_complete_rec(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
 }
 
 /// 型の字段の並び fs[j..] を、位置 i から読む（閉じ括弧は tail に含む）。
-proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, Ty)>, j: nat, tc: bool, k: Seq<Tok>)
+proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, SType)>, j: nat, tc: bool, k: Seq<Tok>)
     requires
         j < fs.len(),
         i <= ts.len(),
@@ -1298,6 +1328,17 @@ proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, Ty)>, 
     hd(ts, i, seq![word_tok(f.0), Tok::Sym(':')], tt(f.1, t));
     assert(word_tok(f.0) == Tok::Id(f.0));
     assert(idt(ts, i) == Some(f.0));
+    assert(no_lt(t)) by {
+        if last {
+            if tc {
+                assert(t[0] == Tok::Sym(','));
+            } else {
+                assert(t[0] == Tok::Sym('}'));
+            }
+        } else {
+            assert(t[0] == Tok::Sym(','));
+        }
+    }
     pt_complete(ts, i + 2, td, f.1, t);
     tt_app(f.1, t);
     at_end(ts, i + 2, tt(f.1, Seq::<Tok>::empty()), t);
@@ -2229,7 +2270,7 @@ pub proof fn pargs1_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, es: Seq<Sx>,
     }
 }
 
-pub proof fn pparams1_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>, Ty)>, j: nat, k: Seq<Tok>)
+pub proof fn pparams1_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>, SType)>, j: nat, k: Seq<Tok>)
     requires
         i <= ts.len(),
         j < ps.len(),
@@ -2262,7 +2303,7 @@ pub proof fn pparams1_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>
     }
 }
 
-pub proof fn pparams_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>, Ty)>, k: Seq<Tok>)
+pub proof fn pparams_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>, SType)>, k: Seq<Tok>)
     requires
         i <= ts.len(),
         suf(ts, i) == tps(ps, 0, k),
@@ -2272,7 +2313,7 @@ pub proof fn pparams_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<(Seq<char>,
 {
     if ps.len() == 0 {
         hd(ts, i, seq![Tok::Sym(')')], k);
-        assert(ps =~= Seq::<(Seq<char>, Ty)>::empty());
+        assert(ps =~= Seq::<(Seq<char>, SType)>::empty());
     } else {
         let kt = if 1 == ps.len() {
             seq![Tok::Sym(')')] + k
@@ -2291,13 +2332,14 @@ pub open spec fn no_sep(k: Seq<Tok>) -> bool {
 }
 
 /// 型の並び ps[j..] を位置 i から読む（閉じ括弧は k に含み、k は `,` で始まらない）。
-pub proof fn ptys_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<Ty>, j: nat, k: Seq<Tok>)
+pub proof fn ptys_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<SType>, j: nat, k: Seq<Tok>)
     requires
         j < ps.len(),
         i <= ts.len(),
         bts(ps, j, td),
         suf(ts, i) == tts(ps, j, k),
         no_sep(k),
+        no_lt(k),
     ensures
         ptys(ts, i, td) == Some((ps.subrange(j as int, ps.len() as int), (ts.len() - k.len()) as nat)),
     decreases ps.len() - j,
@@ -2323,7 +2365,7 @@ pub proof fn ptys_complete(ts: Seq<Tok>, i: nat, td: nat, ps: Seq<Ty>, j: nat, k
 }
 
 /// 構築子 `C` か `C(T, ...)` を位置 i から読む（後ろの続き k。中身が空なら k は `(` で始まらない）。
-pub proof fn pvar_complete(ts: Seq<Tok>, i: nat, td: nat, c: Seq<char>, ps: Seq<Ty>, k: Seq<Tok>)
+pub proof fn pvar_complete(ts: Seq<Tok>, i: nat, td: nat, c: Seq<char>, ps: Seq<SType>, k: Seq<Tok>)
     requires
         i <= ts.len(),
         cname_ok(c),
@@ -2341,7 +2383,7 @@ pub proof fn pvar_complete(ts: Seq<Tok>, i: nat, td: nat, c: Seq<char>, ps: Seq<
     assert(cidt(ts, i) == Some(c));
     if ps.len() == 0 {
         assert(tpay(ps, k) == k);
-        assert(ps =~= Seq::<Ty>::empty());
+        assert(ps =~= Seq::<SType>::empty());
         if k.len() > 0 {
             pfx1(ts, i + 1);
             assert(k[0] == ts[(i + 1) as int]);
@@ -2353,6 +2395,7 @@ pub proof fn pvar_complete(ts: Seq<Tok>, i: nat, td: nat, c: Seq<char>, ps: Seq<
         let kc = seq![Tok::Sym(')')] + k;
         assert(seq![Tok::Id(c)] + tpay(ps, k) =~= seq![Tok::Id(c), Tok::Sym('(')] + tts(ps, 0, kc));
         hd(ts, i, seq![Tok::Id(c), Tok::Sym('(')], tts(ps, 0, kc));
+        assert(no_lt(kc));
         ptys_complete(ts, i + 2, td, ps, 0, kc);
         assert(ps.subrange(0, ps.len() as int) =~= ps);
         tts_app(ps, 0, kc);
@@ -2365,7 +2408,7 @@ pub proof fn pvar_complete(ts: Seq<Tok>, i: nat, td: nat, c: Seq<char>, ps: Seq<
 }
 
 /// 直和型の構築子の並び vs[j..] を位置 i から読む（後ろの続き k は `|` で始まらない）。
-pub proof fn pvars_complete(ts: Seq<Tok>, i: nat, td: nat, vs: Seq<(Seq<char>, Seq<Ty>)>, j: nat, k: Seq<Tok>)
+pub proof fn pvars_complete(ts: Seq<Tok>, i: nat, td: nat, vs: Seq<(Seq<char>, Seq<SType>)>, j: nat, k: Seq<Tok>)
     requires
         j < vs.len(),
         i <= ts.len(),
@@ -2617,7 +2660,7 @@ pub proof fn bxs_shift(e: Sx, es: Seq<Sx>, i: nat, d: nat, td: nat)
     }
 }
 
-pub proof fn tps_shift(x: (Seq<char>, Ty), ps: Seq<(Seq<char>, Ty)>, i: nat, k: Seq<Tok>)
+pub proof fn tps_shift(x: (Seq<char>, SType), ps: Seq<(Seq<char>, SType)>, i: nat, k: Seq<Tok>)
     ensures
         tps(seq![x] + ps, i + 1, k) == tps(ps, i, k),
     decreases ps.len() - i,
@@ -2631,7 +2674,7 @@ pub proof fn tps_shift(x: (Seq<char>, Ty), ps: Seq<(Seq<char>, Ty)>, i: nat, k: 
     }
 }
 
-pub proof fn bps_shift(x: (Seq<char>, Ty), ps: Seq<(Seq<char>, Ty)>, i: nat, td: nat)
+pub proof fn bps_shift(x: (Seq<char>, SType), ps: Seq<(Seq<char>, SType)>, i: nat, td: nat)
     ensures
         bps(seq![x] + ps, i + 1, td) == bps(ps, i, td),
     decreases ps.len() - i,
@@ -2698,6 +2741,26 @@ pub proof fn pt_sound(ts: Seq<Tok>, i: nat, d: nat)
             },
             Tok::Kw(Kw::TPair) | Tok::Kw(Kw::TResult) => {
                 if sym(ts, i + 1, '<') {
+                    pt_sound(ts, i + 2, d1);
+                    if let Some((a, j)) = pt(ts, i + 2, d1) {
+                        if sym(ts, j, ',') {
+                            pt_sound(ts, j + 1, d1);
+                            if let Some((b, m)) = pt(ts, j + 1, d1) {
+                                if sym(ts, m, '>') {
+                                    pfx1(ts, i + 1);
+                                    pfx1(ts, j);
+                                    pfx1(ts, m);
+                                    let t = pt(ts, i, d)->Some_0.0;
+                                    assert(suf(ts, i) =~= tt(t, suf(ts, m + 1)));
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            Tok::Id(x) => {
+                tyname_ok_eq(x);
+                if tyname_ok(x) && x == dict_name() && sym(ts, i + 1, '<') {
                     pt_sound(ts, i + 2, d1);
                     if let Some((a, j)) = pt(ts, i + 2, d1) {
                         if sym(ts, j, ',') {
@@ -3600,6 +3663,7 @@ proof fn pp_sound_if(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
+#[verifier::rlimit(20)]
 proof fn pp_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
@@ -3649,6 +3713,7 @@ proof fn pp_sound_fold(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
+#[verifier::rlimit(20)]
 proof fn pp_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
@@ -3782,6 +3847,7 @@ proof fn pp_sound_dictnew(ts: Seq<Tok>, i: nat, d: nat, td: nat)
 
 /// dict の組込みの健全性：語の直後が `(` で、引数の列と閉じ括弧の形なら、pp はその呼出しを読む。
 /// 語の直後が `<` なら型引数を持たないので、pp は読まない（None）。
+#[verifier::rlimit(15)]
 proof fn pp_sound_dictop(ts: Seq<Tok>, i: nat, d: nat, td: nat, op: Dop)
     requires
         d > 0,
@@ -3886,6 +3952,7 @@ proof fn pp_sound_inj(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     }
 }
 
+#[verifier::rlimit(20)]
 proof fn pp_sound_matchr(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,
@@ -4031,7 +4098,7 @@ pub proof fn pparams_sound(ts: Seq<Tok>, i: nat, td: nat)
 {
     if sym(ts, i, ')') {
         pfx1(ts, i);
-        assert(suf(ts, i) =~= tps(Seq::<(Seq<char>, Ty)>::empty(), 0, suf(ts, i + 1)));
+        assert(suf(ts, i) =~= tps(Seq::<(Seq<char>, SType)>::empty(), 0, suf(ts, i + 1)));
     } else {
         pparams1_sound(ts, i, td);
     }
@@ -4122,8 +4189,8 @@ pub proof fn pvar_sound(ts: Seq<Tok>, i: nat, td: nat)
                 }
             }
         } else {
-            assert(pvar(ts, i, td) == Some((c, Seq::<Ty>::empty(), i + 1)));
-            assert(suf(ts, i) =~= seq![Tok::Id(c)] + tpay(Seq::<Ty>::empty(), suf(ts, i + 1)));
+            assert(pvar(ts, i, td) == Some((c, Seq::<SType>::empty(), i + 1)));
+            assert(suf(ts, i) =~= seq![Tok::Id(c)] + tpay(Seq::<SType>::empty(), suf(ts, i + 1)));
             assert(pvar_post(ts, i, td));
         }
     }
