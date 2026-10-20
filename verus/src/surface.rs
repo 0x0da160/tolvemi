@@ -1568,7 +1568,7 @@ pub fn pe_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(SExpr,
     match pp_e(ts, i, d, td) {
         None => None,
         Some((e, j)) => {
-            let named = match idt_e(ts, j + 1) {
+            let named = match bdt_e(ts, j + 1) {
                 Some(_) => true,
                 None => false,
             };
@@ -1596,7 +1596,7 @@ fn recv_ok_e(e: &SExpr) -> (r: bool)
     }
 }
 
-/// `R {` の後ろがレコード式の本体の形か（`}`、`IDENT :`、`..`）。
+/// `R {` の後ろがレコード式の本体の形か（`}`、`名前 :`、`..`）。
 fn rec_head_e(ts: &Vec<ETok>, i: usize) -> (r: bool)
     requires
         small(ts@),
@@ -1606,7 +1606,7 @@ fn rec_head_e(ts: &Vec<ETok>, i: usize) -> (r: bool)
     if sym_e(ts, i, '}') || (sym_e(ts, i, '.') && sym_e(ts, i + 1, '.')) {
         return true;
     }
-    match idt_e(ts, i) {
+    match bdt_e(ts, i) {
         Some(_) => sym_e(ts, i + 1, ':'),
         None => false,
     }
@@ -1636,7 +1636,7 @@ fn pfs_e(ts: &Vec<ETok>, j: usize) -> (r: (Vec<Vec<char>>, usize))
             reveal_with_fuel(pfs, 1);
         }
         if k + 1 < ts.len() && sym_e(ts, k, '.') {
-            match idt_e(ts, k + 1) {
+            match bdt_e(ts, k + 1) {
                 Some(x) => {
                     let ghost old = ns@;
                     let ghost xv = x@;
@@ -1736,7 +1736,7 @@ fn prest_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<Vec
                 },
             }
         }
-        let f = match idt_e(ts, k) {
+        let f = match bdt_e(ts, k) {
             Some(f) => f,
             None => return None,
         };
@@ -1805,7 +1805,7 @@ fn pfds_e(ts: &Vec<ETok>, i: usize, td: usize) -> (r: Option<(Vec<(Vec<char>, ST
         proof {
             reveal_with_fuel(pfds, 1);
         }
-        let f = match idt_e(ts, k) {
+        let f = match bdt_e(ts, k) {
             Some(f) => f,
             None => return None,
         };

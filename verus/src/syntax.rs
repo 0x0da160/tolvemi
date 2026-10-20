@@ -719,7 +719,7 @@ pub enum Sx {
     Inj(bool, SType, SType, Box<Sx>),
     /// v1.4：match_result(m, |x| a, |y| b)
     MatchR(Box<Sx>, Seq<char>, Box<Sx>, Seq<char>, Box<Sx>),
-    /// v1.1：e.f1.f2…（後置、左結合。受ける式は recv_ok、field 名は IDENT で、列は空でない）
+    /// v1.1：e.f1.f2…（後置、左結合。受ける式は recv_ok、field 名は IDENT か文脈キーワードで、列は空でない）
     Fld(Box<Sx>, Seq<Seq<char>>),
     /// v1.1：R { f: e, ..b }（フィールドの並びと、省略できる base）
     Rec(Seq<char>, Seq<(Seq<char>, Sx)>, Option<Box<Sx>>),
@@ -2052,7 +2052,7 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
     decreases d, 1nat, 0nat,
 {
     match pp(ts, i, d, td) {
-        Some((e, j)) => if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+        Some((e, j)) => if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && bdt(ts, j + 1) is Some {
             let r = pfs(ts, j);
             Some((Sx::Fld(Box::new(e), r.0), r.1))
         } else {
@@ -2066,18 +2066,18 @@ pub open spec fn pe(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
 pub open spec fn pfs(ts: Seq<Tok>, j: nat) -> (Seq<Seq<char>>, nat)
     decreases ts.len() - j,
 {
-    if j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+    if j + 1 < ts.len() && sym(ts, j, '.') && bdt(ts, j + 1) is Some {
         let r = pfs(ts, j + 2);
-        (seq![idt(ts, j + 1)->Some_0] + r.0, r.1)
+        (seq![bdt(ts, j + 1)->Some_0] + r.0, r.1)
     } else {
         (Seq::empty(), j)
     }
 }
 
-/// `R {` の後ろがレコード式の本体の形（`}`、`IDENT :`、`..`）なら、R は記録式の名前。
+/// `R {` の後ろがレコード式の本体の形（`}`、`名前 :`、`..`）なら、R は記録式の名前。
 /// それ以外（`match x { ... }` の被験式など）は変数と読む。
 pub open spec fn rec_head(ts: Seq<Tok>, i: nat) -> bool {
-    sym(ts, i, '}') || (idt(ts, i) is Some && sym(ts, i + 1, ':')) || (sym(ts, i, '.') && sym(ts, i + 1, '.'))
+    sym(ts, i, '}') || (bdt(ts, i) is Some && sym(ts, i + 1, ':')) || (sym(ts, i, '.') && sym(ts, i + 1, '.'))
 }
 
 /// レコード式の本体（`{` の後）。フィールドの並び、省略できる base、閉じ括弧の後の位置。
@@ -2105,7 +2105,7 @@ pub open spec fn prest(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Se
             None => None,
         }
     } else {
-        match idt(ts, i) {
+        match bdt(ts, i) {
             Some(f) => if sym(ts, i + 1, ':') {
                 match pe(ts, i + 2, d, td) {
                     Some((v, j)) => if sym(ts, j, '}') {
@@ -2345,7 +2345,7 @@ pub open spec fn pd(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sd, nat)> 
 pub open spec fn pfds(ts: Seq<Tok>, i: nat, td: nat) -> Option<(Seq<(Seq<char>, SType)>, bool, nat)>
     decreases ts.len() - i,
 {
-    match idt(ts, i) {
+    match bdt(ts, i) {
         Some(f) => if sym(ts, i + 1, ':') {
             match pt(ts, i + 2, td) {
                 Some((t, j)) => if sym(ts, j, '}') {
@@ -2542,25 +2542,25 @@ pub open spec fn bxs(es: Seq<Sx>, i: nat, d: nat, td: nat) -> bool
     i >= es.len() || (bx(es[i as int], d, td) && bxs(es, i + 1, d, td))
 }
 
-/// `.IDENT` の並びの名前は、すべて IDENT。
+/// `.名前` の並びの名前は、すべて field の名前（IDENT か文脈キーワード）。
 pub open spec fn nms(fs: Seq<Seq<char>>) -> bool
     decreases fs.len(),
 {
-    fs.len() == 0 || (ident_ok(fs[0]) && nms(fs.subrange(1, fs.len() as int)))
+    fs.len() == 0 || (name_ok(fs[0]) && nms(fs.subrange(1, fs.len() as int)))
 }
 
-/// レコード式の field：名前は IDENT で、値は深さ内。
+/// レコード式の field：名前は IDENT か文脈キーワードで、値は深さ内。
 pub open spec fn bfs(fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat) -> bool
     decreases fs, fs.len() - i,
 {
-    i >= fs.len() || (ident_ok(fs[i as int].0) && bx(fs[i as int].1, d, td) && bfs(fs, i + 1, d, td))
+    i >= fs.len() || (name_ok(fs[i as int].0) && bx(fs[i as int].1, d, td) && bfs(fs, i + 1, d, td))
 }
 
-/// レコード型の宣言の field：名前は IDENT で、型は深さ内。
+/// レコード型の宣言の field：名前は IDENT か文脈キーワードで、型は深さ内。
 pub open spec fn bfds(fs: Seq<(Seq<char>, SType)>, i: nat, td: nat) -> bool
     decreases fs.len() - i,
 {
-    i >= fs.len() || (ident_ok(fs[i as int].0) && bt(fs[i as int].1, td) && bfds(fs, i + 1, td))
+    i >= fs.len() || (name_ok(fs[i as int].0) && bt(fs[i as int].1, td) && bfds(fs, i + 1, td))
 }
 
 pub open spec fn bps(ps: Seq<(Seq<char>, SType)>, i: nat, td: nat) -> bool

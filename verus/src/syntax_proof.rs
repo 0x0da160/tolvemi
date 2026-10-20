@@ -1363,13 +1363,13 @@ proof fn fe_lex_dictop(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     }
 }
 
-/// 名前の並びが空でないとき、名前は IDENT で、先頭は ident_ok。
+/// 名前の並びが空でないとき、先頭は name_ok（IDENT か文脈キーワード）。
 proof fn nms_head(fs: Seq<Seq<char>>)
     requires
         fs.len() > 0,
         nms(fs),
     ensures
-        ident_ok(fs[0]),
+        name_ok(fs[0]),
         nms(fs.subrange(1, fs.len() as int)),
 {
     reveal_with_fuel(nms, 2);
@@ -1382,6 +1382,19 @@ proof fn word_id(x: Seq<char>)
     ensures
         word_tok(x) == Tok::Id(x),
 {
+}
+
+/// 名前（IDENT か文脈キーワード）の綴りは、字句の語の形をしている。
+proof fn name_word(x: Seq<char>)
+    requires
+        name_ok(x),
+    ensures
+        is_word(x),
+{
+    if kw_of(x) is Some {
+        kw_inv(x);
+        kw_word(kw_of(x)->Some_0);
+    }
 }
 
 /// `.f` の並びが空でないなら、字句は `.` で始まる。
@@ -1414,11 +1427,11 @@ pub proof fn fdots_lex(fs: Seq<Seq<char>>, k: Seq<char>, u: Seq<Tok>)
                 fdots_dot(rest, k);
             }
         }
-        word_id(fs[0]);
-        li(fs[0], fdots(rest, k), tdots(rest, u));
-        ls('.', fs[0] + fdots(rest, k), seq![Tok::Id(fs[0])] + tdots(rest, u));
+        name_word(fs[0]);
+        lword(fs[0], fdots(rest, k), tdots(rest, u));
+        ls('.', fs[0] + fdots(rest, k), seq![word_tok(fs[0])] + tdots(rest, u));
         assert(fdots(fs, k) =~= seq!['.'] + (fs[0] + fdots(rest, k)));
-        assert(tdots(fs, u) =~= seq![Tok::Sym('.')] + (seq![Tok::Id(fs[0])] + tdots(rest, u)));
+        assert(tdots(fs, u) =~= seq![Tok::Sym('.')] + (seq![word_tok(fs[0])] + tdots(rest, u)));
     }
 }
 
@@ -1514,8 +1527,8 @@ pub proof fn ffe_lex(fs: Seq<(Seq<char>, Sx)>, i: nat, d: nat, td: nat, tail: Se
         lw(' ', kv, uv);
         ls(':', seq![' '] + kv, uv);
         assert(seq![':', ' '] + kv =~= seq![':'] + (seq![' '] + kv));
-        word_id(x);
-        li(x, seq![':', ' '] + kv, seq![Tok::Sym(':')] + uv);
+        name_word(x);
+        lword(x, seq![':', ' '] + kv, seq![Tok::Sym(':')] + uv);
         assert(ffe(fs, i, tail) =~= x + (seq![':', ' '] + kv));
         assert(tfe(fs, i, u) =~= seq![word_tok(x), Tok::Sym(':')] + uv);
     }
@@ -1712,10 +1725,10 @@ pub proof fn ffd_lex(fs: Seq<(Seq<char>, SType)>, i: nat, td: nat, tc: bool, k: 
     lw(' ', ft(t, kt), tt(t, ut));
     ls(':', seq![' '] + ft(t, kt), tt(t, ut));
     assert(seq![':', ' '] + ft(t, kt) =~= seq![':'] + (seq![' '] + ft(t, kt)));
-    word_id(x);
-    li(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
+    name_word(x);
+    lword(x, seq![':', ' '] + ft(t, kt), seq![Tok::Sym(':')] + tt(t, ut));
     assert(ffd(fs, i, tl + k) =~= x + (seq![':', ' '] + ft(t, kt)));
-    assert(tfd(fs, i, tc, seq![Tok::Sym('}')] + u) =~= seq![Tok::Id(x), Tok::Sym(':')] + tt(t, ut));
+    assert(tfd(fs, i, tc, seq![Tok::Sym('}')] + u) =~= seq![word_tok(x), Tok::Sym(':')] + tt(t, ut));
 }
 
 /// 型の並びの先頭の型は深さ内（残りの並びも深さ内）。

@@ -792,6 +792,7 @@ pub proof fn at_end(ts: Seq<Tok>, i: nat, s: Seq<Tok>, k: Seq<Tok>)
 
 // ------------------------------------------------------------------ 完全性
 
+#[verifier::rlimit(15)]
 pub proof fn pt_complete(ts: Seq<Tok>, i: nat, d: nat, t: SType, k: Seq<Tok>)
     requires
         i <= ts.len(),
@@ -949,7 +950,7 @@ pub proof fn bfs_at(fs: Seq<(Seq<char>, Sx)>, j: nat, d: nat, td: nat)
         j < fs.len(),
         bfs(fs, j, d, td),
     ensures
-        ident_ok(fs[j as int].0),
+        name_ok(fs[j as int].0),
         bx(fs[j as int].1, d, td),
         bfs(fs, j + 1, d, td),
 {
@@ -961,7 +962,7 @@ pub proof fn bfds_at(fs: Seq<(Seq<char>, SType)>, j: nat, td: nat)
         j < fs.len(),
         bfds(fs, j, td),
     ensures
-        ident_ok(fs[j as int].0),
+        name_ok(fs[j as int].0),
         bt(fs[j as int].1, td),
         bfds(fs, j + 1, td),
 {
@@ -970,7 +971,7 @@ pub proof fn bfds_at(fs: Seq<(Seq<char>, SType)>, j: nat, td: nat)
 /// 字段が一つだけの並びは、名前と式が深さ内なら健全。
 pub proof fn bfs_one(f: Seq<char>, v: Sx, d: nat, td: nat)
     requires
-        ident_ok(f),
+        name_ok(f),
         bx(v, d, td),
     ensures
         bfs(seq![(f, v)], 0, d, td),
@@ -982,7 +983,7 @@ pub proof fn bfs_one(f: Seq<char>, v: Sx, d: nat, td: nat)
 /// 型の字段が一つだけの並びは、名前と型が深さ内なら健全。
 pub proof fn bfds_one(f: Seq<char>, t: SType, td: nat)
     requires
-        ident_ok(f),
+        name_ok(f),
         bt(t, td),
     ensures
         bfds(seq![(f, t)], 0, td),
@@ -1061,10 +1062,10 @@ pub proof fn pfs_complete(ts: Seq<Tok>, j: nat, fs: Seq<Seq<char>>, k: Seq<Tok>)
         let f = fs[0];
         let rest = fs.subrange(1, fs.len() as int);
         tdots_cons(fs, k);
-        assert(nms(fs) && ident_ok(f));
+        assert(nms(fs) && name_ok(f));
         hd(ts, j, seq![Tok::Sym('.'), word_tok(f)], tdots(rest, k));
-        assert(word_tok(f) == Tok::Id(f));
-        assert(idt(ts, j + 1) == Some(f));
+        assert(ts[(j + 1) as int] == word_tok(f));
+        bdt_word(ts, j + 1, f);
         pfs_complete(ts, j + 2, rest, k);
         assert(seq![f] + rest =~= fs);
     }
@@ -1073,7 +1074,7 @@ pub proof fn pfs_complete(ts: Seq<Tok>, j: nat, fs: Seq<Seq<char>>, k: Seq<Tok>)
 /// `.IDENT` の列の健全性：読んだ並びは token 列に戻り、名前はすべて IDENT。
 pub open spec fn pfs_post(ts: Seq<Tok>, j: nat) -> bool {
     let r = pfs(ts, j);
-    j <= r.1 && r.1 <= ts.len() && suf(ts, j) == tdots(r.0, suf(ts, r.1)) && nms(r.0) && ((j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some) ==> r.0.len() > 0)
+    j <= r.1 && r.1 <= ts.len() && suf(ts, j) == tdots(r.0, suf(ts, r.1)) && nms(r.0) && ((j + 1 < ts.len() && sym(ts, j, '.') && bdt(ts, j + 1) is Some) ==> r.0.len() > 0)
 }
 
 pub proof fn pfs_sound(ts: Seq<Tok>, j: nat)
@@ -1083,12 +1084,10 @@ pub proof fn pfs_sound(ts: Seq<Tok>, j: nat)
         pfs_post(ts, j),
     decreases ts.len() - j,
 {
-    if j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
-        let f = idt(ts, j + 1)->Some_0;
+    if j + 1 < ts.len() && sym(ts, j, '.') && bdt(ts, j + 1) is Some {
+        let f = bdt(ts, j + 1)->Some_0;
         assert(ts[j as int] == Tok::Sym('.'));
-        assert(ts[(j + 1) as int] == Tok::Id(f));
-        assert(ident_ok(f));
-        assert(word_tok(f) == Tok::Id(f));
+        bdt_sound(ts, j + 1);
         pfs_sound(ts, j + 2);
         let r2 = pfs(ts, j + 2);
         pfx1(ts, j);
@@ -1124,8 +1123,9 @@ pub proof fn pe_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
             let j = (ts.len() - k2.len()) as nat;
             at_end(ts, i, te(*a, Seq::<Tok>::empty()), k2);
             hd(ts, j, seq![Tok::Sym('.'), word_tok(fs[0])], tdots(fs.subrange(1, fs.len() as int), k));
-            assert(word_tok(fs[0]) == Tok::Id(fs[0]));
-            assert(idt(ts, j + 1) == Some(fs[0]));
+            reveal_with_fuel(nms, 1);
+            assert(ts[(j + 1) as int] == word_tok(fs[0]));
+            bdt_word(ts, j + 1, fs[0]);
             pfs_complete(ts, j, fs, k);
             assert(pe(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)));
         },
@@ -1202,8 +1202,8 @@ proof fn rec_fields_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, r: Se
     tfe_head(fs, j, tl);
     assert(tfe(fs, j, tl) == seq![word_tok(f.0), Tok::Sym(':')] + te(f.1, t));
     hd(ts, i, seq![word_tok(f.0), Tok::Sym(':')], te(f.1, t));
-    assert(word_tok(f.0) == Tok::Id(f.0));
-    assert(idt(ts, i) == Some(f.0));
+    assert(ts[i as int] == word_tok(f.0));
+    bdt_word(ts, i, f.0);
     assert(t.len() > 0 && (t[0] == Tok::Sym(',') || t[0] == Tok::Sym('}')));
     assert(nxt(t) && no_dot(t));
     pe_complete(ts, i + 2, d1, td, f.1, t);
@@ -1265,8 +1265,8 @@ proof fn pp_complete_rec(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<To
                     seq![Tok::Sym(',')] + tfe(fs, 1, tl)
                 },
             ));
-            assert(word_tok(fs[0].0) == Tok::Id(fs[0].0));
-            assert(idt(ts, i + 2) == Some(fs[0].0));
+            assert(ts[(i + 2) as int] == word_tok(fs[0].0));
+            bdt_word(ts, i + 2, fs[0].0);
             rec_fields_complete(ts, i + 2, d, td, e, r, fs, b, 0, k);
             assert(fs.subrange(0, fs.len() as int) =~= fs);
             reveal_with_fuel(prec, 1);
@@ -1326,8 +1326,8 @@ proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, SType)
     tfd_head(fs, j, tc, kb);
     assert(tfd(fs, j, tc, kb) == seq![word_tok(f.0), Tok::Sym(':')] + tt(f.1, t));
     hd(ts, i, seq![word_tok(f.0), Tok::Sym(':')], tt(f.1, t));
-    assert(word_tok(f.0) == Tok::Id(f.0));
-    assert(idt(ts, i) == Some(f.0));
+    assert(ts[i as int] == word_tok(f.0));
+    bdt_word(ts, i, f.0);
     assert(no_lt(t)) by {
         if last {
             if tc {
@@ -1367,7 +1367,6 @@ proof fn pfds_complete(ts: Seq<Tok>, i: nat, td: nat, fs: Seq<(Seq<char>, SType)
                 seq![Tok::Sym(',')] + tfd(fs, j + 2, tc, kb)
             },
         ));
-        assert(word_tok(fs[(j + 1) as int].0) == Tok::Id(fs[(j + 1) as int].0));
         pfds_complete(ts, p + 1, td, fs, j + 1, tc, k);
         assert(seq![f] + fs.subrange((j + 1) as int, fs.len() as int) =~= fs.subrange(j as int, fs.len() as int));
     }
@@ -2821,7 +2820,7 @@ pub proof fn pe_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     pp_sound(ts, i, d, td);
     if let Some((e, j)) = pp(ts, i, d, td) {
         assert(pp_post(ts, i, d, td));
-        if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && idt(ts, j + 1) is Some {
+        if recv_ok(e) && j + 1 < ts.len() && sym(ts, j, '.') && bdt(ts, j + 1) is Some {
             pfs_sound(ts, j);
             let r = pfs(ts, j);
             assert(pe(ts, i, d, td) == Some((Sx::Fld(Box::new(e), r.0), r.1)));
@@ -2887,11 +2886,9 @@ pub proof fn prest_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
             assert(prest(ts, i, d, td) is None);
             assert(prest_post(ts, i, d, td));
         }
-    } else if idt(ts, i) is Some && sym(ts, i + 1, ':') {
-        let f = idt(ts, i)->Some_0;
-        assert(ident_ok(f));
-        assert(ts[i as int] == Tok::Id(f));
-        assert(word_tok(f) == Tok::Id(f));
+    } else if bdt(ts, i) is Some && sym(ts, i + 1, ':') {
+        let f = bdt(ts, i)->Some_0;
+        bdt_sound(ts, i);
         pfx1(ts, i);
         pfx1(ts, i + 1);
         pe_sound(ts, i + 2, d, td);
@@ -3029,10 +3026,9 @@ pub proof fn pfds_sound(ts: Seq<Tok>, i: nat, td: nat)
     reveal_with_fuel(pfds, 1);
     reveal_with_fuel(tfd, 1);
     reveal_with_fuel(bfds, 1);
-    if idt(ts, i) is Some && sym(ts, i + 1, ':') {
-        let f = idt(ts, i)->Some_0;
-        assert(ident_ok(f));
-        assert(word_tok(f) == Tok::Id(f));
+    if bdt(ts, i) is Some && sym(ts, i + 1, ':') {
+        let f = bdt(ts, i)->Some_0;
+        bdt_sound(ts, i);
         pfx1(ts, i);
         pfx1(ts, i + 1);
         pt_sound(ts, i + 2, td);
