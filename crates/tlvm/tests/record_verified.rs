@@ -25,7 +25,12 @@
 //! S5b：V8（範囲内の受理は源の文字列の二つの写しで検査し、添付の IR は源の印なしの IR と一致する。判定は HEAD と同じ）、
 //! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）。
 //! V9 は tests/nominal.rs の hand_made_tag_shape_is_rejected_when_run にある。
+//!
+//! S5c：V7 の広い版（記録だけのプログラムの変異を本番の検査で判定し、検証済みの食い違いが出ないことを確かめる。
+//! 全体の掃引は scratchpad の sweep.py が CLI で一度回した。ここは添字が SWEEP_STEP の倍数の変異）、
+//! V12（宣言の数と書換えの大きさ。HEAD と同じ判定を返す）。
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use tlvm::api::*;
@@ -925,5 +930,402 @@ fn v11_rec_functions_over_records_and_mutual_recursion_match_head() {
     let cyc_plain = "fn ga(n: Int) -> Int = gb(n)\nfn gb(n: Int) -> Int = ga(n)\nfn f(x: Int) -> Int = ga(x)\nentry f\n";
     let codes: Vec<String> = rejected(cyc_plain).into_iter().map(|r| r.1).collect();
     assert_eq!(codes, ["E-CYCLE-CALL"]);
+}
+
+// ---------------------------------------------------------------- S5c：名前の変異の掃引（V7 の広い版）と V12
+
+/// 変異の種類（掃引の順）。scratchpad の sweep.py（CLI で全体を一度回した）と同じ生成規則を使う。
+const MUTANT_KINDS: [&str; 7] = [
+    "unknown-type",
+    "dup-type",
+    "dup-field",
+    "drop-field",
+    "add-base",
+    "drop-base",
+    "rename-field",
+];
+
+/// この添字の段の変異だけを本体の掃引に使う（各プログラムの変異の添字が SWEEP_STEP の倍数のもの）。
+const SWEEP_STEP: usize = 2;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MK {
+    Id,
+    Num,
+    Str,
+    P,
+}
+
+#[derive(Clone, Copy)]
+struct MTok<'a> {
+    k: MK,
+    t: &'a str,
+    s: usize,
+    e: usize,
+}
+
+/// 字句（識別子、数、文字列、`..`、`->`、一字の記号。空白は捨てる）。位置はバイトの添字。
+fn mlex(src: &str) -> Vec<MTok<'_>> {
+    let b = src.as_bytes();
+    let n = b.len();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let c = src[i..].chars().next().unwrap();
+        if c.is_whitespace() {
+            i += c.len_utf8();
+            continue;
+        }
+        let (k, end) = if c.is_ascii_alphabetic() || c == '_' {
+            let mut j = i + 1;
+            while j < n && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
+                j += 1;
+            }
+            (MK::Id, j)
+        } else if c.is_ascii_digit() {
+            let mut j = i + 1;
+            while j < n && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            (MK::Num, j)
+        } else if c == '"' {
+            let mut j = i + 1;
+            while j < n && b[j] != b'"' {
+                j += if b[j] == b'\\' { 2 } else { 1 };
+            }
+            (MK::Str, (j + 1).min(n))
+        } else if src[i..].starts_with("..") || src[i..].starts_with("->") {
+            (MK::P, i + 2)
+        } else {
+            (MK::P, i + c.len_utf8())
+        };
+        out.push(MTok { k, t: &src[i..end], s: i, e: end });
+        i = end;
+    }
+    out
+}
+
+/// toks[i] の開き括弧に対応する閉じ括弧の添字。
+fn mmatch_close(toks: &[MTok<'_>], i: usize) -> Option<usize> {
+    let (open, close) = match toks[i].t {
+        "{" => ("{", "}"),
+        "(" => ("(", ")"),
+        "<" => ("<", ">"),
+        _ => return None,
+    };
+    let mut depth: i64 = 0;
+    for j in i..toks.len() {
+        if toks[j].k == MK::P {
+            if toks[j].t == open {
+                depth += 1;
+            } else if toks[j].t == close {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 括弧 lo..hi（lo は開き、hi は閉じ括弧の添字）の中の要素。深さ 0 のコンマで区切る（要素の範囲は添字の半開区間）。
+fn mentries(toks: &[MTok<'_>], lo: usize, hi: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut depth: i64 = 0;
+    let mut start = lo + 1;
+    for j in lo + 1..hi {
+        if toks[j].k != MK::P {
+            continue;
+        }
+        match toks[j].t {
+            "(" | "{" | "<" => depth += 1,
+            ")" | "}" | ">" => depth -= 1,
+            "," if depth == 0 => {
+                out.push((start, j));
+                start = j + 1;
+            }
+            _ => {}
+        }
+    }
+    if start < hi {
+        out.push((start, hi));
+    }
+    out.retain(|&(a, b)| a < b);
+    out
+}
+
+/// 記録の宣言（総称でないもの）：(`type` の添字, `{` の添字, `}` の添字, 名前)。
+fn mrecord_decls<'a>(toks: &[MTok<'a>]) -> Vec<(usize, usize, usize, &'a str)> {
+    let mut out = Vec::new();
+    if toks.len() < 4 {
+        return out;
+    }
+    for i in 0..toks.len() - 3 {
+        if toks[i].k == MK::Id
+            && toks[i].t == "type"
+            && toks[i + 1].k == MK::Id
+            && toks[i + 2].t == "="
+            && toks[i + 3].t == "{"
+        {
+            if let Some(c) = mmatch_close(toks, i + 3) {
+                out.push((i, i + 3, c, toks[i + 1].t));
+            }
+        }
+    }
+    out
+}
+
+/// 記録だけのプログラム：`type` の宣言が一つ以上あり、すべて記録（`= {`）。
+fn mrecord_only(src: &str) -> bool {
+    let toks = mlex(src);
+    let mut decls = 0;
+    for i in 0..toks.len() {
+        if toks[i].k == MK::Id && toks[i].t == "type" && i + 1 < toks.len() && toks[i + 1].k == MK::Id {
+            decls += 1;
+            let mut j = i + 2;
+            if j < toks.len() && toks[j].t == "<" {
+                while j < toks.len() && toks[j].t != ">" {
+                    j += 1;
+                }
+                j += 1;
+            }
+            if !(j + 1 < toks.len() && toks[j].t == "=" && toks[j + 1].t == "{") {
+                return false;
+            }
+        }
+    }
+    decls > 0
+}
+
+/// 記録の式の末尾のコンマ（`P { a: x, }`）。関数の本体（最初の `fn` より後）にあるものだけを数える。
+fn mliteral_trailing_comma(src: &str) -> bool {
+    let Some(i) = src.find("fn ") else {
+        return false;
+    };
+    let b = src[i..].as_bytes();
+    (0..b.len()).any(|j| {
+        b[j] == b',' && {
+            let mut k = j + 1;
+            while k < b.len() && b[k].is_ascii_whitespace() {
+                k += 1;
+            }
+            k < b.len() && b[k] == b'}'
+        }
+    })
+}
+
+/// 一つのプログラムの変異（種類と変異後の文字列）。種類の順に、宣言の順・式の順に並べる。
+/// unknown-type：型の参照（`type` の後ろ以外）を、宣言されていない名前 ZQ にする。
+/// dup-type：記録の宣言を、その直後にもう一度書く。dup-field：宣言の字段を、その直後にもう一度書く。
+/// drop-field：記録の式の字段を一つ、隣のコンマと一緒に落とす。add-base：基のない記録の式に `..ZQ` を足す。
+/// drop-base：記録の式の基を落とす。rename-field：宣言・記録の式の字段名（`:` の前）と `.` の後ろの字段名を fz にする。
+fn record_mutants(src: &str) -> Vec<(&'static str, String)> {
+    let toks = mlex(src);
+    let decls = mrecord_decls(&toks);
+    let dnames: BTreeSet<&str> = decls.iter().map(|d| d.3).collect();
+    let mut dfields: BTreeSet<&str> = BTreeSet::new();
+    let mut decl_spans = Vec::new();
+    for &(_, ob, cb, _) in &decls {
+        decl_spans.push((toks[ob].s, toks[cb].e));
+        for (a, b) in mentries(&toks, ob, cb) {
+            if toks[a].k == MK::Id && a + 1 < b && toks[a + 1].t == ":" {
+                dfields.insert(toks[a].t);
+            }
+        }
+    }
+    let mut lits: Vec<(usize, usize)> = Vec::new();
+    for i in 1..toks.len().saturating_sub(1) {
+        if toks[i].k == MK::Id
+            && dnames.contains(toks[i].t)
+            && toks[i + 1].k == MK::P
+            && toks[i + 1].t == "{"
+            && !(toks[i - 1].k == MK::Id && toks[i - 1].t == "type")
+        {
+            if let Some(c) = mmatch_close(&toks, i + 1) {
+                lits.push((i + 1, c));
+            }
+        }
+    }
+    let lit_spans: Vec<(usize, usize)> = lits.iter().map(|&(ob, cb)| (toks[ob].s, toks[cb].e)).collect();
+    let inside = |pos: usize, spans: &[(usize, usize)]| spans.iter().any(|&(a, b)| a <= pos && pos < b);
+    let mut out: Vec<(&'static str, String)> = Vec::new();
+    for (i, t) in toks.iter().enumerate() {
+        if t.k == MK::Id && dnames.contains(t.t) && !(i > 0 && toks[i - 1].k == MK::Id && toks[i - 1].t == "type") {
+            out.push(("unknown-type", format!("{}ZQ{}", &src[..t.s], &src[t.e..])));
+        }
+    }
+    for &(ti, _, cb, _) in &decls {
+        let (a, b) = (toks[ti].s, toks[cb].e);
+        out.push(("dup-type", format!("{}\n{}{}", &src[..b], &src[a..b], &src[b..])));
+    }
+    for &(_, ob, cb, _) in &decls {
+        for (a, b) in mentries(&toks, ob, cb) {
+            if toks[a].k == MK::Id && a + 1 < b && toks[a + 1].t == ":" {
+                let (s, e) = (toks[a].s, toks[b - 1].e);
+                out.push(("dup-field", format!("{}, {}{}", &src[..e], &src[s..e], &src[e..])));
+            }
+        }
+    }
+    for &(ob, cb) in &lits {
+        let ents = mentries(&toks, ob, cb);
+        let base: Vec<(usize, usize)> = ents
+            .iter()
+            .copied()
+            .filter(|&(a, _)| toks[a].k == MK::P && toks[a].t == "..")
+            .collect();
+        let fields: Vec<(usize, usize)> = ents
+            .iter()
+            .copied()
+            .filter(|&(a, b)| toks[a].k == MK::Id && a + 1 < b && toks[a + 1].t == ":")
+            .collect();
+        for &(a, b) in &fields {
+            let k = ents.iter().position(|&x| x == (a, b)).unwrap();
+            let m = if k + 1 < ents.len() {
+                format!("{}{}", &src[..toks[a].s], &src[toks[ents[k + 1].0].s..])
+            } else if k > 0 {
+                format!("{}{}", &src[..toks[ents[k - 1].1].s], &src[toks[b - 1].e..])
+            } else {
+                format!("{}{}", &src[..toks[a].s], &src[toks[b - 1].e..])
+            };
+            out.push(("drop-field", m));
+        }
+        if base.is_empty() {
+            let close = toks[cb].s;
+            let sep = if ents.is_empty() { " " } else { ", " };
+            out.push(("add-base", format!("{}{}..ZQ {}", src[..close].trim_end(), sep, &src[close..])));
+        } else {
+            let (a, b) = base[0];
+            let k = ents.iter().position(|&x| x == (a, b)).unwrap();
+            let m = if k > 0 {
+                format!("{}{}", &src[..toks[ents[k - 1].1].s], &src[toks[b - 1].e..])
+            } else {
+                format!("{}{}", &src[..toks[a].s], &src[toks[b - 1].e..])
+            };
+            out.push(("drop-base", m));
+        }
+    }
+    for (i, t) in toks.iter().enumerate() {
+        if t.k == MK::Id && dfields.contains(t.t) {
+            let after_dot = i > 0 && toks[i - 1].k == MK::P && toks[i - 1].t == ".";
+            let colon = i + 1 < toks.len() && toks[i + 1].k == MK::P && toks[i + 1].t == ":";
+            if after_dot || (colon && (inside(t.s, &decl_spans) || inside(t.s, &lit_spans))) {
+                out.push(("rename-field", format!("{}fz{}", &src[..t.s], &src[t.e..])));
+            }
+        }
+    }
+    out
+}
+
+/// 掃引のプログラム：route_corpus.tsv と v7_corpus() の記録だけのもの（重複を除く）。末尾のコンマの記録の式は除く。
+/// 戻り値は (出典, プログラム) の列と、除いたものの出典。
+fn sweep_programs() -> (Vec<(String, String)>, Vec<String>) {
+    let mut all: Vec<(String, String)> = Vec::new();
+    for line in ROUTE_CORPUS.lines().filter(|l| !l.is_empty()) {
+        let mut parts = line.splitn(3, '\t');
+        let origin = parts.next().unwrap();
+        let _verdict = parts.next().unwrap();
+        let esc = parts.next().unwrap();
+        all.push((origin.to_string(), unescape_tsv(esc)));
+    }
+    for (src, _) in v7_corpus() {
+        all.push(("v7".to_string(), src));
+    }
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let (mut out, mut excluded) = (Vec::new(), Vec::new());
+    for (origin, src) in all {
+        if !mrecord_only(&src) {
+            continue;
+        }
+        if mliteral_trailing_comma(&src) {
+            excluded.push(origin);
+            continue;
+        }
+        if seen.insert(src.clone()) {
+            out.push((origin, src));
+        }
+    }
+    (out, excluded)
+}
+
+/// S5c（V7 の広い版）：記録だけのプログラムの変異を本番の検査（api::compile）で判定する。どの変異でも、
+/// 展開段階の名前の診断に検証済みの符号（E-INTERNAL-VERIFIED-MISMATCH と verified-*）が付かないこと。
+#[test]
+fn v7_record_mutations_get_no_verified_mismatch() {
+    let (progs, excluded) = sweep_programs();
+    assert!(progs.len() >= 70, "プログラムが少ない: {}", progs.len());
+    assert_eq!(excluded, ["record_names.rs:383"], "除くのは末尾のコンマの記録の式だけ");
+    let mut per_kind: BTreeMap<&str, usize> = BTreeMap::new();
+    let (mut total, mut name_checked) = (0, 0);
+    for (origin, src) in &progs {
+        for (mi, (kind, text)) in record_mutants(src).into_iter().enumerate() {
+            if mi % SWEEP_STEP != 0 {
+                continue;
+            }
+            total += 1;
+            *per_kind.entry(kind).or_insert(0) += 1;
+            match compile(text.as_bytes(), &StaticProfile::default()) {
+                SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
+                    for d in &errors {
+                        let actual = d.actual.as_deref().unwrap_or("");
+                        assert!(
+                            !(d.code == MISMATCH && actual.starts_with("verified-")),
+                            "{origin} の変異 {kind} で検証済みの食い違い（{actual}）: {text:?}"
+                        );
+                    }
+                    if errors.iter().any(|d| CHECKED_EXPANSION_CODES.contains(&d.code)) {
+                        name_checked += 1;
+                    }
+                }
+                SourceCompile::Result(CompileResult::Accepted { .. }) => {}
+                _ => panic!("結果が出ない: {text:?}"),
+            }
+        }
+    }
+    assert_eq!(per_kind.len(), MUTANT_KINDS.len(), "全部の種類が掃引に入る: {per_kind:?}");
+    assert!(name_checked >= 100, "名前の符号の変異が少ない（突き合わせが働かない）: {name_checked} / {total}");
+}
+
+/// S5c（V12）：宣言の数と書換えの大きさ。HEAD（9a96889 の CLI）の判定と同じ符号・値を返す。
+/// (1) 200 の平らな記録の宣言（使うのは R0 だけ）。HEAD は宣言の型の深さの上限（128）で拒否する
+///     （E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH、実際 129、span 4458..4495）。使わない宣言も検査する。
+/// (2) 60 段の鎖の記録と、R59 を引数に取る 200 の関数。書換え後の大きさが 4 MiB を超え、HEAD は 5663489 bytes で
+///     拒否する（E-LIMIT-STATIC-REWRITTEN-BYTES）。大きさの判定は、ゲートの書換え後の文字列にだけ掛かる。
+#[test]
+fn v12_declaration_count_and_rewritten_size_decisions_match_head() {
+    let p = StaticProfile::default();
+    let flat: String = (0..200)
+        .map(|k| format!("type R{k} = {{ a{k}: Int, b{k}: Bool }}\n"))
+        .collect::<String>()
+        + "fn g0(x: R0) -> Int = 0\nentry g0\n";
+    match compile(flat.as_bytes(), &p) {
+        SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
+            assert_eq!(errors.len(), 1, "HEAD は一つの符号で拒否する: {errors:?}");
+            let d = &errors[0];
+            assert_eq!(d.code, "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH");
+            assert_eq!(d.expected.as_deref(), Some("128"));
+            assert_eq!(d.actual.as_deref(), Some("129"));
+            assert_eq!(d.span, (4458, 4495));
+        }
+        _ => panic!("HEAD は 200 の宣言を型の深さの上限で拒否する"),
+    }
+    let mut chain = String::from("type R0 = { v0: Int }\n");
+    for k in 1..60 {
+        chain += &format!("type R{k} = {{ p{k}: R{}, v{k}: Int }}\n", k - 1);
+    }
+    for i in 0..200 {
+        chain += &format!("fn g{i}(x: R59) -> Int = 0\n");
+    }
+    chain += "entry g0\n";
+    match compile(chain.as_bytes(), &p) {
+        SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
+            assert_eq!(errors.len(), 1, "HEAD は一つの符号で拒否する: {errors:?}");
+            let d = &errors[0];
+            assert_eq!(d.code, "E-LIMIT-STATIC-REWRITTEN-BYTES");
+            assert_eq!(d.expected.as_deref(), Some("4194304"));
+            assert_eq!(d.actual.as_deref(), Some("5663489"));
+        }
+        _ => panic!("HEAD は書換え後の大きさの上限で拒否する"),
+    }
 }
 
