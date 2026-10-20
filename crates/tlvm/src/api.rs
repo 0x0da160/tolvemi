@@ -16,7 +16,7 @@ use crate::profiles::*;
 use crate::records;
 use crate::recursive;
 use crate::sums;
-use crate::syntax::{Expr, ExprKind, Program, Ty};
+use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -738,44 +738,21 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
 ];
 
 /// S5b：記録と名前だけのプログラムか（直和型・再帰する型・総称・hof（map、filter、any、all、find、sort_by と loop）・
-/// 辞書を含まず、末尾の `,` の記録の式も含まない）。展開が要るプログラムのうち、この範囲は源の文字列を検証済みの経路で
+/// 辞書を含まない）。展開が要るプログラムのうち、この範囲は源の文字列を検証済みの経路で
 /// 検査し、印なしの IR を実行に使う。`fold` は核の形で、hof ではない（hof.rs の冒頭）。
 pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
     match parse_source(source, profile) {
-        Parsed::Program(p) => needs_glue(&p) && route_scope(source, &p, profile),
+        Parsed::Program(p) => needs_glue(&p) && route_scope(&p),
         Parsed::Failed(_) => false,
     }
 }
 
-fn route_scope(source: &[u8], p: &Program, profile: &StaticProfile) -> bool {
+fn route_scope(p: &Program) -> bool {
     !(sums::has_sums(p)
         || recursive::has_recursive(p)
         || generics::has_generics(p)
         || hof::has_hof(p)
-        || dict::has_dict(p)
-        || has_record_trailing_comma(p, source, profile))
-}
-
-/// S5b：記録の式が末尾の `,` を持つか（`P { a: x, }`）。信頼側の構文器は受けるが、検証済みの文法（syntax.rs の
-/// prest）は `,` の後ろに字段を要求する。その形は範囲の外に残し、従来の経路（ゲートと糖衣の IR）で判定する。
-/// 字句が読めないときも範囲の外とする（この関数が呼ばれるのは字句の通ったプログラムだけなので、実際には起きない）。
-fn has_record_trailing_comma(p: &Program, source: &[u8], profile: &StaticProfile) -> bool {
-    let Ok(tokens) = lex(source, profile) else {
-        return true;
-    };
-    fn ex(e: &Expr, tokens: &[crate::lexer::Token]) -> bool {
-        if matches!(e.kind, ExprKind::Record { .. }) {
-            // 記録の式の範囲は閉じ括弧で終わる（構文器の meta の範囲）。その直前の字句が `,` か。
-            let close = e.meta.span.1.saturating_sub(1);
-            if let Ok(k) = tokens.binary_search_by_key(&close, |t| t.start) {
-                if k > 0 && tokens[k].is_punct("}") && tokens[k - 1].is_punct(",") {
-                    return true;
-                }
-            }
-        }
-        e.children().into_iter().any(|c| ex(c, tokens))
-    }
-    p.functions().any(|f| ex(&f.body, &tokens))
+        || dict::has_dict(p))
 }
 
 /// S5b：展開のゲート（印なし）が受理した、範囲内のプログラムを源の文字列で検証済みの経路に通す。
@@ -787,7 +764,7 @@ fn route_expanded(
     r: CompileResult,
     profile: &StaticProfile,
 ) -> CompileResult {
-    if tagged || !route_scope(source, p, profile) {
+    if tagged || !route_scope(p) {
         return r;
     }
     verified_from_source(source, p, r, profile)

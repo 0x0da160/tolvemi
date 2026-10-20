@@ -57,7 +57,7 @@ record_names.rs:354	ACCEPT	type p = { a: Int }\nfn f(x: p) -> Int = x.a\nentry f
 record_names.rs:362	REJECT E-PARSE-EXPECTED-IDENT	type G<t> = { v: Int }\nfn f(g: G<Int>) -> Int = g.v\nentry f\n
 record_names.rs:371	ACCEPT	type G<T> = { v: T, w: Int }\nfn f(g: G<Int>) -> Int = add(g.v, g.w)\nentry f\n
 record_names.rs:379	ACCEPT	type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n
-record_names.rs:383	ACCEPT	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n
+record_names.rs:383	REJECT E-PARSE-EXPECTED-IDENT	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n
 record_names.rs:396	REJECT E-PARSE-EXPECTED-TOKEN	type P = { a Int, b: Int }\nfn f(p: P) -> Int = p.b\nentry f\n
 record_names.rs:400	REJECT E-PARSE-EXPECTED-TOKEN	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x b: x }.a\nentry f\n
 record_names.rs:404	REJECT E-LEX-UNEXPECTED-CHARACTER	type P = { a: Int; b: Int }\nfn f(p: P) -> Int = p.a\nentry f\n

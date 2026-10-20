@@ -48,7 +48,7 @@ use tlvm_verified::resolve::{decl_numbers_e, resolve_e, resolve_tagged_e};
 use tlvm_verified::surface::{parse_e, SDecl};
 
 mod common;
-use common::rejected;
+use common::{rejected, row};
 
 const MISMATCH: &str = "E-INTERNAL-VERIFIED-MISMATCH";
 
@@ -850,14 +850,13 @@ fn v8_in_route_programs_are_checked_from_their_source() {
     println!("V8: 範囲内で受理し、源の二つの写しと IR を検査したプログラム {checked} 件");
 }
 
-/// 末尾の `,` の記録の式は範囲の外に残す（検証済みの文法は `,` の後ろに字段を要求する。検証済みの prest）。
-/// 範囲の外なので、HEAD と同じ経路で受理し、同じ出力を返す。宣言の末尾の `,` は範囲の内（検証済みも受ける）。
+/// 末尾の `,` の記録の式は、信頼側の構文器が拒否する（設計書の record_items に合わせた。オーナーの決定 2026-10-20）。
+/// 検証済みの文法も `,` の後ろに字段を要求するので、この形は経路の判定に届かない。宣言の末尾の `,` は範囲の内（検証済みも受ける）。
 #[test]
-fn v8_record_literal_with_trailing_comma_stays_on_the_trusted_route() {
+fn v8_record_literal_with_trailing_comma_is_rejected_before_the_route() {
     let p = StaticProfile::default();
     let lit = "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n";
-    assert!(!in_verified_route(lit.as_bytes(), &p), "末尾の , の記録の式は範囲の外のはず");
-    assert_eq!(cli_run(lit, "5"), "5");
+    assert_eq!(rejected(lit), vec![row("parse", "E-PARSE-EXPECTED-IDENT", "identifier", "}")]);
     let decl = "type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n";
     assert!(in_verified_route(decl.as_bytes(), &p), "宣言の末尾の , は範囲の内のはず");
 }
@@ -1217,7 +1216,7 @@ fn record_mutants(src: &str) -> Vec<(&'static str, String)> {
     out
 }
 
-/// 掃引のプログラム：route_corpus.tsv と v7_corpus() の記録だけのもの（重複を除く）。末尾のコンマの記録の式は除く。
+/// 掃引のプログラム：route_corpus.tsv と v7_corpus() の記録だけのもの（重複を除く）。末尾のコンマの記録の式は除く（構文で拒否するので、検証済みの経路に届かない）。
 /// 戻り値は (出典, プログラム) の列と、除いたものの出典。
 fn sweep_programs() -> (Vec<(String, String)>, Vec<String>) {
     let mut all: Vec<(String, String)> = Vec::new();
@@ -1254,7 +1253,7 @@ fn sweep_programs() -> (Vec<(String, String)>, Vec<String>) {
 fn v7_record_mutations_get_no_verified_mismatch() {
     let (progs, excluded) = sweep_programs();
     assert!(progs.len() >= 70, "プログラムが少ない: {}", progs.len());
-    assert_eq!(excluded, ["record_names.rs:383"], "除くのは末尾のコンマの記録の式だけ");
+    assert_eq!(excluded, ["record_names.rs:383"], "除くのは末尾のコンマの記録の式だけ（構文で拒否する）");
     let mut per_kind: BTreeMap<&str, usize> = BTreeMap::new();
     let (mut total, mut name_checked) = (0, 0);
     for (origin, src) in &progs {

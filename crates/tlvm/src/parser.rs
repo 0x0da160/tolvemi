@@ -933,7 +933,8 @@ impl Parser {
         let mut fields = vec![];
         let mut base = None;
         loop {
-            if self.peek(0).is_punct("}") {
+            // 字段の後ろの `,` の後に `}` は続けない（設計書の record_items）。空の記録だけが `}` で止まる。
+            if fields.is_empty() && self.peek(0).is_punct("}") {
                 break;
             }
             if self.peek(0).is_punct(".") && self.peek(1).is_punct(".") {

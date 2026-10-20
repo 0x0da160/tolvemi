@@ -374,14 +374,15 @@ fn type_parameters_must_start_with_an_uppercase_letter() {
 }
 
 #[test]
-fn trailing_commas_in_record_declarations_and_literals_are_accepted() {
+fn trailing_comma_is_accepted_in_declarations_and_rejected_in_literals() {
     assert_eq!(
         typed("type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n"),
         tys("P", "Int")
     );
+    // 式の末尾の `,` は設計書の record_items に合わせて拒否する（オーナーの決定 2026-10-20）
     assert_eq!(
-        typed("type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n"),
-        tys("Int", "Int")
+        rejected("type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n"),
+        vec![row("parse", "E-PARSE-EXPECTED-IDENT", "identifier", "}")]
     );
 }
 
