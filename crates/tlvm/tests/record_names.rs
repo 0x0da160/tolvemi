@@ -18,44 +18,12 @@ use std::process::Command;
 use tlvm::api::*;
 use tlvm::profiles::*;
 
-const MISMATCH: &str = "E-INTERNAL-VERIFIED-MISMATCH";
-
-/// 診断の (phase, code, expected, actual)。値のない欄は空文字。
-type Row = (String, String, String, String);
-
-fn row(phase: &str, code: &str, expected: &str, actual: &str) -> Row {
-    (phase.into(), code.into(), expected.into(), actual.into())
-}
+mod common;
+use common::{rejected, row};
 
 /// 受理したプログラムの (入力の型, 出力の型)。
 fn tys(input: &str, output: &str) -> (String, String) {
     (input.into(), output.into())
-}
-
-/// 拒否したプログラムの診断。検証済み部品との食い違い（E-INTERNAL-VERIFIED-MISMATCH）は出てはいけない。
-fn rejected(src: &str) -> Vec<Row> {
-    match compile(src.as_bytes(), &StaticProfile::default()) {
-        SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
-            let rows: Vec<Row> = errors
-                .iter()
-                .map(|d| {
-                    row(
-                        d.phase,
-                        d.code,
-                        d.expected.as_deref().unwrap_or(""),
-                        d.actual.as_deref().unwrap_or(""),
-                    )
-                })
-                .collect();
-            assert!(
-                rows.iter().all(|r| r.1 != MISMATCH),
-                "検証済み部品との食い違い: {src}\n{rows:?}"
-            );
-            rows
-        }
-        SourceCompile::Result(CompileResult::Accepted { .. }) => panic!("受理された: {src}"),
-        _ => panic!("結果が出ない: {src}"),
-    }
 }
 
 /// 受理したプログラムの (入力の型, 出力の型)。拒否なら診断を出して失敗する。

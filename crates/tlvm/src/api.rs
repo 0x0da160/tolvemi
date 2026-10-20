@@ -217,9 +217,9 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
             // v1.5：map などは型検査の後に fold などへ書き換える（v1.6 の loop も）
             // v1.14・v1.15：宣言した型のあるプログラムは、印つきの写しを先に検査してから印なしの写しを検査する
             if declares_types(&p) {
-                SourceCompile::Result(compile_nominal(&p, source.len(), profile))
+                SourceCompile::Result(compile_nominal(&p, source, profile))
             } else {
-                SourceCompile::Result(compile_expanded(&p, source.len(), profile, false))
+                SourceCompile::Result(compile_expanded(&p, source, profile, false))
             }
         }
         Parsed::Program(p) => {
@@ -236,15 +236,15 @@ fn compile_unrepaired(source: &[u8], profile: &StaticProfile) -> SourceCompile {
 /// 展開から検証済み部品の検査までの一通り。`tagged` は名義の型の印つきの写し（v1.15）。
 fn compile_expanded(
     p: &Program,
-    len: usize,
+    source: &[u8],
     profile: &StaticProfile,
     tagged: bool,
 ) -> CompileResult {
     match expand_with(p, tagged) {
-        Err(d) => result(d, None),
+        Err(d) => expansion_rejected(source, p, d, profile),
         Ok(px) => {
             // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
-            let (o, pm) = generics::check(&px, len, profile);
+            let (o, pm) = generics::check(&px, source.len(), profile);
             // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
             // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
             let mut glued = hof::lower(&pm, &o.hof);
@@ -262,8 +262,8 @@ fn compile_expanded(
 /// v1.15：宣言した型（レコード型・直和型・再帰する型）を含むプログラムは、印つきの写し（宣言ごとに違う印を値の型に
 /// 付けた同じプログラム）を先に検査する。型の名前による区別は、ここで検証済みの部品が判定する。受理されたら、印なし
 /// の写しを検査して実行する。印つきの再帰する型の文面は、名前に直す（レコード型と直和型は型の名前で表示される）。
-fn compile_nominal(p: &Program, len: usize, profile: &StaticProfile) -> CompileResult {
-    match compile_expanded(p, len, profile, true) {
+fn compile_nominal(p: &Program, source: &[u8], profile: &StaticProfile) -> CompileResult {
+    match compile_expanded(p, source, profile, true) {
         CompileResult::Rejected {
             errors,
             warnings,
@@ -276,7 +276,7 @@ fn compile_nominal(p: &Program, len: usize, profile: &StaticProfile) -> CompileR
                 work,
             }
         }
-        CompileResult::Accepted { .. } => compile_expanded(p, len, profile, false),
+        CompileResult::Accepted { .. } => compile_expanded(p, source, profile, false),
     }
 }
 
@@ -697,3 +697,42 @@ pub fn run(
         }
     })
 }
+
+/// 展開段階の名前の診断を、検証済み部品と突き合わせる（S5a、F3）。突き合わせるのは、診断の全部のコードが
+/// `CHECKED_EXPANSION_CODES` に入るときだけ。外れるコードが一つでもあれば、検証済み部品と比べずにそのまま返す。
+/// 展開は失敗しているので、突き合わせに渡すのは書き換える前の源の文字列（診断の文面と位置は変えない）。
+/// 行の位置は、この関数より前の行を動かさないため、ファイルの末尾に置く（knowledge/diagnostics の位置の記録）。
+fn expansion_rejected(
+    source: &[u8],
+    p: &Program,
+    d: Vec<Diagnostic>,
+    profile: &StaticProfile,
+) -> CompileResult {
+    let checked = !d.is_empty() && d.iter().all(|x| CHECKED_EXPANSION_CODES.contains(&x.code));
+    let r = result(d, None);
+    if !checked {
+        return r;
+    }
+    let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), p);
+    cross_check(&text, r, profile)
+}
+
+/// 展開段階の名前の診断のうち、検証済み部品と突き合わせるコード（S5a）。ここに無いコードは突き合わせず、
+/// そのまま返す（F3）。入れる根拠は、検証済みの名前の規則が同じ判定をすること（record_verified.rs の V1、V2、
+/// V4、S2C_RECURSIVE と V7）。入れないコードと理由：
+/// - E-SUM-NAME-CONFLICT、E-SUM-DUPLICATE-CTOR：検証済みの宣言の表に構築子の名前の規則が無く、検証済みが受理する。
+/// - E-SUM-UNKNOWN-CTOR、E-SUM-CTOR-ARITY、E-MATCH-MISSING、E-MATCH-DUPLICATE、E-MATCH-UNREACHABLE、
+///   E-MATCH-MIXED：検証済みの解決器は直和型の match を拒否し（SumMatch は None）、構築子は関数でないので呼出しも拒否する。
+///   その拒否は規則の証拠にならない。
+/// - E-TYPE-GENERIC-*、E-REC-TYPE-PARAM：検証済みの構文に型引数が無い（G1）ので、突き合わせが働かない。
+///   （`fn g(x: U)` の例だけは構文が通るが、拒否は未知の型の規則による。総称の規則の証拠にはならない。）
+pub const CHECKED_EXPANSION_CODES: &[&str] = &[
+    "E-RECORD-UNKNOWN-TYPE",
+    "E-RECORD-UNKNOWN-FIELD",
+    "E-RECORD-DUPLICATE-FIELD",
+    "E-RECORD-MISSING-FIELD",
+    "E-RECORD-BASE-REDUNDANT",
+    "E-RECORD-DUPLICATE-TYPE",
+    "E-RECORD-FIELD-CONFLICT",
+    "E-REC-FIELD-TYPE",
+];

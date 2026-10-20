@@ -17,6 +17,8 @@
 //!
 //! S3b（V6）：印つきの写しの参照と更新（resolve_tagged_e と検証済みの型検査）。
 //! S3c：入れ子の名前つきの字段（印つきの写し）。信頼側が受理する入れ子は受理し、拒否する入れ子は拒否する。
+//! V7（S5a）：展開段階の名前の診断の corpus。突き合わせに入るコード（api.rs の CHECKED_EXPANSION_CODES）は、
+//! 検証済みの parser が通り resolver が拒否する。どの例でも検証済みとの食い違い（E-INTERNAL-VERIFIED-MISMATCH）は出ない。
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 
@@ -33,6 +35,9 @@ use tlvm_verified::check::check_prog;
 use tlvm_verified::ir::EProg;
 use tlvm_verified::resolve::{decl_numbers_e, resolve_e, resolve_tagged_e};
 use tlvm_verified::surface::{parse_e, SDecl};
+
+mod common;
+use common::rejected;
 
 const MISMATCH: &str = "E-INTERNAL-VERIFIED-MISMATCH";
 
@@ -500,4 +505,138 @@ fn s3c_nested_named_fields_agree_with_trusted() {
         assert_eq!(verified_run(src, input), want, "印なしの検証済みの出力が違う: {src}");
         assert_eq!(tagged_run(src, input), want, "印つきの検証済みの出力が違う: {src}");
     }
+}
+
+// ---------------------------------------------------------------- V7：展開段階の名前の診断と、検証済みの突き合わせ（S5a）
+
+/// 展開段階の名前の診断の corpus：record_names.rs・records.rs・sums.rs の拒否する例と、diagnostic_registry.rs の例。
+/// (プログラム, 出すべき符号)。
+fn v7_corpus() -> Vec<(String, &'static str)> {
+    let p = |s: &str, c: &'static str| (s.to_string(), c);
+    let shape = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\n";
+    let h = "type P = { a: Int, b: Bool }\n";
+    vec![
+        // record_names.rs：レコードの名前の診断
+        p("type P = { a: Int }\nfn f(p: Q) -> Int = 1\nentry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type P = { a: Int }\nfn f(x: Int) -> Int = Q { a: x }.a\nentry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type P = { a: Int }\ntype P = { b: Int }\nfn f(p: P) -> Int = 1\nentry f\n", "E-RECORD-DUPLICATE-TYPE"),
+        p("type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, z: x }.a\nentry f\n", "E-RECORD-UNKNOWN-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn f(p: P) -> Int = p.z\nentry f\n", "E-RECORD-UNKNOWN-FIELD"),
+        p("fn f(x: Int) -> Int = x.a\nentry f\n", "E-RECORD-UNKNOWN-FIELD"),
+        p("type P = { a: Int, a: Int }\nfn f(p: P) -> Int = p.a\nentry f\n", "E-RECORD-DUPLICATE-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, a: x, b: x }.a\nentry f\n", "E-RECORD-DUPLICATE-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x }.a\nentry f\n", "E-RECORD-MISSING-FIELD"),
+        p("type P = { a: Int, b: Int, c: Int }\nfn f(x: Int) -> Int = P { a: x }.a\nentry f\n", "E-RECORD-MISSING-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn f(q: P, x: Int) -> Int = P { a: x, b: x, ..q }.a\nentry f\n", "E-RECORD-BASE-REDUNDANT"),
+        p("type P = { a: Int }\ntype Q = { a: Int }\nfn f(q: Q) -> Int = q.a\nentry f\n", "E-RECORD-FIELD-CONFLICT"),
+        p("fn f(d: Dict) -> Int = 0\nentry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("fn f(x: Int) -> Dict = x\nentry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { d: Dict, n: Int }\nfn f(r: R) -> Int = r.n\nentry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type A = { x: Int, y: Int }\ntype B = { x: Int, y: Int }\nfn f(a: A) -> B = a\nentry f\n", "E-RECORD-FIELD-CONFLICT"),
+        // records.rs：レコードの名前の診断
+        p(&format!("{h}fn f(p: P) -> Int = p.c entry f"), "E-RECORD-UNKNOWN-FIELD"),
+        p(&format!("{h}fn f(p: R) -> Int = 1 entry f"), "E-RECORD-UNKNOWN-TYPE"),
+        p(&format!("{h}fn f(x: Int) -> P = P {{ a: x }} entry f"), "E-RECORD-MISSING-FIELD"),
+        p(&format!("{h}fn f(x: P) -> P = P {{ a: 1, b: true, ..x }} entry f"), "E-RECORD-BASE-REDUNDANT"),
+        p(&format!("{h}fn f(x: Int) -> P = P {{ a: x, b: true, ..undefined }} entry f"), "E-RECORD-BASE-REDUNDANT"),
+        p(&format!("{h}fn f(x: Int) -> P = P {{ a: x, a: x, b: true }} entry f"), "E-RECORD-DUPLICATE-FIELD"),
+        p(&format!("{h}type Q = {{ a: Int }}\nfn f(x: Int) -> Int = x entry f"), "E-RECORD-FIELD-CONFLICT"),
+        p(&format!("{h}type P = {{ c: Int }}\nfn f(x: Int) -> Int = x entry f"), "E-RECORD-DUPLICATE-TYPE"),
+        p("type A = { x: B }\ntype B = { y: Int }\nfn f(x: Int) -> Int = x entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        // sums.rs：直和型と match の診断（名前の段階のもの）
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Circle(r) => r, Rect(w, h) => w }} entry f"), "E-MATCH-MISSING"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Circle(r) => r, Circle(q) => q, _ => 0 }} entry f"), "E-MATCH-DUPLICATE"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ _ => 0, Empty => 1 }} entry f"), "E-MATCH-UNREACHABLE"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Circle(r) => r, Rect(w, h) => w, Empty => 0, _ => 1 }} entry f"), "E-MATCH-UNREACHABLE"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Circle(r) => r, ok(x) => x, _ => 0 }} entry f"), "E-MATCH-MIXED"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Circel(r) => r, _ => 0 }} entry f"), "E-SUM-UNKNOWN-CTOR"),
+        p(&format!("{shape}fn f(s: Int) -> Shape = Circel(s) entry f"), "E-SUM-UNKNOWN-CTOR"),
+        p(&format!("{shape}fn f(s: Int) -> Shape = Emty entry f"), "E-SUM-UNKNOWN-CTOR"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Rect(w) => w, _ => 0 }} entry f"), "E-SUM-CTOR-ARITY"),
+        p(&format!("{shape}fn f(s: Shape) -> Int = match s {{ Empty() => 0, _ => 1 }} entry f"), "E-SUM-CTOR-ARITY"),
+        p(&format!("{shape}fn f(s: Int) -> Shape = Rect(s) entry f"), "E-SUM-CTOR-ARITY"),
+        p(&format!("{shape}fn f(s: Int) -> Shape = Circle entry f"), "E-SUM-CTOR-ARITY"),
+        p(&format!("{shape}fn f(s: Int) -> Shape = Empty() entry f"), "E-SUM-CTOR-ARITY"),
+        p(&format!("{shape}fn f(Circle: Int) -> Int = 1 entry f"), "E-SUM-NAME-CONFLICT"),
+        p(&format!("{shape}fn f(s: Int) -> Int = let Empty = 1 in Empty entry f"), "E-SUM-NAME-CONFLICT"),
+        p(&format!("{shape}fn Rect(s: Int) -> Int = 1 fn f(s: Int) -> Int = 1 entry f"), "E-SUM-NAME-CONFLICT"),
+        p("type S = S | T fn f(s: Int) -> Int = 1 entry f", "E-SUM-NAME-CONFLICT"),
+        p(&format!("{shape}type T = Empty | Full fn f(s: Int) -> Int = 1 entry f"), "E-SUM-DUPLICATE-CTOR"),
+        p("type T = A | B | A fn f(s: Int) -> Int = 1 entry f", "E-SUM-DUPLICATE-CTOR"),
+        p("type S = A(P) | B type P = { x: Int } fn f(s: Int) -> Int = 1 entry f", "E-RECORD-UNKNOWN-TYPE"),
+        p("type S = A(Foo) | B fn f(s: Int) -> Int = 1 entry f", "E-RECORD-UNKNOWN-TYPE"),
+        p("type S = A | B type S = C fn f(s: Int) -> Int = 1 entry f", "E-RECORD-DUPLICATE-TYPE"),
+        // diagnostic_registry.rs の例。構築子・match・総称の例は突き合わせに入らないので、食い違いが出ないことだけを見る
+        p("type S = A | A\nfn f(x: Int) -> Int = x entry f\n", "E-SUM-DUPLICATE-CTOR"),
+        p("type S = Add | B\nfn Add(x: Int) -> Int = x\nfn f(x: Int) -> Int = x entry f\n", "E-SUM-NAME-CONFLICT"),
+        p("type S = A | B(Int)\nfn f(x: Int) -> S = B(1, 2) entry f\n", "E-SUM-CTOR-ARITY"),
+        p("type S = A | B\nfn f(x: S) -> Int = match x { A => 0 } entry f\n", "E-MATCH-MISSING"),
+        p("type T = Leaf | Node(String, T)\nfn f(x: Int) -> Int = x entry f\n", "E-REC-FIELD-TYPE"),
+        p("type T<A> = Leaf | Node(Int, T<A>)\nfn f(x: Int) -> Int = x entry f\n", "E-REC-TYPE-PARAM"),
+        p("type L = Nil | Cons(Int, L)\ntype L = Done | More(Int, L)\nfn f(a: Int) -> Int = a entry f\n", "E-RECORD-DUPLICATE-TYPE"),
+        p("type S = A(P) | B\ntype P = { x: Int }\nfn f(s: Int) -> Int = 1 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type P = { a: Int }\nfn f(x: P, y: Q) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("fn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id<Int, Int>(x) entry f\n", "E-TYPE-GENERIC-ARITY"),
+        p("fn g(x: U) -> Int = 0\nfn f(x: Int) -> Int = g(x) entry f\n", "E-TYPE-GENERIC-UNKNOWN-PARAM"),
+        p("fn g<T, T>(x: T) -> T = x\nfn f(x: Int) -> Int = g(x) entry f\n", "E-TYPE-GENERIC-DUPLICATE-PARAM"),
+        p("type T = { a: Int }\nfn g<T>(x: T) -> T = x\nfn f(x: Int) -> Int = x entry f\n", "E-TYPE-GENERIC-PARAM-CONFLICT"),
+        p("type Box<T> = { value: Int }\nfn f(x: Int) -> Int = x entry f\n", "E-TYPE-GENERIC-UNUSED-PARAM"),
+        p("fn mk<T>() -> List<T> = list<T>()\nfn f(x: Int) -> List<Int> = mk() entry f\n", "E-TYPE-GENERIC-INFER"),
+        // 字段の型の中の未知の型（組込みの型の中も見る）と、再帰する直和型の項の形（S5a の補足）
+        p("type R = { x: Option<Q> }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { x: Pair<Int, Q> }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { x: List<Q> }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { x: Dict<Q, Int> }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { x: Result<Q, Int> }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type S = A(Option<Q>) | B\nfn f(s: Int) -> Int = 1 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type R = { x: List<T> }\ntype T = { y: Int }\nfn f(r: R) -> Int = 0 entry f\n", "E-RECORD-UNKNOWN-TYPE"),
+        p("type L = Nil | Cons(Option<Int>, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type L = Nil | Cons(Pair<Int, Int>, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type L = Nil | Cons(Dict<Int, Int>, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type L = Nil | Cons(Char, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type L = Nil | Cons(Q, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type P = { a: Int }\ntype L = Nil | Cons(P, L)\nfn f(a: Int) -> Int = a entry f\n", "E-REC-FIELD-TYPE"),
+        p("type P = { a: Int, a: Option<Int> }\nfn f(p: P) -> Int = 0 entry f\n", "E-RECORD-DUPLICATE-FIELD"),
+        p("type P = { a: Int }\ntype Q = { b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x }.a entry f\n", "E-RECORD-UNKNOWN-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn f(x: Int) -> P = P { c: x } entry f\n", "E-RECORD-MISSING-FIELD"),
+        p("type P = { a: Int, b: Int }\nfn g(p: P) -> P = P { a: 1, zz: 2, ..p } entry g\n", "E-RECORD-UNKNOWN-FIELD"),
+        p("type P = { a: Int }\ntype P = { b: Int }\nfn f(p: P) -> P = p entry f\n", "E-RECORD-DUPLICATE-TYPE"),
+        p("type P = { a: Int, b: Int }\ntype Q = { a: Int }\ntype S = { b: Int }\nfn f(x: Int) -> Int = x entry f\n", "E-RECORD-FIELD-CONFLICT"),
+    ]
+}
+
+#[test]
+fn v7_expansion_name_diagnostics_have_no_verified_mismatch() {
+    let corpus = v7_corpus();
+    for (src, want) in &corpus {
+        // 食い違いが出ないこと（rejected の検査）と、出すべき符号が出ること
+        let rows = rejected(src);
+        assert!(
+            rows.iter().any(|r| r.1 == *want),
+            "符号 {want} が出ない: {src}\n{rows:?}"
+        );
+    }
+    // 出た符号が全部、突き合わせる（有効な）コードの例では、検証済みの parser が通り、resolver が拒否する。
+    let mut gaps: Vec<String> = Vec::new();
+    for (src, _) in &corpus {
+        let rows = rejected(src);
+        let checked = rows
+            .iter()
+            .all(|r| CHECKED_EXPANSION_CODES.contains(&r.1.as_str()));
+        if checked {
+            if verified_parse(src).is_none() {
+                gaps.push(format!(
+                    "parse が通らない: {src:?} {:?}",
+                    rows.iter().map(|r| r.1.as_str()).collect::<Vec<_>>()
+                ));
+            } else if verified_accepts(src) {
+                gaps.push(format!("resolver が受理した: {src:?}"));
+            }
+        }
+    }
+    assert!(
+        gaps.is_empty(),
+        "突き合わせが働かない、または食い違う例:\n{}",
+        gaps.join("\n")
+    );
 }
