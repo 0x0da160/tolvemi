@@ -76,7 +76,9 @@ pub open spec fn fields_ok(fs: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Opti
     distinct(pnames(fs)) && forall|i: int| 0 <= i < fs.len() ==> fresh(tb, fs[i].0) && tyn(fs[i].1, tb)
 }
 
-/// 直和型の中身（構築子ごとの型の並び）は、前の項目だけを引く（規則 1）。
+/// 直和型の中身（構築子ごとの型の並び）は、前の項目と自分自身だけを引く（規則 1）。自分を引くのは再帰する直和型
+/// （trusted の v1.14：`type L = Nil | Cons(Int, L)` は受理する）。tb は自分を足した表。不透明にして、表の等しさで書き換える。
+#[verifier::opaque]
 pub open spec fn vars_ok(vs: Seq<(Seq<char>, Seq<SType>)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool {
     forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> tyn(vs[i].1[a], tb)
 }
@@ -99,7 +101,7 @@ pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char
 }
 
 /// 宣言を名前表の末尾に足す。記録は、型名が新しく、字段の列が規則 1・4 を満たすときに足す。
-/// 直和型は、型名が新しく、中身の型が前の項目だけを引くときに足す（規則 1・3）。関数と entry は表に入らない。
+/// 直和型は、型名が新しく、中身の型が前の項目と自分だけを引くときに足す（規則 1・3）。関数と entry は表に入らない。
 #[verifier::opaque]
 pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>> {
     match d {
@@ -110,7 +112,7 @@ pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd
         } else {
             Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs))))
         },
-        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb) {
+        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) {
             None
         } else {
             Some(tb.push((r, None, Seq::empty())))
@@ -141,7 +143,7 @@ proof fn tb_push_rec_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: S
 
 proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
     requires
-        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb),
+        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))),
     ensures
         tb_push(tb, Sd::Sum(r, vs)) is None,
 {
@@ -151,7 +153,7 @@ proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: S
 proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
     requires
         idx(tnames(tb), r, 0) is None,
-        vars_ok(vs, tb),
+        vars_ok(vs, tb.push((r, None, Seq::empty()))),
     ensures
         tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty()))),
 {
@@ -184,9 +186,248 @@ pub open spec fn decl_table(p: Seq<Sd>, n: nat) -> Option<Seq<(Seq<char>, Option
     }
 }
 
-/// 表面の型から核の型へ。宣言された名前（Named）は名前表から引き、その項目の印なしの展開を返す（直和型は None）。
+// ------------------------------------------------------------------ 印と番号（S2b）
+
+/// 印の型 tag(k)：`Pair<Unit, Unit>` を k 段、`Pair<Unit, _>` で包んだもの（nominal.rs の tag_ty と同じ形）。
+pub open spec fn tag_ty(k: nat) -> Ty
+    decreases k,
+{
+    if k == 0 {
+        Ty::Pair(Box::new(Ty::Unit), Box::new(Ty::Unit))
+    } else {
+        Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((k - 1) as nat)))
+    }
+}
+
+/// 印の値（tag_ty(k) の値）。
+pub open spec fn tag_val(k: nat) -> Val
+    decreases k,
+{
+    if k == 0 {
+        Val::Pair(Box::new(Val::Unit), Box::new(Val::Unit))
+    } else {
+        Val::Pair(Box::new(Val::Unit), Box::new(tag_val((k - 1) as nat)))
+    }
+}
+
+/// 印の型は k について単射（段数が違えば別の型）。k の帰納。
+pub proof fn tag_ty_inj(k: nat, j: nat)
+    requires
+        tag_ty(k) == tag_ty(j),
+    ensures
+        k == j,
+    decreases k + j,
+{
+    if k == 0 && j == 0 {
+    } else if k == 0 {
+        assert(tag_ty(j) == Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((j - 1) as nat))));
+        assert(tag_ty((j - 1) as nat) matches Ty::Pair(..));
+        assert(false);
+    } else if j == 0 {
+        assert(tag_ty(k) == Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((k - 1) as nat))));
+        assert(tag_ty((k - 1) as nat) matches Ty::Pair(..));
+        assert(false);
+    } else {
+        assert(tag_ty(k) == Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((k - 1) as nat))));
+        assert(tag_ty(j) == Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((j - 1) as nat))));
+        tag_ty_inj((k - 1) as nat, (j - 1) as nat);
+    }
+}
+
+/// 印の値も k について単射。k の帰納。
+pub proof fn tag_val_inj(k: nat, j: nat)
+    requires
+        tag_val(k) == tag_val(j),
+    ensures
+        k == j,
+    decreases k + j,
+{
+    if k == 0 && j == 0 {
+    } else if k == 0 {
+        assert(tag_val(j) == Val::Pair(Box::new(Val::Unit), Box::new(tag_val((j - 1) as nat))));
+        assert(tag_val((j - 1) as nat) matches Val::Pair(..));
+        assert(false);
+    } else if j == 0 {
+        assert(tag_val(k) == Val::Pair(Box::new(Val::Unit), Box::new(tag_val((k - 1) as nat))));
+        assert(tag_val((k - 1) as nat) matches Val::Pair(..));
+        assert(false);
+    } else {
+        assert(tag_val(k) == Val::Pair(Box::new(Val::Unit), Box::new(tag_val((k - 1) as nat))));
+        assert(tag_val(j) == Val::Pair(Box::new(Val::Unit), Box::new(tag_val((j - 1) as nat))));
+        tag_val_inj((k - 1) as nat, (j - 1) as nat);
+    }
+}
+
+/// 印の値は印の型の値。
+pub proof fn tag_val_typed(k: nat)
+    ensures
+        val_type(tag_val(k), tag_ty(k)),
+    decreases k,
+{
+    reveal_with_fuel(val_type, 2);
+    if k == 0 {
+        assert(tag_val(k) == Val::Pair(Box::new(Val::Unit), Box::new(Val::Unit)));
+        assert(tag_ty(k) == Ty::Pair(Box::new(Ty::Unit), Box::new(Ty::Unit)));
+    } else {
+        tag_val_typed((k - 1) as nat);
+        assert(tag_val(k) == Val::Pair(Box::new(Val::Unit), Box::new(tag_val((k - 1) as nat))));
+        assert(tag_ty(k) == Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty((k - 1) as nat))));
+    }
+}
+
+/// 印つきの型：記録の項目（番号 k、印なしの展開 u）は Pair<tag(k), u>。印なしは u のまま。
+pub proof fn named_tagged(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, x: Seq<char>, k: nat)
+    requires
+        idx(tnames(tb), x, 0) == Some(k),
+        k < tb.len(),
+        tb[k as int].1 is Some,
+    ensures
+        to_ty(SType::Named(x), tb, true) == Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(tb[k as int].1->Some_0))),
+        to_ty(SType::Named(x), tb, false) == tb[k as int].1,
+{
+}
+
+/// 型の宣言（記録と直和型）か。
+pub open spec fn is_type_decl(d: Sd) -> bool {
+    d matches Sd::RecTy(..) || d matches Sd::Sum(..)
+}
+
+/// 宣言 i の番号：型の宣言なら、その項目が名前表に入る位置（宣言の直前の名前表の長さ）。関数と entry は None。
+pub open spec fn nums_of(p: Seq<Sd>, i: nat) -> Option<nat> {
+    if i < p.len() && is_type_decl(p[i as int]) {
+        match decl_table(p, i) {
+            Some(tb) => Some(tb.len()),
+            None => None,
+        }
+    } else {
+        None
+    }
+}
+
+/// 宣言の全部の番号（宣言の順）。名前表が作れるときだけ。
+pub open spec fn decl_nums(p: Seq<Sd>) -> Option<Seq<Option<nat>>> {
+    match decl_table(p, p.len()) {
+        Some(_) => Some(Seq::new(p.len(), |i: int| nums_of(p, i as nat))),
+        None => None,
+    }
+}
+
+/// 番号の exec 版の写し（usize を nat に）。
+pub open spec fn nums_conv(x: Option<usize>) -> Option<nat> {
+    match x {
+        Some(k) => Some(k as nat),
+        None => None,
+    }
+}
+
+pub open spec fn nums_view(s: Seq<Option<usize>>) -> Seq<Option<nat>> {
+    Seq::new(s.len(), |k: int| nums_conv(s[k]))
+}
+
+/// 名前表に項目を足す。型の宣言なら長さが一つ増え、前の項目は変わらず、新しい項目は宣言の名前を持つ。
+proof fn tb_push_facts(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd)
+    ensures
+        match tb_push(tb, d) {
+            Some(nb) => (is_type_decl(d) ==> nb.len() == tb.len() + 1)
+                && (!is_type_decl(d) ==> nb.len() == tb.len())
+                && (forall|k: int| 0 <= k < tb.len() ==> nb[k] == tb[k])
+                && (is_type_decl(d) ==> nb[tb.len() as int].0 == fname(d)),
+            None => true,
+        },
+{
+    reveal(tb_push);
+}
+
+/// 名前表の作り方（一つ前の表に、次の宣言を足す）。
+proof fn decl_table_unfold(p: Seq<Sd>, n: nat)
+    requires
+        0 < n,
+        n <= p.len(),
+        decl_table(p, n) is Some,
+    ensures
+        decl_table(p, (n - 1) as nat) is Some,
+        decl_table(p, n) == tb_push(decl_table(p, (n - 1) as nat)->Some_0, p[(n - 1) as int]),
+{
+}
+
+/// 表の長さは、宣言を足すたびに増えるか変わらず、減らない。
+proof fn decl_table_mono(p: Seq<Sd>, a: nat, b: nat)
+    requires
+        a <= b,
+        b <= p.len(),
+        decl_table(p, b) is Some,
+    ensures
+        decl_table(p, a) is Some,
+        decl_table(p, a)->Some_0.len() <= decl_table(p, b)->Some_0.len(),
+    decreases b - a,
+{
+    if a < b {
+        decl_table_unfold(p, b);
+        decl_table_mono(p, a, (b - 1) as nat);
+        tb_push_facts(decl_table(p, (b - 1) as nat)->Some_0, p[(b - 1) as int]);
+    }
+}
+
+/// 型の宣言 i が入った位置（宣言の直前の長さ）には、その宣言の名前の項目があり、後の表でも動かない。
+proof fn decl_table_entry(p: Seq<Sd>, i: nat, n: nat)
+    requires
+        i < n,
+        n <= p.len(),
+        is_type_decl(p[i as int]),
+        decl_table(p, n) is Some,
+    ensures
+        decl_table(p, i) is Some,
+        decl_table(p, i)->Some_0.len() < decl_table(p, n)->Some_0.len(),
+        decl_table(p, n)->Some_0[decl_table(p, i)->Some_0.len() as int].0 == fname(p[i as int]),
+    decreases n - i,
+{
+    decl_table_unfold(p, n);
+    if n == i + 1 {
+        tb_push_facts(decl_table(p, i)->Some_0, p[i as int]);
+    } else {
+        decl_table_entry(p, i, (n - 1) as nat);
+        tb_push_facts(decl_table(p, (n - 1) as nat)->Some_0, p[(n - 1) as int]);
+    }
+}
+
+/// 番号の位置：型の宣言 i の番号は、全体の名前表の中で、その宣言の名前の項目の位置。
+proof fn num_position(p: Seq<Sd>, i: nat)
+    requires
+        i < p.len(),
+        is_type_decl(p[i as int]),
+        decl_table(p, p.len()) is Some,
+    ensures
+        nums_of(p, i) is Some,
+        nums_of(p, i)->Some_0 < decl_table(p, p.len())->Some_0.len(),
+        decl_table(p, p.len())->Some_0[nums_of(p, i)->Some_0 as int].0 == fname(p[i as int]),
+{
+    decl_table_entry(p, i, p.len());
+}
+
+/// 番号は相異なる：宣言の順に、後の型の宣言の番号は前の型の宣言の番号より大きい。
+proof fn num_distinct(p: Seq<Sd>, i: nat, j: nat)
+    requires
+        i < j,
+        j < p.len(),
+        is_type_decl(p[i as int]),
+        is_type_decl(p[j as int]),
+        decl_table(p, p.len()) is Some,
+    ensures
+        nums_of(p, i) is Some,
+        nums_of(p, j) is Some,
+        nums_of(p, i)->Some_0 < nums_of(p, j)->Some_0,
+{
+    decl_table_mono(p, j, p.len());
+    decl_table_mono(p, i + 1, j);
+    decl_table_mono(p, i, i + 1);
+    decl_table_unfold(p, i + 1);
+    tb_push_facts(decl_table(p, i)->Some_0, p[i as int]);
+}
+
+/// 表面の型から核の型へ。宣言された名前（Named）は名前表から引く。印なし（tagged = false）は項目の展開、
+/// 印つき（tagged = true）は記録の Pair<tag(k), 展開>（直和型は展開が None なので None）。
 /// Dict は v1.9 の消去で List<Pair<K, V>> になる（dict.rs の erase_in_place と同じ形）。
-/// `tagged` は印つきの写し（S2a では使わない。S2b で入る）。
+/// `tagged` は印つきの写し（S2b）。resolve と resolve_e は印なし（false）を使う。
 pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Option<Ty>
     decreases t,
 {
@@ -212,7 +453,10 @@ pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)
             _ => None,
         },
         SType::Named(x) => match idx(tnames(tb), x, 0) {
-            Some(k) => tb[k as int].1,
+            Some(k) => match tb[k as int].1 {
+                Some(u) => if tagged { Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(u))) } else { Some(u) },
+                None => None,
+            },
             None => None,
         },
         SType::Dict(a, b) => match (to_ty(*a, tb, tagged), to_ty(*b, tb, tagged)) {
@@ -791,6 +1035,19 @@ fn clone_opt(o: &Option<Ty>) -> (r: Option<Ty>)
     }
 }
 
+/// 印の型の exec 版（tag_ty の exec 版）。
+fn tag_ty_e(k: usize) -> (r: Ty)
+    ensures
+        r == tag_ty(k as nat),
+    decreases k,
+{
+    if k == 0 {
+        Ty::Pair(Box::new(Ty::Unit), Box::new(Ty::Unit))
+    } else {
+        Ty::Pair(Box::new(Ty::Unit), Box::new(tag_ty_e(k - 1)))
+    }
+}
+
 /// 表面の型から核の型へ（to_ty の exec 版）。
 fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool) -> (r: Option<Ty>)
     ensures
@@ -822,7 +1079,14 @@ fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: b
             _ => None,
         },
         STy::Named(x) => match tidx_e(tb, x) {
-            Some(k) => clone_opt(&tb[k].1),
+            Some(k) => match clone_opt(&tb[k].1) {
+                Some(u) => if tagged {
+                    Some(Ty::Pair(Box::new(tag_ty_e(k)), Box::new(u)))
+                } else {
+                    Some(u)
+                },
+                None => None,
+            },
             None => None,
         },
         STy::Dict(a, b) => match (to_ty_e(a, tb, tagged), to_ty_e(b, tb, tagged)) {
@@ -995,6 +1259,9 @@ fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, V
     ensures
         r == vars_ok(vvars(vs@), vtb(tb@)),
 {
+    proof {
+        reveal(vars_ok);
+    }
     let mut a: usize = 0;
     while a < vs.len()
         invariant
@@ -1014,6 +1281,7 @@ fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, V
             let ok_t = tyn_e(&vs[a].1[b], tb);
             if !ok_t {
                 proof {
+                    reveal(vars_ok);
                     assert(vvars(vs@)[a as int].1[b as int] == vty(vs@[a as int].1@[b as int]));
                     assert(!vars_ok(vvars(vs@), vtb(tb@)));
                 }
@@ -1024,6 +1292,7 @@ fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, V
         a += 1;
     }
     proof {
+        reveal(vars_ok);
         assert forall|i: int, k: int| 0 <= i < vvars(vs@).len() && 0 <= k < vvars(vs@)[i].1.len() implies tyn(#[trigger] vvars(vs@)[i].1[k], vtb(tb@)) by {
             assert(vvars(vs@)[i].1[k] == vty(vs@[i].1@[k]));
         }
@@ -1103,7 +1372,15 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
                 }
                 return None;
             }
-            if !vars_ok_e(vs, &tb) {
+            // 自分の名前を先に足し、中身の型は自分を含む表で調べる（再帰する直和型）。
+            let mut out = tb;
+            out.push((clone_chars(r), None, Vec::new()));
+            proof {
+                assert(vnames(Seq::<Vec<char>>::empty()) =~= Seq::<Seq<char>>::empty());
+                assert(vtb(out@) =~= vtb(tb@).push((r@, None, Seq::empty())));
+                assert(vars_ok(vvars(vs@), vtb(out@)) == vars_ok(vvars(vs@), vtb(tb@).push((r@, None, Seq::empty()))));
+            }
+            if !vars_ok_e(vs, &out) {
                 proof {
                     tb_push_sum_none(vtb(tb@), r@, vvars(vs@));
                     assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
@@ -1113,12 +1390,6 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
             proof {
                 tb_push_sum_some(vtb(tb@), r@, vvars(vs@));
                 assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
-            }
-            let mut out = tb;
-            out.push((clone_chars(r), None, Vec::new()));
-            proof {
-                assert(vnames(Seq::<Vec<char>>::empty()) =~= Seq::<Seq<char>>::empty());
-                assert(vtb(out@) =~= vtb(tb@).push((r@, None, Seq::empty())));
             }
             Some(out)
         },
@@ -1163,6 +1434,109 @@ fn decl_table_e(p: &Vec<SDecl>) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Ve
         i += 1;
     }
     Some(tb)
+}
+
+/// 宣言の番号を一つ作る（型の宣言なら n、関数と entry なら None）。n は、その宣言の直前の名前表の長さ。
+fn num_e(d: &SDecl, n: usize) -> (r: Option<usize>)
+    ensures
+        is_type_decl(vd(*d)) ==> r == Some(n),
+        !is_type_decl(vd(*d)) ==> r is None,
+{
+    match d {
+        SDecl::RecTy(_, _, _) => {
+            proof {
+                assert(vd(*d) matches Sd::RecTy(..));
+            }
+            Some(n)
+        },
+        SDecl::Sum(_, _) => {
+            proof {
+                assert(vd(*d) matches Sd::Sum(..));
+            }
+            Some(n)
+        },
+        SDecl::Fn(_, _, _, _) => {
+            proof {
+                assert(vd(*d) matches Sd::Fn(..));
+            }
+            None
+        },
+        SDecl::Entry(_) => {
+            proof {
+                assert(vd(*d) matches Sd::Entry(..));
+            }
+            None
+        },
+    }
+}
+
+/// 宣言の番号の exec 版（decl_nums の exec 版）。宣言の順に、型の宣言なら名前表に入る位置（その直前の長さ）、
+/// 関数と entry は None。名前表が作れるときだけ Some。記録と直和型の番号は、宣言の順に区別なく数える。
+pub fn decl_numbers_e(p: &Vec<SDecl>) -> (r: Option<Vec<Option<usize>>>)
+    ensures
+        match r {
+            Some(ns) => decl_nums(vds(p@)) == Some(nums_view(ns@)),
+            None => decl_nums(vds(p@)) is None,
+        },
+{
+    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)> = Vec::new();
+    let mut ns: Vec<Option<usize>> = Vec::new();
+    let mut i: usize = 0;
+    while i < p.len()
+        invariant
+            i <= p@.len(),
+            ns@.len() == i,
+            decl_table(vds(p@), i as nat) == Some(vtb(tb@)),
+            forall|k: int| 0 <= k < i ==> nums_conv(#[trigger] ns@[k]) == nums_of(vds(p@), k as nat),
+        decreases p@.len() - i,
+    {
+        let ghost t0 = tb@;
+        let ghost ns0 = ns@;
+        let num = num_e(&p[i], tb.len());
+        proof {
+            assert(vds(p@)[i as int] == vd(p@[i as int]));
+            assert(decl_table(vds(p@), i as nat) == Some(vtb(t0)));
+            assert(nums_conv(num) == nums_of(vds(p@), i as nat));
+        }
+        match tb_push_e(tb, &p[i]) {
+            Some(nb) => {
+                tb = nb;
+            },
+            None => {
+                proof {
+                    assert(vds(p@).len() == p@.len());
+                    assert(decl_table(vds(p@), (i + 1) as nat) is None);
+                    decl_none_mono(vds(p@), (i + 1) as nat, p@.len() as nat);
+                    assert(decl_nums(vds(p@)) is None);
+                }
+                return None;
+            },
+        }
+        ns.push(num);
+        proof {
+            assert(vds(p@)[i as int] == vd(p@[i as int]));
+            assert(decl_table(vds(p@), (i + 1) as nat) == Some(vtb(tb@)));
+            assert(ns@ == ns0.push(num));
+            assert forall|k: int| 0 <= k < i + 1 implies nums_conv(#[trigger] ns@[k]) == nums_of(vds(p@), k as nat) by {
+                if k < i as int {
+                    assert(ns@[k] == ns0[k]);
+                }
+            }
+        }
+        i += 1;
+    }
+    proof {
+        let ds = vds(p@);
+        assert(ds.len() == p@.len());
+        assert(ns@.len() == ds.len());
+        assert(decl_table(ds, ds.len()) == Some(vtb(tb@)));
+        assert(decl_nums(ds) == Some(Seq::new(ds.len(), |j: int| nums_of(ds, j as nat))));
+        assert forall|k: int| 0 <= k < ds.len() implies nums_view(ns@)[k] == Seq::new(ds.len(), |j: int| nums_of(ds, j as nat))[k] by {
+            assert(nums_conv(ns@[k]) == nums_of(ds, k as nat));
+        }
+        assert(nums_view(ns@) =~= Seq::new(ds.len(), |j: int| nums_of(ds, j as nat)));
+    }
+    Some(ns)
 }
 
 /// 途中の宣言の名前表が無ければ、後の名前表も無い。

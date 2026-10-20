@@ -1,18 +1,22 @@
-//! 宣言の名前の規則を、検証済みの部品と信頼側で突き合わせる（stage 2・S2a）。
+//! 宣言の名前と番号の規則を、検証済みの部品と信頼側で突き合わせる（stage 2・S2a と S2b）。
 //!
 //! V1：宣言だけのプログラムで、検証済みの `parse_e` と `resolve_e` の受理が、信頼側の受理・拒否と一致する。
 //!     対象は宣言の四つの符号（E-RECORD-UNKNOWN-TYPE、E-RECORD-DUPLICATE-TYPE、E-RECORD-DUPLICATE-FIELD、
 //!     E-RECORD-FIELD-CONFLICT）と、それを出さない宣言の形（前方の型の参照、関数の注釈の前方参照、
 //!     型名と関数名の一致、字段の型に既知の記録、直和型の中身に前の記録）。
 //! V2：記録と直和型をまたぐ型名の重複（E-RECORD-DUPLICATE-TYPE）。宣言の順を変えても拒否する。
+//! V3：記録、直和型、再帰する直和型を混ぜた corpus で、検証済みの宣言の番号（`decl_numbers_e`）が、
+//!     信頼側の `Tags::of` の番号と宣言ごとに一致する。関数と entry を挟む形を含み、数え方が違えば食い違う。
 //!
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 
 use tlvm::api::*;
+use tlvm::nominal::Tags;
 use tlvm::profiles::*;
-use tlvm_verified::resolve::resolve_e;
-use tlvm_verified::surface::parse_e;
+use tlvm::syntax::Decl;
+use tlvm_verified::resolve::{decl_numbers_e, resolve_e};
+use tlvm_verified::surface::{parse_e, SDecl};
 
 const MISMATCH: &str = "E-INTERNAL-VERIFIED-MISMATCH";
 
@@ -35,12 +39,17 @@ fn trusted(src: &str) -> Option<Vec<(String, String)>> {
     }
 }
 
-/// 検証済みの受理：parse_e が通り、resolve_e が通る。深さの上限は api の depth_bounds と同じ。
-fn verified_accepts(src: &str) -> bool {
+/// 検証済みの解析。深さの上限は api の depth_bounds と同じ。
+fn verified_parse(src: &str) -> Option<Vec<SDecl>> {
     let p = StaticProfile::default();
     let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
     let chars: Vec<char> = src.chars().collect();
-    match parse_e(&chars, d, td) {
+    parse_e(&chars, d, td)
+}
+
+/// 検証済みの受理：parse_e が通り、resolve_e が通る。
+fn verified_accepts(src: &str) -> bool {
+    match verified_parse(src) {
         Some(sp) => resolve_e(&sp).is_some(),
         None => false,
     }
@@ -114,4 +123,81 @@ fn v2_record_and_sum_with_one_name_are_rejected_in_either_order() {
     for (src, want) in V2 {
         check(src, *want);
     }
+}
+
+// ---------------------------------------------------------------- V3：宣言の番号（記録と直和型）
+
+/// 信頼側の宣言の並び：各宣言の種類（'R' 記録、'S' 直和型、'F' 関数、'E' entry）と、Tags::of の番号（型の宣言だけ）。
+fn trusted_decls(src: &str) -> Vec<(char, Option<usize>)> {
+    let p = match parse_source(src.as_bytes(), &StaticProfile::default()) {
+        Parsed::Program(p) => p,
+        Parsed::Failed(_) => panic!("解析できない: {src}"),
+    };
+    let tags = Tags::of(&p);
+    p.declarations
+        .iter()
+        .map(|d| match d {
+            Decl::Type(t) => ('R', tags.get(&t.name)),
+            Decl::Sum(s) => ('S', tags.get(&s.name)),
+            Decl::Fn(_) => ('F', None),
+            Decl::Entry(_) => ('E', None),
+        })
+        .collect()
+}
+
+/// 検証済みの番号（宣言の順。型の宣言なら番号、関数と entry なら None）。解析と名前表が通るときだけ。
+fn verified_numbers(src: &str) -> Option<Vec<Option<usize>>> {
+    let sp = verified_parse(src)?;
+    decl_numbers_e(&sp)
+}
+
+/// V3 の corpus：記録、直和型、再帰する直和型を混ぜ、関数と entry を挟む。どれも信頼側と検証済みの両方で受理される。
+const V3: &[&str] = &[
+    // 関数を挟む：宣言の位置で数えると、後の記録の番号がずれる
+    "type A = { x: Int }\nfn f(a: Int) -> Int = a\ntype B = { y: Int }\nentry f\n",
+    // 直和型を挟む：記録だけで数えると、後の記録の番号がずれる
+    "type S = V | W\ntype R = { r: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+    "type A = { x: Int }\ntype S = P(A) | Q\ntype B = { y: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+    // 再帰する直和型：自分を参照する中身も、一つの番号を持つ
+    "type L = Nil | Cons(Int, L)\ntype P = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+    "type P = { a: Int }\ntype L = Nil | Cons(Int, L)\ntype Q = { b: L }\nfn f(a: Int) -> Int = a\nentry f\n",
+    // 関数を先頭に置く
+    "fn f(a: Int) -> Int = a\ntype T = X(Int) | Y\ntype P = { a: Int }\nentry f\n",
+];
+
+#[test]
+fn v3_numbers_agree_with_tags_of() {
+    // 誤った数え方（宣言の位置で数える、記録だけを数える）と比べると、corpus のどこかで食い違う。
+    let mut position_differs = false;
+    let mut records_only_differs = false;
+    for src in V3 {
+        assert!(trusted(src).is_none(), "信頼側が拒否した: {src}");
+        let decls = trusted_decls(src);
+        let want: Vec<Option<usize>> = decls.iter().map(|x| x.1).collect();
+        let got = verified_numbers(src).unwrap_or_else(|| panic!("検証済みの番号が出ない: {src}"));
+        assert_eq!(got, want, "番号が違う: {src}");
+        // 宣言の位置で数える（関数と entry も数える）。
+        let by_position: Vec<Option<usize>> = decls
+            .iter()
+            .enumerate()
+            .map(|(i, x)| if x.0 == 'R' || x.0 == 'S' { Some(i) } else { None })
+            .collect();
+        // 記録だけを数える（直和型は数えず、その時点の記録の数を番号にする）。
+        let mut recs: usize = 0;
+        let by_records: Vec<Option<usize>> = decls
+            .iter()
+            .map(|x| match x.0 {
+                'R' => {
+                    recs += 1;
+                    Some(recs - 1)
+                }
+                'S' => Some(recs),
+                _ => None,
+            })
+            .collect();
+        position_differs |= by_position != want;
+        records_only_differs |= by_records != want;
+    }
+    assert!(position_differs, "corpus に、宣言の位置で数えた番号と違う例がない");
+    assert!(records_only_differs, "corpus に、記録だけで数えた番号と違う例がない");
 }
