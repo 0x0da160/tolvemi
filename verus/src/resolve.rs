@@ -44,19 +44,20 @@ pub open spec fn str_exprs(w: Seq<char>) -> Seq<Expr> {
     Seq::new(w.len(), |i: int| Expr::Char(w[i] as u32 as int))
 }
 
-/// 名前表の項目：宣言した型の名前、記録の印なしの展開（直和型は None）、記録の字段の名前（直和型は空）。
+/// 名前表の項目：宣言した型の名前、記録の印なしの展開（直和型は None）、記録の字段の名前（直和型は空）、
+/// 記録の印つきの展開（S3c：字段の型を印つきで写した構造。名前つきの字段は Pair<tag, 展開>。直和型は None）。
 /// 項目の位置が名義の番号になる（設計の B2）。字段の持ち主は、その字段名を持つ項目の位置。
-pub open spec fn tnames(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> Seq<Seq<char>> {
+pub open spec fn tnames(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>) -> Seq<Seq<char>> {
     Seq::new(tb.len(), |i: int| tb[i].0)
 }
 
 /// 字段名 x は、名前表のどの記録の字段でもない（字段名はプログラム全体で一意：規則 4）。
-pub open spec fn fresh(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, x: Seq<char>) -> bool {
+pub open spec fn fresh(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, x: Seq<char>) -> bool {
     forall|j: int| 0 <= j < tb.len() ==> idx(tb[j].2, x, 0) is None
 }
 
 /// 型の名前が、名前表の項目だけを引く（規則 1）。構造は to_ty と同じ。
-pub open spec fn tyn(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool
+pub open spec fn tyn(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>) -> bool
     decreases t,
 {
     match t {
@@ -74,14 +75,14 @@ pub open spec fn tyn(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>)
 }
 
 /// 記録の字段の列：字段名は相異なり（規則 4）、どれもほかの記録の字段でなく、型は前の項目だけを引く（規則 1）。
-pub open spec fn fields_ok(fs: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool {
+pub open spec fn fields_ok(fs: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>) -> bool {
     distinct(pnames(fs)) && forall|i: int| 0 <= i < fs.len() ==> fresh(tb, fs[i].0) && tyn(fs[i].1, tb)
 }
 
 /// 直和型の中身（構築子ごとの型の並び）は、前の項目と自分自身だけを引く（規則 1）。自分を引くのは再帰する直和型
 /// （trusted の v1.14：`type L = Nil | Cons(Int, L)` は受理する）。tb は自分を足した表。不透明にして、表の等しさで書き換える。
 #[verifier::opaque]
-pub open spec fn vars_ok(vs: Seq<(Seq<char>, Seq<SType>)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> bool {
+pub open spec fn vars_ok(vs: Seq<(Seq<char>, Seq<SType>)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>) -> bool {
     forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> tyn(vs[i].1[a], tb)
 }
 
@@ -116,17 +117,17 @@ pub open spec fn rec_items(vs: Seq<(Seq<char>, Seq<SType>)>, r: Seq<char>) -> bo
         || (forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> sty_rec_item(#[trigger] vs[i].1[a], r))
 }
 
-/// 記録の字段 i から末尾までの印なしの展開。右結合の Pair の入れ子で、末尾の字段の型はそのまま
+/// 記録の字段 i から末尾までの展開（tagged = false は印なし、true は印つき）。右結合の Pair の入れ子で、末尾の字段の型はそのまま
 /// （trusted の records.rs の record_type と同じ形）。
-pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>) -> Option<Ty>
+pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty>
     decreases fs.len() - i,
 {
     if i >= fs.len() {
         None
     } else if i + 1 == fs.len() {
-        to_ty(fs[i as int].1, tb, false)
+        to_ty(fs[i as int].1, tb, tagged)
     } else {
-        match (to_ty(fs[i as int].1, tb, false), rec_from(fs, i + 1, tb)) {
+        match (to_ty(fs[i as int].1, tb, tagged), rec_from(fs, i + 1, tb, tagged)) {
             (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
             _ => None,
         }
@@ -136,26 +137,26 @@ pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char
 /// 宣言を名前表の末尾に足す。記録は、型名が新しく、字段の列が規則 1・4 を満たすときに足す。
 /// 直和型は、型名が新しく、中身の型が前の項目と自分だけを引くときに足す（規則 1・3）。関数と entry は表に入らない。
 #[verifier::opaque]
-pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>> {
+pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, d: Sd) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>> {
     match d {
         Sd::Fn(_, _, _, _) => Some(tb),
         Sd::Entry(_) => Some(tb),
         Sd::RecTy(r, fs, _) => if idx(tnames(tb), r, 0) is Some || !fields_ok(fs, tb) {
             None
         } else {
-            Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs))))
+            Some(tb.push((r, rec_from(fs, 0, tb, false), pnames(fs), rec_from(fs, 0, tb, true))))
         },
-        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) || !rec_items(vs, r) {
+        Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty(), None))) || !rec_items(vs, r) {
             None
         } else {
-            Some(tb.push((r, None, Seq::empty())))
+            Some(tb.push((r, None, Seq::empty(), None)))
         },
     }
 }
 
 /// tb_push の場合分けの補題。tb_push は不透明で、ここでだけ開く。宣言の形（vd）を経由しても、
 /// 構築子の形で書いた結論と同じ項として扱えるようにする（exec 側で使う）。
-proof fn tb_push_rec_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
+proof fn tb_push_rec_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
     requires
         idx(tnames(tb), r, 0) is Some || !fields_ok(fs, tb),
     ensures
@@ -164,37 +165,37 @@ proof fn tb_push_rec_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: S
     reveal(tb_push);
 }
 
-proof fn tb_push_rec_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
+proof fn tb_push_rec_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, r: Seq<char>, fs: Seq<(Seq<char>, SType)>, tc: bool)
     requires
         idx(tnames(tb), r, 0) is None,
         fields_ok(fs, tb),
     ensures
-        tb_push(tb, Sd::RecTy(r, fs, tc)) == Some(tb.push((r, rec_from(fs, 0, tb), pnames(fs)))),
+        tb_push(tb, Sd::RecTy(r, fs, tc)) == Some(tb.push((r, rec_from(fs, 0, tb, false), pnames(fs), rec_from(fs, 0, tb, true)))),
 {
     reveal(tb_push);
 }
 
-proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
+proof fn tb_push_sum_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
     requires
-        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty()))) || !rec_items(vs, r),
+        idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty(), None))) || !rec_items(vs, r),
     ensures
         tb_push(tb, Sd::Sum(r, vs)) is None,
 {
     reveal(tb_push);
 }
 
-proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
+proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, r: Seq<char>, vs: Seq<(Seq<char>, Seq<SType>)>)
     requires
         idx(tnames(tb), r, 0) is None,
-        vars_ok(vs, tb.push((r, None, Seq::empty()))),
+        vars_ok(vs, tb.push((r, None, Seq::empty(), None))),
         rec_items(vs, r),
     ensures
-        tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty()))),
+        tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty(), None))),
 {
     reveal(tb_push);
 }
 
-proof fn tb_push_other(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd)
+proof fn tb_push_other(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, d: Sd)
     requires
         d matches Sd::Fn(..) || d matches Sd::Entry(..),
     ensures
@@ -205,7 +206,7 @@ proof fn tb_push_other(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd)
 
 /// 宣言の先頭 n 個の名前表（宣言の順）。どれかの宣言が規則に反すれば None。
 /// 型名と関数名の一致は許す（規則 5）。関数の注釈と本体は、ここで作る表の全部を引く（規則 2）。
-pub open spec fn decl_table(p: Seq<Sd>, n: nat) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>>
+pub open spec fn decl_table(p: Seq<Sd>, n: nat) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>>
     decreases n,
 {
     if n == 0 {
@@ -309,14 +310,14 @@ pub proof fn tag_val_typed(k: nat)
     }
 }
 
-/// 印つきの型：記録の項目（番号 k、印なしの展開 u）は Pair<tag(k), u>。印なしは u のまま。
-pub proof fn named_tagged(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, x: Seq<char>, k: nat)
+/// 印つきの型：記録の項目（番号 k、印つきの展開 s）は Pair<tag(k), s>。印なしは印なしの展開 u のまま。
+pub proof fn named_tagged(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, x: Seq<char>, k: nat)
     requires
         idx(tnames(tb), x, 0) == Some(k),
         k < tb.len(),
-        tb[k as int].1 is Some,
+        tb[k as int].3 is Some,
     ensures
-        to_ty(SType::Named(x), tb, true) == Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(tb[k as int].1->Some_0))),
+        to_ty(SType::Named(x), tb, true) == Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(tb[k as int].3->Some_0))),
         to_ty(SType::Named(x), tb, false) == tb[k as int].1,
 {
 }
@@ -359,7 +360,7 @@ pub open spec fn nums_view(s: Seq<Option<usize>>) -> Seq<Option<nat>> {
 }
 
 /// 名前表に項目を足す。型の宣言なら長さが一つ増え、前の項目は変わらず、新しい項目は宣言の名前を持つ。
-proof fn tb_push_facts(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, d: Sd)
+proof fn tb_push_facts(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, d: Sd)
     ensures
         match tb_push(tb, d) {
             Some(nb) => (is_type_decl(d) ==> nb.len() == tb.len() + 1)
@@ -459,10 +460,10 @@ proof fn num_distinct(p: Seq<Sd>, i: nat, j: nat)
 }
 
 /// 表面の型から核の型へ。宣言された名前（Named）は名前表から引く。印なし（tagged = false）は項目の展開、
-/// 印つき（tagged = true）は記録の Pair<tag(k), 展開>（直和型は展開が None なので None）。
+/// 印つき（tagged = true）は記録の Pair<tag(k), 印つきの展開>（直和型は展開が None なので None）。
 /// Dict は v1.9 の消去で List<Pair<K, V>> になる（dict.rs の erase_in_place と同じ形）。
 /// `tagged` は印つきの写し（S2b）。resolve と resolve_e は印なし（false）を使う。
-pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Option<Ty>
+pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty>
     decreases t,
 {
     match t {
@@ -487,9 +488,13 @@ pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)
             _ => None,
         },
         SType::Named(x) => match idx(tnames(tb), x, 0) {
-            Some(k) => match tb[k as int].1 {
-                Some(u) => if tagged { Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(u))) } else { Some(u) },
-                None => None,
+            Some(k) => if tagged {
+                match tb[k as int].3 {
+                    Some(s) => Some(Ty::Pair(Box::new(tag_ty(k)), Box::new(s))),
+                    None => None,
+                }
+            } else {
+                tb[k as int].1
             },
             None => None,
         },
@@ -501,7 +506,7 @@ pub open spec fn to_ty(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)
 }
 
 /// 核の型の表現。to_ty が成功する型についてだけ使う（既定の Unit は、検査の済んだ呼出しでは現れない）。
-pub open spec fn ty_or_unit(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Ty {
+pub open spec fn ty_or_unit(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Ty {
     match to_ty(t, tb, tagged) {
         Some(u) => u,
         None => Ty::Unit,
@@ -509,12 +514,12 @@ pub open spec fn ty_or_unit(t: SType, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<ch
 }
 
 /// 引数の型は全て核の型に写せる。
-pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> bool {
+pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> bool {
     forall|k: int| 0 <= k < ps.len() ==> to_ty(#[trigger] ps[k].1, tb, tagged) is Some
 }
 
 /// 式の名前解決。fs は関数名の列、tb は名前表、sc は可視変数の列（外側から順）。
-pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
+pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
     decreases e, 0nat,
 {
     match e {
@@ -630,7 +635,7 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
     }
 }
 
-pub open spec fn rxs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<Expr>>
+pub open spec fn rxs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<Expr>>
     decreases es, es.len() - i,
 {
     if i >= es.len() {
@@ -647,7 +652,7 @@ pub open spec fn rxs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq
 
 /// 字段名 f の持ち主：名前表の k 番目以降で、字段の列に f を持つ最初の項目の（位置、字段の数）。
 /// 字段名はプログラム全体で一意（規則 4）なので、持ち主は一つだけ（records.rs の `owner` と同じ見方）。
-pub open spec fn owner_pos(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: Seq<char>, k: nat) -> Option<(nat, nat)>
+pub open spec fn owner_pos(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, f: Seq<char>, k: nat) -> Option<(nat, nat)>
     decreases tb.len() - k,
 {
     if k >= tb.len() {
@@ -661,7 +666,7 @@ pub open spec fn owner_pos(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: 
 }
 
 /// `e.f1…fn` の展開（records.rs の `field_access` を字段の順に重ねる）。i 番目の字段から。
-pub open spec fn fld_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat) -> Option<Expr>
+pub open spec fn fld_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat) -> Option<Expr>
     decreases fls.len() - i,
 {
     if i >= fls.len() {
@@ -675,7 +680,7 @@ pub open spec fn fld_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: 
 }
 
 /// fld_chain の一段（字段 i の持ち主が (p, m) のとき）。
-proof fn fld_chain_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, p: nat, m: nat)
+proof fn fld_chain_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, p: nat, m: nat)
     requires
         i < fls.len(),
         owner_pos(tb, fls[i as int], 0) == Some((p, m)),
@@ -686,7 +691,7 @@ proof fn fld_chain_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Exp
 }
 
 /// fld_chain の一段（字段 i に持ち主がないとき）。
-proof fn fld_chain_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
+proof fn fld_chain_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
     requires
         i < fls.len(),
         owner_pos(tb, fls[i as int], 0) is None,
@@ -697,7 +702,7 @@ proof fn fld_chain_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Exp
 }
 
 /// fld_chain の終わり（字段がすべて済んだとき）。
-proof fn fld_chain_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
+proof fn fld_chain_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat)
     requires
         i >= fls.len(),
     ensures
@@ -790,7 +795,7 @@ proof fn tfield_scoped(e: Expr, k: nat, i: nat, n: nat, d: nat)
 }
 
 /// 字段名 f の持ち主（owner_pos と同じ探索）。宣言の番号 k、字段の位置 i、字段の数 n を返す。
-pub open spec fn owner_at(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: Seq<char>, k: nat) -> Option<(nat, nat, nat)>
+pub open spec fn owner_at(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, f: Seq<char>, k: nat) -> Option<(nat, nat, nat)>
     decreases tb.len() - k,
 {
     if k >= tb.len() {
@@ -804,7 +809,7 @@ pub open spec fn owner_at(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, f: S
 }
 
 /// `e.f1…fn` の印つきの展開（fld_chain の印つきの版）。持ち主の印で検査してから字段を取る。
-pub open spec fn fld_chain_t(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat) -> Option<Expr>
+pub open spec fn fld_chain_t(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat) -> Option<Expr>
     decreases fls.len() - i,
 {
     if i >= fls.len() {
@@ -818,7 +823,7 @@ pub open spec fn fld_chain_t(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e
 }
 
 /// fld_chain_t の一段（字段 i の持ち主が (k, p, n) のとき）。
-proof fn fld_chain_t_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, k: nat, p: nat, n: nat, d: nat)
+proof fn fld_chain_t_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, k: nat, p: nat, n: nat, d: nat)
     requires
         i < fls.len(),
         owner_at(tb, fls[i as int], 0) == Some((k, p, n)),
@@ -829,7 +834,7 @@ proof fn fld_chain_t_step(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: E
 }
 
 /// fld_chain_t の一段（字段 i に持ち主がないとき）。
-proof fn fld_chain_t_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+proof fn fld_chain_t_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
     requires
         i < fls.len(),
         owner_at(tb, fls[i as int], 0) is None,
@@ -840,7 +845,7 @@ proof fn fld_chain_t_none(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: E
 }
 
 /// fld_chain_t の終わり（字段がすべて済んだとき）。
-proof fn fld_chain_t_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+proof fn fld_chain_t_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
     requires
         i >= fls.len(),
     ensures
@@ -850,7 +855,7 @@ proof fn fld_chain_t_end(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Ex
 }
 
 /// fld_chain_t の scope 整合。
-proof fn fld_chain_t_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
+proof fn fld_chain_t_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, d: nat)
     requires
         scoped(e, d),
     ensures
@@ -867,7 +872,7 @@ proof fn fld_chain_t_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e:
 
 /// 書いた字段（fls の i 番目から）を宣言の位置に置く。u は宣言順の列（書いていない位置は None）。
 /// 宣言にない字段名、同じ字段の二度目、解決できない値は None（UNKNOWN-FIELD、DUPLICATE-FIELD）。
-pub open spec fn rec_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>) -> Option<Seq<Option<Expr>>>
+pub open spec fn rec_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>) -> Option<Seq<Option<Expr>>>
     decreases fls, fls.len() - i,
 {
     if i >= fls.len() {
@@ -893,7 +898,7 @@ pub open spec fn none_upd(n: nat) -> Seq<Option<Expr>> {
 }
 
 /// rec_upd の一段（字段 i の名前が宣言に無いとき）。
-proof fn rec_upd_none_idx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+proof fn rec_upd_none_idx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
     requires
         i < fls.len(),
         idx(decl, fls[i as int].0, 0) is None,
@@ -904,7 +909,7 @@ proof fn rec_upd_none_idx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 }
 
 /// rec_upd の一段（字段 i の位置 j に、既に書いた字段があるとき：DUPLICATE-FIELD）。
-proof fn rec_upd_none_dup(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
+proof fn rec_upd_none_dup(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
     requires
         i < fls.len(),
         idx(decl, fls[i as int].0, 0) == Some(j),
@@ -917,7 +922,7 @@ proof fn rec_upd_none_dup(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 }
 
 /// rec_upd の一段（字段 i の式が解決しないとき）。
-proof fn rec_upd_none_rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
+proof fn rec_upd_none_rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat)
     requires
         i < fls.len(),
         idx(decl, fls[i as int].0, 0) == Some(j),
@@ -931,7 +936,7 @@ proof fn rec_upd_none_rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 }
 
 /// rec_upd の一段（字段 i を位置 j に置く）。
-proof fn rec_upd_step(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat, x: Expr)
+proof fn rec_upd_step(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, j: nat, x: Expr)
     requires
         i < fls.len(),
         idx(decl, fls[i as int].0, 0) == Some(j),
@@ -945,7 +950,7 @@ proof fn rec_upd_step(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
 }
 
 /// rec_upd の終わり（字段がすべて済んだとき）。
-proof fn rec_upd_end(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+proof fn rec_upd_end(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
     requires
         i >= fls.len(),
     ensures
@@ -958,7 +963,7 @@ proof fn rec_upd_end(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq
 /// BASE-REDUNDANT）と展開を決める。基を let で束縛するのは、基が変数でなく書いていない字段が二つ以上あるとき
 /// （rupdate と同じ条件）だけで、そのときは字段の式を一つ深い scope（空の名前を一つ足した列）で解決する。
 /// 空の名前は識別子にならず（rx の Var の腕）、この scope の番号を字段の式は読まない。
-pub open spec fn rec_expr(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
+pub open spec fn rec_expr(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
     decreases fls, fls.len() + 1,
 {
     let deep = match bx {
@@ -977,7 +982,7 @@ pub open spec fn rec_expr(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 
 /// 記録の構築（S3b）。印なし（tagged = false）は rec_expr。印つきは、基底を印の検査で外してから rec_expr に渡し、
 /// 結果を pair(tag(k), ·) で包む（印つきの記録の値は印と展開の組）。k は記録の宣言の番号、基底の束縛は sc.len() の位置。
-pub open spec fn rec_t(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
+pub open spec fn rec_t(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>) -> Option<Expr>
     decreases fls, fls.len() + 2,
 {
     if tagged {
@@ -1037,12 +1042,12 @@ pub open spec fn pnames(ps: Seq<(Seq<char>, SType)>) -> Seq<Seq<char>> {
     Seq::new(ps.len(), |i: int| ps[i].0)
 }
 
-pub open spec fn rparams(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool) -> Seq<(nat, Ty)> {
+pub open spec fn rparams(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Seq<(nat, Ty)> {
     Seq::new(ps.len(), |k: int| (k as nat, ty_or_unit(ps[k].1, tb, tagged)))
 }
 
 /// 関数の宣言の名前解決。型の注釈と本体は、名前表の全部の項目を引く（規則 2）。
-pub open spec fn rfunc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, d: Sd) -> Option<Func> {
+pub open spec fn rfunc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, d: Sd) -> Option<Func> {
     match d {
         Sd::Fn(_, ps, r, b) => if !distinct(pnames(ps)) || !params_ok(ps, tb, tagged) || to_ty(r, tb, tagged) is None {
             None
@@ -1059,7 +1064,7 @@ pub open spec fn rfunc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
 }
 
 /// ds[0..n] の各関数の名前解決。
-pub open spec fn rfuncs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, ds: Seq<Sd>, n: nat) -> Option<Seq<Func>>
+pub open spec fn rfuncs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, ds: Seq<Sd>, n: nat) -> Option<Seq<Func>>
     decreases n,
 {
     if n == 0 {
@@ -1188,7 +1193,7 @@ proof fn rfield_scoped(e: Expr, p: nat, m: nat, n: nat)
     }
 }
 
-proof fn fld_chain_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, n: nat)
+proof fn fld_chain_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, e: Expr, fls: Seq<Seq<char>>, i: nat, n: nat)
     requires
         scoped(e, n),
     ensures
@@ -1316,7 +1321,7 @@ proof fn nmissing_set(u: Seq<Option<Expr>>, j: int, x: Expr)
 }
 
 /// 字段を置いた後、書いていない位置の数は、置く前から置いた字段の数を引いたもの（字段名は相異なる宣言の位置）。
-proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
     requires
         i <= fls.len(),
         u.len() == decl.len(),
@@ -1338,7 +1343,7 @@ proof fn rec_upd_count(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
     }
 }
 
-proof fn rec_upd_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
+proof fn rec_upd_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>)
     requires
         distinct(sc),
         forall|k: int| 0 <= k < u.len() && (#[trigger] u[k]) is Some ==> scoped(u[k]->Some_0, sc.len()),
@@ -1369,7 +1374,7 @@ proof fn rec_upd_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
 }
 
 /// 記録の式の本体は、基と字段が scope 整合なら scope 整合（rec_expr の一つの場合の証明）。
-proof fn rec_expr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
+proof fn rec_expr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
     requires
         distinct(sc),
         idx(sc, Seq::empty(), 0) is None,
@@ -1466,7 +1471,7 @@ pub open spec fn scoped_all(es: Seq<Expr>, n: nat, i: nat) -> bool
 }
 
 /// 構築（rec_t）の scope 整合（S3b の印つきの腕を含む）。印つきは基底の検査と印の pair を足す。
-proof fn rec_t_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
+proof fn rec_t_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, k: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Option<Expr>)
     requires
         distinct(sc),
         idx(sc, Seq::empty(), 0) is None,
@@ -1495,7 +1500,7 @@ proof fn rec_t_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
 }
 
 /// 参照（Sx::Fld）の scope 整合（印なし・印つき）。rx_scoped の本体から分けて、rlimit を抑える。
-proof fn rx_fld_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_fld_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is Fld,
@@ -1516,7 +1521,7 @@ proof fn rx_fld_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
 }
 
 /// 記録の式（Sx::Rec）は scope 整合（rx_scoped の記録の腕。本体を分けて、rlimit を抑える）。
-proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is Rec,
@@ -1544,7 +1549,7 @@ proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
 }
 
 /// rx_scoped の束縛（Let）の腕。rx_scoped の本体を腕ごとに分けて、rlimit を抑える。
-proof fn rx_let_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_let_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is Let,
@@ -1568,7 +1573,7 @@ proof fn rx_let_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
 }
 
 /// rx_scoped の畳み込み（Fold）の腕。
-proof fn rx_fold_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_fold_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is Fold,
@@ -1598,7 +1603,7 @@ proof fn rx_fold_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
 }
 
 /// rx_scoped の一致（Match）の腕。
-proof fn rx_match_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_match_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is Match,
@@ -1623,7 +1628,7 @@ proof fn rx_match_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 }
 
 /// rx_scoped の二つの束縛を持つ一致（MatchR）の腕。
-proof fn rx_matchr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+proof fn rx_matchr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
         e is MatchR,
@@ -1657,7 +1662,7 @@ proof fn rx_matchr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 }
 
 /// 名前解決の結果は scope 整合で、scope 内の名前は常に相異なる（シャドーがない）。
-pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
+pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
         distinct(sc),
     ensures
@@ -1691,7 +1696,7 @@ pub proof fn rx_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
     }
 }
 
-pub proof fn rxs_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat)
+pub proof fn rxs_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat)
     requires
         distinct(sc),
     ensures
@@ -1752,8 +1757,8 @@ pub open spec fn vnames(v: Seq<Vec<char>>) -> Seq<Seq<char>> {
 }
 
 /// exec の名前表の view（字段名の Vec の列は vnames で写す）。
-pub open spec fn vtb(tb: Seq<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)> {
-    Seq::new(tb.len(), |i: int| (tb[i].0@, tb[i].1, vnames(tb[i].2@)))
+pub open spec fn vtb(tb: Seq<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>) -> Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)> {
+    Seq::new(tb.len(), |i: int| (tb[i].0@, tb[i].1, vnames(tb[i].2@), tb[i].3))
 }
 
 fn idx_e(s: &Vec<Vec<char>>, x: &Vec<char>) -> (r: Option<usize>)
@@ -1842,7 +1847,7 @@ pub open spec fn cato(u: Seq<Expr>, o: Option<Seq<Expr>>) -> Option<Seq<Expr>> {
 }
 
 /// 名前表の中で名前 x の位置（to_ty の Named の腕と同じ）。
-fn tidx_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, x: &Vec<char>) -> (r: Option<usize>)
+fn tidx_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, x: &Vec<char>) -> (r: Option<usize>)
     ensures
         match r {
             Some(k) => idx(tnames(vtb(tb@)), x@, 0) == Some(k as nat) && k < tb@.len(),
@@ -1894,7 +1899,7 @@ fn tag_ty_e(k: usize) -> (r: Ty)
 }
 
 /// 表面の型から核の型へ（to_ty の exec 版）。
-fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool) -> (r: Option<Ty>)
+fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
     ensures
         match r {
             Some(u) => to_ty(vty(*t), vtb(tb@), tagged) == Some(u),
@@ -1924,13 +1929,13 @@ fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: b
             _ => None,
         },
         STy::Named(x) => match tidx_e(tb, x) {
-            Some(k) => match clone_opt(&tb[k].1) {
-                Some(u) => if tagged {
-                    Some(Ty::Pair(Box::new(tag_ty_e(k)), Box::new(u)))
-                } else {
-                    Some(u)
-                },
-                None => None,
+            Some(k) => if tagged {
+                match clone_opt(&tb[k].3) {
+                    Some(s) => Some(Ty::Pair(Box::new(tag_ty_e(k)), Box::new(s))),
+                    None => None,
+                }
+            } else {
+                clone_opt(&tb[k].1)
             },
             None => None,
         },
@@ -1942,7 +1947,7 @@ fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: b
 }
 
 /// 型の名前が、名前表の項目だけを引くか（tyn の exec 版）。
-fn tyn_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: bool)
+fn tyn_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>) -> (r: bool)
     ensures
         r == tyn(vty(*t), vtb(tb@)),
     decreases t,
@@ -1996,7 +2001,7 @@ fn field_names_e(fs: &Vec<(Vec<char>, STy)>) -> (r: Vec<Vec<char>>)
 }
 
 /// 字段名 x が、名前表のどの記録の字段でもないか（fresh の exec 版）。
-fn fresh_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, x: &Vec<char>) -> (r: bool)
+fn fresh_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, x: &Vec<char>) -> (r: bool)
     ensures
         r == fresh(vtb(tb@), x@),
 {
@@ -2018,26 +2023,26 @@ fn fresh_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, x: &Vec<char>) -> 
     true
 }
 
-/// 記録の印なしの展開（rec_from(…, 0) の exec 版）。字段の列の末尾から組み立てる。
-fn rec_exp_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: Option<Ty>)
+/// 記録の展開（rec_from(…, 0, tagged) の exec 版）。字段の列の末尾から組み立てる。tagged は印つきの展開か。
+fn rec_exp_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
     ensures
-        r == rec_from(vps(fs@), 0, vtb(tb@)),
+        r == rec_from(vps(fs@), 0, vtb(tb@), tagged),
 {
     let n = fs.len();
     if n == 0 {
         return None;
     }
     let mut i: usize = n - 1;
-    let mut acc: Option<Ty> = to_ty_e(&fs[i].1, tb, false);
+    let mut acc: Option<Ty> = to_ty_e(&fs[i].1, tb, tagged);
     while i > 0
         invariant
             n == fs@.len(),
             i < n,
-            acc == rec_from(vps(fs@), i as nat, vtb(tb@)),
+            acc == rec_from(vps(fs@), i as nat, vtb(tb@), tagged),
         decreases i,
     {
         i -= 1;
-        let u = to_ty_e(&fs[i].1, tb, false);
+        let u = to_ty_e(&fs[i].1, tb, tagged);
         acc = match (u, acc) {
             (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
             _ => None,
@@ -2047,7 +2052,7 @@ fn rec_exp_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Ve
 }
 
 /// 記録の字段の列が規則 1・4 を満たすか（fields_ok の exec 版）。fnv は fs の字段名の列。
-fn fields_ok_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, fnv: &Vec<Vec<char>>) -> (r: bool)
+fn fields_ok_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, fnv: &Vec<Vec<char>>) -> (r: bool)
     requires
         fnv@.len() == fs@.len(),
         vnames(fnv@) == pnames(vps(fs@)),
@@ -2100,7 +2105,7 @@ fn fields_ok_e(fs: &Vec<(Vec<char>, STy)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<
 }
 
 /// 直和型の中身の型が、名前表の前の項目だけを引くか（vars_ok の exec 版）。
-fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>) -> (r: bool)
+fn vars_ok_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>) -> (r: bool)
     ensures
         r == vars_ok(vvars(vs@), vtb(tb@)),
 {
@@ -2272,7 +2277,7 @@ fn rec_items_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>) -> (res: bool)
 
 /// 宣言を名前表の末尾に足す（tb_push の exec 版）。足せないときは None。
 /// 字段と直和型の中身は、移す前の名前表 tb だけを引いて調べ（ループは補助関数に置く）、通ったあとで tb を移して足す。
-fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>>)
+fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, d: &SDecl) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>>)
     ensures
         match r {
             Some(nb) => tb_push(vtb(tb@), vd(*d)) == Some(vtb(nb@)),
@@ -2322,11 +2327,12 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
                 tb_push_rec_some(vtb(tb@), r@, vps(fs@), *tc);
                 assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::RecTy(r@, vps(fs@), *tc)));
             }
-            let exp = rec_exp_e(fs, &tb);
+            let exp = rec_exp_e(fs, &tb, false);
+            let exp_t = rec_exp_e(fs, &tb, true);
             let mut out = tb;
-            out.push((clone_chars(r), exp, fnv));
+            out.push((clone_chars(r), exp, fnv, exp_t));
             proof {
-                assert(vtb(out@) =~= vtb(tb@).push((r@, rec_from(vps(fs@), 0, vtb(tb@)), pnames(vps(fs@)))));
+                assert(vtb(out@) =~= vtb(tb@).push((r@, rec_from(vps(fs@), 0, vtb(tb@), false), pnames(vps(fs@)), rec_from(vps(fs@), 0, vtb(tb@), true))));
             }
             Some(out)
         },
@@ -2343,11 +2349,11 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
             }
             // 自分の名前を先に足し、中身の型は自分を含む表で調べる（再帰する直和型）。
             let mut out = tb;
-            out.push((clone_chars(r), None, Vec::new()));
+            out.push((clone_chars(r), None, Vec::new(), None));
             proof {
                 assert(vnames(Seq::<Vec<char>>::empty()) =~= Seq::<Seq<char>>::empty());
-                assert(vtb(out@) =~= vtb(tb@).push((r@, None, Seq::empty())));
-                assert(vars_ok(vvars(vs@), vtb(out@)) == vars_ok(vvars(vs@), vtb(tb@).push((r@, None, Seq::empty()))));
+                assert(vtb(out@) =~= vtb(tb@).push((r@, None, Seq::empty(), None)));
+                assert(vars_ok(vvars(vs@), vtb(out@)) == vars_ok(vvars(vs@), vtb(tb@).push((r@, None, Seq::empty(), None))));
             }
             if !vars_ok_e(vs, &out) {
                 proof {
@@ -2373,14 +2379,14 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, d: &SDecl) -> (r:
 }
 
 /// 名前表の exec 版（decl_table の exec 版）。宣言の順に足す。規則に反すれば None。
-fn decl_table_e(p: &Vec<SDecl>) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>>)
+fn decl_table_e(p: &Vec<SDecl>) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>>)
     ensures
         match r {
             Some(tb) => decl_table(vds(p@), p@.len() as nat) == Some(vtb(tb@)),
             None => decl_table(vds(p@), p@.len() as nat) is None,
         },
 {
-    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)> = Vec::new();
+    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)> = Vec::new();
     let mut i: usize = 0;
     while i < p.len()
         invariant
@@ -2455,7 +2461,7 @@ pub fn decl_numbers_e(p: &Vec<SDecl>) -> (r: Option<Vec<Option<usize>>>)
             None => decl_nums(vds(p@)) is None,
         },
 {
-    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)> = Vec::new();
+    let mut tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)> = Vec::new();
     let mut ns: Vec<Option<usize>> = Vec::new();
     let mut i: usize = 0;
     while i < p.len()
@@ -2529,7 +2535,7 @@ proof fn decl_none_mono(p: Seq<Sd>, n: nat, m: nat)
     }
 }
 
-pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     ensures
         final(sc)@ == old(sc)@,
         match r {
@@ -2634,7 +2640,7 @@ pub fn rx_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     }
 }
 
-fn rx_matchr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_matchr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is MatchR,
     ensures
@@ -2685,7 +2691,7 @@ fn rx_matchr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<cha
     }
 }
 
-fn rx_match_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_match_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Match,
     ensures
@@ -2726,7 +2732,7 @@ fn rx_match_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char
 }
 
 /// 字段名の持ち主（owner_pos）の exec 版：名前表で字段名を持つ最初の項目の（位置、字段の数）。
-fn owner_pos_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>) -> (r: Option<(usize, usize)>)
+fn owner_pos_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, f: &Vec<char>) -> (r: Option<(usize, usize)>)
     ensures
         match r {
             Some((p, m)) => owner_pos(vtb(tb@), f@, 0) == Some((p as nat, m as nat)) && p < m,
@@ -2758,7 +2764,7 @@ fn owner_pos_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>)
 
 /// `e.f1…fn` の展開（fld_chain）の再帰の版：字段 i から、持ち主の位置で rfield_e を重ねて次の字段へ。
 /// ループにしない（ループの頭では e の写しの関係が失われ、None の腕が示せないため）。
-fn fld_chain_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize) -> (r: Option<EExpr>)
+fn fld_chain_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize) -> (r: Option<EExpr>)
     requires
         i <= ns.len(),
     ensures
@@ -2804,7 +2810,7 @@ fn fld_chain_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns
 }
 
 /// `e.f1…fn` の展開（fld_chain）の exec 版：字段の名前の列の順に、持ち主の位置で rfield_e を重ねる（全体は字段 0 から）。
-fn fld_chain_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>) -> (r: Option<EExpr>)
+fn fld_chain_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, e: EExpr, ns: &Vec<Vec<char>>) -> (r: Option<EExpr>)
     ensures
         match r {
             Some(x) => fld_chain(vtb(tb@), view_expr(e), vnames(ns@), 0) == Some(view_expr(x)),
@@ -2915,7 +2921,7 @@ fn tfield_e(e: EExpr, k: usize, i: usize, n: usize, d: usize, d1: usize) -> (r: 
 }
 
 /// owner_at の exec 版：名前表で字段名を持つ最初の項目の（宣言の番号、字段の位置、字段の数）。
-fn owner_at_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>) -> (r: Option<(usize, usize, usize)>)
+fn owner_at_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, f: &Vec<char>) -> (r: Option<(usize, usize, usize)>)
     ensures
         match r {
             Some((k, p, m)) => owner_at(vtb(tb@), f@, 0) == Some((k as nat, p as nat, m as nat)) && p < m,
@@ -2946,7 +2952,7 @@ fn owner_at_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, f: &Vec<char>) 
 }
 
 /// fld_chain_t の exec 版（字段 i から、印の検査と字段の取り出しを重ねる）。d と d1 = d + 1 は束縛の位置。
-fn fld_chain_t_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize, d: usize, d1: usize) -> (r: Option<EExpr>)
+fn fld_chain_t_rec(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, e: EExpr, ns: &Vec<Vec<char>>, i: usize, d: usize, d1: usize) -> (r: Option<EExpr>)
     requires
         i <= ns.len(),
         d1 as int == d as int + 1,
@@ -3016,7 +3022,7 @@ fn set_upd_e(u: &mut Vec<Option<EExpr>>, j: usize, x: EExpr)
 
 /// 書いた字段を宣言の位置に置く（rec_upd）の exec 版。字段の名前の列 ns と式の列 es は同じ長さで並ぶ
 /// （構文の解析が作る。式の列が短い分は Unit と写し、rec_upd の写しと同じ）。
-fn rec_upd_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<Option<EExpr>>>)
+fn rec_upd_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<Option<EExpr>>>)
     ensures
         final(sc)@ == old(sc)@,
         match r {
@@ -3130,7 +3136,7 @@ fn rec_upd_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>
 
 /// 記録の式の本体（rec_expr）の exec 版。基（解決済み）を受け、字段を置いて records_exec の record_e で拒否と展開を決める。
 /// 基を let で束縛するときだけ、字段の式は空の名前を一つ足した scope で解決する（spec の rec_expr と同じ）。
-fn rec_expr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
+fn rec_expr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
     requires
         decl@.len() >= 1,
     ensures
@@ -3176,7 +3182,7 @@ fn rec_expr_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char
 }
 
 /// 構築（rec_t）の exec 版。印つきは基底を印の検査（tfield）で外してから rec_expr_e に渡し、pair(tag(k), ·) で包む。
-fn rec_t_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, k: usize, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
+fn rec_t_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, k: usize, decl: &Vec<Vec<char>>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>, base: Option<EExpr>) -> (r: Option<EExpr>)
     requires
         decl@.len() >= 1,
     ensures
@@ -3215,7 +3221,7 @@ fn rec_t_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)
 }
 
 /// 記録の式（SExpr::Rec）の exec 版：名前表の記録（字段を持つ項目）と、空の名前の束縛との衝突を見て、rec_expr に渡す。
-fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Rec,
     ensures
@@ -3258,7 +3264,7 @@ fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
 }
 
 /// 記録の参照（SExpr::Fld）の exec 版：受ける式を解決し、字段の連鎖を展開する。
-fn rx_fld_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_fld_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Fld,
     ensures
@@ -3293,7 +3299,7 @@ fn rx_fld_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     }
 }
 
-fn rx_let_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_let_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Let,
     ensures
@@ -3332,7 +3338,7 @@ fn rx_let_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     }
 }
 
-fn rx_fold_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
+fn rx_fold_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
         e is Fold,
     ensures
@@ -3377,7 +3383,7 @@ fn rx_fold_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>
     }
 }
 
-pub fn rxs_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<EExpr>>)
+pub fn rxs_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, es: &Vec<SExpr>) -> (r: Option<Vec<EExpr>>)
     ensures
         final(sc)@ == old(sc)@,
         match r {
@@ -3441,7 +3447,7 @@ pub open spec fn vfuncs(fs: Seq<EFunc>) -> Seq<Func> {
     Seq::new(fs.len(), |i: int| view_func(fs[i]))
 }
 
-fn rfunc_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>)>, tagged: bool, d: &SDecl) -> (r: Option<EFunc>)
+fn rfunc_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, d: &SDecl) -> (r: Option<EFunc>)
     ensures
         match r {
             Some(f) => rfunc(vnames(fs@), vtb(tb@), tagged, vd(*d)) == Some(view_func(f)),
@@ -3683,7 +3689,7 @@ pub fn resolve_tagged_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EFunc>, usize)>)
 
 /// 名前表が作れて、関数の解決が失敗すれば、resolve も失敗する（字段の名前の一意と entry の検査が
 /// 通らなくても、結果は None なので、ここでは仮定しない）。
-proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool)
+proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool)
     requires
         decl_table(p, p.len()) == Some(tb),
         rfuncs(names_of(fns_upto(p, p.len())), tb, tagged, fns_upto(p, p.len()), fns_upto(p, p.len()).len()) is None,
@@ -3693,7 +3699,7 @@ proof fn resolve_none(p: Seq<Sd>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>
 }
 
 /// 途中の関数が解決できなければ全体も解決できない。
-proof fn rfuncs_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>)>, tagged: bool, ds: Seq<Sd>, n: nat, m: nat)
+proof fn rfuncs_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, ds: Seq<Sd>, n: nat, m: nat)
     requires
         rfuncs(fs, tb, tagged, ds, n) is None,
         n <= m,

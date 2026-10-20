@@ -15,6 +15,8 @@
 //! V5（S3a）：記録の式の実行。記録を展開せずに検証済みの compile_source と run_input_json に渡した出力が、
 //!     信頼側の実行（展開してから検証済みの評価器で走らせる）と一致する。基を let で束縛する形を含む。
 //!
+//! S3b（V6）：印つきの写しの参照と更新（resolve_tagged_e と検証済みの型検査）。
+//! S3c：入れ子の名前つきの字段（印つきの写し）。信頼側が受理する入れ子は受理し、拒否する入れ子は拒否する。
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 
@@ -377,31 +379,6 @@ const V6: &[(&str, bool)] = &[
     ("type P = { a: Int, b: Int }\ntype Q = { c: Int, d: Int }\nfn f(q: Q) -> P = P { a: 1, ..q }\nentry f\n", false),
 ];
 
-/// 既知の食い違い（S3b）：字段の型が名前つきの記録のとき、印つきの写しの展開（表の項目）は印なしのため、
-/// 入れ子の印が付かない。信頼側は受理するが、印つきの写しは拒否する（resolve.rs の rec_from は印なしの展開を作り、
-/// to_ty の名前の腕は外側の印だけを付ける）。表を印つきに直せば、この試験は落ちるので、そのとき書き換える。
-const V6_KNOWN_GAP: &[&str] = &[
-    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(o: Out) -> Int = o.i.x\nentry f\n",
-    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(x: Int) -> Out = Out { i: In { x: x }, n: 2 }\nentry f\n",
-];
-
-#[test]
-fn s3b_known_gap_nested_named_fields_in_the_tagged_copy() {
-    for src in V6_KNOWN_GAP {
-        assert!(trusted(src).is_none(), "信頼側が拒否した: {src}");
-        let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
-        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
-        let n = funcs.len();
-        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印なしの型検査が通らない: {src}");
-        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
-        let n = funcs.len();
-        assert!(
-            !check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }),
-            "既知の食い違いが閉じた（表を印つきに直した。この試験を書き換える）: {src}"
-        );
-    }
-}
-
 #[test]
 fn v6_tagged_records_are_checked_by_the_verified_core() {
     for &(src, ok) in V6 {
@@ -416,5 +393,111 @@ fn v6_tagged_records_are_checked_by_the_verified_core() {
         let n = funcs.len();
         let tagged = EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry };
         assert_eq!(check_prog(&tagged), ok, "印つきの型検査の判定が違う: {src}");
+    }
+}
+
+// ---------------------------------------------------------------- S3c：入れ子の名前つきの字段（印つきの写し）
+
+/// 信頼側が受理する入れ子の形。印つきの写しも検証済みの型検査が受理する（S3b では拒否していた）。印なしの写しも受理する（対照）。
+const S3C_ACCEPTED: &[&str] = &[
+    // 入れ子の構築：字段 i は名前つきの記録 In の値（In の印を入れ子に付ける）
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(x: Int) -> Out = Out { i: In { x: x }, n: 2 }\nentry f\n",
+    // 入れ子の参照：o.i の型は In の印つき、その x は持ち主 In の印の検査を通る
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(o: Out) -> Int = o.i.x\nentry f\n",
+];
+
+/// 信頼側が拒否する形。印つきの写しも拒否する。一つ目は、S3b の印つきの写しが受理していた（字段 i の In を Int で満たせた）。
+/// 三つ目は V6 の六つ目の行（基 ..q が別の記録 Q の値）で、信頼側も拒否する。
+const S3C_REJECTED: &[&str] = &[
+    // 字段 i は In なのに Int の値（信頼側は E-TYPE-ARG）
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn f(x: Int) -> Out = Out { i: x, n: 2 }\nentry f\n",
+    // 字段 i の持ち主は Out で、q の型は Q（信頼側は E-TYPE-FIELD-ACCESS）
+    "type In = { x: Int }\ntype Out = { i: In, n: Int }\ntype Q = { j: Int }\nfn f(q: Q) -> Int = q.i.x\nentry f\n",
+    // V6 の六つ目（信頼側は E-TYPE-FIELD-ACCESS）
+    "type P = { a: Int, b: Int }\ntype Q = { c: Int, d: Int }\nfn f(q: Q) -> P = P { a: 1, ..q }\nentry f\n",
+];
+
+/// 入れ子の値を作り、参照する実行（入力と出力は Int）。信頼側の実行、印なしの検証済みの実行、印つきの検証済みの実行が一致する。
+/// 二つ目は、基 ..o の入れ子の字段を新しい値で置き、基の字段 n を使う。
+const S3C_RUN: &[(&str, &str, &str)] = &[
+    (
+        "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn mk(x: Int) -> Out = Out { i: In { x: x }, n: 2 }\nfn f(x: Int) -> Int = mk(x).i.x\nentry f\n",
+        "7",
+        "7",
+    ),
+    (
+        "type In = { x: Int }\ntype Out = { i: In, n: Int }\nfn mk(x: Int) -> Out = Out { i: In { x: x }, n: 2 }\nfn up(o: Out, x: Int) -> Out = Out { i: In { x: x }, ..o }\nfn f(x: Int) -> Int = add(up(mk(x), 5).i.x, up(mk(x), 5).n)\nentry f\n",
+        "3",
+        "7",
+    ),
+];
+
+/// 印つきの入口（S3c）：信頼側の受理から rank と rec を取り、印つきの解決（resolve_tagged_e）の結果を検証済みの型検査と
+/// run_input_json に渡す。入力と出力は Int に限る（印つきの値の入出力は、この試験では比べない）。
+fn tagged_run(src: &str, input: &str) -> String {
+    let typed = match compile(src.as_bytes(), &StaticProfile::default()) {
+        SourceCompile::Result(CompileResult::Accepted { program, .. }) => program,
+        _ => panic!("信頼側が受理しない: {src}"),
+    };
+    let rank: Vec<usize> = typed
+        .program
+        .functions()
+        .map(|f| typed.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+        .collect();
+    let rec: Vec<bool> = typed.program.functions().map(|f| f.rec).collect();
+    let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
+    let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+    let prog = EProg { funcs, rank, rec, entry };
+    assert!(check_prog(&prog), "印つきの型検査が通らない: {src}");
+    let tv = match decode_plain_input(&typed.input_type, input.as_bytes(), &InputProfile::default()) {
+        DecodeResult::Decoded(tv) => tv,
+        _ => panic!("入力の復号が失敗: {src}"),
+    };
+    let lim = Limits {
+        steps: 1_000_000,
+        integer_bits: 4_096,
+        allocated_nodes: 1_000_000,
+        max_depth: 100_000,
+        max_slots: 100_000,
+    };
+    match run_input_json(&prog, &tv.text, tv.json_depth, lim) {
+        InputRun::Ran(Ok(out), _, _) => encode_plain_with(&typed.output_type, &out, false)
+            .unwrap_or_else(|e| panic!("出力の plain JSON への写しが失敗 ({e}): {src}")),
+        InputRun::NotWellFormed => panic!("印つきの run が整形でないと判定: {src}"),
+        InputRun::InputRejected => panic!("印つきの run が入力を拒否: {src}"),
+        InputRun::Ran(Err(_), _, _) => panic!("印つきの run が打ち切られた: {src}"),
+    }
+}
+
+#[test]
+fn s3c_nested_named_fields_agree_with_trusted() {
+    for src in S3C_ACCEPTED {
+        assert!(trusted(src).is_none(), "信頼側が拒否した: {src}");
+        let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
+        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
+        let n = funcs.len();
+        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印なしの型検査が通らない（対照）: {src}");
+        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let n = funcs.len();
+        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印つきの型検査が受理しない: {src}");
+    }
+    for src in S3C_REJECTED {
+        assert!(trusted(src).is_some(), "信頼側が受理した: {src}");
+        let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
+        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let n = funcs.len();
+        assert!(
+            !check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }),
+            "印つきの型検査が受理した（信頼側は拒否する）: {src}"
+        );
+    }
+    for &(src, input, want) in S3C_RUN {
+        let trusted_out = Program::compile(src)
+            .unwrap_or_else(|_| panic!("信頼側が受理しない: {src}"))
+            .run_json(input)
+            .unwrap_or_else(|_| panic!("信頼側の実行が失敗: {src}"));
+        assert_eq!(trusted_out, want, "信頼側の出力が違う: {src}");
+        assert_eq!(verified_run(src, input), want, "印なしの検証済みの出力が違う: {src}");
+        assert_eq!(tagged_run(src, input), want, "印つきの検証済みの出力が違う: {src}");
     }
 }
