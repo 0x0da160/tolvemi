@@ -21,6 +21,12 @@
 //! 検証済みの parser が通り resolver が拒否する。どの例でも検証済みとの食い違い（E-INTERNAL-VERIFIED-MISMATCH）は出ない。
 //! 検証済みの部品は直接呼ぶ（api の突き合わせは通さない）。直和型は核の型にまだ入らないので、
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
+//!
+//! S5b：V8（範囲内の受理は源の文字列の二つの写しで検査し、添付の IR は源の印なしの IR と一致する。判定は HEAD と同じ）、
+//! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）。
+//! V9 は tests/nominal.rs の hand_made_tag_shape_is_rejected_when_run にある。
+
+use std::process::Command;
 
 use tlvm::api::*;
 use tlvm::nominal::Tags;
@@ -32,7 +38,7 @@ use tlvm::values::DecodeResult;
 use tlvm_verified::eval::Limits;
 use tlvm_verified::pipeline::{compile_source, run_input_json, Compiled, InputRun};
 use tlvm_verified::check::check_prog;
-use tlvm_verified::ir::EProg;
+use tlvm_verified::ir::{ty_eq, EExpr, EProg};
 use tlvm_verified::resolve::{decl_numbers_e, resolve_e, resolve_tagged_e};
 use tlvm_verified::surface::{parse_e, SDecl};
 
@@ -316,8 +322,13 @@ fn verified_run(src: &str, input: &str) -> String {
     let rec: Vec<bool> = typed.program.functions().map(|f| f.rec).collect();
     let p = StaticProfile::default();
     let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
-    let chars: Vec<char> = src.chars().collect();
-    let prog = match compile_source(&chars, d, td, rank, rec) {
+    // 検証済みの parser は `rec` を知らないので、経路と同じく印を空白に置き換えた源を読ませる（api::without_rec_markers）。
+    let sp = match parse_source(src.as_bytes(), &p) {
+        Parsed::Program(sp) => sp,
+        Parsed::Failed(_) => panic!("構文が通らない: {src}"),
+    };
+    let chars: Vec<char> = without_rec_markers(src, &sp).chars().collect();
+    let prog = match compile_source(&chars, d, td, rank, rec, false) {
         Compiled::Accepted(prog) => prog,
         _ => panic!("検証済みが受理しない: {src}"),
     };
@@ -640,3 +651,279 @@ fn v7_expansion_name_diagnostics_have_no_verified_mismatch() {
         gaps.join("\n")
     );
 }
+
+// ---------------------------------------------------------------- V8（S5b）：名義の判定の振り分け
+
+/// nominal.rs と record_names.rs の全部のプログラム（HEAD の判定を記録した表。tests/data/route_corpus.tsv）。
+/// 各行は 出典、判定（ACCEPT または REJECT と符号の列）、プログラム（\n \t \\ を逸らした形）。
+const ROUTE_CORPUS: &str = include_str!("data/route_corpus.tsv");
+
+/// 信頼側の判定：受理なら ACCEPT、拒否なら REJECT と符号の列（順は診断の順）。
+fn verdict(src: &str) -> String {
+    match compile(src.as_bytes(), &StaticProfile::default()) {
+        SourceCompile::Result(CompileResult::Accepted { .. }) => "ACCEPT".to_string(),
+        SourceCompile::Result(CompileResult::Rejected { errors, .. }) => {
+            let codes: Vec<&str> = errors.iter().map(|d| d.code).collect();
+            format!("REJECT {}", codes.join(","))
+        }
+        _ => "BOUNDARY".to_string(),
+    }
+}
+
+/// tests/data/route_corpus.tsv の一行の逸らしを戻す。
+fn unescape_tsv(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => out.push(other),
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[test]
+fn v8_joint_verdicts_match_head() {
+    let mut bad: Vec<String> = Vec::new();
+    let mut n = 0;
+    for line in ROUTE_CORPUS.lines().filter(|l| !l.is_empty()) {
+        let mut parts = line.splitn(3, '\t');
+        let (origin, want, esc) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+        let src = unescape_tsv(esc);
+        n += 1;
+        let got = verdict(&src);
+        if got != want {
+            bad.push(format!("{origin}: HEAD は {want}、今は {got}: {src:?}"));
+        }
+    }
+    assert!(n >= 78, "表の行数が少ない: {n}");
+    assert!(bad.is_empty(), "判定が HEAD と違う:\n{}", bad.join("\n"));
+}
+
+/// 信頼側の実行（CLI の run と同じ経路）。出力は plain JSON の一行。
+fn cli_run(src: &str, input: &str) -> String {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("tlvm-rv-{}-{n}.tlvm", std::process::id()));
+    std::fs::write(&path, src).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(["run", path.to_str().unwrap(), input, "--plain"])
+        .output()
+        .unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    String::from_utf8(o.stdout).unwrap().trim_end().to_string()
+}
+
+/// 検証済みの IR の構造の等しさ。EProg と EExpr には比べる導出が無いので、変種ごとに比べる（Int は十進の文字列）。
+fn same_prog(a: &EProg, b: &EProg) -> bool {
+    a.entry == b.entry
+        && a.rank == b.rank
+        && a.rec == b.rec
+        && a.funcs.len() == b.funcs.len()
+        && a.funcs.iter().zip(b.funcs.iter()).all(|(f, g)| {
+            f.params.len() == g.params.len()
+                && f.params.iter().zip(g.params.iter()).all(|(p, q)| p.0 == q.0 && ty_eq(&p.1, &q.1))
+                && ty_eq(&f.ret, &g.ret)
+                && same_expr(&f.body, &g.body)
+        })
+}
+
+fn same_exprs(xs: &[EExpr], ys: &[EExpr]) -> bool {
+    xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x, y)| same_expr(x, y))
+}
+
+fn same_expr(a: &EExpr, b: &EExpr) -> bool {
+    match (a, b) {
+        (EExpr::Int(x), EExpr::Int(y)) => x.to_dec() == y.to_dec(),
+        (EExpr::Bool(x), EExpr::Bool(y)) => x == y,
+        (EExpr::Unit, EExpr::Unit) => true,
+        (EExpr::Char(x), EExpr::Char(y)) => x == y,
+        (EExpr::Var(x), EExpr::Var(y)) => x == y,
+        (EExpr::List(t, xs), EExpr::List(u, ys)) => ty_eq(t, u) && same_exprs(xs, ys),
+        (EExpr::Some(x), EExpr::Some(y)) => same_expr(x, y),
+        (EExpr::None(t), EExpr::None(u)) => ty_eq(t, u),
+        (EExpr::Pair(x1, x2), EExpr::Pair(y1, y2)) => same_expr(x1, y1) && same_expr(x2, y2),
+        (EExpr::Builtin(f, xs), EExpr::Builtin(g, ys)) => f == g && same_exprs(xs, ys),
+        (EExpr::Call(f, xs), EExpr::Call(g, ys)) => f == g && same_exprs(xs, ys),
+        (EExpr::Let(x, a1, b1), EExpr::Let(y, a2, b2)) => x == y && same_expr(a1, a2) && same_expr(b1, b2),
+        (EExpr::If(c1, t1, e1), EExpr::If(c2, t2, e2)) => {
+            same_expr(c1, c2) && same_expr(t1, t2) && same_expr(e1, e2)
+        }
+        (EExpr::Fold(l1, i1, a1, x1, b1), EExpr::Fold(l2, i2, a2, x2, b2)) => {
+            same_expr(l1, l2) && same_expr(i1, i2) && a1 == a2 && x1 == x2 && same_expr(b1, b2)
+        }
+        (EExpr::Match(m1, n1, x1, s1), EExpr::Match(m2, n2, x2, s2)) => {
+            same_expr(m1, m2) && same_expr(n1, n2) && x1 == x2 && same_expr(s1, s2)
+        }
+        (EExpr::Inj(o1, t1, u1, x1), EExpr::Inj(o2, t2, u2, x2)) => {
+            o1 == o2 && ty_eq(t1, t2) && ty_eq(u1, u2) && same_expr(x1, x2)
+        }
+        (EExpr::MatchR(m1, x1, a1, y1, b1), EExpr::MatchR(m2, x2, a2, y2, b2)) => {
+            same_expr(m1, m2) && x1 == x2 && same_expr(a1, a2) && y1 == y2 && same_expr(b1, b2)
+        }
+        _ => false,
+    }
+}
+
+/// 範囲内の受理（S5b）：源の文字列の印つきの写しと印なしの写しが両方受理し、添付の IR（program.verified）は
+/// 源の印なしの写しの IR と構造で一致する。範囲の外と、ゲートが拒否する例は、この検査の対象にしない。
+/// 限界：展開の文字列の IR を添付した場合も、この 23 件では同じ構造になる（確かめた結果）。この検査が区別するのは
+/// 印つきの写しの IR を添付した場合だけ。経路を選ぶ代入（api.rs の verified_from_source）は、読んで確かめる。
+/// 範囲内の形を広げる例（表には無い）：基の形（`..`）、字段の順を変える形、let と if の中の記録、入れ子、rec fn。
+const V8_EXTRA: &[&str] = &[
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { ..P { a: x, b: 2 } }.a\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, ..P { a: 1, b: 2 } }.a\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { ..P { a: 1, b: x } }.b\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { b: x, a: 1 }.a\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = add(P { b: 1, a: x }.a, P { a: 2, b: x }.b)\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = let p = P { a: x, b: 1 } in p.a\nentry f\n",
+    "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = if(le(x, 0), P { a: 0, b: 1 }.a, P { a: x, b: 1 }.a)\nentry f\n",
+    "type I = { v: Int }\ntype P = { a: I, b: Int }\nfn f(x: Int) -> Int = P { a: I { v: x }, b: 2 }.a.v\nentry f\n",
+    "type P = { a: Int }\nrec fn g(p: P, n: Int) -> Int = if(le(n, 0), p.a, add(n, g(p, sub(n, 1))))\nfn f(x: Int) -> Int = g(P { a: x }, 3)\nentry f\n",
+    "type P = { list: Int, rec: Int }\nfn f(x: Int) -> Int = P { list: x, rec: 2 }.list\nentry f\n",
+];
+
+#[test]
+fn v8_in_route_programs_are_checked_from_their_source() {
+    let p = StaticProfile::default();
+    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let mut all: Vec<(String, String)> = ROUTE_CORPUS
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let (origin, _want, esc) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+            (origin.to_string(), unescape_tsv(esc))
+        })
+        .collect();
+    all.extend(V8_EXTRA.iter().enumerate().map(|(i, s)| (format!("V8_EXTRA[{i}]"), s.to_string())));
+    let mut checked = 0;
+    for (origin, src) in &all {
+        let origin = origin.as_str();
+        let src = src.as_str();
+        if !in_verified_route(src.as_bytes(), &p) {
+            continue;
+        }
+        let SourceCompile::Result(CompileResult::Accepted { program, .. }) = compile(src.as_bytes(), &p) else {
+            continue;
+        };
+        let sp = match parse_source(src.as_bytes(), &p) {
+            Parsed::Program(sp) => sp,
+            Parsed::Failed(_) => panic!("範囲の判定と構文の結果が食い違う: {origin}"),
+        };
+        // rank と rec は源の関数の順（経路と同じ。展開が足す補助関数は数えない）。
+        let rank: Vec<usize> = sp
+            .functions()
+            .map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+            .collect();
+        let rec: Vec<bool> = sp.functions().map(|f| f.rec).collect();
+        let chars: Vec<char> = without_rec_markers(&src, &sp).chars().collect();
+        assert!(
+            matches!(compile_source(&chars, d, td, rank.clone(), rec.clone(), true), Compiled::Accepted(_)),
+            "印つきの写しが受理しない: {origin}"
+        );
+        let untagged = match compile_source(&chars, d, td, rank, rec, false) {
+            Compiled::Accepted(e) => e,
+            _ => panic!("印なしの写しが受理しない: {origin}"),
+        };
+        let attached = program
+            .verified
+            .as_ref()
+            .unwrap_or_else(|| panic!("添付の IR が無い: {origin}"));
+        assert!(same_prog(&attached.0, &untagged), "添付の IR が源の印なしの IR と違う: {origin}");
+        checked += 1;
+    }
+    assert!(checked >= 20, "範囲内で受理するプログラムが少ない: {checked}");
+    println!("V8: 範囲内で受理し、源の二つの写しと IR を検査したプログラム {checked} 件");
+}
+
+/// 末尾の `,` の記録の式は範囲の外に残す（検証済みの文法は `,` の後ろに字段を要求する。検証済みの prest）。
+/// 範囲の外なので、HEAD と同じ経路で受理し、同じ出力を返す。宣言の末尾の `,` は範囲の内（検証済みも受ける）。
+#[test]
+fn v8_record_literal_with_trailing_comma_stays_on_the_trusted_route() {
+    let p = StaticProfile::default();
+    let lit = "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n";
+    assert!(!in_verified_route(lit.as_bytes(), &p), "末尾の , の記録の式は範囲の外のはず");
+    assert_eq!(cli_run(lit, "5"), "5");
+    let decl = "type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n";
+    assert!(in_verified_route(decl.as_bytes(), &p), "宣言の末尾の , は範囲の内のはず");
+}
+
+/// V10（S5b）：記録と、総称・直和型・Dict・hof・再帰を混ぜたプログラム。範囲の外なので、HEAD と同じ経路で、
+/// 符号と出力は HEAD の記録と同じ（HEAD の値を直書きする）。
+#[test]
+fn v10_mixed_programs_keep_head_codes_and_outputs() {
+    const OK: &[(&str, &str, &str)] = &[
+        // 総称（id<T>）：HEAD は受理し、出力 5
+        (
+            "type P = { a: Int, b: Int }\nfn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(P { a: x, b: 2 }).a\nentry f\n",
+            "5",
+            "5",
+        ),
+        // 直和型（match）：HEAD は受理し、出力 5
+        (
+            "type P = { a: Int, b: Int }\ntype S = Circle(Int) | Empty\nfn g(s: S) -> Int = match s { Circle(r) => P { a: r, b: 1 }.a, Empty => 0 }\nfn f(x: Int) -> Int = g(Circle(x))\nentry f\n",
+            "5",
+            "5",
+        ),
+        // Dict：HEAD は受理し、出力 1
+        (
+            "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = dict_size(dict_put(dict<String, Int>(), \"k\", P { a: x, b: 1 }.a))\nentry f\n",
+            "5",
+            "1",
+        ),
+        // hof（map）：HEAD は受理し、出力 6（fold は核の形なので hof ではない）
+        (
+            "type P = { a: Int, b: Int }\nfn f(xs: List<Int>) -> Int = fold(map(xs, |x| P { a: x, b: 1 }.a), 0, |acc, x| add(acc, x))\nentry f\n",
+            "[1, 2, 3]",
+            "6",
+        ),
+    ];
+    for (src, input, want) in OK {
+        assert!(!in_verified_route(src.as_bytes(), &StaticProfile::default()), "範囲の外のはず: {src}");
+        assert_eq!(cli_run(src, input), *want, "出力が HEAD と違う: {src}");
+    }
+    // 再帰する型：HEAD は E-TYPE-RETURN で拒否する
+    let rec_src = "type P = { a: Int }\ntype L = Nil | Cons(Int, L)\nfn f(x: Int) -> P = x\nentry f\n";
+    assert!(!in_verified_route(rec_src.as_bytes(), &StaticProfile::default()), "範囲の外のはず");
+    let codes: Vec<String> = rejected(rec_src).into_iter().map(|r| r.1).collect();
+    assert_eq!(codes, ["E-TYPE-RETURN"]);
+}
+
+/// V11（S5b）：rec fn が記録を引数に取る例（HEAD は 11 を返す）は、範囲の内で、検証済みの実行も 11 を返す。
+/// 相互再帰は、印のない循環を E-CYCLE-CALL で拒否し（HEAD と同じ）、印を付けた循環は HEAD と同じ出力を返す。
+#[test]
+fn v11_rec_functions_over_records_and_mutual_recursion_match_head() {
+    let p = StaticProfile::default();
+    let rec_src = "type P = { a: Int }\nrec fn g(p: P, n: Int) -> Int = if(le(n, 0), p.a, add(n, g(p, sub(n, 1))))\nfn f(x: Int) -> Int = g(P { a: x }, 3)\nentry f\n";
+    assert!(in_verified_route(rec_src.as_bytes(), &p), "rec fn と記録は範囲の内のはず");
+    assert_eq!(cli_run(rec_src, "5"), "11");
+    assert_eq!(verified_run(rec_src, "5"), "11");
+
+    // 一方だけに印：HEAD は受理し、出力 5
+    let one = "type P = { a: Int }\nrec fn ev(p: P, n: Int) -> Int = if(eq(n, 0), p.a, od(p, sub(n, 1)))\nfn od(p: P, n: Int) -> Int = ev(p, n)\nfn f(x: Int) -> Int = ev(P { a: x }, 3)\nentry f\n";
+    assert_eq!(cli_run(one, "5"), "5");
+    assert_eq!(verified_run(one, "5"), "5");
+
+    // 両方に印：HEAD は受理し、出力 0
+    let both = "type P = { a: Int }\nrec fn ev(p: P, n: Int) -> Int = if(eq(n, 0), p.a, od(p, sub(n, 1)))\nrec fn od(p: P, n: Int) -> Int = if(eq(n, 0), 0, ev(p, sub(n, 1)))\nfn f(x: Int) -> Int = ev(P { a: x }, 3)\nentry f\n";
+    assert_eq!(cli_run(both, "5"), "0");
+    assert_eq!(verified_run(both, "5"), "0");
+
+    // 印のない循環：HEAD と同じく E-CYCLE-CALL で拒否する（記録の有無によらない）
+    let cyc = "type P = { a: Int }\nfn ga(p: P) -> Int = gb(p)\nfn gb(p: P) -> Int = ga(p)\nfn f(x: Int) -> Int = ga(P { a: x })\nentry f\n";
+    let codes: Vec<String> = rejected(cyc).into_iter().map(|r| r.1).collect();
+    assert_eq!(codes, ["E-CYCLE-CALL"]);
+    let cyc_plain = "fn ga(n: Int) -> Int = gb(n)\nfn gb(n: Int) -> Int = ga(n)\nfn f(x: Int) -> Int = ga(x)\nentry f\n";
+    let codes: Vec<String> = rejected(cyc_plain).into_iter().map(|r| r.1).collect();
+    assert_eq!(codes, ["E-CYCLE-CALL"]);
+}
+

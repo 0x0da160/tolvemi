@@ -5,6 +5,7 @@
 use std::process::Command;
 use tlvm::api::*;
 use tlvm::profiles::*;
+use tlvm_verified::pipeline::{compile_source, Compiled};
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
     let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
@@ -99,6 +100,43 @@ fn hand_made_tag_shape_is_rejected_when_run() {
     // 印の形を手で書いた値は、印つきの写しを通っても印なしの写しで拒否される（文面は構造で出る）
     let src = "type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nfn g(x: Int) -> Int = f(pair(pair(unit, unit), pair(x, 2)))\nentry g\n";
     assert_eq!(codes(src), ["E-TYPE-ARG"]);
+    // S5b（V9）：検証済みの二つの写し。印つきは受理し、印なしは型検査で拒否する（拒否するのは印なしの写し）。
+    // 信頼側のゲートが先に拒否するので、この値は経路の判定まで届かない。rank は f（葉）が 0、g（f を呼ぶ）が 1。
+    let p = StaticProfile::default();
+    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let chars: Vec<char> = src.chars().collect();
+    let (rank, rec) = (vec![0, 1], vec![false, false]);
+    assert!(
+        matches!(compile_source(&chars, d, td, rank.clone(), rec.clone(), true), Compiled::Accepted(_)),
+        "印つきの写しが受理しない"
+    );
+    assert!(
+        matches!(compile_source(&chars, d, td, rank, rec, false), Compiled::NotWellFormed),
+        "印なしの写しが拒否しない"
+    );
+}
+
+#[test]
+fn three_same_shape_types_do_not_mix() {
+    // 字段一つの Int の型三つ（A、B、C）。字段の名前は a、b、c で別（同じ名前だと字段の衝突で別の符号になる）。
+    const DECLS: &str = "type A = { a: Int }\ntype B = { b: Int }\ntype C = { c: Int }\n";
+    let cases = [
+        ("fn fa(v: A) -> Int = v.a\nfn fb(v: B) -> Int = fa(v)\nentry fb\n", "A", "B"),
+        ("fn fa(v: A) -> Int = v.a\nfn fc(v: C) -> Int = fa(v)\nentry fc\n", "A", "C"),
+        ("fn fb(v: B) -> Int = v.b\nfn fc(v: C) -> Int = fb(v)\nentry fc\n", "B", "C"),
+    ];
+    for (body, want, got) in cases {
+        let src = format!("{DECLS}{body}");
+        assert_eq!(codes(&src), ["E-TYPE-ARG"], "{src}");
+        assert_eq!(expected_actual(&src), (want.to_string(), got.to_string()), "{src}");
+    }
+}
+
+#[test]
+fn three_same_shape_types_each_run_with_their_own_field() {
+    // 三つの型を一つの関数で使う形は受理し、同じ入力（5）から 5 + 5 + 5 = 15 を返す
+    let src = "type A = { a: Int }\ntype B = { b: Int }\ntype C = { c: Int }\nfn fa(v: A) -> Int = v.a\nfn fb(v: B) -> Int = v.b\nfn fc(v: C) -> Int = v.c\nfn f(x: Int) -> Int = add(fa(A { a: x }), add(fb(B { b: x }), fc(C { c: x })))\nentry f\n";
+    assert_eq!(run(src, "5"), "15");
 }
 
 #[test]

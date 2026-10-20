@@ -1,0 +1,78 @@
+nominal.rs:64	REJECT E-TYPE-ARG	type A = { x: Int }\ntype B = { z: Int }\nfn f(a: A) -> Int = a.x\nfn g(b: B) -> Int = f(b)\nentry g\n
+nominal.rs:71	REJECT E-TYPE-ARG	type Sa = P(Int) | Q\ntype Sb = R(Int) | T\nfn f(s: Sa) -> Int = match s { P(n) => n, Q => 0 }\nfn g(s: Sb) -> Int = f(s)\nentry g\n
+nominal.rs:78	REJECT E-TYPE-RETURN	type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n
+nominal.rs:89	REJECT E-TYPE-ARG	type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nfn g(x: Int) -> Int = f(pair(x, 2))\nentry g\n
+nominal.rs:100	REJECT E-TYPE-ARG	type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nfn g(x: Int) -> Int = f(pair(pair(unit, unit), pair(x, 2)))\nentry g\n
+nominal.rs:106	REJECT E-TYPE-ARG	type Box<T> = { v: T, n: Int }\nfn f(b: Box<Int>) -> Int = b.v\nfn g(b: Box<Bool>) -> Int = f(b)\nentry g\n
+nominal.rs:116	ACCEPT	type Box<T> = { v: T, n: Int }\nfn f(b: Box<Int>) -> Int = add(b.v, b.n)\nfn g(x: Int) -> Int = f(Box { v: x, n: 2 })\nentry g\n
+nominal.rs:122	REJECT E-TYPE-ARG	type A = { x: Int }\ntype B = { z: Int }\nfn f(b: B) -> Int = b.z\nfn g(a: A) -> Int = f(a)\nentry g\n
+nominal.rs:124	REJECT E-TYPE-FIELD-ACCESS	type Box = { v: Int, n: Int }\nfn f(x: Int) -> Int = x.v\nentry f\n
+nominal.rs:131	REJECT E-TYPE-MATCH-SCRUTINEE	type S = P(Int) | Q\nfn f(x: Int) -> Int = match x { P(n) => n, Q => 0 }\nentry f\n
+nominal.rs:138	ACCEPT	type P = { a: Int, b: Int }\nfn f(p: P) -> P = P { a: p.b, ..p }\nfn g(x: Int) -> Int = f(P { a: x, b: 7 }).a\nentry g\n
+nominal.rs:140	ACCEPT	type Shape = Circle(Int) | Rect(Int, Int) | Empty\nfn area(s: Shape) -> Int = match s { Circle(r) => mul(r, r), Rect(w, h) => mul(w, h), Empty => 0 }\nfn g(n: Int) -> Int = add(area(Rect(n, 3)), area(Circle(2)))\nentry g\n
+nominal.rs:146	ACCEPT	type R = { a: Int }\ntype S = W(R) | E\nfn f(s: S) -> Int = match s { W(r) => r.a, E => 0 }\nfn g(x: Int) -> Int = f(W(R { a: x }))\nentry g\n
+nominal.rs:148	REJECT E-TYPE-ARG	type R = { a: Int }\ntype Q = { b: Int }\ntype S = W(R) | E\nfn f(s: S) -> Int = match s { W(r) => r.a, E => 0 }\nfn g(q: Q) -> Int = f(W(q))\nentry g\n
+nominal.rs:156	REJECT E-TYPE-FST-ARG	type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = fst(b)\nentry f\n
+nominal.rs:162	REJECT E-TYPE-SND-ARG	type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = snd(b)\nentry f\n
+nominal.rs:164	ACCEPT	type Box = { v: Int, n: Int }\nfn f(b: Box) -> Int = b.v\nentry f\n
+record_names.rs:79	REJECT E-RECORD-UNKNOWN-TYPE	type P = { a: Int }\nfn f(p: Q) -> Int = 1\nentry f\n
+record_names.rs:83	REJECT E-RECORD-UNKNOWN-TYPE	type P = { a: Int }\nfn f(x: Int) -> Int = Q { a: x }.a\nentry f\n
+record_names.rs:91	REJECT E-RECORD-DUPLICATE-TYPE	type P = { a: Int }\ntype P = { b: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:99	REJECT E-RECORD-UNKNOWN-FIELD	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, z: x }.a\nentry f\n
+record_names.rs:103	REJECT E-RECORD-UNKNOWN-FIELD	type P = { a: Int, b: Int }\nfn f(p: P) -> Int = p.z\nentry f\n
+record_names.rs:108	REJECT E-RECORD-UNKNOWN-FIELD	fn f(x: Int) -> Int = x.a\nentry f\n
+record_names.rs:116	REJECT E-RECORD-DUPLICATE-FIELD	type P = { a: Int, a: Int }\nfn f(p: P) -> Int = p.a\nentry f\n
+record_names.rs:120	REJECT E-RECORD-DUPLICATE-FIELD	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, a: x, b: x }.a\nentry f\n
+record_names.rs:128	REJECT E-RECORD-MISSING-FIELD	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x }.a\nentry f\n
+record_names.rs:133	REJECT E-RECORD-MISSING-FIELD	type P = { a: Int, b: Int, c: Int }\nfn f(x: Int) -> Int = P { a: x }.a\nentry f\n
+record_names.rs:142	REJECT E-RECORD-BASE-REDUNDANT	type P = { a: Int, b: Int }\nfn f(q: P, x: Int) -> Int = P { a: x, b: x, ..q }.a\nentry f\n
+record_names.rs:150	REJECT E-RECORD-FIELD-CONFLICT	type P = { a: Int }\ntype Q = { a: Int }\nfn f(q: Q) -> Int = q.a\nentry f\n
+record_names.rs:160	REJECT E-NAME-UNBOUND-VARIABLE	fn f(x: Int) -> Int = y\nentry f\n
+record_names.rs:164	REJECT E-NAME-UNKNOWN-FUNCTION	fn f(x: Int) -> Int = g(x)\nentry f\n
+record_names.rs:168	REJECT E-NAME-DUPLICATE-FUNCTION	fn f(x: Int) -> Int = x\nfn f(x: Int) -> Int = x\nentry f\n
+record_names.rs:172	REJECT E-NAME-DUPLICATE-PARAM	fn f(x: Int, x: Int) -> Int = x\nentry f\n
+record_names.rs:180	REJECT E-NAME-DUPLICATE-BINDER	fn f(xs: List<Int>) -> Int = fold(xs, 0, |a, a| a)\nentry f\n
+record_names.rs:184	REJECT E-NAME-SHADOW	fn f(x: Int) -> Int = let y = 1 in let y = 2 in x\nentry f\n
+record_names.rs:192	REJECT E-TYPE-FIELD-ACCESS	type P = { a: Int }\ntype Q = { b: Int }\nfn f(q: Q) -> Int = q.a\nentry f\n
+record_names.rs:202	ACCEPT	fn f(d: Dict<Int, String>) -> Dict<Int, String> = d\nentry f\n
+record_names.rs:211	REJECT E-RECORD-UNKNOWN-TYPE	fn f(d: Dict) -> Int = 0\nentry f\n
+record_names.rs:212	REJECT E-RECORD-UNKNOWN-TYPE	fn f(x: Int) -> Dict = x\nentry f\n
+record_names.rs:213	REJECT E-RECORD-UNKNOWN-TYPE	type R = { d: Dict, n: Int }\nfn f(r: R) -> Int = r.n\nentry f\n
+record_names.rs:226	REJECT E-PARSE-EXPECTED-TOKEN	fn f(d: Dict<Int>) -> Int = 0\nentry f\n
+record_names.rs:230	REJECT E-PARSE-EXPECTED-TOKEN	fn f(d: Dict<Int, Int, Int>) -> Int = 0\nentry f\n
+record_names.rs:239	ACCEPT	type Dict = { a: Int }\nfn f(x: Dict) -> Int = x.a\nentry f\n
+record_names.rs:243	ACCEPT	type Dict = { a: Int }\nfn f(x: Dict<Int, Int>) -> Int = 1\nentry f\n
+record_names.rs:251	ACCEPT	type Inv = { items: Dict<String, Int>, ops: Int }\nfn f(inv: Inv) -> Int = add(inv.ops, dict_size(inv.items))\nentry f\n
+record_names.rs:265	REJECT E-TYPE-ARG	fn g(d: Dict<Int, Int>) -> Int = dict_size(d)\nfn f(xs: List<Pair<Int, Int>>) -> Int = g(xs)\nentry f\n
+record_names.rs:269	REJECT E-TYPE-ARG	fn g(xs: List<Pair<Int, Int>>) -> Int = 1\nfn f(d: Dict<Int, Int>) -> Int = g(d)\nentry f\n
+record_names.rs:273	REJECT E-TYPE-RETURN	fn f(d: Dict<String, Int>) -> List<Pair<String, Int>> = d\nentry f\n
+record_names.rs:283	REJECT E-TYPE-ARG	type Inv = { items: Dict<String, Int>, ops: Int }\nfn f(xs: List<Pair<String, Int>>) -> Int = Inv { items: xs, ops: 1 }.ops\nentry f\n
+record_names.rs:292	ACCEPT	type S = { dict: Int, length: Int, min: Int }\nfn f(s: S) -> S = S { dict: add(s.dict, 1), length: s.length, min: s.min }\nentry f\n
+record_names.rs:299	ACCEPT	type S = { dict: Int, length: Int, min: Int }\nfn f(s: S) -> Int = add(s.dict, add(s.length, s.min))\nentry f\n
+record_names.rs:327	REJECT E-PARSE-EXPECTED-TYPE	fn f(x: length) -> Int = 1\nentry f\n
+record_names.rs:331	REJECT E-PARSE-EXPECTED-TYPE	type P = { a: length }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:339	REJECT E-PARSE-EXPECTED-IDENT,E-PARSE-EXPECTED-TYPE	type length = { a: Int }\nfn f(p: length) -> Int = p.a\nentry f\n
+record_names.rs:346	REJECT E-PARSE-EXPECTED-IDENT	type Int = { a: Int }\nfn f(p: Int) -> Int = 1\nentry f\n
+record_names.rs:354	ACCEPT	type p = { a: Int }\nfn f(x: p) -> Int = x.a\nentry f\n
+record_names.rs:362	REJECT E-PARSE-EXPECTED-IDENT	type G<t> = { v: Int }\nfn f(g: G<Int>) -> Int = g.v\nentry f\n
+record_names.rs:371	ACCEPT	type G<T> = { v: T, w: Int }\nfn f(g: G<Int>) -> Int = add(g.v, g.w)\nentry f\n
+record_names.rs:379	ACCEPT	type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n
+record_names.rs:383	ACCEPT	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n
+record_names.rs:396	REJECT E-PARSE-EXPECTED-TOKEN	type P = { a Int, b: Int }\nfn f(p: P) -> Int = p.b\nentry f\n
+record_names.rs:400	REJECT E-PARSE-EXPECTED-TOKEN	type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x b: x }.a\nentry f\n
+record_names.rs:404	REJECT E-LEX-UNEXPECTED-CHARACTER	type P = { a: Int; b: Int }\nfn f(p: P) -> Int = p.a\nentry f\n
+record_names.rs:408	REJECT E-PARSE-EXPECTED-TOKEN	type P = { d: Dict<Int>, n: Int }\nfn f(p: P) -> Int = p.n\nentry f\n
+record_names.rs:412	REJECT E-PARSE-EXPECTED-IDENT	type P = { let: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:416	REJECT E-PARSE-EXPECTED-IDENT	type G<t> = { v: Int }\nfn f(g: G<Int>) -> Int = g.v\nentry f\n
+record_names.rs:425	REJECT E-PARSE-EXPECTED-IDENT	type E = { }\nfn f(x: Int) -> Int = x\nentry f\n
+record_names.rs:440	REJECT E-RECORD-FIELD-CONFLICT,E-RECORD-FIELD-CONFLICT	type A = { x: Int, y: Int }\ntype B = { x: Int, y: Int }\nfn f(a: A) -> B = a\nentry f\n
+record_names.rs:451	REJECT E-TYPE-RETURN	type A = { x: Int }\ntype B = { y: Int }\nfn f(a: A) -> B = a\nentry f\n
+record_names.rs:308	REJECT E-PARSE-EXPECTED-IDENT	type P = { let: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:308	REJECT E-PARSE-EXPECTED-IDENT	type P = { in: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:308	REJECT E-PARSE-EXPECTED-IDENT	type P = { true: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { entry: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { type: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { rec: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { _: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { A: Int }\nfn f(p: P) -> Int = 1\nentry f\n
+record_names.rs:317	ACCEPT	type P = { Dict: Int }\nfn f(p: P) -> Int = 1\nentry f\n

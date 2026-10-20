@@ -16,7 +16,7 @@ use crate::profiles::*;
 use crate::records;
 use crate::recursive;
 use crate::sums;
-use crate::syntax::{Program, Ty};
+use crate::syntax::{Expr, ExprKind, Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -254,7 +254,7 @@ fn compile_expanded(
             let text = format_program(&glued);
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
-            cross_check_at(&text, r, profile, at)
+            route_expanded(source, p, tagged, cross_check_at(&text, r, profile, at), profile)
         }
     }
 }
@@ -477,7 +477,7 @@ fn cross_check_at(
                 .collect();
             // v1.7：関数ごとの印 `rec`（検証済みプログラムの関数と同じ宣言順）
             let rec: Vec<bool> = program.program.functions().map(|f| f.rec).collect();
-            match compile_source(&chars, d, td, rank, rec) {
+            match compile_source(&chars, d, td, rank, rec, false) {
                 Compiled::Accepted(p) => {
                     program.verified = Some(Arc::new(VerifiedProgram(p)));
                     CompileResult::Accepted {
@@ -736,3 +736,125 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
     "E-RECORD-FIELD-CONFLICT",
     "E-REC-FIELD-TYPE",
 ];
+
+/// S5b：記録と名前だけのプログラムか（直和型・再帰する型・総称・hof（map、filter、any、all、find、sort_by と loop）・
+/// 辞書を含まず、末尾の `,` の記録の式も含まない）。展開が要るプログラムのうち、この範囲は源の文字列を検証済みの経路で
+/// 検査し、印なしの IR を実行に使う。`fold` は核の形で、hof ではない（hof.rs の冒頭）。
+pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
+    match parse_source(source, profile) {
+        Parsed::Program(p) => needs_glue(&p) && route_scope(source, &p, profile),
+        Parsed::Failed(_) => false,
+    }
+}
+
+fn route_scope(source: &[u8], p: &Program, profile: &StaticProfile) -> bool {
+    !(sums::has_sums(p)
+        || recursive::has_recursive(p)
+        || generics::has_generics(p)
+        || hof::has_hof(p)
+        || dict::has_dict(p)
+        || has_record_trailing_comma(p, source, profile))
+}
+
+/// S5b：記録の式が末尾の `,` を持つか（`P { a: x, }`）。信頼側の構文器は受けるが、検証済みの文法（syntax.rs の
+/// prest）は `,` の後ろに字段を要求する。その形は範囲の外に残し、従来の経路（ゲートと糖衣の IR）で判定する。
+/// 字句が読めないときも範囲の外とする（この関数が呼ばれるのは字句の通ったプログラムだけなので、実際には起きない）。
+fn has_record_trailing_comma(p: &Program, source: &[u8], profile: &StaticProfile) -> bool {
+    let Ok(tokens) = lex(source, profile) else {
+        return true;
+    };
+    fn ex(e: &Expr, tokens: &[crate::lexer::Token]) -> bool {
+        if matches!(e.kind, ExprKind::Record { .. }) {
+            // 記録の式の範囲は閉じ括弧で終わる（構文器の meta の範囲）。その直前の字句が `,` か。
+            let close = e.meta.span.1.saturating_sub(1);
+            if let Ok(k) = tokens.binary_search_by_key(&close, |t| t.start) {
+                if k > 0 && tokens[k].is_punct("}") && tokens[k - 1].is_punct(",") {
+                    return true;
+                }
+            }
+        }
+        e.children().into_iter().any(|c| ex(c, tokens))
+    }
+    p.functions().any(|f| ex(&f.body, &tokens))
+}
+
+/// S5b：展開のゲート（印なし）が受理した、範囲内のプログラムを源の文字列で検証済みの経路に通す。
+/// ゲートの拒否と範囲の外は、そのまま返す（`tagged` は印つきの写しで、判定は印なしの写しの検査にまとめる）。
+fn route_expanded(
+    source: &[u8],
+    p: &Program,
+    tagged: bool,
+    r: CompileResult,
+    profile: &StaticProfile,
+) -> CompileResult {
+    if tagged || !route_scope(source, p, profile) {
+        return r;
+    }
+    verified_from_source(source, p, r, profile)
+}
+
+/// S5b：源の文字列の検証済みの検査。印つきの写しが受理し、印なしの写しが受理したとき、印なしの IR を付ける。
+/// rank と rec は信頼側の型付きの値から、源の関数の順に取る（展開が足す補助関数は含めない）。
+fn verified_from_source(
+    source: &[u8],
+    p: &Program,
+    r: CompileResult,
+    profile: &StaticProfile,
+) -> CompileResult {
+    let CompileResult::Accepted {
+        mut program,
+        warnings,
+        work,
+    } = r
+    else {
+        return r;
+    };
+    let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), p);
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= VERIFIED_MAX_CHARS {
+        return reject_verified("source-too-long-for-verified-parser", warnings, work);
+    }
+    let rank: Vec<usize> = p
+        .functions()
+        .map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+        .collect();
+    let rec: Vec<bool> = p.functions().map(|f| f.rec).collect();
+    let (d, td) = depth_bounds(profile);
+    let tagged_run = compile_source(&chars, d, td, rank.clone(), rec.clone(), true);
+    if let Some(why) = refusal(&tagged_run, true) {
+        return reject_verified(why, warnings, work);
+    }
+    let untagged_run = compile_source(&chars, d, td, rank, rec, false);
+    if let Some(why) = refusal(&untagged_run, false) {
+        return reject_verified(why, warnings, work);
+    }
+    if let Compiled::Accepted(e) = untagged_run {
+        program.verified = Some(Arc::new(VerifiedProgram(e)));
+    }
+    CompileResult::Accepted {
+        program,
+        warnings,
+        work,
+    }
+}
+
+/// 検証済みの判定が拒否なら、その理由（印つきの写しは tagged の文字を入れる）。受理なら None。
+fn refusal(c: &Compiled, tagged: bool) -> Option<&'static str> {
+    match (c, tagged) {
+        (Compiled::Accepted(_), _) => None,
+        (Compiled::ParseRejected, false) => Some("verified-parser-rejected"),
+        (Compiled::NameRejected, false) => Some("verified-resolver-rejected"),
+        (Compiled::NotWellFormed, false) => Some("verified-typechecker-rejected"),
+        (Compiled::ParseRejected, true) => Some("verified-tagged-parser-rejected"),
+        (Compiled::NameRejected, true) => Some("verified-tagged-resolver-rejected"),
+        (Compiled::NotWellFormed, true) => Some("verified-tagged-typechecker-rejected"),
+    }
+}
+
+fn reject_verified(why: &str, warnings: Vec<Diagnostic>, work: Option<WorkCounter>) -> CompileResult {
+    CompileResult::Rejected {
+        errors: vec![mismatch(why)],
+        warnings,
+        work,
+    }
+}
