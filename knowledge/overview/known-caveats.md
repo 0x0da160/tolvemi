@@ -35,7 +35,7 @@ sources:
 - **import は根のディレクトリの内側のファイルだけ。** `..` で根のディレクトリより上へは出られない（v1.16 差分仕様の §0、v1.11 の規則）。
 - **多倍長整数の `div_pos` は信頼仮定。** 検証済みの核の外にあり、設計書 925 行が明記している。
 - **整数の bit 数は、成功時の結果に含まない。** bit の上限を超えたときは `ResourceExhausted`（`IntegerBits`）になり、そのとき超えた bit 数を報告する（設計書 §18.3）。
-- **書換え後の式の深さは、上限 256 で検査する。** `loop` を 20 段入れ子にすると、書換え後の深さは 260 になり、`E-LIMIT-STATIC-EXPR-DEPTH` で拒否される（設計書 §18.1、`crates/tlvm/tests/rewritten.rs`）。
+- **書換え後の式の深さは、上限 256 で検査する。** `loop` を 20 段入れ子にすると、書換え後の深さは 522 になり、`E-LIMIT-STATIC-EXPR-DEPTH` で拒否される（設計書 §18.1、`crates/tlvm/tests/rewritten.rs`）。
 - **`stack_bytes` の超過は未検査。** [必須回帰テスト](../conformance/regression-tests.md) の行 35 では、ref-slot の上限は検査するが、stack_bytes の超過は検査していない。
 - **全部の field を書いた `..base` は拒否する（DECISION-21。2026-10-15 に修正）。** 以前は `R { a: x, b: 2, ..undefined_name }` と `R { a: x, b: 2, ..true }` が通った。`records.rs` が base を名前解決も型検査もせずに捨てていたためで、v1 の規則に反する不具合だった。今は `E-RECORD-BASE-REDUNDANT` で拒否する。この拒否では base の中の誤りは報告しない（`..base` を外すと報告される）。レコードの証明の試作（`verus/src/records_proof.rs`）は、この形を前提から外している。
 
