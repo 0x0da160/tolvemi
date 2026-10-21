@@ -206,6 +206,26 @@ impl std::fmt::Debug for TypedValue {
     }
 }
 
+/// 検証済みの復号器が受理した値（`decode_input_keeping` で `keep` のときだけ残る）。取り出されずに捨てられるときは、
+/// 深い cons 列の再帰を避ける `release` で解放する。`TypedValue` は別のスレッドへ渡すので、`Rc` の値は持たせない。
+#[derive(Default)]
+pub struct Verified(Option<Rc<EV>>);
+
+impl Verified {
+    /// 検証済みの復号器の値を取り出す（受理したときだけ `Some`）。
+    pub fn take(&mut self) -> Option<Rc<EV>> {
+        self.0.take()
+    }
+}
+
+impl Drop for Verified {
+    fn drop(&mut self) {
+        if let Some(w) = self.0.take() {
+            release(w);
+        }
+    }
+}
+
 fn fields(tag: &str) -> &'static [(&'static str, JKind)] {
     match tag {
         "int" | "char" => &[("value", JKind::String)],
@@ -288,20 +308,33 @@ fn limit_code(code: &str) -> bool {
 }
 
 pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
+    decode_input_keeping(t_in, data, profile, false).0
+}
+
+/// `decode_input` と同じ判定。`keep` のとき、受理した値の検証済みの復号器の値も一緒に返す（行の入力が使う）。
+pub fn decode_input_keeping(
+    t_in: &Ty,
+    data: &[u8],
+    profile: &InputProfile,
+    keep: bool,
+) -> (DecodeResult, Verified) {
     if data.len() > profile.json_bytes {
-        return DecodeResult::Invalid(vec![Diagnostic::error(
-            "input-boundary",
-            "E-LIMIT-INPUT-JSON-BYTES",
-            (0, 0),
-        )
-        .exp(profile.json_bytes.to_string())
-        .act(data.len().to_string())]);
+        return (
+            DecodeResult::Invalid(vec![Diagnostic::error(
+                "input-boundary",
+                "E-LIMIT-INPUT-JSON-BYTES",
+                (0, 0),
+            )
+            .exp(profile.json_bytes.to_string())
+            .act(data.len().to_string())]),
+            Verified::default(),
+        );
     }
     let Ok(text) = std::str::from_utf8(data) else {
-        return DecodeResult::InputBoundaryFailure;
+        return (DecodeResult::InputBoundaryFailure, Verified::default());
     };
     let decoded = decode_diagnosed(t_in, data, profile);
-    cross_check(t_in, text, decoded, profile)
+    cross_check(t_in, text, decoded, profile, keep)
 }
 
 /// 診断を出す復号器の判定を、検証済みの strict JSON parser と値の復号器（decode_input_e）で確かめる。
@@ -309,12 +342,14 @@ pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeRes
 /// - 受理したなら、検証済みの復号器も受理し、同じ値（正準 JSON が一致）を返すこと。
 /// - 資源上限以外の理由で拒否したなら、検証済みの復号器も拒否すること。
 /// 食い違えば E-INTERNAL-VERIFIED-MISMATCH で拒否する。実行時に評価器へ渡すのは検証済みの復号器の値である。
+/// `keep` のとき、受理した値の検証済みの復号器の値を一緒に返す（取り出しは `Verified::take`）。
 fn cross_check(
     t_in: &Ty,
     text: &str,
     decoded: Result<V, Diagnostic>,
     profile: &InputProfile,
-) -> DecodeResult {
+    keep: bool,
+) -> (DecodeResult, Verified) {
     let chars: Vec<char> = text.chars().collect();
     let vt = verified_ty(t_in);
     let verified = match &vt {
@@ -358,10 +393,16 @@ fn cross_check(
         }
         (Err(d), _) => DecodeResult::Invalid(vec![d]),
     };
-    if let Some(Some(w)) = verified {
-        release(w);
+    match (r, verified) {
+        (DecodeResult::Decoded(tv), Some(Some(w))) if keep => {
+            (DecodeResult::Decoded(tv), Verified(Some(w)))
+        }
+        (r, Some(Some(w))) => {
+            release(w);
+            (r, Verified::default())
+        }
+        (r, _) => (r, Verified::default()),
     }
-    r
 }
 
 /// 深い cons 列の解放で再帰しないよう、所有している尾を順に外して解放する。

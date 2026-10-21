@@ -426,7 +426,7 @@
       "message_template": "入力の文字が Unicode scalar value ではありません",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/values.rs:521"
+        "crates/tlvm/src/values.rs:562"
       ]
     },
     {
@@ -437,9 +437,9 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:462",
-        "crates/tlvm/src/values.rs:557"
+        "crates/tlvm/src/values.rs:598"
       ],
-      "note": "発生箇所は const DICT_DUPLICATE_KEY（values.rs:236）を使う行（crates/tlvm/src/plain.rs:462, crates/tlvm/src/values.rs:557）"
+      "note": "発生箇所は const DICT_DUPLICATE_KEY（values.rs:256）を使う行（crates/tlvm/src/plain.rs:462, crates/tlvm/src/values.rs:598）"
     },
     {
       "code": "E-INPUT-DUPLICATE-KEY",
@@ -449,9 +449,9 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:128",
-        "crates/tlvm/src/values.rs:393"
+        "crates/tlvm/src/values.rs:434"
       ],
-      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:128, crates/tlvm/src/values.rs:393）"
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:128, crates/tlvm/src/values.rs:434）"
     },
     {
       "code": "E-INPUT-FIELD-TYPE",
@@ -466,8 +466,8 @@
         "crates/tlvm/src/plain.rs:389",
         "crates/tlvm/src/plain.rs:448",
         "crates/tlvm/src/plain.rs:483",
-        "crates/tlvm/src/values.rs:419",
-        "crates/tlvm/src/values.rs:473"
+        "crates/tlvm/src/values.rs:460",
+        "crates/tlvm/src/values.rs:514"
       ]
     },
     {
@@ -478,8 +478,8 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:343",
-        "crates/tlvm/src/values.rs:500",
-        "crates/tlvm/src/values.rs:517"
+        "crates/tlvm/src/values.rs:541",
+        "crates/tlvm/src/values.rs:558"
       ]
     },
     {
@@ -490,9 +490,9 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:125",
-        "crates/tlvm/src/values.rs:390"
+        "crates/tlvm/src/values.rs:431"
       ],
-      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:125, crates/tlvm/src/values.rs:390）"
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:125, crates/tlvm/src/values.rs:431）"
     },
     {
       "code": "E-INPUT-MISSING-FIELD",
@@ -504,8 +504,8 @@
         "crates/tlvm/src/plain.rs:219",
         "crates/tlvm/src/plain.rs:509",
         "crates/tlvm/src/plain.rs:547",
-        "crates/tlvm/src/values.rs:430",
-        "crates/tlvm/src/values.rs:451"
+        "crates/tlvm/src/values.rs:471",
+        "crates/tlvm/src/values.rs:492"
       ]
     },
     {
@@ -516,9 +516,9 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:127",
-        "crates/tlvm/src/values.rs:392"
+        "crates/tlvm/src/values.rs:433"
       ],
-      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:127, crates/tlvm/src/values.rs:392）"
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:127, crates/tlvm/src/values.rs:433）"
     },
     {
       "code": "E-INPUT-TAG",
@@ -528,7 +528,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:266",
-        "crates/tlvm/src/values.rs:439"
+        "crates/tlvm/src/values.rs:480"
       ]
     },
     {
@@ -541,7 +541,7 @@
         "crates/tlvm/src/plain.rs:214",
         "crates/tlvm/src/plain.rs:522",
         "crates/tlvm/src/plain.rs:560",
-        "crates/tlvm/src/values.rs:465"
+        "crates/tlvm/src/values.rs:506"
       ]
     },
     {
@@ -565,10 +565,10 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/api.rs:385",
-        "crates/tlvm/src/values.rs:253"
+        "crates/tlvm/src/values.rs:273"
       ],
-      "note": "検証済み部品の判定の食い違いを報告する関数（api.rs:385、values.rs:253）で作る",
-      "unreached": "fixture なし：検証済み部品と診断用の検査器の判定が食い違うのは処理系の不具合のときだけ（api.rs:385、values.rs:253）"
+      "note": "検証済み部品の判定の食い違いを報告する関数（api.rs:385、values.rs:273）で作る",
+      "unreached": "fixture なし：検証済み部品と診断用の検査器の判定が食い違うのは処理系の不具合のときだけ（api.rs:385、values.rs:273）"
     },
     {
       "code": "E-LEX-CONTROL-CHAR-IN-LITERAL",
@@ -697,7 +697,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:351",
-        "crates/tlvm/src/values.rs:506"
+        "crates/tlvm/src/values.rs:547"
       ]
     },
     {
@@ -708,7 +708,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:112",
-        "crates/tlvm/src/values.rs:294"
+        "crates/tlvm/src/values.rs:325"
       ]
     },
     {
@@ -719,9 +719,9 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:126",
-        "crates/tlvm/src/values.rs:391"
+        "crates/tlvm/src/values.rs:432"
       ],
-      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:126, crates/tlvm/src/values.rs:391）"
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:126, crates/tlvm/src/values.rs:432）"
     },
     {
       "code": "E-LIMIT-INPUT-VALUE-DEPTH",
@@ -731,7 +731,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:180",
-        "crates/tlvm/src/values.rs:482"
+        "crates/tlvm/src/values.rs:523"
       ]
     },
     {
@@ -742,7 +742,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/plain.rs:187",
-        "crates/tlvm/src/values.rs:489"
+        "crates/tlvm/src/values.rs:530"
       ]
     },
     {

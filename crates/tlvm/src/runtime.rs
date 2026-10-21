@@ -13,8 +13,8 @@
 //! v1.4：出力が `Result<String, String>` なら、`ok(s)` は s をそのまま標準出力に（終了コード 0）、
 //! `err(s)` は s をそのまま標準エラーに書く（終了コード 1）。
 //! テキストと値の変換（`tlvm_verified::io`）と実行（`pipeline::run_checked`）は検証済み部品が行う。
-//! v1.13 の辞書は、行から作った普通の JSON を `run --plain` と同じ `api::decode_plain_input` で読み、
-//! 検証済みの復号器（`decode_input_e`。`run_input_json` と同じ）で値にする。
+//! v1.13 の辞書は、行から作った普通の JSON を `run --plain` と同じ経路で読み、その検査で検証済みの復号器が
+//! 作った値を使う（二回目の復号はしない。`api::decode_plain_keeping` と `values::cross_check`）。
 //! ここにあるのは入力の形の選択と、結果を `ExecResult` に写す接着部分だけである（`trust-boundary.toml`）。
 
 use crate::checker::TypedProgram;
@@ -24,10 +24,9 @@ use crate::lines::{self, LinesResult};
 use crate::plain::encode_plain;
 use crate::profiles::{ExecutionProfile, HostPolicy};
 use crate::syntax::Ty;
-use crate::values::{release, verified_ty};
+use crate::values::release;
 use std::rc::Rc;
 use tlvm_verified::eval::{Limits, Resource, Stop};
-use tlvm_verified::input_exec::decode_input_e;
 use tlvm_verified::io::{args_value, text_codes, text_value};
 use tlvm_verified::json::encode;
 use tlvm_verified::pipeline::{run_checked, Checked};
@@ -221,16 +220,16 @@ fn exec_here(
     }
 }
 
-/// v1.13：標準入力の行から辞書の入力を作り、検証済みの復号器で値にする。`run --plain` と同じ経路を通る
-/// （`lines::dict_from_lines` が普通の JSON にして `api::decode_plain_input` で読み、`run_input_json` と同じく
-/// `decode_input_e` で値にする）。行の形の誤りと復号の拒否は、そのまま `ExecResult` で返す。
+/// v1.13：標準入力の行から辞書の入力を作る。`run --plain` と同じ経路を通る（`lines::dict_from_lines` が普通の JSON
+/// にして `api::decode_plain_keeping` で読む）。その検査で検証済みの復号器が一度だけ走り、受理した値をここで取り出す。
+/// 行の形の誤りと復号の拒否は、そのまま `ExecResult` で返す。
 fn lines_input(
     p: &TypedProgram,
     stdin: &str,
     prof: &ExecutionProfile,
 ) -> Result<Rc<EV>, ExecResult> {
-    let tv = match lines::dict_from_lines(&p.input_type, stdin) {
-        LinesResult::Decoded(tv) => tv,
+    let (tv, mut verified) = match lines::dict_from_lines(&p.input_type, stdin) {
+        LinesResult::Decoded(tv, verified) => (tv, verified),
         LinesResult::BoundaryFailure(reason) => {
             return Err(ExecResult::InputBoundaryFailure(reason))
         }
@@ -244,19 +243,8 @@ fn lines_input(
             limit: prof.integer_bits,
         }));
     }
-    if tv.text.len() >= 0x1000_0000 {
-        return Err(ExecResult::Stopped(RunResult::InternalFault(
-            "input-too-long-for-verified-decoder".into(),
-        )));
-    }
-    let Some(vt) = verified_ty(&tv.ty) else {
-        return Err(ExecResult::Stopped(RunResult::InternalFault(
-            "no-verified-type".into(),
-        )));
-    };
-    decode_input_e(&tv.text, tv.json_depth, &vt).ok_or_else(|| {
-        ExecResult::Stopped(RunResult::InternalFault(
-            "verified-decoder-rejected-input".into(),
-        ))
+    // cross_check が同じ文字列・同じ型・同じ深さで検証済みの復号器に通し、信頼側の値と一致を確かめた値そのもの
+    verified.take().ok_or_else(|| {
+        ExecResult::Stopped(RunResult::InternalFault("verified-value-missing".into()))
     })
 }

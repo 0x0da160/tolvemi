@@ -13,16 +13,16 @@
 //! bytes 上の位置なので、もとの行の範囲（標準入力の bytes 上）に直す。
 //! 標準入力の UTF-8 の検査は呼び出し側（main.rs）が済ませている。
 
-use crate::api::decode_plain_input;
+use crate::api::decode_plain_keeping;
 use crate::diagnostics::{json_string, Diagnostic};
 use crate::profiles::InputProfile;
 use crate::syntax::{Ty, TyTag};
-use crate::values::{is_canonical_int, DecodeResult, TypedValue};
+use crate::values::{is_canonical_int, DecodeResult, TypedValue, Verified};
 
 /// 標準入力の行から作った辞書の入力の結果。
 pub enum LinesResult {
-    /// 復号できた（`run --plain` で同じ辞書を読んだときと同じ TypedValue）
-    Decoded(TypedValue),
+    /// 復号できた（`run --plain` で同じ辞書を読んだときと同じ TypedValue と、検証済みの復号器の値）
+    Decoded(TypedValue, Verified),
     /// 行の形が合わない（InputBoundaryFailure。理由に行番号を含む）
     BoundaryFailure(String),
     /// 辞書の復号が拒否した（鍵の重複、資源上限など）。span は標準入力の上のもとの行の範囲
@@ -86,13 +86,15 @@ pub fn dict_from_lines(t: &Ty, stdin: &str) -> LinesResult {
         json.push(']');
     }
     json.push(']');
-    match decode_plain_input(t, json.as_bytes(), &InputProfile::default()) {
-        DecodeResult::Decoded(tv) => LinesResult::Decoded(tv),
-        DecodeResult::Invalid(ds) => {
+    match decode_plain_keeping(t, json.as_bytes(), &InputProfile::default(), true) {
+        (DecodeResult::Decoded(tv), verified) => LinesResult::Decoded(tv, verified),
+        (DecodeResult::Invalid(ds), _) => {
             LinesResult::Invalid(ds.into_iter().map(|d| on_stdin(d, &items)).collect())
         }
         // 生成した JSON は構成上 UTF-8 なので届かない（届いても拒否する）
-        DecodeResult::InputBoundaryFailure => LinesResult::BoundaryFailure("InvalidUtf8".into()),
+        (DecodeResult::InputBoundaryFailure, _) => {
+            LinesResult::BoundaryFailure("InvalidUtf8".into())
+        }
     }
 }
 

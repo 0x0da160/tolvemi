@@ -670,12 +670,25 @@ pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeRes
 /// 普通の JSON（`plain` モジュールの対応表）で入力を読む。値 JSON へ変換してから `decode_input` と同じ
 /// 経路（診断付きの復号器と検証済みの復号器の突き合わせ）で復号する。診断の span は plain JSON の bytes 上。
 pub fn decode_plain_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
+    decode_plain_keeping(t_in, data, profile, false).0
+}
+
+/// `decode_plain_input` と同じ判定。`keep` のとき、受理した値の検証済みの復号器の値も一緒に返す（行の入力が使う）。
+pub(crate) fn decode_plain_keeping(
+    t_in: &Ty,
+    data: &[u8],
+    profile: &InputProfile,
+    keep: bool,
+) -> (DecodeResult, values::Verified) {
     match decode_plain(t_in, data, profile) {
         PlainDecode::Canonical(text) => {
-            values::decode_input(t_in, text.as_bytes(), &canonical_profile(profile))
+            values::decode_input_keeping(t_in, text.as_bytes(), &canonical_profile(profile), keep)
         }
-        PlainDecode::Invalid(d) => DecodeResult::Invalid(d),
-        PlainDecode::InputBoundaryFailure => DecodeResult::InputBoundaryFailure,
+        PlainDecode::Invalid(d) => (DecodeResult::Invalid(d), values::Verified::default()),
+        PlainDecode::InputBoundaryFailure => (
+            DecodeResult::InputBoundaryFailure,
+            values::Verified::default(),
+        ),
     }
 }
 
