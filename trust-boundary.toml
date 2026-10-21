@@ -73,7 +73,7 @@ trusted = [
 "8.refinement" = "eval::Machine::eval が値を返せば spec でも同じ値に評価される（evals_to）。Fault を返すのは spec が行き詰まる（bigstep::fails）ときだけで、run_checked は整形式で no_rec のプログラムと型の合う入力で Fault にならないことを保証する。exec 評価器の停止性も Verus が検査"
 "9.output" = "json::encode は spec の enc どおり。json::roundtrip で dec(enc(v)) == v、json::dec_typed で復号値は型を持つ"
 "9.input" = "input_proof::input_typed（復号した値は消去後の型 derase(t) を持つ。辞書は List<Pair<K, V>> として型を持つ）、input_nodup（受理した JSON に重複キーは無い）、input_roundtrip（型付き値の正準 JSON は受理されて元の値に戻る。辞書の型には及ばない）。input_exec::jparse_e、decode_input_e は spec と一致"
-"9.input-dict" = "input::jd の Dict 枝：辞書の項を対のリストとして読み、受理は鍵の正準 JSON（enc）が相異なるときだけ（(i)。spec の jd の Dict 枝の定義と、exec の jd_e の事後条件で示す）。input_proof::input_dupfirst_rejects：入力の最初の誤りが辞書の重複鍵（dupfirst）なら、検証済みの復号器は拒否する（(ii) の拒否の部分）。input_exec::decode_input_dupfirst_e は spec の input_dupfirst と一致（nodup_e、dupfirst_e、jparse_e も spec と一致）。受理した値は項の対のリストで、項の順に並ぶ（input_proof::dict_items_order、(iii)）。最初の誤りの順（形の検査、対の左右の順、項の順、鍵の検査の位置）は values.rs の値の DFS を写した dupfirst で、写しの一致は人手の照合と cross_check の実行時の突き合わせによる（機械証明ではない）。重複鍵の符号 E-INPUT-DICT-DUPLICATE-KEY の付与は values.rs（(ii) の符号の部分は突き合わせ）。診断の span と act は証明の外"
+"9.input-dict" = "input::jd の Dict 枝：辞書の項を対のリストとして読み、受理は鍵の正準 JSON（enc）が相異なるときだけ（(i)。spec の jd の Dict 枝の定義と、exec の jd_e の事後条件で示す）。鍵が相異なるかの検査（exec の distinct_e）は、鍵を辞書式順序に併合整列し（keysort::sort_keys_e）、隣り合う二つを比べる。整列した並べ替えでは、隣り合う二つが異なることと、どの二つも異なることが同じなので（keysort::sorted_perm_distinct）、distinct_e の事後条件 r == distinct(vks(ks@)) で示す。input_proof::input_dupfirst_rejects：入力の最初の誤りが辞書の重複鍵（dupfirst）なら、検証済みの復号器は拒否する（(ii) の拒否の部分）。input_exec::decode_input_dupfirst_e は spec の input_dupfirst と一致（nodup_e、dupfirst_e、jparse_e も spec と一致）。受理した値は項の対のリストで、項の順に並ぶ（input_proof::dict_items_order、(iii)）。最初の誤りの順（形の検査、対の左右の順、項の順、鍵の検査の位置）は values.rs の値の DFS を写した dupfirst で、写しの一致は人手の照合と cross_check の実行時の突き合わせによる（機械証明ではない）。重複鍵の符号 E-INPUT-DICT-DUPLICATE-KEY の付与は values.rs（(ii) の符号の部分は突き合わせ）。診断の span と act は証明の外"
 "10.failure-separation" = "pipeline::compile_source は構文・名前・型の拒否を分け、構文で拒否するのは spec の parse が None のときだけ。pipeline::run_input_json は復号の拒否（spec の input_val が None のときだけ）と実行を分け、no_rec なら実行は Fault で終わらない"
 "mod" = "proof::mod_bounds（正の除数で 0 <= x mod y < y）"
 "non-vacuity" = "proof::example_wf（wf が充足可能な具体例）"
@@ -100,6 +100,7 @@ verified = [
   "verus/src/check.rs",
   "verus/src/eval.rs",
   "verus/src/input_exec.rs",
+  "verus/src/keysort.rs",
   "verus/src/json.rs",
   "verus/src/pipeline.rs",
   "verus/src/io.rs",
