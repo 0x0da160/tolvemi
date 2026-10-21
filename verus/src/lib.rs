@@ -43,3 +43,8 @@ pub mod records_commute;
 pub mod guards;
 pub mod simulation;
 pub mod keysort;
+pub mod hof_types;
+pub mod hof_agree;
+pub mod loop_types;
+pub mod dict_types;
+pub mod hof_total;
