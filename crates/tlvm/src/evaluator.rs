@@ -11,10 +11,10 @@
 
 use crate::checker::TypedProgram;
 use crate::profiles::{ExecutionProfile, HostPolicy};
-use crate::values::{TypedValue, Value, V};
+use crate::values::{release, TypedValue, Value, Verified, V};
 use num_bigint::BigInt;
 use tlvm_verified::eval::{Limits, Resource, Stop};
-use tlvm_verified::pipeline::{run_input_json, InputRun};
+use tlvm_verified::pipeline::{run_checked_json, run_input_json, InputRun, Output};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunResult {
@@ -134,4 +134,76 @@ pub fn run(
         }
     };
     Ok(r)
+}
+
+/// `api::run_plain_input` の評価。検査（`api::decode_plain_keeping`）で検証済みの復号器が受理した値 `verified` を、
+/// 二回目の復号なしに検証済みの評価器へ渡す（辞書の入力と同じ経路）。判定の順序と envelope は `run` と同じ。
+/// 入力の文字数の上限（検証済みの復号器の前提）は、検査の `cross_check` が確かめている。
+pub(crate) fn run_verified(
+    prog: &TypedProgram,
+    input: &TypedValue,
+    mut verified: Verified,
+    p: &ExecutionProfile,
+    host: &HostPolicy,
+) -> RunResult {
+    // run と同じ：入力の整数の bit 長が上限を超えるなら、実行せずに打ち切る
+    if let Some(observed) = input_bits_over(&input.value, p.integer_bits) {
+        return RunResult::ResourceExhausted {
+            kind: "IntegerBits",
+            observed,
+            limit: p.integer_bits,
+        };
+    }
+    let Some(vp) = prog.verified.as_ref() else {
+        return RunResult::InternalFault("no-verified-program".into());
+    };
+    let Some(w) = verified.take() else {
+        return RunResult::InternalFault("verified-value-missing".into());
+    };
+    let lim = Limits {
+        steps: p.steps.min(u64::MAX - 1),
+        integer_bits: p.integer_bits,
+        allocated_nodes: p.allocated_nodes.min(u64::MAX - 1),
+        max_depth: (host.max_eval_depth as u64).min(u64::MAX - 1),
+        max_slots: (host.max_ref_slots as u64).min(u64::MAX - 1),
+    };
+    let r = run_checked_json(&vp.0, w.clone(), lim);
+    release(w);
+    match r {
+        // run と同じく、入力の検査の失敗は run_input_json の NotWellFormed（整形式の検査の不一致）に写す
+        Output::NotWellFormed | Output::InputTypeMismatch => {
+            RunResult::InternalFault("verified-check-rejected-program".into())
+        }
+        Output::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
+            let kind = match kind {
+                Resource::Steps => "Steps",
+                Resource::IntegerBits => "IntegerBits",
+                Resource::AllocatedNodes => "AllocatedNodes",
+            };
+            RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            }
+        }
+        Output::Ran(Err(Stop::HostDepth), _, _) => RunResult::HostAborted("eval-depth".into()),
+        Output::Ran(Err(Stop::HostSlots), _, _) => RunResult::HostAborted("ref-slots".into()),
+        // 型付きプログラムでは起きないことを証明済み（pipeline::run_input_json）
+        Output::Ran(Err(Stop::Fault), _, _) => RunResult::InternalFault("stuck".into()),
+        Output::Ran(Ok(out), steps, alloc) => {
+            if out.len() as u64 > p.output_bytes {
+                RunResult::ResourceExhausted {
+                    kind: "OutputBytes",
+                    observed: p.output_bytes + 1,
+                    limit: p.output_bytes,
+                }
+            } else {
+                RunResult::Completed {
+                    output: out,
+                    steps,
+                    allocated_nodes: alloc,
+                }
+            }
+        }
+    }
 }

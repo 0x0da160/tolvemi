@@ -858,3 +858,52 @@ fn reject_verified(
         work,
     }
 }
+
+/// 普通の JSON の入力を読んで実行した結果（`run_plain_input`）。
+#[derive(Debug)]
+pub enum InputOutcome {
+    /// 実行した（`run` と同じ結果）
+    Ran(RunResult),
+    /// 入力を入力型の値として読めなかった（診断の span は入力 JSON の bytes 上）
+    Invalid(Vec<Diagnostic>),
+    /// UTF-8 の境界の失敗（`&[u8]` の入力では起きない）
+    InputBoundaryFailure,
+}
+
+/// 普通の JSON の入力 `data` を読み、そのまま実行する（`run --plain` と埋め込み API の入力）。
+///
+/// 復号と評価は同じスレッド（`host.stack_bytes`）で行う。検証済みの値は `Rc` なので、別のスレッドへは渡せない。
+/// 検証済みの復号器は一度だけ走る：検査（`decode_plain_keeping`）が受理した値を残し、評価がそれを使う。
+pub fn run_plain_input(
+    program: &TypedProgram,
+    data: &[u8],
+    input: &InputProfile,
+    profile: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<InputOutcome, String> {
+    std::thread::scope(|s| {
+        let h = std::thread::Builder::new()
+            .stack_size(host.stack_bytes)
+            .spawn_scoped(s, || {
+                let (decoded, verified) =
+                    decode_plain_keeping(&program.input_type, data, input, true);
+                Ok(match decoded {
+                    DecodeResult::Decoded(tv) => {
+                        // 評価の panic は `run` と同じく InternalFault にする（復号の panic はそのまま伝える）
+                        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            evaluator::run_verified(program, &tv, verified, profile, host)
+                        }))
+                        .unwrap_or_else(|_| RunResult::InternalFault("evaluator-panic".into()));
+                        InputOutcome::Ran(r)
+                    }
+                    DecodeResult::Invalid(d) => InputOutcome::Invalid(d),
+                    DecodeResult::InputBoundaryFailure => InputOutcome::InputBoundaryFailure,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        match h.join() {
+            Ok(r) => r,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
+}

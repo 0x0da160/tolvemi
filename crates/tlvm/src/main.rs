@@ -302,23 +302,39 @@ fn run_cmd(
     } else {
         ("<input>".to_string(), input.as_bytes().to_vec())
     };
-    let tv = match decode(&p.input_type, &data, plain) {
-        DecodeResult::Decoded(tv) => tv,
-        DecodeResult::Invalid(d) => {
+    // 普通の JSON は復号と評価を `run_plain_input` が一つのスレッドで行う（検証済みの復号器は一度だけ走る）
+    let outcome = if plain {
+        run_plain_input(
+            &p,
+            &data,
+            &InputProfile::default(),
+            &ExecutionProfile::default(),
+            &HostPolicy::default(),
+        )?
+    } else {
+        match decode(&p.input_type, &data, false) {
+            DecodeResult::Decoded(tv) => InputOutcome::Ran(run(
+                &p,
+                &tv,
+                &ExecutionProfile::default(),
+                &HostPolicy::default(),
+            )?),
+            DecodeResult::Invalid(d) => InputOutcome::Invalid(d),
+            DecodeResult::InputBoundaryFailure => InputOutcome::InputBoundaryFailure,
+        }
+    };
+    let result = match outcome {
+        InputOutcome::Ran(r) => r,
+        InputOutcome::Invalid(d) => {
             emit_in(&d, &label, &data);
             return Ok(ExitCode::from(1));
         }
-        DecodeResult::InputBoundaryFailure => {
+        InputOutcome::InputBoundaryFailure => {
             envelope("InputBoundaryFailure", "InvalidUtf8");
             return Ok(ExitCode::from(1));
         }
     };
-    match run(
-        &p,
-        &tv,
-        &ExecutionProfile::default(),
-        &HostPolicy::default(),
-    )? {
+    match result {
         RunResult::Completed {
             output,
             steps,

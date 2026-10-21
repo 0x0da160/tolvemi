@@ -1,6 +1,6 @@
 //! ホストに組み込むための小さな API（設計書の外側の便宜）。
 //!
-//! `api` の compile → decode_plain_input → run → encode_plain を既定の資源プロファイルでつなぎ、
+//! `api` の compile → run_plain_input → encode_plain を既定の資源プロファイルでつなぎ、
 //! 入出力を普通の JSON（`plain` モジュールの対応表）の文字列で受け渡す。診断は CLI と同じ一行 JSON
 //! （[`Diagnostic::to_json`]）で取り出せる。
 //!
@@ -12,12 +12,12 @@
 //! assert_eq!(p.run_json("[1, 2, 3]").unwrap(), "6");
 //! ```
 
-use crate::api::{compile, compile_files, decode_plain_input, run, CompileResult, SourceCompile};
+use crate::api::InputOutcome;
+use crate::api::{compile, compile_files, run_plain_input, CompileResult, SourceCompile};
 use crate::checker::TypedProgram;
 use crate::evaluator::RunResult;
 use crate::plain::encode_plain_with;
 use crate::profiles::{ExecutionProfile, HostPolicy, InputProfile, StaticProfile};
-use crate::values::DecodeResult;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -189,16 +189,23 @@ impl Program {
         exact: bool,
     ) -> Result<String, RunError> {
         let p = &self.typed;
-        let tv = match decode_plain_input(&p.input_type, input_plain_json.as_bytes(), &limits.input)
+        let r = match run_plain_input(
+            p,
+            input_plain_json.as_bytes(),
+            &limits.input,
+            &limits.execution,
+            &limits.host,
+        )
+        .map_err(RunError::Internal)?
         {
-            DecodeResult::Decoded(tv) => tv,
-            DecodeResult::Invalid(d) => return Err(RunError::Input(d)),
+            InputOutcome::Ran(r) => r,
+            InputOutcome::Invalid(d) => return Err(RunError::Input(d)),
             // &str は常に UTF-8 なので起きない
-            DecodeResult::InputBoundaryFailure => {
+            InputOutcome::InputBoundaryFailure => {
                 return Err(RunError::Internal("input-boundary-failure".into()))
             }
         };
-        match run(p, &tv, &limits.execution, &limits.host).map_err(RunError::Internal)? {
+        match r {
             RunResult::Completed { output, .. } => {
                 encode_plain_with(&p.output_type, &output, exact).map_err(RunError::Internal)
             }
