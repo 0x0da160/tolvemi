@@ -11,8 +11,31 @@ use std::collections::{HashMap, HashSet};
 // ======================================================================= name
 
 const BUILTINS: [&str; 25] = [
-    "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons", "concat", "reverse", "length", "uncons",
-    "min", "max", "range", "contains", "sort", "code", "char", "to_string", "parse_int", "div",
+    "add",
+    "sub",
+    "mul",
+    "neg",
+    "lt",
+    "le",
+    "eq",
+    "mod",
+    "fst",
+    "snd",
+    "cons",
+    "concat",
+    "reverse",
+    "length",
+    "uncons",
+    "min",
+    "max",
+    "range",
+    "contains",
+    "sort",
+    "code",
+    "char",
+    "to_string",
+    "parse_int",
+    "div",
 ];
 
 pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
@@ -20,32 +43,64 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
     let mut known: HashSet<&str> = HashSet::new();
     for f in prog.functions() {
         if !known.insert(&f.name) {
-            diags.push(Diagnostic::error("name", "E-NAME-DUPLICATE-FUNCTION", f.name_span.t()).act(&f.name).at(f.meta.index));
+            diags.push(
+                Diagnostic::error("name", "E-NAME-DUPLICATE-FUNCTION", f.name_span.t())
+                    .act(&f.name)
+                    .at(f.meta.index),
+            );
         }
     }
 
-    fn walk<'a>(e: &'a Expr, env: &mut Vec<&'a str>, known: &HashSet<&str>, diags: &mut Vec<Diagnostic>) {
+    fn walk<'a>(
+        e: &'a Expr,
+        env: &mut Vec<&'a str>,
+        known: &HashSet<&str>,
+        diags: &mut Vec<Diagnostic>,
+    ) {
         let idx = e.meta.index;
         match &e.kind {
             ExprKind::Var(n) => {
                 if !env.contains(&n.as_str()) {
-                    let mut d = Diagnostic::error("name", "E-NAME-UNBOUND-VARIABLE", e.meta.span()).act(n).at(idx);
+                    let mut d = Diagnostic::error("name", "E-NAME-UNBOUND-VARIABLE", e.meta.span())
+                        .act(n)
+                        .at(idx);
                     if !env.is_empty() {
                         // scope 内の変数を、近い名前を先に、最大 8 件
                         let near = closest(n, env.iter().copied(), 8);
-                        let mut rest: Vec<&str> = env.iter().copied().filter(|v| !near.contains(v)).collect();
+                        let mut rest: Vec<&str> =
+                            env.iter().copied().filter(|v| !near.contains(v)).collect();
                         rest.sort();
                         rest.dedup();
                         let names: Vec<&str> = near.into_iter().chain(rest).take(8).collect();
-                        d = d.fix("replace_identifier", e.meta.span(), format!("variable in scope: {}", names.join(", ")));
+                        d = d.fix(
+                            "replace_identifier",
+                            e.meta.span(),
+                            format!("variable in scope: {}", names.join(", ")),
+                        );
                     }
                     diags.push(d);
                 }
             }
-            ExprKind::Call { callee, args, builtin, callee_span, .. } => {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin,
+                callee_span,
+                ..
+            } => {
                 if !builtin && !known.contains(callee.as_str()) {
                     let hof = HofOp::ALL.map(HofOp::name);
-                    let near = closest(callee, known.iter().copied().chain(BUILTINS).chain(hof).chain([LOOP]).chain(DICT_OPS), 3);
+                    let near = closest(
+                        callee,
+                        known
+                            .iter()
+                            .copied()
+                            .chain(BUILTINS)
+                            .chain(hof)
+                            .chain([LOOP])
+                            .chain(DICT_OPS),
+                        3,
+                    );
                     let constraint = if near.is_empty() {
                         "name of a defined function or builtin".to_string()
                     } else {
@@ -62,25 +117,54 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                     walk(a, env, known, diags);
                 }
             }
-            ExprKind::Let { name, name_span, value, body } => {
+            ExprKind::Let {
+                name,
+                name_span,
+                value,
+                body,
+            } => {
                 walk(value, env, known, diags);
                 if env.contains(&name.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", name_span.t()).act(name).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", name_span.t())
+                            .act(name)
+                            .at(idx),
+                    );
                 }
                 env.push(name);
                 walk(body, env, known, diags);
                 env.pop();
             }
-            ExprKind::Fold { list, init, acc, acc_span, item, item_span, body } => {
+            ExprKind::Fold {
+                list,
+                init,
+                acc,
+                acc_span,
+                item,
+                item_span,
+                body,
+            } => {
                 walk(list, env, known, diags);
                 walk(init, env, known, diags);
                 if env.contains(&acc.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", acc_span.t()).act(acc).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", acc_span.t())
+                            .act(acc)
+                            .at(idx),
+                    );
                 }
                 if item == acc {
-                    diags.push(Diagnostic::error("name", "E-NAME-DUPLICATE-BINDER", item_span.t()).act(item).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-DUPLICATE-BINDER", item_span.t())
+                            .act(item)
+                            .at(idx),
+                    );
                 } else if env.contains(&item.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", item_span.t()).act(item).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", item_span.t())
+                            .act(item)
+                            .at(idx),
+                    );
                 }
                 env.push(acc);
                 env.push(item);
@@ -89,42 +173,84 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 env.pop();
             }
             // v1.5：map などの binder は本体の中でだけ見える（match_option の binder と同じ規則）
-            ExprKind::Hof { list, binder, binder_span, body, .. } => {
+            ExprKind::Hof {
+                list,
+                binder,
+                binder_span,
+                body,
+                ..
+            } => {
                 walk(list, env, known, diags);
                 if env.contains(&binder.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t())
+                            .act(binder)
+                            .at(idx),
+                    );
                 }
                 env.push(binder);
                 walk(body, env, known, diags);
                 env.pop();
             }
             // v1.6：loop の binder も本体の中でだけ見える
-            ExprKind::Loop { init, max, binder, binder_span, body } => {
+            ExprKind::Loop {
+                init,
+                max,
+                binder,
+                binder_span,
+                body,
+            } => {
                 walk(init, env, known, diags);
                 walk(max, env, known, diags);
                 if env.contains(&binder.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t())
+                            .act(binder)
+                            .at(idx),
+                    );
                 }
                 env.push(binder);
                 walk(body, env, known, diags);
                 env.pop();
             }
-            ExprKind::Match { scrutinee, on_none, binder, binder_span, on_some } => {
+            ExprKind::Match {
+                scrutinee,
+                on_none,
+                binder,
+                binder_span,
+                on_some,
+            } => {
                 walk(scrutinee, env, known, diags);
                 walk(on_none, env, known, diags);
                 if env.contains(&binder.as_str()) {
-                    diags.push(Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t()).act(binder).at(idx));
+                    diags.push(
+                        Diagnostic::error("name", "E-NAME-SHADOW", binder_span.t())
+                            .act(binder)
+                            .at(idx),
+                    );
                 }
                 env.push(binder);
                 walk(on_some, env, known, diags);
                 env.pop();
             }
             // v1.4：二つの binder はそれぞれの枝でだけ見える（同じ名前でもよい）
-            ExprKind::MatchResult { scrutinee, ok_binder, ok_span, on_ok, err_binder, err_span, on_err } => {
+            ExprKind::MatchResult {
+                scrutinee,
+                ok_binder,
+                ok_span,
+                on_ok,
+                err_binder,
+                err_span,
+                on_err,
+            } => {
                 walk(scrutinee, env, known, diags);
                 for (b, sp, body) in [(ok_binder, ok_span, on_ok), (err_binder, err_span, on_err)] {
                     if env.contains(&b.as_str()) {
-                        diags.push(Diagnostic::error("name", "E-NAME-SHADOW", sp.t()).act(b).at(idx));
+                        diags.push(
+                            Diagnostic::error("name", "E-NAME-SHADOW", sp.t())
+                                .act(b)
+                                .at(idx),
+                        );
                     }
                     env.push(b);
                     walk(body, env, known, diags);
@@ -132,7 +258,9 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 }
             }
             // v1.4：`match` の枝の束縛（`_` は束縛しない）。一つの枝の中では相異なる名前
-            ExprKind::SumMatch { scrutinee, arms, .. } => {
+            ExprKind::SumMatch {
+                scrutinee, arms, ..
+            } => {
                 walk(scrutinee, env, known, diags);
                 for a in arms {
                     let n = env.len();
@@ -141,9 +269,17 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                             continue;
                         }
                         if env[n..].contains(&b.as_str()) {
-                            diags.push(Diagnostic::error("name", "E-NAME-DUPLICATE-BINDER", sp.t()).act(b).at(idx));
+                            diags.push(
+                                Diagnostic::error("name", "E-NAME-DUPLICATE-BINDER", sp.t())
+                                    .act(b)
+                                    .at(idx),
+                            );
                         } else if env.contains(&b.as_str()) {
-                            diags.push(Diagnostic::error("name", "E-NAME-SHADOW", sp.t()).act(b).at(idx));
+                            diags.push(
+                                Diagnostic::error("name", "E-NAME-SHADOW", sp.t())
+                                    .act(b)
+                                    .at(idx),
+                            );
                         }
                         env.push(b);
                     }
@@ -165,7 +301,11 @@ pub fn check_names(prog: &Program) -> Vec<Diagnostic> {
                 let mut env: Vec<&str> = vec![];
                 for p in &f.params {
                     if env.contains(&p.name.as_str()) {
-                        diags.push(Diagnostic::error("name", "E-NAME-DUPLICATE-PARAM", p.name_span.t()).act(&p.name).at(p.meta.index));
+                        diags.push(
+                            Diagnostic::error("name", "E-NAME-DUPLICATE-PARAM", p.name_span.t())
+                                .act(&p.name)
+                                .at(p.meta.index),
+                        );
                     } else {
                         env.push(&p.name);
                     }
@@ -207,8 +347,18 @@ pub fn user_calls(e: &Expr) -> Vec<CallSite<'_>> {
     let mut out = vec![];
     let mut stack = vec![e];
     while let Some(x) = stack.pop() {
-        if let ExprKind::Call { callee, builtin: false, callee_span, .. } = &x.kind {
-            out.push(CallSite { callee, span: callee_span.t(), index: x.meta.index });
+        if let ExprKind::Call {
+            callee,
+            builtin: false,
+            callee_span,
+            ..
+        } = &x.kind
+        {
+            out.push(CallSite {
+                callee,
+                span: callee_span.t(),
+                index: x.meta.index,
+            });
         }
         let ch = x.children();
         stack.extend(ch.into_iter().rev());
@@ -226,10 +376,24 @@ pub struct CallGraph<'a> {
 /// ランクは印のない呼出し先について rank[callee] < rank[caller] を満たす（印のある呼出し先は免除。
 /// 検証済みの型付け条件「rank[g] < r または rec[g]」に合わせる）。`edges` は除く前の全ての辺（未使用の警告用）。
 pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
-    let edges: HashMap<&str, Vec<CallSite>> = fns.iter().map(|f| (f.name.as_str(), user_calls(&f.body))).collect();
-    let marked: HashSet<&str> = fns.iter().filter(|f| f.rec).map(|f| f.name.as_str()).collect();
-    let dag: HashMap<&str, Vec<&CallSite>> =
-        edges.iter().map(|(f, cs)| (*f, cs.iter().filter(|c| !marked.contains(c.callee)).collect())).collect();
+    let edges: HashMap<&str, Vec<CallSite>> = fns
+        .iter()
+        .map(|f| (f.name.as_str(), user_calls(&f.body)))
+        .collect();
+    let marked: HashSet<&str> = fns
+        .iter()
+        .filter(|f| f.rec)
+        .map(|f| f.name.as_str())
+        .collect();
+    let dag: HashMap<&str, Vec<&CallSite>> = edges
+        .iter()
+        .map(|(f, cs)| {
+            (
+                *f,
+                cs.iter().filter(|c| !marked.contains(c.callee)).collect(),
+            )
+        })
+        .collect();
     // Tarjan の強連結成分分解（反復版）。成分は逆トポロジカル順に得られる。
     let mut index: HashMap<&str, usize> = HashMap::new();
     let mut low: HashMap<&str, usize> = HashMap::new();
@@ -284,15 +448,25 @@ pub fn check_call_graph<'a>(fns: &[&'a FnDecl]) -> CallGraph<'a> {
     let mut diags = vec![];
     for comp in &sccs {
         let members: HashSet<&str> = comp.iter().copied().collect();
-        let inner: Vec<&CallSite> = comp.iter().flat_map(|f| dag[f].iter().copied()).filter(|c| members.contains(c.callee)).collect();
+        let inner: Vec<&CallSite> = comp
+            .iter()
+            .flat_map(|f| dag[f].iter().copied())
+            .filter(|c| members.contains(c.callee))
+            .collect();
         if let Some(primary) = inner.iter().min_by_key(|c| c.span) {
             let mut names: Vec<&str> = members.iter().copied().collect();
             names.sort();
             let list = names.join(", ");
-            let mut d = Diagnostic::error("call-graph", "E-CYCLE-CALL", primary.span).act(list.clone()).at(primary.index);
+            let mut d = Diagnostic::error("call-graph", "E-CYCLE-CALL", primary.span)
+                .act(list.clone())
+                .at(primary.index);
             d.message = format!("関数呼出しが循環しています: {list}");
             // v1.7：循環にある関数（の先頭）に `rec` を付ける修復ヒント
-            if let Some(first) = fns.iter().filter(|f| members.contains(f.name.as_str())).min_by_key(|f| f.meta.span().0) {
+            if let Some(first) = fns
+                .iter()
+                .filter(|f| members.contains(f.name.as_str()))
+                .min_by_key(|f| f.meta.span().0)
+            {
                 let at = first.meta.span().0;
                 d = d.fix(
                     "insert_text",
@@ -341,6 +515,44 @@ enum Ev {
     Compare,
 }
 
+impl Ev {
+    fn name(self) -> &'static str {
+        match self {
+            Ev::Visit => "visit",
+            Ev::Build => "build",
+            Ev::Compare => "compare",
+        }
+    }
+}
+
+/// v1.12：型比較の共有（比較 cache）の切替。On は比較の結果と CompareType の数を覚え、同じ対の再照合では同じ数を計数する
+/// （trace を取るときは一つずつ記録する）。論理 trace・仕事量・cutoff は Off と同じになる（§18.1a）。
+/// Interned は On に加えて型を正準化する（`intern`）。同じ構造の型は一つの node になり、比較 cache が当たる組が増える。
+/// 論理 trace・仕事量・cutoff は Off と同じになる。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TypeSharing {
+    #[default]
+    Off,
+    On,
+    Interned,
+}
+
+/// v1.12：`check_program_with` の選択。trace は試験用の論理 trace（イベント名と論理 node index）を取る。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CheckOptions {
+    pub sharing: TypeSharing,
+    pub trace: bool,
+}
+
+/// `equal` の一回分の結果。鍵の型は保持し、Arc の address が再利用されないようにする。`compares` は走査が出した
+/// CompareType の数（`equal_plain` は CompareType しか出さないので、論理イベント列はこの数で決まる）。
+struct CachedEq {
+    _a: Ty,
+    _b: Ty,
+    result: Option<bool>,
+    compares: u64,
+}
+
 type TcR<T> = Result<T, Diagnostic>;
 
 /// v1.5：`map` などの node（論理 node index）ごとの（要素の型 A、本体の型）。`hof::lower` が使う。
@@ -369,6 +581,15 @@ pub struct TypeChecker<'a> {
     pub hof: HofTypes,
     /// v1.10：総称の関数の呼び出しの型引数
     pub inst: Instances,
+    /// v1.12：比較 cache の切替（On と Interned のとき cache を使う）と、cache（鍵は両型の address）
+    sharing: TypeSharing,
+    cache: HashMap<(usize, usize), CachedEq, std::hash::BuildHasherDefault<crate::intern::Mix>>,
+    /// v1.12：cache から再生した回数（試験用。論理計数には入らない）
+    pub sharing_hits: u64,
+    /// v1.12：試験用の論理 trace（None なら記録しない）
+    pub trace: Option<Vec<(&'static str, usize)>>,
+    /// 規則 G（§18.1c）：いまの関数の論理イベントを数えるか。第二パスで複製でない関数は検査するが数えない。
+    counting: bool,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -381,16 +602,37 @@ impl<'a> TypeChecker<'a> {
             env: vec![],
             hof: HashMap::new(),
             inst: HashMap::new(),
+            sharing: TypeSharing::Off,
+            cache: HashMap::default(),
+            sharing_hits: 0,
+            trace: None,
+            counting: true,
         }
+    }
+
+    /// v1.12：比較 cache の切替と論理 trace の有無を決める（`new` の直後に一度だけ呼ぶ）。
+    pub fn configure(&mut self, o: CheckOptions) {
+        self.sharing = o.sharing;
+        self.trace = o.trace.then(Vec::new);
     }
 
     /// v1.10：`pat` の型引数（名前が `vars` にあるもの）を `t` の対応する部分に束縛する一方向の照合。
     /// `t` の型引数（呼び出し側の総称の関数の型引数）は定数として扱う。ErrorType を含む部分は照合しない。
-    fn bind(&mut self, pat: &Ty, t: &Ty, vars: &[String], sub: &mut [Option<Ty>], node: &Meta) -> TcR<Result<(), Bad>> {
+    fn bind(
+        &mut self,
+        pat: &Ty,
+        t: &Ty,
+        vars: &[String],
+        sub: &mut [Option<Ty>],
+        node: &Meta,
+    ) -> TcR<Result<(), Bad>> {
         if t.is_error() || pat.is_error() {
             return Ok(Ok(()));
         }
-        if let Some(i) = pat.param_name().and_then(|n| vars.iter().position(|v| v == n)) {
+        if let Some(i) = pat
+            .param_name()
+            .and_then(|n| vars.iter().position(|v| v == n))
+        {
             self.event(Ev::Compare, node)?;
             return Ok(match sub[i].clone() {
                 None => {
@@ -423,59 +665,131 @@ impl<'a> TypeChecker<'a> {
 
     /// v1.10：総称のレコード型・直和型の展開後の型 `want`（型引数を含む）と値の型 `t` を照合し、型引数の束縛を返す。
     fn bind_template(&mut self, want: &Ty, t: &Ty, node: &Meta) -> TcR<Option<Vec<(String, Ty)>>> {
-        let vars: Vec<String> = match want.record().map(|r| r.generic.clone()).or_else(|| want.sum().map(|s| s.generic.clone())) {
+        let vars: Vec<String> = match want
+            .record()
+            .map(|r| r.generic.clone())
+            .or_else(|| want.sum().map(|s| s.generic.clone()))
+        {
             Some(Some(g)) => g.params,
             _ => collect_params(want),
         };
         let mut sub = vec![None; vars.len()];
         Ok(match self.bind(want, t, &vars, &mut sub, node)? {
-            Ok(()) => Some(vars.into_iter().zip(sub).filter_map(|(v, s)| s.map(|s| (v, s))).collect()),
+            Ok(()) => Some(
+                vars.into_iter()
+                    .zip(sub)
+                    .filter_map(|(v, s)| s.map(|s| (v, s)))
+                    .collect(),
+            ),
             Err(_) => None,
         })
     }
 
     fn event(&mut self, ev: Ev, node: &Meta) -> TcR<()> {
+        if !self.counting {
+            // 規則 G：数えない関数の論理イベントは計数しない（上限にも入らない）
+            return Ok(());
+        }
         if self.work.total() + 1 > self.profile.semantic_work {
-            return Err(Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-SEMANTIC-WORK", node.span())
-                .exp(self.profile.semantic_work.to_string())
-                .act((self.work.total() + 1).to_string())
-                .at(node.index));
+            return Err(Diagnostic::error(
+                "semantic-limits",
+                "E-LIMIT-STATIC-SEMANTIC-WORK",
+                node.span(),
+            )
+            .exp(self.profile.semantic_work.to_string())
+            .act((self.work.total() + 1).to_string())
+            .at(node.index));
         }
         match ev {
             Ev::Visit => self.work.visit += 1,
             Ev::Build => self.work.build += 1,
             Ev::Compare => self.work.compare += 1,
         }
+        if let Some(t) = self.trace.as_mut() {
+            t.push((ev.name(), node.index));
+        }
         Ok(())
     }
 
     fn build(&mut self, ty: Ty, node: &Meta) -> TcR<Ty> {
         if ty.depth() > self.profile.semantic_type_depth {
-            return Err(Diagnostic::error("semantic-limits", "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH", node.span())
-                .exp(self.profile.semantic_type_depth.to_string())
-                .act(ty.depth().to_string())
-                .at(node.index));
+            return Err(Diagnostic::error(
+                "semantic-limits",
+                "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH",
+                node.span(),
+            )
+            .exp(self.profile.semantic_type_depth.to_string())
+            .act(ty.depth().to_string())
+            .at(node.index));
         }
         self.event(Ev::Build, node)?;
         Ok(ty)
     }
 
-    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。
+    /// Equal(A,B)。ErrorType を含むなら 0 イベントで None。On・Interned のときは、同じ対（node の address が同じもの。
+    /// Interned では同じ構造の型は同じ node）の既知の結果と CompareType の数を覚え、再照合では同じ数を計数する。
     fn equal(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<Option<bool>> {
         if a.is_error() || b.is_error() {
             return Ok(None);
         }
+        if self.sharing == TypeSharing::Off {
+            return Ok(self.equal_plain(a, b, node)?.0);
+        }
+        let key = (a.addr(), b.addr());
+        if let Some((res, n)) = self.cache.get(&key).map(|c| (c.result, c.compares)) {
+            self.sharing_hits += 1;
+            self.compares(n, node)?;
+            return Ok(res);
+        }
+        let (res, n) = self.equal_plain(a, b, node)?;
+        self.cache.insert(
+            key,
+            CachedEq {
+                _a: a.clone(),
+                _b: b.clone(),
+                result: res,
+                compares: n,
+            },
+        );
+        Ok(res)
+    }
+
+    /// `n` 回の CompareType を、一回ずつ `event` で計数するのと同じ結果にする。trace を取らず、上限に届かないときは
+    /// 一度に足す。上限に届くとき（超過するイベントの前で止まる）と trace を取るときは、一回ずつ `event` を呼ぶ。
+    fn compares(&mut self, n: u64, node: &Meta) -> TcR<()> {
+        if !self.counting {
+            return Ok(());
+        }
+        let fits = self
+            .work
+            .total()
+            .checked_add(n)
+            .is_some_and(|t| t <= self.profile.semantic_work);
+        if self.trace.is_none() && fits {
+            self.work.compare += n;
+            return Ok(());
+        }
+        for _ in 0..n {
+            self.event(Ev::Compare, node)?;
+        }
+        Ok(())
+    }
+
+    /// 構造の走査。CompareType を一歩に一つ出し、その数を返す（不一致で止まる一歩も数える）。
+    fn equal_plain(&mut self, a: &Ty, b: &Ty, node: &Meta) -> TcR<(Option<bool>, u64)> {
         let mut todo = vec![(a.clone(), b.clone())];
+        let mut n = 0;
         while let Some((x, y)) = todo.pop() {
             self.event(Ev::Compare, node)?;
+            n += 1;
             if x.tag() != y.tag() {
-                return Ok(Some(false));
+                return Ok((Some(false), n));
             }
             for (p, q) in x.args().iter().zip(y.args()).rev() {
                 todo.push((p.clone(), q.clone()));
             }
         }
-        Ok(Some(true))
+        Ok((Some(true), n))
     }
 
     fn head(&mut self, t: &Ty, tag: TyTag, node: &Meta) -> TcR<Option<bool>> {
@@ -486,12 +800,27 @@ impl<'a> TypeChecker<'a> {
         Ok(Some(t.tag() == tag))
     }
 
-    fn report(&mut self, code: &'static str, node: &Meta, expected: impl ToString, actual: impl ToString) {
-        self.diags.push(Diagnostic::error("typecheck", code, node.span()).exp(expected.to_string()).act(actual.to_string()).at(node.index));
+    fn report(
+        &mut self,
+        code: &'static str,
+        node: &Meta,
+        expected: impl ToString,
+        actual: impl ToString,
+    ) {
+        self.diags.push(
+            Diagnostic::error("typecheck", code, node.span())
+                .exp(expected.to_string())
+                .act(actual.to_string())
+                .at(node.index),
+        );
     }
 
     pub fn check_function(&mut self, f: &'a FnDecl) -> TcR<()> {
-        self.env = f.params.iter().map(|p| (p.name.as_str(), Ty::of(&p.ty))).collect();
+        self.env = f
+            .params
+            .iter()
+            .map(|p| (p.name.as_str(), Ty::of(&p.ty)))
+            .collect();
         let before = self.diags.len();
         let body_t = self.expr(&f.body)?;
         let ret = Ty::of(&f.return_type);
@@ -500,12 +829,21 @@ impl<'a> TypeChecker<'a> {
         }
         // v1.10：総称の関数の本体で、型引数の値に特定の型の操作（add など）を使った
         for d in &mut self.diags[before..] {
-            let Some(t) = f.type_params.iter().find(|p| d.actual.as_deref() == Some(p.name.as_str())) else { continue };
+            let Some(t) = f
+                .type_params
+                .iter()
+                .find(|p| d.actual.as_deref() == Some(p.name.as_str()))
+            else {
+                continue;
+            };
             if d.repair.is_some() || !d.code.starts_with("E-TYPE-") {
                 continue;
             }
             let (t, name) = (&t.name, f.ctor.as_deref().unwrap_or(&f.name));
-            let need = d.expected.clone().unwrap_or_else(|| "a concrete type".into());
+            let need = d
+                .expected
+                .clone()
+                .unwrap_or_else(|| "a concrete type".into());
             *d = d.clone().fix(
                 "replace_expression",
                 d.span,
@@ -518,7 +856,12 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn lookup(&self, name: &str) -> Ty {
-        self.env.iter().rev().find(|(n, _)| *n == name).map(|(_, t)| t.clone()).expect("name phase guarantees binding")
+        self.env
+            .iter()
+            .rev()
+            .find(|(n, _)| *n == name)
+            .map(|(_, t)| t.clone())
+            .expect("name phase guarantees binding")
     }
 
     fn expr(&mut self, e: &'a Expr) -> TcR<Ty> {
@@ -534,7 +877,10 @@ impl<'a> TypeChecker<'a> {
             ExprKind::Bool(_) => self.build(Ty::bool(), m),
             ExprKind::Unit => self.build(Ty::unit(), m),
             ExprKind::Var(n) => Ok(self.lookup(n)),
-            ExprKind::List { element_type, items } => {
+            ExprKind::List {
+                element_type,
+                items,
+            } => {
                 let elem = Ty::of(element_type);
                 let mut ts = vec![];
                 for i in items {
@@ -574,13 +920,19 @@ impl<'a> TypeChecker<'a> {
                     self.build(Ty::pair(ta, tb), m)
                 }
             }
-            ExprKind::Let { name, value, body, .. } => {
+            ExprKind::Let {
+                name, value, body, ..
+            } => {
                 let vt = self.expr(value)?;
                 self.env.push((name, vt.clone()));
                 let bt = self.expr(body);
                 self.env.pop();
                 let bt = bt?;
-                Ok(if vt.is_error() || bt.is_error() { Ty::error() } else { bt })
+                Ok(if vt.is_error() || bt.is_error() {
+                    Ty::error()
+                } else {
+                    bt
+                })
             }
             ExprKind::If(c, t, f) => {
                 let ct = self.expr(c)?;
@@ -597,7 +949,14 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { tt } else { Ty::error() })
             }
-            ExprKind::Fold { list, init, acc, item, body, .. } => {
+            ExprKind::Fold {
+                list,
+                init,
+                acc,
+                item,
+                body,
+                ..
+            } => {
                 let xt = self.expr(list)?;
                 let it = self.expr(init)?;
                 let mut ok = !(xt.is_error() || it.is_error());
@@ -623,14 +982,31 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { it } else { Ty::error() })
             }
-            ExprKind::Hof { op, list, binder, body, .. } => self.hof(e, *op, list, binder, body),
-            ExprKind::Loop { init, max, binder, body, .. } => self.loop_(e, init, max, binder, body),
-            ExprKind::Field { expr, target: Some((rt, i, n)), .. } => {
+            ExprKind::Hof {
+                op,
+                list,
+                binder,
+                body,
+                ..
+            } => self.hof(e, *op, list, binder, body),
+            ExprKind::Loop {
+                init,
+                max,
+                binder,
+                body,
+                ..
+            } => self.loop_(e, init, max, binder, body),
+            ExprKind::Field {
+                expr,
+                target: Some((rt, i, n)),
+                ..
+            } => {
                 // v1.1：e.f。e の型は field を持つレコード型（展開後の pair の入れ子）と等しい
                 let t = self.expr(expr)?;
                 let want = Ty::of(rt);
                 // 型注釈から来た型はレコード名を持つ。名前が違えば、形が同じでも別のレコードの field とみなす
-                let other = matches!((t.record(), want.record()), (Some(a), Some(b)) if a.name != b.name);
+                let other =
+                    matches!((t.record(), want.record()), (Some(a), Some(b)) if a.name != b.name);
                 // v1.10：総称のレコード型は型引数を照合で決める
                 let mut binds = vec![];
                 let same = if other {
@@ -649,7 +1025,11 @@ impl<'a> TypeChecker<'a> {
                 match same {
                     Some(true) => {
                         // v1.15：印つきの型（名義の型）は印の後ろの展開後の構造で field を数える
-                        let mut ft = if want.record().is_some_and(|r| r.tagged) { want.arg(1) } else { want.clone() };
+                        let mut ft = if want.record().is_some_and(|r| r.tagged) {
+                            want.arg(1)
+                        } else {
+                            want.clone()
+                        };
                         for _ in 0..*i {
                             ft = ft.arg(1);
                         }
@@ -657,7 +1037,9 @@ impl<'a> TypeChecker<'a> {
                             ft = ft.arg(0);
                         }
                         if !binds.is_empty() {
-                            ft = ft.subst(&|p| binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone()));
+                            ft = ft.subst(&|p| {
+                                binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone())
+                            });
                         }
                         Ok(ft)
                     }
@@ -670,7 +1052,13 @@ impl<'a> TypeChecker<'a> {
             }
             // records::expand の後には現れない
             ExprKind::Record { .. } | ExprKind::Field { .. } => Ok(Ty::error()),
-            ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
+            ExprKind::Match {
+                scrutinee,
+                on_none,
+                binder,
+                on_some,
+                ..
+            } => {
                 let st = self.expr(scrutinee)?;
                 let nt = self.expr(on_none)?;
                 let mut ok = !(st.is_error() || nt.is_error());
@@ -694,7 +1082,13 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { nt } else { Ty::error() })
             }
-            ExprKind::Call { callee, args, builtin, type_args, callee_span } => self.call(e, callee, args, *builtin, type_args, *callee_span),
+            ExprKind::Call {
+                callee,
+                args,
+                builtin,
+                type_args,
+                callee_span,
+            } => self.call(e, callee, args, *builtin, type_args, *callee_span),
             // v1.4：ok<T, E>(x) は x : T、err<T, E>(x) は x : E のとき Result<T, E>
             ExprKind::Inj { ok, ty, value } => {
                 let vt = self.expr(value)?;
@@ -709,7 +1103,14 @@ impl<'a> TypeChecker<'a> {
                     None => Ok(Ty::error()),
                 }
             }
-            ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => {
+            ExprKind::MatchResult {
+                scrutinee,
+                ok_binder,
+                on_ok,
+                err_binder,
+                on_err,
+                ..
+            } => {
                 let st = self.expr(scrutinee)?;
                 let mut ok = !st.is_error();
                 let (a, b) = match self.head(&st, TyTag::Result, &scrutinee.meta)? {
@@ -736,7 +1137,12 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(if ok { at } else { Ty::error() })
             }
-            ExprKind::SumMatch { scrutinee, arms, kind: Some(kind), .. } => self.sum_match(scrutinee, arms, kind),
+            ExprKind::SumMatch {
+                scrutinee,
+                arms,
+                kind: Some(kind),
+                ..
+            } => self.sum_match(scrutinee, arms, kind),
             // sums::expand の後には現れない
             ExprKind::SumMatch { .. } => Ok(Ty::error()),
         }
@@ -744,7 +1150,14 @@ impl<'a> TypeChecker<'a> {
 
     /// v1.5：`map(xs, |x| e)` など。xs : List<A>（String も）、x : A。filter・any・all・find の本体は Bool、
     /// sort_by の本体は Int。結果は map が List<B>、filter・sort_by が List<A>、any・all が Bool、find が Option<A>。
-    fn hof(&mut self, e: &'a Expr, op: HofOp, list: &'a Expr, binder: &'a str, body: &'a Expr) -> TcR<Ty> {
+    fn hof(
+        &mut self,
+        e: &'a Expr,
+        op: HofOp,
+        list: &'a Expr,
+        binder: &'a str,
+        body: &'a Expr,
+    ) -> TcR<Ty> {
         let m = &e.meta;
         let xt = self.expr(list)?;
         let mut ok = !xt.is_error();
@@ -786,7 +1199,15 @@ impl<'a> TypeChecker<'a> {
     }
 
     /// v1.6：`loop(init, max, |s| e)`。init : S、max : Int、s : S の下で e : Option<S>。結果は Option<S>。
-    fn loop_(&mut self, e: &'a Expr, init: &'a Expr, max: &'a Expr, binder: &'a str, body: &'a Expr) -> TcR<Ty> {
+    /// 規則 L（§18.1c）：結果型 Option<S> の BuildType は、init・max・e がすべて正常なときだけ、最後に一つ数える。
+    fn loop_(
+        &mut self,
+        e: &'a Expr,
+        init: &'a Expr,
+        max: &'a Expr,
+        binder: &'a str,
+        body: &'a Expr,
+    ) -> TcR<Ty> {
         let m = &e.meta;
         let st = self.expr(init)?;
         let mt = self.expr(max)?;
@@ -801,7 +1222,7 @@ impl<'a> TypeChecker<'a> {
         let bt = bt?;
         ok &= !bt.is_error();
         if !st.is_error() {
-            let want = self.build(Ty::option(st.clone()), m)?;
+            let want = Ty::option(st.clone());
             if self.equal(&bt, &want, &body.meta)? == Some(false) {
                 self.report("E-TYPE-LOOP-BODY", &body.meta, &want, &bt);
                 ok = false;
@@ -810,6 +1231,7 @@ impl<'a> TypeChecker<'a> {
         if !ok {
             return Ok(Ty::error());
         }
+        self.build(Ty::option(st.clone()), m)?;
         self.hof.insert(m.index, (st, bt.clone()));
         Ok(bt)
     }
@@ -837,11 +1259,24 @@ impl<'a> TypeChecker<'a> {
                     self.report("E-TYPE-MATCH-SCRUTINEE", sm, &want, &st);
                     ok = false;
                 }
-                let inst = |f: &TypeNode| Ty::of(f).subst(&|p| binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone()));
-                fields.iter().map(|fs| fs.iter().map(|f| if ok { inst(f) } else { Ty::error() }).collect()).collect()
+                let inst = |f: &TypeNode| {
+                    Ty::of(f).subst(&|p| binds.iter().find(|(q, _)| q == p).map(|(_, t)| t.clone()))
+                };
+                fields
+                    .iter()
+                    .map(|fs| {
+                        fs.iter()
+                            .map(|f| if ok { inst(f) } else { Ty::error() })
+                            .collect()
+                    })
+                    .collect()
             }
             MatchKind::Result | MatchKind::Option => {
-                let (tag, name) = if *kind == MatchKind::Result { (TyTag::Result, "Result") } else { (TyTag::Option, "Option") };
+                let (tag, name) = if *kind == MatchKind::Result {
+                    (TyTag::Result, "Result")
+                } else {
+                    (TyTag::Option, "Option")
+                };
                 match self.head(&st, tag, sm)? {
                     Some(true) if tag == TyTag::Result => vec![vec![st.arg(0)], vec![st.arg(1)]],
                     Some(true) => vec![vec![st.arg(0)], vec![]],
@@ -858,7 +1293,12 @@ impl<'a> TypeChecker<'a> {
                 if !st.is_error() {
                     self.event(Ev::Compare, sm)?;
                     if !(st.sum().is_some() || matches!(st.tag(), TyTag::Result | TyTag::Option)) {
-                        self.report("E-TYPE-MATCH-SCRUTINEE", sm, "sum type, Result or Option", &st);
+                        self.report(
+                            "E-TYPE-MATCH-SCRUTINEE",
+                            sm,
+                            "sum type, Result or Option",
+                            &st,
+                        );
                         ok = false;
                     }
                 }
@@ -871,7 +1311,11 @@ impl<'a> TypeChecker<'a> {
             if let Some(v) = a.variant {
                 for (i, (b, _)) in a.pat.binds.iter().enumerate() {
                     if b != "_" {
-                        let t = fields.get(v).and_then(|fs| fs.get(i)).cloned().unwrap_or_else(Ty::error);
+                        let t = fields
+                            .get(v)
+                            .and_then(|fs| fs.get(i))
+                            .cloned()
+                            .unwrap_or_else(Ty::error);
                         self.env.push((b, t));
                     }
                 }
@@ -902,7 +1346,14 @@ impl<'a> TypeChecker<'a> {
 
     /// v1.10：総称の関数の呼び出し（型引数を書いたものも）。型引数は明示したものを使い、なければ引数の型との照合で
     /// 推論する（一階の照合。戻り型だけに現れる型引数は推論できないので明示を求める）。
-    fn generic_call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], type_args: &'a [TypeNode], callee_span: Sp) -> TcR<Ty> {
+    fn generic_call(
+        &mut self,
+        e: &'a Expr,
+        name: &str,
+        args: &'a [Expr],
+        type_args: &'a [TypeNode],
+        callee_span: Sp,
+    ) -> TcR<Ty> {
         let m = &e.meta;
         let f = self.fns[name];
         let shown = f.ctor.as_deref().unwrap_or(name).to_string();
@@ -916,7 +1367,11 @@ impl<'a> TypeChecker<'a> {
             let fix = if vars.is_empty() {
                 format!("{shown}(...) without type arguments: {shown} is not generic")
             } else {
-                format!("{shown}<{}>(...) with {} type argument(s), one per type parameter", vars.join(", "), vars.len())
+                format!(
+                    "{shown}<{}>(...) with {} type argument(s), one per type parameter",
+                    vars.join(", "),
+                    vars.len()
+                )
             };
             self.diags.push(
                 Diagnostic::error("typecheck", "E-TYPE-GENERIC-ARITY", span)
@@ -929,7 +1384,12 @@ impl<'a> TypeChecker<'a> {
         }
         if args.len() != f.params.len() {
             let n = f.params.len();
-            self.report("E-ARITY-USER", m, format!("{n} arguments"), format!("{} arguments", args.len()));
+            self.report(
+                "E-ARITY-USER",
+                m,
+                format!("{n} arguments"),
+                format!("{} arguments", args.len()),
+            );
             return Ok(Ty::error());
         }
         let explicit = !type_args.is_empty();
@@ -958,7 +1418,11 @@ impl<'a> TypeChecker<'a> {
                     ok = false;
                 }
                 Err(_) => {
-                    let shown_t = pt.subst(&|n| vars.iter().position(|v| v == n).and_then(|i| sub[i].clone()));
+                    let shown_t = pt.subst(&|n| {
+                        vars.iter()
+                            .position(|v| v == n)
+                            .and_then(|i| sub[i].clone())
+                    });
                     self.report("E-TYPE-ARG", &a.meta, &shown_t, t);
                     ok = false;
                 }
@@ -968,8 +1432,17 @@ impl<'a> TypeChecker<'a> {
             return Ok(Ty::error());
         }
         if sub.iter().any(|s| s.is_none()) {
-            let missing: Vec<&str> = vars.iter().zip(&sub).filter(|(_, s)| s.is_none()).map(|(v, _)| v.as_str()).collect();
-            let shape: Vec<String> = vars.iter().zip(&sub).map(|(v, s)| s.as_ref().map_or(v.clone(), |t| t.to_string())).collect();
+            let missing: Vec<&str> = vars
+                .iter()
+                .zip(&sub)
+                .filter(|(_, s)| s.is_none())
+                .map(|(v, _)| v.as_str())
+                .collect();
+            let shape: Vec<String> = vars
+                .iter()
+                .zip(&sub)
+                .map(|(v, s)| s.as_ref().map_or(v.clone(), |t| t.to_string()))
+                .collect();
             let at = callee_span.1;
             let parens = if f.params.is_empty() { "()" } else { "(...)" };
             self.diags.push(
@@ -995,20 +1468,42 @@ impl<'a> TypeChecker<'a> {
         for t in &tys {
             self.build(t.clone(), m)?;
         }
-        let ret = Ty::of(&f.return_type).subst(&|n| vars.iter().position(|v| v == n).map(|i| tys[i].clone()));
+        let ret = Ty::of(&f.return_type)
+            .subst(&|n| vars.iter().position(|v| v == n).map(|i| tys[i].clone()));
         self.inst.insert(m.index, tys);
         self.build(ret, m)
     }
 
-    fn call(&mut self, e: &'a Expr, name: &str, args: &'a [Expr], builtin: bool, type_args: &'a [TypeNode], callee_span: Sp) -> TcR<Ty> {
+    fn call(
+        &mut self,
+        e: &'a Expr,
+        name: &str,
+        args: &'a [Expr],
+        builtin: bool,
+        type_args: &'a [TypeNode],
+        callee_span: Sp,
+    ) -> TcR<Ty> {
         let m = &e.meta;
         if !builtin && (!type_args.is_empty() || !self.fns[name].type_params.is_empty()) {
             return self.generic_call(e, name, args, type_args, callee_span);
         }
-        let arity = if builtin { builtin_arity(name).unwrap() } else { self.fns[name].params.len() };
+        let arity = if builtin {
+            builtin_arity(name).unwrap()
+        } else {
+            self.fns[name].params.len()
+        };
         if args.len() != arity {
-            let code = if builtin { "E-ARITY-BUILTIN" } else { "E-ARITY-USER" };
-            self.report(code, m, format!("{arity} arguments"), format!("{} arguments", args.len()));
+            let code = if builtin {
+                "E-ARITY-BUILTIN"
+            } else {
+                "E-ARITY-USER"
+            };
+            self.report(
+                code,
+                m,
+                format!("{arity} arguments"),
+                format!("{} arguments", args.len()),
+            );
             for a in args {
                 self.expr(a)?;
             }
@@ -1035,13 +1530,29 @@ impl<'a> TypeChecker<'a> {
                 let pt = Ty::of(&p.ty);
                 need!(self.equal(t, &pt, &a.meta)?, "E-TYPE-ARG", &a.meta, &pt, t);
             }
-            return Ok(if ok { Ty::of(&f.return_type) } else { Ty::error() });
+            return Ok(if ok {
+                Ty::of(&f.return_type)
+            } else {
+                Ty::error()
+            });
         }
         let int = Ty::int();
         match name {
             "add" | "sub" | "mul" | "lt" | "le" | "mod" | "div" | "min" | "max" | "range" => {
-                need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
-                need!(self.equal(&ts[1], &int, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &int, &ts[1]);
+                need!(
+                    self.equal(&ts[0], &int, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &int,
+                    &ts[0]
+                );
+                need!(
+                    self.equal(&ts[1], &int, &args[1].meta)?,
+                    "E-TYPE-ARG",
+                    &args[1].meta,
+                    &int,
+                    &ts[1]
+                );
                 if !ok {
                     return Ok(Ty::error());
                 }
@@ -1059,53 +1570,144 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             "neg" => {
-                need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
-                if ok { self.build(Ty::int(), m) } else { Ok(Ty::error()) }
+                need!(
+                    self.equal(&ts[0], &int, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &int,
+                    &ts[0]
+                );
+                if ok {
+                    self.build(Ty::int(), m)
+                } else {
+                    Ok(Ty::error())
+                }
             }
             "eq" => {
-                need!(self.equal(&ts[0], &ts[1], &args[1].meta)?, "E-TYPE-EQ-OPERANDS", &args[1].meta, &ts[0], &ts[1]);
-                if ok { self.build(Ty::bool(), m) } else { Ok(Ty::error()) }
+                need!(
+                    self.equal(&ts[0], &ts[1], &args[1].meta)?,
+                    "E-TYPE-EQ-OPERANDS",
+                    &args[1].meta,
+                    &ts[0],
+                    &ts[1]
+                );
+                if ok {
+                    self.build(Ty::bool(), m)
+                } else {
+                    Ok(Ty::error())
+                }
             }
             "fst" | "snd" => {
-                let code = if name == "fst" { "E-TYPE-FST-ARG" } else { "E-TYPE-SND-ARG" };
+                let code = if name == "fst" {
+                    "E-TYPE-FST-ARG"
+                } else {
+                    "E-TYPE-SND-ARG"
+                };
                 // v1.15：名義の型は Pair の別名ではない（印の後ろの構造を fst・snd で取り出させない）
-                let named = ts[0].record().is_some_and(|r| r.tagged) || ts[0].sum().is_some_and(|s| s.tagged);
-                let pair = if named { Some(false) } else { self.head(&ts[0], TyTag::Pair, &args[0].meta)? };
+                let named = ts[0].record().is_some_and(|r| r.tagged)
+                    || ts[0].sum().is_some_and(|s| s.tagged);
+                let pair = if named {
+                    Some(false)
+                } else {
+                    self.head(&ts[0], TyTag::Pair, &args[0].meta)?
+                };
                 need!(pair, code, &args[0].meta, "Pair", &ts[0]);
-                Ok(if ok { ts[0].arg(if name == "fst" { 0 } else { 1 }) } else { Ty::error() })
+                Ok(if ok {
+                    ts[0].arg(if name == "fst" { 0 } else { 1 })
+                } else {
+                    Ty::error()
+                })
             }
             "cons" => {
-                let h = need!(self.head(&ts[1], TyTag::List, &args[1].meta)?, "E-TYPE-EXPECTED-LIST", &args[1].meta, "List", &ts[1]);
+                let h = need!(
+                    self.head(&ts[1], TyTag::List, &args[1].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[1].meta,
+                    "List",
+                    &ts[1]
+                );
                 if h == Some(true) {
                     let el = ts[1].arg(0);
-                    need!(self.equal(&ts[0], &el, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &el, &ts[0]);
+                    need!(
+                        self.equal(&ts[0], &el, &args[0].meta)?,
+                        "E-TYPE-ARG",
+                        &args[0].meta,
+                        &el,
+                        &ts[0]
+                    );
                 }
                 Ok(if ok { ts[1].clone() } else { Ty::error() })
             }
             "concat" => {
-                let h1 = need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
-                let h2 = need!(self.head(&ts[1], TyTag::List, &args[1].meta)?, "E-TYPE-EXPECTED-LIST", &args[1].meta, "List", &ts[1]);
+                let h1 = need!(
+                    self.head(&ts[0], TyTag::List, &args[0].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[0].meta,
+                    "List",
+                    &ts[0]
+                );
+                let h2 = need!(
+                    self.head(&ts[1], TyTag::List, &args[1].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[1].meta,
+                    "List",
+                    &ts[1]
+                );
                 if h1 == Some(true) && h2 == Some(true) {
                     let (a, b) = (ts[0].arg(0), ts[1].arg(0));
-                    need!(self.equal(&a, &b, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &ts[0], &ts[1]);
+                    need!(
+                        self.equal(&a, &b, &args[1].meta)?,
+                        "E-TYPE-ARG",
+                        &args[1].meta,
+                        &ts[0],
+                        &ts[1]
+                    );
                 }
                 Ok(if ok { ts[0].clone() } else { Ty::error() })
             }
             "contains" => {
-                let h = need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
+                let h = need!(
+                    self.head(&ts[0], TyTag::List, &args[0].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[0].meta,
+                    "List",
+                    &ts[0]
+                );
                 if h == Some(true) {
                     let el = ts[0].arg(0);
-                    need!(self.equal(&ts[1], &el, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &el, &ts[1]);
+                    need!(
+                        self.equal(&ts[1], &el, &args[1].meta)?,
+                        "E-TYPE-ARG",
+                        &args[1].meta,
+                        &el,
+                        &ts[1]
+                    );
                 }
-                if ok { self.build(Ty::bool(), m) } else { Ok(Ty::error()) }
+                if ok {
+                    self.build(Ty::bool(), m)
+                } else {
+                    Ok(Ty::error())
+                }
             }
             "sort" => {
                 let li = Ty::list(Ty::int());
-                need!(self.equal(&ts[0], &li, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &li, &ts[0]);
+                need!(
+                    self.equal(&ts[0], &li, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &li,
+                    &ts[0]
+                );
                 Ok(if ok { ts[0].clone() } else { Ty::error() })
             }
             "uncons" => {
-                need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
+                need!(
+                    self.head(&ts[0], TyTag::List, &args[0].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[0].meta,
+                    "List",
+                    &ts[0]
+                );
                 if !ok {
                     return Ok(Ty::error());
                 }
@@ -1113,7 +1715,13 @@ impl<'a> TypeChecker<'a> {
                 self.build(Ty::option(p), m)
             }
             "reverse" | "length" => {
-                need!(self.head(&ts[0], TyTag::List, &args[0].meta)?, "E-TYPE-EXPECTED-LIST", &args[0].meta, "List", &ts[0]);
+                need!(
+                    self.head(&ts[0], TyTag::List, &args[0].meta)?,
+                    "E-TYPE-EXPECTED-LIST",
+                    &args[0].meta,
+                    "List",
+                    &ts[0]
+                );
                 if !ok {
                     Ok(Ty::error())
                 } else if name == "reverse" {
@@ -1125,20 +1733,46 @@ impl<'a> TypeChecker<'a> {
             // v1.2：文字と文字列
             "code" => {
                 let c = Ty::char();
-                need!(self.equal(&ts[0], &c, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &c, &ts[0]);
-                if ok { self.build(Ty::int(), m) } else { Ok(Ty::error()) }
+                need!(
+                    self.equal(&ts[0], &c, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &c,
+                    &ts[0]
+                );
+                if ok {
+                    self.build(Ty::int(), m)
+                } else {
+                    Ok(Ty::error())
+                }
             }
             "char" | "to_string" => {
-                need!(self.equal(&ts[0], &int, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &int, &ts[0]);
+                need!(
+                    self.equal(&ts[0], &int, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &int,
+                    &ts[0]
+                );
                 if !ok {
                     return Ok(Ty::error());
                 }
                 let c = self.build(Ty::char(), m)?;
-                if name == "char" { self.build(Ty::option(c), m) } else { self.build(Ty::list(c), m) }
+                if name == "char" {
+                    self.build(Ty::option(c), m)
+                } else {
+                    self.build(Ty::list(c), m)
+                }
             }
             "parse_int" => {
                 let st = Ty::string();
-                need!(self.equal(&ts[0], &st, &args[0].meta)?, "E-TYPE-ARG", &args[0].meta, &st, &ts[0]);
+                need!(
+                    self.equal(&ts[0], &st, &args[0].meta)?,
+                    "E-TYPE-ARG",
+                    &args[0].meta,
+                    &st,
+                    &ts[0]
+                );
                 if !ok {
                     return Ok(Ty::error());
                 }
@@ -1152,7 +1786,13 @@ impl<'a> TypeChecker<'a> {
                     (Some(true), true) => self.head(&ts[0].arg(0), TyTag::Pair, &args[0].meta)?,
                     (r, _) => r,
                 };
-                need!(shape, "E-TYPE-DICT-FROM", &args[0].meta, "List<Pair<K, V>>", &ts[0]);
+                need!(
+                    shape,
+                    "E-TYPE-DICT-FROM",
+                    &args[0].meta,
+                    "List<Pair<K, V>>",
+                    &ts[0]
+                );
                 if !ok {
                     return Ok(Ty::error());
                 }
@@ -1161,17 +1801,35 @@ impl<'a> TypeChecker<'a> {
                 self.build(Ty::dict(k, v), m)
             }
             _ if DICT_OPS.contains(&name) => {
-                let h = need!(self.head(&ts[0], TyTag::Dict, &args[0].meta)?, "E-TYPE-DICT-ARG", &args[0].meta, "Dict<K, V>", &ts[0]);
+                let h = need!(
+                    self.head(&ts[0], TyTag::Dict, &args[0].meta)?,
+                    "E-TYPE-DICT-ARG",
+                    &args[0].meta,
+                    "Dict<K, V>",
+                    &ts[0]
+                );
                 if h != Some(true) {
                     return Ok(Ty::error());
                 }
                 let (k, v) = (ts[0].arg(0), ts[0].arg(1));
                 // 鍵（dict_get・dict_put・dict_remove・dict_has の第 2 引数）と値（dict_put の第 3 引数）
                 if args.len() >= 2 {
-                    need!(self.equal(&ts[1], &k, &args[1].meta)?, "E-TYPE-ARG", &args[1].meta, &k, &ts[1]);
+                    need!(
+                        self.equal(&ts[1], &k, &args[1].meta)?,
+                        "E-TYPE-ARG",
+                        &args[1].meta,
+                        &k,
+                        &ts[1]
+                    );
                 }
                 if args.len() == 3 {
-                    need!(self.equal(&ts[2], &v, &args[2].meta)?, "E-TYPE-ARG", &args[2].meta, &v, &ts[2]);
+                    need!(
+                        self.equal(&ts[2], &v, &args[2].meta)?,
+                        "E-TYPE-ARG",
+                        &args[2].meta,
+                        &v,
+                        &ts[2]
+                    );
                 }
                 if !ok {
                     return Ok(Ty::error());
@@ -1243,7 +1901,10 @@ impl std::fmt::Debug for VerifiedProgram {
 
 impl TypedProgram {
     pub fn function(&self, name: &str) -> &FnDecl {
-        self.program.functions().find(|f| f.name == name).expect("accepted program resolves calls")
+        self.program
+            .functions()
+            .find(|f| f.name == name)
+            .expect("accepted program resolves calls")
     }
 }
 
@@ -1256,9 +1917,54 @@ pub struct CheckOutcome {
     pub hof: HofTypes,
     /// v1.10：総称の関数の呼び出しの型引数（型検査まで進んだときだけ）
     pub inst: Instances,
+    /// v1.12：試験用の論理 trace（`CheckOptions::trace` のときだけ）と、比較 cache の再生回数
+    pub trace: Option<Vec<(&'static str, usize)>>,
+    pub sharing_hits: u64,
 }
 
 pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> CheckOutcome {
+    check_program_with(prog, eof, profile, &CheckOptions::default())
+}
+
+/// v1.12：`check_program` と同じ検査を、比較 cache の切替と論理 trace の有無を選んで行う。
+pub fn check_program_with(
+    prog: &Program,
+    eof: usize,
+    profile: &StaticProfile,
+    opts: &CheckOptions,
+) -> CheckOutcome {
+    check_scoped(prog, eof, profile, opts, None)
+}
+
+/// 規則 G（§18.1c）の第二パスの設定。
+pub struct SecondPass {
+    /// 数える関数の名前（単相化で作った複製）
+    pub counted: HashSet<String>,
+    /// 第一パスの仕事量の総計。第二パスはここから数え、上限は第一パスと第二パスの和に対して検査する。
+    pub start: WorkCounter,
+}
+
+/// 規則 G（§18.1c）：単相化の後の第二パス。全関数を検査するが（`hof`・`inst` の表を作るため）、数えるのは
+/// `pass.counted` の関数だけである。非総称の関数は第一パスで数えたので、ここでは数え直さない。
+pub fn check_program_second(
+    prog: &Program,
+    eof: usize,
+    profile: &StaticProfile,
+    opts: &CheckOptions,
+    pass: &SecondPass,
+) -> CheckOutcome {
+    check_scoped(prog, eof, profile, opts, Some(pass))
+}
+
+fn check_scoped(
+    prog: &Program,
+    eof: usize,
+    profile: &StaticProfile,
+    opts: &CheckOptions,
+    pass: Option<&SecondPass>,
+) -> CheckOutcome {
+    // Interned のときは、この検査の間だけ型を正準化する（外側の実行が開いていればそれを使う）
+    let _interning = crate::intern::Scope::enter(opts.sharing == TypeSharing::Interned);
     let mut out = CheckOutcome::default();
     // name
     let name_diags = check_names(prog);
@@ -1276,15 +1982,24 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
 
     // typecheck + semantic-limits
     let mut tc = TypeChecker::new(&fn_map, profile);
+    tc.configure(*opts);
+    if let Some(p) = pass {
+        tc.work = p.start;
+    }
     for f in &fns {
+        tc.counting = pass.is_none_or(|p| p.counted.contains(&f.name));
         if let Err(cutoff) = tc.check_function(f) {
             out.work = Some(tc.work);
+            out.trace = tc.trace.take();
+            out.sharing_hits = tc.sharing_hits;
             out.diagnostics.append(&mut tc.diags);
             out.diagnostics.push(cutoff);
             return out;
         }
     }
     out.work = Some(tc.work);
+    out.trace = tc.trace.take();
+    out.sharing_hits = tc.sharing_hits;
     out.diagnostics.append(&mut tc.diags);
     out.hof = std::mem::take(&mut tc.hof);
     out.inst = std::mem::take(&mut tc.inst);
@@ -1292,10 +2007,12 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
     // entry
     let mut entry_ok = false;
     if entries.is_empty() {
-        out.diagnostics.push(Diagnostic::error("entry", "E-ENTRY-MISSING", (eof, eof)));
+        out.diagnostics
+            .push(Diagnostic::error("entry", "E-ENTRY-MISSING", (eof, eof)));
     } else if entries.len() >= 2 {
         let d = entries[1];
-        out.diagnostics.push(Diagnostic::error("entry", "E-ENTRY-DUPLICATE", d.meta.span()).at(d.meta.index));
+        out.diagnostics
+            .push(Diagnostic::error("entry", "E-ENTRY-DUPLICATE", d.meta.span()).at(d.meta.index));
     } else {
         let d = entries[0];
         let ef = fn_map[d.name.as_str()];
@@ -1320,7 +2037,10 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
             );
         } else if n != 1 {
             out.diagnostics.push(
-                Diagnostic::error("entry", "E-ENTRY-ARITY", d.name_span.t()).exp("1 parameter").act(format!("{n} parameters")).at(d.meta.index),
+                Diagnostic::error("entry", "E-ENTRY-ARITY", d.name_span.t())
+                    .exp("1 parameter")
+                    .act(format!("{n} parameters"))
+                    .at(d.meta.index),
             );
         } else {
             entry_ok = true;
@@ -1342,7 +2062,10 @@ pub fn check_program(prog: &Program, eof: usize, profile: &StaticProfile) -> Che
         for f in &fns {
             // v1.10：構築子のために作った関数は使われなくても警告しない（生成したもの）
             if !live.contains(f.name.as_str()) && f.ctor.is_none() {
-                out.diagnostics.push(Diagnostic::warning("warnings", "W-UNUSED-FUNCTION", f.name_span.t()).at(f.meta.index));
+                out.diagnostics.push(
+                    Diagnostic::warning("warnings", "W-UNUSED-FUNCTION", f.name_span.t())
+                        .at(f.meta.index),
+                );
             }
         }
     }
@@ -1369,6 +2092,10 @@ impl TypedProgram {
     }
     /// v1.7：`rec` の印のある関数の名前（宣言順）。
     pub fn rec_functions(&self) -> Vec<&str> {
-        self.program.functions().filter(|f| f.rec).map(|f| f.name.as_str()).collect()
+        self.program
+            .functions()
+            .filter(|f| f.rec)
+            .map(|f| f.name.as_str())
+            .collect()
     }
 }

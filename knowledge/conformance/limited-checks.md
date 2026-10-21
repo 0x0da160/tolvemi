@@ -59,6 +59,7 @@ sources:
 | 2026-10-01（バンドル作成時） | Python 3.12.8、jsonschema 4.23.0 | 92/92 通過[^manifest] |
 | 2026-10-06（本バンドル作成時に再実行） | Python 3.13.16、jsonschema 4.26.0 | 92/92 通過、attester も pass |
 | 2026-10-13（call の `type_args` を必須にした後に再実行） | Python 3.13.16、jsonschema 4.26.0 | 92/92 通過。結果 CSV は版管理下の内容と差分なし（SHA-256 `a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034`） |
+| 2026-10-14（v1.x の全 node を schema に反映し、名前の除外語を 68 語へ改めた後に再実行） | Python 3.13.16、jsonschema 4.26.0 | 92/92 通過。C016（fn 名 `uncons`）の期待値を true から false に改めた（設計 §4.2 の 68 語規則。旧 33 語の表は設計と一致していなかった）。結果 CSV の差分は C016 の 1 行のみ（SHA-256 `a15f3f2e09e59bd815adfdb7fc0e0f0c55327824e67b7fcfb8de3e21aabe403d`） |
 
 # 範囲
 

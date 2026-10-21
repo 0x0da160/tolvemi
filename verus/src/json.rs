@@ -675,6 +675,8 @@ pub open spec fn dec(c: Seq<char>, pos: int, t: Ty) -> Option<(Val, int)>
             } else {
                 None
             },
+            Ty::Named(_) => None,
+            Ty::Dict(_, _) => None,
         }
     }
 }

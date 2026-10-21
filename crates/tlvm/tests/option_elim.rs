@@ -5,12 +5,20 @@ use tlvm::api::*;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, f: impl FnOnce(&str) -> T) -> T {
-    let path = std::env::temp_dir().join(format!("tlvm-oe-{}-{}.tlvm", std::process::id(), src.len()));
+    let path =
+        std::env::temp_dir().join(format!("tlvm-oe-{}-{}.tlvm", std::process::id(), src.len()));
     std::fs::write(&path, src).unwrap();
     let r = f(path.to_str().unwrap());
     std::fs::remove_file(&path).unwrap();
@@ -58,13 +66,34 @@ fn uncons_and_match_option_evaluate() {
 
 #[test]
 fn type_errors() {
-    assert_eq!(codes("fn f(x: Int) -> Int = match_option(x, 0, |v| v) entry f"), ["E-TYPE-MATCH-SCRUTINEE"]);
-    assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v| lt(v, 1)) entry f"), ["E-TYPE-MATCH-BRANCH"]);
-    assert_eq!(codes("fn f(x: Option<Int>) -> Bool = match_option(x, 0, |v| v) entry f"), ["E-TYPE-RETURN"]);
-    assert_eq!(codes("fn f(x: Int) -> Int = length(uncons(list<Int>())) entry f"), ["E-TYPE-EXPECTED-LIST"]);
-    assert_eq!(codes("fn f(x: Int) -> Int = uncons(x, x) entry f"), ["E-ARITY-BUILTIN"]);
-    assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v|) entry f")[0], "E-PARSE-EXPECTED-EXPR");
-    assert_eq!(codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, v) entry f")[0], "E-PARSE-EXPECTED-TOKEN");
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = match_option(x, 0, |v| v) entry f"),
+        ["E-TYPE-MATCH-SCRUTINEE"]
+    );
+    assert_eq!(
+        codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v| lt(v, 1)) entry f"),
+        ["E-TYPE-MATCH-BRANCH"]
+    );
+    assert_eq!(
+        codes("fn f(x: Option<Int>) -> Bool = match_option(x, 0, |v| v) entry f"),
+        ["E-TYPE-RETURN"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = length(uncons(list<Int>())) entry f"),
+        ["E-TYPE-EXPECTED-LIST"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = uncons(x, x) entry f"),
+        ["E-ARITY-BUILTIN"]
+    );
+    assert_eq!(
+        codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, |v|) entry f")[0],
+        "E-PARSE-EXPECTED-EXPR"
+    );
+    assert_eq!(
+        codes("fn f(x: Option<Int>) -> Int = match_option(x, 0, v) entry f")[0],
+        "E-PARSE-EXPECTED-TOKEN"
+    );
 }
 
 #[test]
@@ -72,12 +101,22 @@ fn fmt_and_ast_roundtrip() {
     with_file(ZIP, |p| {
         let (code, out, _) = tlvm(&["fmt", p]);
         assert_eq!(code, 0);
-        assert!(out.contains("match_option(uncons(snd(acc)), acc, |h| pair("), "{out}");
+        assert!(
+            out.contains("match_option(uncons(snd(acc)), acc, |h| pair("),
+            "{out}"
+        );
         let (code, ast, _) = tlvm(&["ast", p]);
         assert_eq!(code, 0);
-        assert!(ast.contains(r#"{"tag":"match_option","scrutinee":{"tag":"call","callee":"uncons""#), "{ast}");
+        assert!(
+            ast.contains(r#"{"tag":"match_option","scrutinee":{"tag":"call","callee":"uncons""#),
+            "{ast}"
+        );
         assert!(ast.contains(r#""binder":"h","on_some":"#), "{ast}");
-        match compile_ast(ast.trim_end().as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
+        match compile_ast(
+            ast.trim_end().as_bytes(),
+            &StaticProfile::default(),
+            &AstTransportProfile::default(),
+        ) {
             AstCompile::Result(r) => assert!(r.errors().is_empty(), "{:?}", r.errors()),
             _ => panic!("transport failure"),
         }
@@ -86,7 +125,11 @@ fn fmt_and_ast_roundtrip() {
 
 fn repairs(src: &str) -> Vec<String> {
     match compile(src.as_bytes(), &StaticProfile::default()) {
-        SourceCompile::Result(r) => r.errors().iter().filter_map(|d| d.repair.as_ref().map(|x| x.constraint.clone())).collect(),
+        SourceCompile::Result(r) => r
+            .errors()
+            .iter()
+            .filter_map(|d| d.repair.as_ref().map(|x| x.constraint.clone()))
+            .collect(),
         _ => vec![],
     }
 }
@@ -95,8 +138,16 @@ fn repairs(src: &str) -> Vec<String> {
 #[test]
 fn angle_brackets() {
     assert_eq!(run("fn f(x: Int) -> Pair<List<Int>, Option<Int>> = pair(list<Int>(x), none<Int>()) entry f", "1"), "[[1],null]");
-    assert_eq!(codes("fn f(x: Int) -> Option<Int> = none[Int] entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
-    assert!(repairs("fn f(x: Int) -> List<Int> = list[Int]() entry f")[0].contains("angle brackets"));
-    assert_eq!(codes("fn f(x: Int) -> Option<Int> = none<Int> entry f"), ["E-PARSE-EXPECTED-TOKEN"]);
+    assert_eq!(
+        codes("fn f(x: Int) -> Option<Int> = none[Int] entry f"),
+        ["E-PARSE-EXPECTED-TOKEN"]
+    );
+    assert!(
+        repairs("fn f(x: Int) -> List<Int> = list[Int]() entry f")[0].contains("angle brackets")
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Option<Int> = none<Int> entry f"),
+        ["E-PARSE-EXPECTED-TOKEN"]
+    );
     assert!(repairs("fn f(x: Int) -> Option<Int> = none<Int> entry f")[0].contains("none<Int>()"));
 }

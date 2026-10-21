@@ -27,18 +27,18 @@ sources:
 
 | ファイル | 役割 | bytes | SHA-256 |
 |---|---|---:|---|
-| `LPTL_design_v1.md` | 設計本文 | 143,744 | `4fc5b6eddf3171732b2cc8afba9aefb5b91a80e74bf7aa86fc1adae08ad75fe8` |
-| `LPTL_v1_verification_report.md` | 突き合わせ確認報告 | 8,685 | `0fbec45016aa377f814c91a2e789c5701591b7f37e051dd5bec7b5449cd03232` |
-| `ast_codec_v1.schema.json` | AST schema | 10,768 | `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe` |
+| `LPTL_design_v1.md` | 設計本文 | 151,244 | `35dd84e6675f1cc727644820d738fb49d7d80bec29f8fedbf17af786cb0152b2` |
+| `LPTL_v1_verification_report.md` | 突き合わせ確認報告 | 8,730 | `a8ef7c781ad03509da868e289ea0b6aff53a009ff7e3602d22dd575c796546d0` |
+| `ast_codec_v1.schema.json` | AST schema | 22,699 | `ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a` |
 | `v1_limited_checks.py` | 限定検査コード | 13,396 | `a3c183f8870c97d2e6be7f60c0f3da7f838ca54fb5a0bed29fac4814c13791dc` |
-| `v1_check_inputs.json` | 検査入力・期待値 | 46,914 | `625cc70b793dfbb95e865eb69aa0c945b95cae5e7645012cc676e19188c89aea` |
-| `v1_checks.csv` | 観測結果（再生成される） | 11,637 | `a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034` |
+| `v1_check_inputs.json` | 検査入力・期待値 | 46,915 | `6de560583a06d54e08c4cfa56630563abb616b3a47e00ebe6fee6eab4a5077d2` |
+| `v1_checks.csv` | 観測結果（再生成される） | 11,639 | `a15f3f2e09e59bd815adfdb7fc0e0f0c55327824e67b7fcfb8de3e21aabe403d` |
 | `v1_fixture_correspondence.csv` | fixture 対応表 | 3,650 | `c282e4a22bee20af5fc046626953b1d5d97f31f5a4106f873bc28bbfb7dcfafb` |
 | `v1_namespace_registry.json` | 識別子レジストリ | 1,330 | `2a350962743a5592f4769cc7dc17860209207d5604deffee7b9d2ebca92216ab` |
 | `v1_structure_checks.json` | 構造照合 | 6,692 | `f0e2eebdb3c0bb226a8ea147870a8d7ff572878376ef5f51a0b30b61eb6c99bb` |
 | `v1_edit_ranges.csv` | 編集範囲一覧 | 4,006 | `9a4066ff2abd7c42fdf9dac0d3743e2c57b766998d3000b2b9e74cbf70939a04` |
 
-manifest 自身は自己 hash を持たない。2026-10-13 に、リポジトリ内の全10ファイルの bytes と SHA-256 が上表と一致することを確認した（call の `type_args` 追加後）（`verified` の process）。
+manifest 自身は自己 hash を持たない。2026-10-14 に、リポジトリ内の全10ファイルの bytes と SHA-256 が上表と一致することを確認した（v1.x の全 node を反映し、名前の除外語を 68 語へ改めた後）（`verified` の process）。
 
 # 突き合わせ確認の結果
 

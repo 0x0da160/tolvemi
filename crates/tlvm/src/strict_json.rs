@@ -49,7 +49,15 @@ pub struct JNode {
 
 impl JNode {
     fn new(kind: JKind, start: usize) -> JNode {
-        JNode { kind, start, end: start, text: String::new(), boolean: false, members: vec![], items: vec![] }
+        JNode {
+            kind,
+            start,
+            end: start,
+            text: String::new(),
+            boolean: false,
+            members: vec![],
+            items: vec![],
+        }
     }
     pub fn span(&self) -> (usize, usize) {
         (self.start, self.end)
@@ -58,7 +66,11 @@ impl JNode {
         self.members.iter().find(|m| m.key == key).map(|m| &m.value)
     }
     pub fn key_span(&self, key: &str) -> (usize, usize) {
-        self.members.iter().find(|m| m.key == key).map(|m| m.key_span).expect("key present")
+        self.members
+            .iter()
+            .find(|m| m.key == key)
+            .map(|m| m.key_span)
+            .expect("key present")
     }
     /// object 閉じ括弧直前のゼロ幅位置
     pub fn close_span(&self) -> (usize, usize) {
@@ -92,7 +104,10 @@ type R<T> = Result<T, JsonFailure>;
 impl<'a> P<'a> {
     fn fail<T>(&self, at: usize) -> R<T> {
         let end = if at >= self.d.len() { at } else { at + 1 };
-        Err(JsonFailure { kind: JsonFailKind::Syntax, span: (at, end) })
+        Err(JsonFailure {
+            kind: JsonFailKind::Syntax,
+            span: (at, end),
+        })
     }
 
     fn ws(&mut self) {
@@ -114,7 +129,10 @@ impl<'a> P<'a> {
         match c {
             b'{' | b'[' => {
                 if depth + 1 > self.max_depth {
-                    return Err(JsonFailure { kind: JsonFailKind::Depth, span: (self.i, self.i + 1) });
+                    return Err(JsonFailure {
+                        kind: JsonFailKind::Depth,
+                        span: (self.i, self.i + 1),
+                    });
                 }
                 if c == b'{' {
                     self.object(depth + 1)
@@ -125,7 +143,11 @@ impl<'a> P<'a> {
             b'"' => self.string(),
             b'-' | b'0'..=b'9' => self.number(),
             _ => {
-                for (lit, kind, b) in [(&b"true"[..], JKind::Boolean, true), (b"false", JKind::Boolean, false), (b"null", JKind::Null, false)] {
+                for (lit, kind, b) in [
+                    (&b"true"[..], JKind::Boolean, true),
+                    (b"false", JKind::Boolean, false),
+                    (b"null", JKind::Null, false),
+                ] {
                     if self.d[self.i..].starts_with(lit) {
                         let mut n = JNode::new(kind, self.i);
                         n.boolean = b;
@@ -160,7 +182,11 @@ impl<'a> P<'a> {
             }
             self.i += 1;
             let v = self.value(depth)?;
-            node.members.push(Member { key: key.text, key_span: (key.start, key.end), value: v });
+            node.members.push(Member {
+                key: key.text,
+                key_span: (key.start, key.end),
+                value: v,
+            });
             self.ws();
             match self.peek() {
                 Some(b',') => self.i += 1,
@@ -293,7 +319,10 @@ impl<'a> P<'a> {
                         let lo = self.hex4(self.i + 2)?;
                         if (0xDC00..=0xDFFF).contains(&lo) {
                             self.i += 6;
-                            out.push(char::from_u32(0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00)).unwrap());
+                            out.push(
+                                char::from_u32(0x10000 + ((cu - 0xD800) << 10) + (lo - 0xDC00))
+                                    .unwrap(),
+                            );
                             continue;
                         }
                     }
@@ -315,7 +344,9 @@ impl<'a> P<'a> {
             } else {
                 4
             };
-            out.push_str(std::str::from_utf8(&self.d[self.i..self.i + len]).expect("validated UTF-8"));
+            out.push_str(
+                std::str::from_utf8(&self.d[self.i..self.i + len]).expect("validated UTF-8"),
+            );
             self.i += len;
         }
         node.end = self.i;
@@ -329,17 +360,28 @@ impl<'a> P<'a> {
 
 /// UTF-8 検査済みの bytes を strict に解析する。
 pub fn parse(data: &[u8], max_depth: usize) -> Result<JNode, JsonFailure> {
-    let mut p = P { d: data, i: 0, max_depth, scalar: None };
+    let mut p = P {
+        d: data,
+        i: 0,
+        max_depth,
+        scalar: None,
+    };
     let root = p.value(0)?;
     p.ws();
     if p.i != data.len() {
         return p.fail(p.i);
     }
     if let Some(span) = p.scalar {
-        return Err(JsonFailure { kind: JsonFailKind::Scalar, span });
+        return Err(JsonFailure {
+            kind: JsonFailKind::Scalar,
+            span,
+        });
     }
     if let Some(span) = first_duplicate(&root) {
-        return Err(JsonFailure { kind: JsonFailKind::Duplicate, span });
+        return Err(JsonFailure {
+            kind: JsonFailKind::Duplicate,
+            span,
+        });
     }
     Ok(root)
 }

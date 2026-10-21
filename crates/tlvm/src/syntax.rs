@@ -3,17 +3,80 @@
 //! AST node は span（UTF-8 bytes の半開区間）と論理 node index（前順 Admission index）を
 //! 持つが、構造的等価性の比較対象には含めない（`Meta` と `Sp` の `PartialEq` は常に真）。
 
+use crate::intern;
 use num_bigint::BigInt;
 use std::fmt;
 use std::sync::Arc;
 
 pub const KEYWORDS: [&str; 68] = [
-    "fn", "entry", "Int", "Bool", "Unit", "List", "Option", "Pair", "true", "false", "unit", "list", "some", "none",
-    "pair", "let", "in", "if", "fold", "add", "sub", "mul", "neg", "lt", "le", "eq", "mod", "fst", "snd", "cons",
-    "concat", "reverse", "length", "uncons", "match_option", "min", "max", "range", "contains", "sort", "Char", "String",
-    "code", "char", "to_string", "parse_int", "Result", "ok", "err", "match_result", "map", "filter", "any", "all", "find",
-    "sort_by", "loop", "div", "dict", "dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys",
-    "dict_values", "dict_entries", "dict_from",
+    "fn",
+    "entry",
+    "Int",
+    "Bool",
+    "Unit",
+    "List",
+    "Option",
+    "Pair",
+    "true",
+    "false",
+    "unit",
+    "list",
+    "some",
+    "none",
+    "pair",
+    "let",
+    "in",
+    "if",
+    "fold",
+    "add",
+    "sub",
+    "mul",
+    "neg",
+    "lt",
+    "le",
+    "eq",
+    "mod",
+    "fst",
+    "snd",
+    "cons",
+    "concat",
+    "reverse",
+    "length",
+    "uncons",
+    "match_option",
+    "min",
+    "max",
+    "range",
+    "contains",
+    "sort",
+    "Char",
+    "String",
+    "code",
+    "char",
+    "to_string",
+    "parse_int",
+    "Result",
+    "ok",
+    "err",
+    "match_result",
+    "map",
+    "filter",
+    "any",
+    "all",
+    "find",
+    "sort_by",
+    "loop",
+    "div",
+    "dict",
+    "dict_get",
+    "dict_put",
+    "dict_remove",
+    "dict_has",
+    "dict_size",
+    "dict_keys",
+    "dict_values",
+    "dict_entries",
+    "dict_from",
 ];
 
 pub fn is_keyword(s: &str) -> bool {
@@ -22,8 +85,10 @@ pub fn is_keyword(s: &str) -> bool {
 
 pub fn builtin_arity(name: &str) -> Option<usize> {
     Some(match name {
-        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "div" | "cons" | "concat" | "min" | "max" | "range" | "contains" => 2,
-        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char" | "to_string" | "parse_int" => 1,
+        "add" | "sub" | "mul" | "lt" | "le" | "eq" | "mod" | "div" | "cons" | "concat" | "min"
+        | "max" | "range" | "contains" => 2,
+        "neg" | "fst" | "snd" | "reverse" | "length" | "uncons" | "sort" | "code" | "char"
+        | "to_string" | "parse_int" => 1,
         // v1.9：辞書の操作（`dict::lower_op` が fold などに書き換える）
         "dict_put" => 3,
         "dict_get" | "dict_remove" | "dict_has" => 2,
@@ -66,7 +131,10 @@ impl PartialEq for Meta {
 
 impl Meta {
     pub fn new(span: (usize, usize), index: usize) -> Meta {
-        Meta { span: Sp(span.0, span.1), index }
+        Meta {
+            span: Sp(span.0, span.1),
+            index,
+        }
     }
     pub fn span(&self) -> (usize, usize) {
         self.span.t()
@@ -143,7 +211,14 @@ pub enum HofOp {
 }
 
 impl HofOp {
-    pub const ALL: [HofOp; 6] = [HofOp::Map, HofOp::Filter, HofOp::Any, HofOp::All, HofOp::Find, HofOp::SortBy];
+    pub const ALL: [HofOp; 6] = [
+        HofOp::Map,
+        HofOp::Filter,
+        HofOp::Any,
+        HofOp::All,
+        HofOp::Find,
+        HofOp::SortBy,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -173,8 +248,17 @@ pub const DICT_TYPE: &str = "Dict";
 pub const DICT_NEW: &str = "dict";
 
 /// v1.9：辞書の操作（組み込み関数の形。`dict::lower_op` が fold などに書き換える）。
-pub const DICT_OPS: [&str; 9] =
-    ["dict_get", "dict_put", "dict_remove", "dict_has", "dict_size", "dict_keys", "dict_values", "dict_entries", "dict_from"];
+pub const DICT_OPS: [&str; 9] = [
+    "dict_get",
+    "dict_put",
+    "dict_remove",
+    "dict_has",
+    "dict_size",
+    "dict_keys",
+    "dict_values",
+    "dict_entries",
+    "dict_from",
+];
 
 /// v1.9：辞書の名前（`dict` と操作）か。
 pub fn is_dict_word(s: &str) -> bool {
@@ -201,7 +285,13 @@ pub struct TypeNode {
 
 impl TypeNode {
     pub fn new(tag: TyTag, args: Vec<TypeNode>, meta: Meta) -> TypeNode {
-        TypeNode { tag, args, meta, name: None, label: Label::default() }
+        TypeNode {
+            tag,
+            args,
+            meta,
+            name: None,
+            label: Label::default(),
+        }
     }
     /// v1.2：`String`（= `List<Char>`）か。
     pub fn is_string(&self) -> bool {
@@ -209,7 +299,10 @@ impl TypeNode {
     }
     /// v1.10：型引数 `name` の node。
     pub fn param(name: &str, meta: Meta) -> TypeNode {
-        TypeNode { name: Some(name.to_string()), ..TypeNode::new(TyTag::Param, vec![], meta) }
+        TypeNode {
+            name: Some(name.to_string()),
+            ..TypeNode::new(TyTag::Param, vec![], meta)
+        }
     }
     /// v1.10：レコード型・直和型の名前（展開前。型引数 `T` は含まない）か。
     pub fn is_named(&self) -> bool {
@@ -237,7 +330,10 @@ impl TypeNode {
         if !self.has_params() {
             return self.clone();
         }
-        TypeNode { args: self.args.iter().map(|a| a.subst(f)).collect(), ..self.clone() }
+        TypeNode {
+            args: self.args.iter().map(|a| a.subst(f)).collect(),
+            ..self.clone()
+        }
     }
 }
 
@@ -322,23 +418,65 @@ pub enum ExprKind {
     Bool(bool),
     Unit,
     Var(String),
-    List { element_type: TypeNode, items: Vec<Expr> },
+    List {
+        element_type: TypeNode,
+        items: Vec<Expr>,
+    },
     Some(Box<Expr>),
     None(TypeNode),
     Pair(Box<Expr>, Box<Expr>),
     /// v1.10：`type_args` は明示した型引数 `f<Int>(x)`（書かなければ空。総称の関数なら型検査で推論する）
-    Call { callee: String, args: Vec<Expr>, builtin: bool, callee_span: Sp, type_args: Vec<TypeNode> },
-    Let { name: String, name_span: Sp, value: Box<Expr>, body: Box<Expr> },
+    Call {
+        callee: String,
+        args: Vec<Expr>,
+        builtin: bool,
+        callee_span: Sp,
+        type_args: Vec<TypeNode>,
+    },
+    Let {
+        name: String,
+        name_span: Sp,
+        value: Box<Expr>,
+        body: Box<Expr>,
+    },
     If(Box<Expr>, Box<Expr>, Box<Expr>),
-    Fold { list: Box<Expr>, init: Box<Expr>, acc: String, acc_span: Sp, item: String, item_span: Sp, body: Box<Expr> },
+    Fold {
+        list: Box<Expr>,
+        init: Box<Expr>,
+        acc: String,
+        acc_span: Sp,
+        item: String,
+        item_span: Sp,
+        body: Box<Expr>,
+    },
     /// v1.1：match_option(scrutinee, on_none, |binder| on_some)
-    Match { scrutinee: Box<Expr>, on_none: Box<Expr>, binder: String, binder_span: Sp, on_some: Box<Expr> },
+    Match {
+        scrutinee: Box<Expr>,
+        on_none: Box<Expr>,
+        binder: String,
+        binder_span: Sp,
+        on_some: Box<Expr>,
+    },
     /// v1.1：レコードの構築 `Name { f: e, ..., ..base }`（`records::expand` が pair の入れ子にする）
-    Record { name: String, name_span: Sp, fields: Vec<RecordField>, base: Option<Box<Expr>> },
+    Record {
+        name: String,
+        name_span: Sp,
+        fields: Vec<RecordField>,
+        base: Option<Box<Expr>>,
+    },
     /// v1.1：field の参照 `e.f`。`target` は展開後に付く（レコード型、field の位置、field の数）
-    Field { expr: Box<Expr>, field: String, field_span: Sp, target: Option<(TypeNode, usize, usize)> },
+    Field {
+        expr: Box<Expr>,
+        field: String,
+        field_span: Sp,
+        target: Option<(TypeNode, usize, usize)>,
+    },
     /// v1.4：`ok<T, E>(x)`（ok = true）、`err<T, E>(x)`。`ty` は `Result<T, E>`（直和型の構築なら名前付き）
-    Inj { ok: bool, ty: TypeNode, value: Box<Expr> },
+    Inj {
+        ok: bool,
+        ty: TypeNode,
+        value: Box<Expr>,
+    },
     /// v1.4：match_result(scrutinee, |ok_binder| on_ok, |err_binder| on_err)
     MatchResult {
         scrutinee: Box<Expr>,
@@ -350,11 +488,29 @@ pub enum ExprKind {
         on_err: Box<Expr>,
     },
     /// v1.4：`match e { P => e, ... }`（`sums::expand` が `kind` と各 arm の `variant` を付け、`sums::lower` が書き換える）
-    SumMatch { scrutinee: Box<Expr>, arms: Vec<Arm>, kw_span: Sp, close_span: Sp, kind: Option<MatchKind> },
+    SumMatch {
+        scrutinee: Box<Expr>,
+        arms: Vec<Arm>,
+        kw_span: Sp,
+        close_span: Sp,
+        kind: Option<MatchKind>,
+    },
     /// v1.5：`map(xs, |x| e)` など（`op` が形の名前。`binder` は body の中でだけ見える）
-    Hof { op: HofOp, list: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
+    Hof {
+        op: HofOp,
+        list: Box<Expr>,
+        binder: String,
+        binder_span: Sp,
+        body: Box<Expr>,
+    },
     /// v1.6：`loop(init, max, |binder| body)`（`binder` は body の中でだけ見える）
-    Loop { init: Box<Expr>, max: Box<Expr>, binder: String, binder_span: Sp, body: Box<Expr> },
+    Loop {
+        init: Box<Expr>,
+        max: Box<Expr>,
+        binder: String,
+        binder_span: Sp,
+        body: Box<Expr>,
+    },
     /// v1.9：空の辞書 `dict<K, V>()`（型は `Dict<K, V>` の型 node）
     DictNew(TypeNode),
 }
@@ -395,7 +551,10 @@ pub struct Pattern {
 #[derive(Clone, Debug, PartialEq)]
 pub enum MatchKind {
     /// 直和型（展開後の名前付きの型と、variant ごとの中身の型）
-    Sum { ty: TypeNode, fields: Vec<Vec<TypeNode>> },
+    Sum {
+        ty: TypeNode,
+        fields: Vec<Vec<TypeNode>>,
+    },
     Result,
     Option,
     /// `_` だけ
@@ -425,17 +584,37 @@ impl Expr {
             ExprKind::Call { args, .. } => args.iter().collect(),
             ExprKind::Let { value, body, .. } => vec![value, body],
             ExprKind::If(c, t, e) => vec![c, t, e],
-            ExprKind::Fold { list, init, body, .. } => vec![list, init, body],
+            ExprKind::Fold {
+                list, init, body, ..
+            } => vec![list, init, body],
             ExprKind::Hof { list, body, .. } => vec![list, body],
-            ExprKind::Loop { init, max, body, .. } => vec![init, max, body],
-            ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![scrutinee, on_none, on_some],
-            ExprKind::Record { fields, base, .. } => fields.iter().map(|f| &f.value).chain(base.as_deref()).collect(),
+            ExprKind::Loop {
+                init, max, body, ..
+            } => vec![init, max, body],
+            ExprKind::Match {
+                scrutinee,
+                on_none,
+                on_some,
+                ..
+            } => vec![scrutinee, on_none, on_some],
+            ExprKind::Record { fields, base, .. } => fields
+                .iter()
+                .map(|f| &f.value)
+                .chain(base.as_deref())
+                .collect(),
             ExprKind::Field { expr, .. } => vec![expr],
             ExprKind::Inj { value, .. } => vec![value],
-            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => vec![scrutinee, on_ok, on_err],
-            ExprKind::SumMatch { scrutinee, arms, .. } => {
-                std::iter::once(&**scrutinee).chain(arms.iter().map(|a| &a.body)).collect()
-            }
+            ExprKind::MatchResult {
+                scrutinee,
+                on_ok,
+                on_err,
+                ..
+            } => vec![scrutinee, on_ok, on_err],
+            ExprKind::SumMatch {
+                scrutinee, arms, ..
+            } => std::iter::once(&**scrutinee)
+                .chain(arms.iter().map(|a| &a.body))
+                .collect(),
             _ => vec![],
         }
     }
@@ -451,18 +630,36 @@ impl Expr {
             ExprKind::Call { args, .. } => args.iter_mut().collect(),
             ExprKind::Let { value, body, .. } => vec![&mut **value, &mut **body],
             ExprKind::If(c, t, e) => vec![&mut **c, &mut **t, &mut **e],
-            ExprKind::Fold { list, init, body, .. } => vec![&mut **list, &mut **init, &mut **body],
+            ExprKind::Fold {
+                list, init, body, ..
+            } => vec![&mut **list, &mut **init, &mut **body],
             ExprKind::Hof { list, body, .. } => vec![&mut **list, &mut **body],
-            ExprKind::Loop { init, max, body, .. } => vec![&mut **init, &mut **max, &mut **body],
-            ExprKind::Match { scrutinee, on_none, on_some, .. } => vec![&mut **scrutinee, &mut **on_none, &mut **on_some],
-            ExprKind::Record { fields, base, .. } => {
-                fields.iter_mut().map(|f| &mut f.value).chain(base.as_deref_mut()).collect()
-            }
+            ExprKind::Loop {
+                init, max, body, ..
+            } => vec![&mut **init, &mut **max, &mut **body],
+            ExprKind::Match {
+                scrutinee,
+                on_none,
+                on_some,
+                ..
+            } => vec![&mut **scrutinee, &mut **on_none, &mut **on_some],
+            ExprKind::Record { fields, base, .. } => fields
+                .iter_mut()
+                .map(|f| &mut f.value)
+                .chain(base.as_deref_mut())
+                .collect(),
             ExprKind::Field { expr, .. } => vec![&mut **expr],
-            ExprKind::MatchResult { scrutinee, on_ok, on_err, .. } => vec![&mut **scrutinee, &mut **on_ok, &mut **on_err],
-            ExprKind::SumMatch { scrutinee, arms, .. } => {
-                std::iter::once(&mut **scrutinee).chain(arms.iter_mut().map(|a| &mut a.body)).collect()
-            }
+            ExprKind::MatchResult {
+                scrutinee,
+                on_ok,
+                on_err,
+                ..
+            } => vec![&mut **scrutinee, &mut **on_ok, &mut **on_err],
+            ExprKind::SumMatch {
+                scrutinee, arms, ..
+            } => std::iter::once(&mut **scrutinee)
+                .chain(arms.iter_mut().map(|a| &mut a.body))
+                .collect(),
             _ => vec![],
         }
     }
@@ -576,12 +773,16 @@ impl Program {
     /// v1.7：印 `rec` を外したプログラム（検証済み部品に渡す整形ソース用。印は別に渡す）。
     pub fn unmarked(&self) -> Program {
         let mut p = self.clone();
-        for d in &mut p.declarations {
+        p.unmark();
+        p
+    }
+    /// v1.7：印 `rec` を外す（その場で。`unmarked` の複製なしの版）。
+    pub fn unmark(&mut self) {
+        for d in &mut self.declarations {
             if let Decl::Fn(f) = d {
                 f.rec = false;
             }
         }
-        p
     }
     pub fn entries(&self) -> impl Iterator<Item = &EntryDecl> {
         self.declarations.iter().filter_map(|d| match d {
@@ -608,15 +809,83 @@ struct TyNode {
 #[derive(Clone)]
 pub struct Ty(Arc<TyNode>);
 
-impl Ty {
-    pub fn new(tag: TyTag, args: Vec<Ty>) -> Ty {
-        let depth = if tag == TyTag::Error { 0 } else { 1 + args.iter().map(|a| a.depth()).max().unwrap_or(0) };
-        let params = args.iter().any(|a| a.has_params());
-        Ty(Arc::new(TyNode { tag, args, depth, label: Label::default(), pname: None, params }))
+/// 型の正準化の鍵（表が開いていて、子が二つまでのときだけ）。名前の印は実体の address で区別する（同じ構造でも
+/// 印が違えば別の node。表示が印の名前を使うため）。
+fn intern_key(
+    tag: TyTag,
+    args: &[Ty],
+    label: &Label,
+    pname: &Option<Arc<str>>,
+) -> Option<intern::Key> {
+    if args.len() > 2 || !intern::active() {
+        return None;
     }
+    let mut kids = [0; 2];
+    for (k, a) in kids.iter_mut().zip(args) {
+        *k = a.addr();
+    }
+    let label = match &label.0 {
+        None => 0,
+        Some(Named::Record(r)) => Arc::as_ptr(r) as usize,
+        Some(Named::Sum(s)) => Arc::as_ptr(s) as usize,
+    };
+    Some(intern::Key {
+        tag,
+        arity: args.len() as u8,
+        kids,
+        label,
+        pname: pname.clone(),
+    })
+}
+
+impl Ty {
+    /// 比較 cache の鍵に使う共有 node の address（同じ Arc を指す型だけが同じ値になる）。
+    pub fn addr(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+
+    pub fn new(tag: TyTag, args: Vec<Ty>) -> Ty {
+        let depth = if tag == TyTag::Error {
+            0
+        } else {
+            1 + args.iter().map(|a| a.depth()).max().unwrap_or(0)
+        };
+        let params = args.iter().any(|a| a.has_params());
+        Ty::make(tag, args, depth, Label::default(), None, params)
+    }
+
+    /// 型の node を作る。型検査の実行の中（`TypeSharing::Interned`）では、同じ構造の node は一つにする（`intern`）。
+    fn make(
+        tag: TyTag,
+        args: Vec<Ty>,
+        depth: usize,
+        label: Label,
+        pname: Option<Arc<str>>,
+        params: bool,
+    ) -> Ty {
+        let key = intern_key(tag, &args, &label, &pname);
+        intern::canonical(key, move || {
+            Ty(Arc::new(TyNode {
+                tag,
+                args,
+                depth,
+                label,
+                pname,
+                params,
+            }))
+        })
+    }
+
     /// v1.10：型引数 `name`（総称の関数の本体では、どの型にも使える操作だけが通る不透明な型）。
     pub fn param(name: &str) -> Ty {
-        Ty(Arc::new(TyNode { tag: TyTag::Param, args: vec![], depth: 1, label: Label::default(), pname: Some(name.into()), params: true }))
+        Ty::make(
+            TyTag::Param,
+            vec![],
+            1,
+            Label::default(),
+            Some(name.into()),
+            true,
+        )
     }
     /// v1.10：型引数の名前（型引数でなければ None）。
     pub fn param_name(&self) -> Option<&str> {
@@ -679,14 +948,14 @@ impl Ty {
     }
     /// レコード名を付けた型（等価性は変わらない）。
     pub fn labeled(&self, label: Label) -> Ty {
-        Ty(Arc::new(TyNode {
-            tag: self.0.tag,
-            args: self.0.args.clone(),
-            depth: self.0.depth,
+        Ty::make(
+            self.0.tag,
+            self.0.args.clone(),
+            self.0.depth,
             label,
-            pname: self.0.pname.clone(),
-            params: self.0.params,
-        }))
+            self.0.pname.clone(),
+            self.0.params,
+        )
     }
     /// レコード名を外した型。
     pub fn unlabeled(&self) -> Ty {
@@ -817,7 +1086,11 @@ impl Ty {
             }
             return;
         }
-        let name = if self.is_string() { "String" } else { self.0.tag.name() };
+        let name = if self.is_string() {
+            "String"
+        } else {
+            self.0.tag.name()
+        };
         if name.len() > *budget {
             out.push('…');
             *budget = 0;
@@ -844,7 +1117,9 @@ impl Ty {
 impl PartialEq for Ty {
     fn eq(&self, other: &Ty) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
-            || (self.0.tag == other.0.tag && self.0.pname == other.0.pname && self.0.args == other.0.args)
+            || (self.0.tag == other.0.tag
+                && self.0.pname == other.0.pname
+                && self.0.args == other.0.args)
     }
 }
 

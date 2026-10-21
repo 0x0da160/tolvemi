@@ -20,27 +20,36 @@
 //!                                 pair(fst(st), pair(cons(y, fst(snd(st))), false)))))) in
 //!                         reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r))))))
 //! loop(init, max, |s| e)
-//!   => let m = max in let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
-//!      match_result(snd(
-//!        fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(init)), |a1, i1|      -- 段 1（1 要素 = 16^15 歩）
+//!   => let s0 = pair(0, ok<S, S>(init)) in let m = max in
+//!      let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
+//!      let r = fold(if(lt(16^15, m), rg, one), s0, |a1, i1|                   -- 段 1（1 要素 = 16^15 歩）
 //!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), nil), a1, |a2, i2|
 //!            ...                                                            -- 段 2〜15（1 要素 = 16^(16-j) 歩）
 //!              let n = min(16, sub(m, fst(a15))) in                         -- 段 16：n 歩
 //!              let res = fold(range(0, n), snd(a15), |acc, i|
 //!                match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))) in
 //!              pair(match_result(res, |x| add(fst(a15), n), |x| m), res)
-//!            ...)),
-//!        |r| none<S>(), |d| some(d))
+//!            ...) in
+//!      match_result(snd(r), |v| none<S>(), |d| some(d))
 //! ```
+//!
+//! 評価の順は左から右：init（`s0` の初期状態の中）を max（`m`）より先に評価する。両方が資源の上限で失敗するなら、
+//! 報告されるのは init のエラー。
+//!
+//! 書換え後の式の深さ：段 1 の fold の上には束縛が 6 個（s0・m・rg・one・nil・r）あり、評価の順を変える前の形
+//! （`let m = max` を一番外側に置いた m・rg・one・nil の束縛 4 個と match_result・snd）と同じく深さ 6 に段 1 が来る。
+//! そのため loop の本体の深さは前と同じ（loop 1 段あたり 26）。max は s0 の束縛の内側に入るので前より 1 段深い
+//! （init を先に評価するには、init を含む束縛を max の束縛の外に置くので、この 1 段は避けられない）。init は段 1 の
+//! 初期状態の中（深さ 9）から一番外側の束縛の中（深さ 3）に移って 6 段浅い。
 //!
 //! `loop` の状態は `pair(c, Result<S, S>)`。c は本体を評価した回数（止まったときは m にする）、ok = 続行中、
 //! err = 止まった。一番内側の段は v1.6 当初の書き換えと同じ fold を高々 16 歩ずつ進める（止まった後の歩では本体を
 //! 評価しない）。外側の 15 段は、残りの歩 `m - c` がその段の 1 要素の受け持ち（16^(16-j)）より多ければ 16 要素の
-//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空の `nil` を辿る。
+//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空のリスト `nil` を辿る。
 //! 本体の評価はちょうど `min(m, 止まるまでの回数)` 回で、手間はそれに比例する歩と、止まった後に各段で残る高々 15 要素
 //! （m が 16^k 以下なら高々 k 段）の比較で済む（以前の `fold(range(0, max), ...)` は max に比例した）。
 //! 受け持てる歩は 16^16 = 2^64 回までで、それより大きい max でも 2^64 回で打ち切るが、どの実行上限（step 数）も
-//! 2^64 より小さいので観測できない。`max <= 0` なら段 2 から `nil` を辿るので本体を評価しない。
+//! 2^64 より小さいので観測できない。`max <= 0` なら段 2 から空のリストを辿るので本体を評価しない。
 //! s はユーザーの binder（外側の名前をシャドーしないことは名前の検査で確かめてある）。本体はソースに一度だけ現れる。
 //!
 //! `sort_by` は安定な挿入整列：整列済みの acc を小さい方から見て、鍵が e の鍵より大きい最初の要素の前に e を
@@ -62,7 +71,8 @@ use std::collections::HashSet;
 /// `map` など（v1.6 の `loop` も）を一つでも含むか。
 pub fn has_hof(p: &Program) -> bool {
     fn ex(e: &Expr) -> bool {
-        matches!(e.kind, ExprKind::Hof { .. } | ExprKind::Loop { .. }) || e.children().into_iter().any(ex)
+        matches!(e.kind, ExprKind::Hof { .. } | ExprKind::Loop { .. })
+            || e.children().into_iter().any(ex)
     }
     p.functions().any(|f| ex(&f.body))
 }
@@ -101,10 +111,16 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
             out.insert(acc.clone());
             out.insert(item.clone());
         }
-        ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
+        ExprKind::Match { binder, .. }
+        | ExprKind::Hof { binder, .. }
+        | ExprKind::Loop { binder, .. } => {
             out.insert(binder.clone());
         }
-        ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+        ExprKind::MatchResult {
+            ok_binder,
+            err_binder,
+            ..
+        } => {
             out.insert(ok_binder.clone());
             out.insert(err_binder.clone());
         }
@@ -122,7 +138,11 @@ fn collect(e: &Expr, out: &mut HashSet<String>) {
 
 /// 意味論上の型を構文上の型にする（書き換えで書く `list<A>()`、`none<A>()` 用）。
 pub(crate) fn type_node(t: &Ty, meta: Meta) -> TypeNode {
-    TypeNode::new(t.tag(), t.args().iter().map(|a| type_node(a, meta)).collect(), meta)
+    TypeNode::new(
+        t.tag(),
+        t.args().iter().map(|a| type_node(a, meta)).collect(),
+        meta,
+    )
 }
 
 pub(crate) struct Lower<'a> {
@@ -144,7 +164,13 @@ impl B {
         self.ex(ExprKind::Var(n.to_string()))
     }
     pub(crate) fn call(&self, f: &str, args: Vec<Expr>) -> Expr {
-        self.ex(ExprKind::Call { callee: f.into(), args, builtin: true, callee_span: self.m.span, type_args: vec![] })
+        self.ex(ExprKind::Call {
+            callee: f.into(),
+            args,
+            builtin: true,
+            callee_span: self.m.span,
+            type_args: vec![],
+        })
     }
     pub(crate) fn if_(&self, c: Expr, t: Expr, f: Expr) -> Expr {
         self.ex(ExprKind::If(Box::new(c), Box::new(t), Box::new(f)))
@@ -156,13 +182,21 @@ impl B {
         self.ex(ExprKind::Bool(b))
     }
     pub(crate) fn empty(&self, t: &Ty) -> Expr {
-        self.ex(ExprKind::List { element_type: type_node(t, self.m), items: vec![] })
+        self.ex(ExprKind::List {
+            element_type: type_node(t, self.m),
+            items: vec![],
+        })
     }
     pub(crate) fn none(&self, t: &Ty) -> Expr {
         self.ex(ExprKind::None(type_node(t, self.m)))
     }
     pub(crate) fn let_(&self, name: &str, value: Expr, body: Expr) -> Expr {
-        self.ex(ExprKind::Let { name: name.into(), name_span: self.m.span, value: Box::new(value), body: Box::new(body) })
+        self.ex(ExprKind::Let {
+            name: name.into(),
+            name_span: self.m.span,
+            value: Box::new(value),
+            body: Box::new(body),
+        })
     }
     pub(crate) fn fold(&self, list: Expr, init: Expr, acc: &str, item: &str, body: Expr) -> Expr {
         self.ex(ExprKind::Fold {
@@ -204,11 +238,28 @@ impl Lower<'_> {
         };
         let (op, list, binder, body) = match out.kind {
             // v1.9：辞書の操作（a、b は鍵と値の型）
-            ExprKind::Call { callee, args, builtin: true, .. } if DICT_OPS.contains(&callee.as_str()) => {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin: true,
+                ..
+            } if DICT_OPS.contains(&callee.as_str()) => {
                 return self.dict_op(e.meta, &callee, args, &a, &b);
             }
-            ExprKind::Hof { op, list, binder, body, .. } => (op, list, binder, body),
-            ExprKind::Loop { init, max, binder, body, .. } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
+            ExprKind::Hof {
+                op,
+                list,
+                binder,
+                body,
+                ..
+            } => (op, list, binder, body),
+            ExprKind::Loop {
+                init,
+                max,
+                binder,
+                body,
+                ..
+            } => return self.loop_(e.meta, *init, *max, binder, *body, &a),
             _ => return out,
         };
         let k = B { m: e.meta };
@@ -246,13 +297,21 @@ impl Lower<'_> {
                 k.fold(xs, k.none(&a), &acc, &x, step)
             }
             HofOp::SortBy => {
-                let (el, st, y, kv, ke, r) = (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+                let (el, st, y, kv, ke, r) = (
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                    self.fresh(),
+                );
                 let fst = |e: Expr| k.call("fst", vec![e]);
                 let snd = |e: Expr| k.call("snd", vec![e]);
                 let cons = |h: Expr, t: Expr| k.call("cons", vec![h, t]);
                 // st = pair(e の鍵（最初の反復で決まる）, pair(書き出した列（逆順）, e を入れたか))
                 let out = || fst(snd(k.var(&st)));
-                let state = |rest: Expr, done: bool| k.pair(fst(k.var(&st)), k.pair(rest, k.bool(done)));
+                let state =
+                    |rest: Expr, done: bool| k.pair(fst(k.var(&st)), k.pair(rest, k.bool(done)));
                 let copy = state(cons(k.var(&y), out()), true);
                 let insert = state(cons(k.var(&y), cons(k.var(&el), out())), true);
                 let skip = state(cons(k.var(&y), out()), false);
@@ -271,7 +330,14 @@ impl Lower<'_> {
                 let init = k.pair(k.none(&Ty::int()), k.pair(k.empty(&a), k.bool(false)));
                 let scan = k.fold(cons(k.var(&el), k.var(&acc)), init, &st, &y, inner);
                 let rest = snd(k.var(&r));
-                let done = k.call("reverse", vec![k.if_(snd(rest.clone()), fst(rest.clone()), cons(k.var(&el), fst(rest)))]);
+                let done = k.call(
+                    "reverse",
+                    vec![k.if_(
+                        snd(rest.clone()),
+                        fst(rest.clone()),
+                        cons(k.var(&el), fst(rest)),
+                    )],
+                );
                 k.fold(xs, k.empty(&a), &acc, &el, k.let_(&r, scan, done))
             }
         }
@@ -290,7 +356,13 @@ impl Lower<'_> {
         let int = |n: u64| k.ex(ExprKind::Int(n.into()));
         let (mx, rg, one) = (self.fresh(), self.fresh(), self.fresh());
         let rt = type_node(&Ty::result(st.clone(), st.clone()), m);
-        let inj = |ok: bool, v: Expr| k.ex(ExprKind::Inj { ok, ty: rt.clone(), value: Box::new(v) });
+        let inj = |ok: bool, v: Expr| {
+            k.ex(ExprKind::Inj {
+                ok,
+                ty: rt.clone(),
+                value: Box::new(v),
+            })
+        };
         let match_result = |scrutinee: Expr, okb: &str, on_ok: Expr, errb: &str, on_err: Expr| {
             k.ex(ExprKind::MatchResult {
                 scrutinee: Box::new(scrutinee),
@@ -305,11 +377,23 @@ impl Lower<'_> {
         let fst = |e: Expr| k.call("fst", vec![e]);
         let snd = |e: Expr| k.call("snd", vec![e]);
         // 外側の段（LOOP_LEVELS - 1 段）の acc と item（外側から順）
-        let outer: Vec<(String, String)> = (1..LOOP_LEVELS).map(|_| (self.fresh(), self.fresh())).collect();
+        let outer: Vec<(String, String)> = (1..LOOP_LEVELS)
+            .map(|_| (self.fresh(), self.fresh()))
+            .collect();
         let (a, _) = &outer[outer.len() - 1];
         // 一番内側の段：n = min(LOOP_BASE, max - c) 歩を v1.6 当初の形の fold で進める（c >= max なら n <= 0 で何もしない）
-        let (n, acc, i, s2, d, res, x, nil) =
-            (self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh(), self.fresh());
+        let (n, acc, i, s2, d, res, x, s0) = (
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+            self.fresh(),
+        );
+        // 空のリスト list<Int>()（c >= max になった後に段 2〜15 が辿る）を束縛する名前
+        let nil = self.fresh();
         let step = k.ex(ExprKind::Match {
             scrutinee: Box::new(body),
             on_none: Box::new(inj(false, k.var(&s))),
@@ -325,30 +409,76 @@ impl Lower<'_> {
             match_result(k.var(&acc), &s, step, &d, inj(false, k.var(&d))),
         );
         // 止まったら c = max（それ以降、外側の段は残りの歩ごとに比較 1 回と空の fold で終わる）
-        let counted = k.pair(match_result(k.var(&res), &x, k.call("add", vec![fst(k.var(a)), k.var(&n)]), &x, k.var(&mx)), k.var(&res));
+        let counted = k.pair(
+            match_result(
+                k.var(&res),
+                &x,
+                k.call("add", vec![fst(k.var(a)), k.var(&n)]),
+                &x,
+                k.var(&mx),
+            ),
+            k.var(&res),
+        );
         let remaining = |a: &str| k.call("sub", vec![k.var(&mx), fst(k.var(a))]);
-        let mut inner = k.let_(&n, k.call("min", vec![int(LOOP_BASE), remaining(a)]), k.let_(&res, chunk, counted));
+        let mut inner = k.let_(
+            &n,
+            k.call("min", vec![int(LOOP_BASE), remaining(a)]),
+            k.let_(&res, chunk, counted),
+        );
         for j in (0..outer.len()).rev() {
             let (a, i) = &outer[j];
             // この段の 1 要素は LOOP_BASE^(LOOP_LEVELS - 1 - j) 歩を受け持つ。残りがそれより多ければ LOOP_BASE 要素、
             // そうでなければ 1 要素を辿る。外側の段の状態で c >= max なら（止まったか max 回評価した）空のリストを辿る
             let width = int(LOOP_BASE.pow(LOOP_LEVELS - 1 - j as u32));
             inner = if j == 0 {
-                let list = k.if_(k.call("lt", vec![width, k.var(&mx)]), k.var(&rg), k.var(&one));
-                k.fold(list, k.pair(int(0), inj(true, init.clone())), a, i, inner)
+                let list = k.if_(
+                    k.call("lt", vec![width, k.var(&mx)]),
+                    k.var(&rg),
+                    k.var(&one),
+                );
+                k.fold(list, k.var(&s0), a, i, inner)
             } else {
                 let prev = &outer[j - 1].0;
-                let list = k.if_(k.call("lt", vec![width, remaining(prev)]), k.var(&rg), k.var(&one));
-                let guarded = k.if_(k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]), list, k.var(&nil));
+                let list = k.if_(
+                    k.call("lt", vec![width, remaining(prev)]),
+                    k.var(&rg),
+                    k.var(&one),
+                );
+                let guarded = k.if_(
+                    k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]),
+                    list,
+                    k.var(&nil),
+                );
                 k.fold(guarded, k.var(prev), a, i, inner)
             };
         }
-        let r = self.fresh();
-        let result = match_result(snd(inner), &r, k.none(st), &d, k.ex(ExprKind::Some(Box::new(k.var(&d)))));
+        let (fr, r) = (self.fresh(), self.fresh());
+        let result = k.let_(
+            &fr,
+            inner,
+            match_result(
+                snd(k.var(&fr)),
+                &r,
+                k.none(st),
+                &d,
+                k.ex(ExprKind::Some(Box::new(k.var(&d)))),
+            ),
+        );
         let full = k.call("range", vec![int(0), int(LOOP_BASE)]);
         let single = k.call("range", vec![int(0), int(1)]);
         let empty = k.empty(&Ty::int());
-        k.let_(&mx, max, k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))))
+        // 段 1 の初期状態 pair(0, ok(init)) を一番外側で束縛するので、init は max より先に評価する。段 1 の fold の上は
+        // 束縛 6 個（s0、m、rg、one、nil、段の結果 fr）で、評価の順を変える前（束縛 4 個と match_result、snd）と同じ
+        // 深さ 6 になり、loop の本体の書換え後の深さは変わらない。
+        k.let_(
+            &s0,
+            k.pair(int(0), inj(true, init)),
+            k.let_(
+                &mx,
+                max,
+                k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))),
+            ),
+        )
     }
 }
 
@@ -361,14 +491,25 @@ pub fn lower(p: &Program, types: &HofTypes) -> Program {
         taken.extend(f.params.iter().map(|q| q.name.clone()));
         collect(&f.body, &mut taken);
     }
-    let mut l = Lower { types, taken, fresh: 0 };
+    let mut l = Lower {
+        types,
+        taken,
+        fresh: 0,
+    };
     let declarations = p
         .declarations
         .iter()
         .map(|d| match d {
-            Decl::Fn(f) => Decl::Fn(FnDecl { body: l.expr(&f.body), ..f.clone() }),
+            Decl::Fn(f) => Decl::Fn(FnDecl {
+                body: l.expr(&f.body),
+                ..f.clone()
+            }),
             d => d.clone(),
         })
         .collect();
-    Program { declarations, meta: p.meta, imports: p.imports.clone() }
+    Program {
+        declarations,
+        meta: p.meta,
+        imports: p.imports.clone(),
+    }
 }

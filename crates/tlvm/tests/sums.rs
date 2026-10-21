@@ -8,8 +8,15 @@ use tlvm::formatter::format_program;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, ext: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -72,7 +79,11 @@ fn exec(src: &str, args: &[&str], stdin: &[u8]) -> (i32, String, String) {
             .unwrap();
         c.stdin.take().unwrap().write_all(stdin).unwrap();
         let o = c.wait_with_output().unwrap();
-        (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+        (
+            o.status.code().unwrap(),
+            String::from_utf8(o.stdout).unwrap(),
+            String::from_utf8(o.stderr).unwrap(),
+        )
     })
 }
 
@@ -91,36 +102,69 @@ fn result_typing_and_eval() {
     assert_eq!(run(HALF, "4"), r#"{"ok":5}"#);
     assert_eq!(run(HALF, "3"), r#"{"err":"E:odd"}"#);
     // 値 JSON
-    assert_eq!(run_canonical(HALF, r#"{"tag":"int","value":"4"}"#), r#"{"tag":"ok","value":{"tag":"int","value":"5"}}"#);
+    assert_eq!(
+        run_canonical(HALF, r#"{"tag":"int","value":"4"}"#),
+        r#"{"tag":"ok","value":{"tag":"int","value":"5"}}"#
+    );
     // 入力の Result（plain と値 JSON）
     let src = "fn f(r: Result<Int, Bool>) -> Int = match_result(r, |n| n, |b| if(b, 1, 0)) entry f";
     assert_eq!(run(src, r#"{"ok": 7}"#), "7");
     assert_eq!(run(src, r#"{"err": true}"#), "1");
-    assert_eq!(run_canonical(src, r#"{"tag":"err","value":{"tag":"bool","value":false}}"#), r#"{"tag":"int","value":"0"}"#);
+    assert_eq!(
+        run_canonical(src, r#"{"tag":"err","value":{"tag":"bool","value":false}}"#),
+        r#"{"tag":"int","value":"0"}"#
+    );
     // 選ばれなかった枝は評価しない（0 による mod は none だが、ここでは呼ばれない）
     let lazy = "fn f(r: Result<Int, Int>) -> Int = match_result(r, |a| a, |b| match_option(mod(1, b), 0, |x| x)) entry f";
     assert_eq!(run(lazy, r#"{"ok": 3}"#), "3");
     // binder は二つの枝で同じ名前でもよい。ok／err は変数名にも使える
     let same = "fn f(r: Result<Int, Int>) -> Int = match_result(r, |x| x, |x| neg(x)) entry f";
     assert_eq!(run(same, r#"{"err": 3}"#), "-3");
-    let soft = "fn f(ok: Int) -> Result<Int, Int> = let err = add(ok, 1) in ok<Int, Int>(err) entry f";
+    let soft =
+        "fn f(ok: Int) -> Result<Int, Int> = let err = add(ok, 1) in ok<Int, Int>(err) entry f";
     assert_eq!(run(soft, "1"), r#"{"ok":2}"#);
 }
 
 #[test]
 fn result_diagnostics() {
-    assert_eq!(codes("fn f(x: Int) -> Int = match_result(x, |a| a, |b| b) entry f"), ["E-TYPE-MATCH-SCRUTINEE"]);
-    assert_eq!(codes("fn f(r: Result<Int, Bool>) -> Int = match_result(r, |a| a, |b| b) entry f"), ["E-TYPE-MATCH-BRANCH"]);
-    assert_eq!(codes("fn f(x: Int) -> Result<Int, Int> = ok<Int, Bool>(x) entry f"), ["E-TYPE-RETURN"]);
-    assert_eq!(codes("fn f(x: Int) -> Result<Int, Bool> = err<Int, Bool>(x) entry f"), ["E-TYPE-ARG"]);
-    assert_eq!(codes("fn f(r: Result<Int, Int>) -> Int = match_result(r, |r| r, |b| b) entry f"), ["E-NAME-SHADOW"]);
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = match_result(x, |a| a, |b| b) entry f"),
+        ["E-TYPE-MATCH-SCRUTINEE"]
+    );
+    assert_eq!(
+        codes("fn f(r: Result<Int, Bool>) -> Int = match_result(r, |a| a, |b| b) entry f"),
+        ["E-TYPE-MATCH-BRANCH"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Result<Int, Int> = ok<Int, Bool>(x) entry f"),
+        ["E-TYPE-RETURN"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Result<Int, Bool> = err<Int, Bool>(x) entry f"),
+        ["E-TYPE-ARG"]
+    );
+    assert_eq!(
+        codes("fn f(r: Result<Int, Int>) -> Int = match_result(r, |r| r, |b| b) entry f"),
+        ["E-NAME-SHADOW"]
+    );
     // 型引数を書かない ok(x)：修復ヒントで ok<T, E>(x) を示す
     let r = compiled("fn f(x: Int) -> Result<Int, Int> = ok(x) entry f");
     assert_eq!(r.errors()[0].code, "E-PARSE-EXPECTED-TOKEN");
-    assert!(r.errors()[0].repair.as_ref().unwrap().constraint.contains("ok<T, E>(x)"));
+    assert!(r.errors()[0]
+        .repair
+        .as_ref()
+        .unwrap()
+        .constraint
+        .contains("ok<T, E>(x)"));
     // Result と match_result は予約語
-    assert_eq!(codes("fn f(Result: Int) -> Int = 1 entry f"), ["E-PARSE-EXPECTED-IDENT"]);
-    assert_eq!(codes("fn f(match_result: Int) -> Int = 1 entry f"), ["E-PARSE-EXPECTED-IDENT"]);
+    assert_eq!(
+        codes("fn f(Result: Int) -> Int = 1 entry f"),
+        ["E-PARSE-EXPECTED-IDENT"]
+    );
+    assert_eq!(
+        codes("fn f(match_result: Int) -> Int = 1 entry f"),
+        ["E-PARSE-EXPECTED-IDENT"]
+    );
 }
 
 #[test]
@@ -133,9 +177,22 @@ fn result_formatting_and_ast_round_trip() {
         assert_eq!(out, src);
         let (code, ast, _) = tlvm(&["ast", p]);
         assert_eq!(code, 0);
-        assert!(ast.contains(r#"{"tag":"result","ok":{"tag":"int"},"err":{"tag":"string"}}"#), "{ast}");
-        assert!(ast.contains(r#""tag":"match_result","scrutinee":{"tag":"var","name":"r"},"ok_binder":"v""#), "{ast}");
-        assert!(ast.contains(r#"{"tag":"err","ok_type":{"tag":"string"},"err_type":{"tag":"int"},"value":"#), "{ast}");
+        assert!(
+            ast.contains(r#"{"tag":"result","ok":{"tag":"int"},"err":{"tag":"string"}}"#),
+            "{ast}"
+        );
+        assert!(
+            ast.contains(
+                r#""tag":"match_result","scrutinee":{"tag":"var","name":"r"},"ok_binder":"v""#
+            ),
+            "{ast}"
+        );
+        assert!(
+            ast.contains(
+                r#"{"tag":"err","ok_type":{"tag":"string"},"err_type":{"tag":"int"},"value":"#
+            ),
+            "{ast}"
+        );
         with_file(ast.trim_end(), "json", |j| {
             let (code, out, err) = tlvm(&["fmt", j]);
             assert_eq!(code, 0, "{err}");
@@ -157,7 +214,13 @@ entry solve
 
 #[test]
 fn sum_construct_match_and_plain_json() {
-    assert_eq!(run(SHAPES, r#"[{"Circle": [2]}, {"Rect": [2, 3]}, {"Empty": []}]"#), "18");
+    assert_eq!(
+        run(
+            SHAPES,
+            r#"[{"Circle": [2]}, {"Rect": [2, 3]}, {"Empty": []}]"#
+        ),
+        "18"
+    );
     let p = accepted(SHAPES);
     assert_eq!(p.input_type.to_string(), "List<Shape>");
     // 構築と plain 出力
@@ -166,7 +229,10 @@ type Box = Box1(Shape)
 fn solve(x: Int) -> Pair<List<Shape>, Box> = pair(list<Shape>(Circle(x), Rect(x, add(x, 1)), Empty), Box1(Empty))
 entry solve
 ";
-    assert_eq!(run(mk, "3"), r#"[[{"Circle":[3]},{"Rect":[3,4]},{"Empty":[]}],{"Box1":[{"Empty":[]}]}]"#);
+    assert_eq!(
+        run(mk, "3"),
+        r#"[[{"Circle":[3]},{"Rect":[3,4]},{"Empty":[]}],{"Box1":[{"Empty":[]}]}]"#
+    );
     // 値 JSON は展開後の形（Result<Int, Result<Pair<Int, Int>, Unit>>）
     let one = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\nfn solve(x: Int) -> Shape = Rect(x, 1)\nentry solve\n";
     assert_eq!(
@@ -177,7 +243,10 @@ entry solve
     with_file(SHAPES, "tlvm", |p| {
         let (code, _, err) = tlvm(&["run", p, r#"[{"Square": [1]}]"#, "--plain"]);
         assert_eq!(code, 1);
-        assert!(err.contains("E-INPUT-TAG") && err.contains("Circle | Rect | Empty"), "{err}");
+        assert!(
+            err.contains("E-INPUT-TAG") && err.contains("Circle | Rect | Empty"),
+            "{err}"
+        );
         let (code, _, err) = tlvm(&["run", p, r#"[{"Rect": [1]}]"#, "--plain"]);
         assert_eq!(code, 1);
         assert!(err.contains("E-INPUT-FIELD-TYPE"), "{err}");
@@ -199,10 +268,16 @@ fn solve(t: Tagged) -> Pair<Int, Wrap> = pair(len(t.shape), match t.shape { Dot(
 entry solve
 ";
     assert_eq!(
-        run(src, r#"{"shape": {"Seg": [{"x": 1, "y": 1}, {"x": 4, "y": 5}]}, "label": "s"}"#),
+        run(
+            src,
+            r#"{"shape": {"Seg": [{"x": 1, "y": 1}, {"x": 4, "y": 5}]}, "label": "s"}"#
+        ),
         r#"[7,{"Wrap1":[{"x":1,"y":1}]}]"#
     );
-    assert_eq!(run(src, r#"{"shape": {"Nothing": []}, "label": ""}"#), r#"[0,{"Wrap1":[{"x":0,"y":0}]}]"#);
+    assert_eq!(
+        run(src, r#"{"shape": {"Nothing": []}, "label": ""}"#),
+        r#"[0,{"Wrap1":[{"x":0,"y":0}]}]"#
+    );
 }
 
 #[test]
@@ -249,7 +324,10 @@ entry area
         // tlvm ast は展開後（ok／err・match_result）の AST。検証済み部品が受理する
         let (code, ast, _) = tlvm(&["ast", p]);
         assert_eq!(code, 0);
-        assert!(ast.contains("\"tag\":\"match_result\"") && !ast.contains("Circle"), "{ast}");
+        assert!(
+            ast.contains("\"tag\":\"match_result\"") && !ast.contains("Circle"),
+            "{ast}"
+        );
         with_file(ast.trim_end(), "json", |j| {
             let (code, out, err) = tlvm(&["check", j]);
             assert_eq!(code, 0, "{err}");
@@ -263,48 +341,123 @@ entry area
     };
     let text = format_program(&lower(&expand(&p).unwrap()));
     assert!(text.contains("match_result(s, |r| r, |sum"), "{text}");
-    assert_eq!(canonical(&text, &StaticProfile::default()).as_deref(), Some(text.as_str()));
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
 }
 
 #[test]
 fn sum_diagnostics() {
     let h = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\n";
     let c = |body: &str| codes(&format!("{h}{body} entry f"));
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => w }"), ["E-MATCH-MISSING"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(r) => r, Circle(q) => q, _ => 0 }"), ["E-MATCH-DUPLICATE"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { _ => 0, Empty => 1 }"), ["E-MATCH-UNREACHABLE"]);
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => w }"),
+        ["E-MATCH-MISSING"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circle(r) => r, Circle(q) => q, _ => 0 }"),
+        ["E-MATCH-DUPLICATE"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { _ => 0, Empty => 1 }"),
+        ["E-MATCH-UNREACHABLE"]
+    );
     assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => w, Empty => 0, _ => 1 }"), ["E-MATCH-UNREACHABLE"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(r) => r, ok(x) => x, _ => 0 }"), ["E-MATCH-MIXED"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circel(r) => r, _ => 0 }"), ["E-SUM-UNKNOWN-CTOR"]);
-    assert_eq!(c("fn f(s: Int) -> Shape = Circel(s)"), ["E-SUM-UNKNOWN-CTOR"]);
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circle(r) => r, ok(x) => x, _ => 0 }"),
+        ["E-MATCH-MIXED"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circel(r) => r, _ => 0 }"),
+        ["E-SUM-UNKNOWN-CTOR"]
+    );
+    assert_eq!(
+        c("fn f(s: Int) -> Shape = Circel(s)"),
+        ["E-SUM-UNKNOWN-CTOR"]
+    );
     assert_eq!(c("fn f(s: Int) -> Shape = Emty"), ["E-SUM-UNKNOWN-CTOR"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Rect(w) => w, _ => 0 }"), ["E-SUM-CTOR-ARITY"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Empty() => 0, _ => 1 }"), ["E-SUM-CTOR-ARITY"]);
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Rect(w) => w, _ => 0 }"),
+        ["E-SUM-CTOR-ARITY"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Empty() => 0, _ => 1 }"),
+        ["E-SUM-CTOR-ARITY"]
+    );
     assert_eq!(c("fn f(s: Int) -> Shape = Rect(s)"), ["E-SUM-CTOR-ARITY"]);
     assert_eq!(c("fn f(s: Int) -> Shape = Circle"), ["E-SUM-CTOR-ARITY"]);
     assert_eq!(c("fn f(s: Int) -> Shape = Empty()"), ["E-SUM-CTOR-ARITY"]);
     assert_eq!(c("fn f(Circle: Int) -> Int = 1"), ["E-SUM-NAME-CONFLICT"]);
-    assert_eq!(c("fn f(s: Int) -> Int = let Empty = 1 in Empty"), ["E-SUM-NAME-CONFLICT"]);
-    assert_eq!(c("fn Rect(s: Int) -> Int = 1 fn f(s: Int) -> Int = 1"), ["E-SUM-NAME-CONFLICT"]);
-    assert_eq!(codes("type S = S | T fn f(s: Int) -> Int = 1 entry f"), ["E-SUM-NAME-CONFLICT"]);
-    assert_eq!(c("type T = Empty | Full fn f(s: Int) -> Int = 1"), ["E-SUM-DUPLICATE-CTOR"]);
-    assert_eq!(codes("type T = A | B | A fn f(s: Int) -> Int = 1 entry f"), ["E-SUM-DUPLICATE-CTOR"]);
-    assert_eq!(c("fn f(s: Int) -> Int = match s { _ => 0 }"), ["E-TYPE-MATCH-SCRUTINEE"]);
-    assert_eq!(c("fn f(s: Int) -> Int = match s { Empty => 0, _ => 1 }"), ["E-TYPE-MATCH-SCRUTINEE"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(r) => r, _ => true }"), ["E-TYPE-MATCH-BRANCH"]);
+    assert_eq!(
+        c("fn f(s: Int) -> Int = let Empty = 1 in Empty"),
+        ["E-SUM-NAME-CONFLICT"]
+    );
+    assert_eq!(
+        c("fn Rect(s: Int) -> Int = 1 fn f(s: Int) -> Int = 1"),
+        ["E-SUM-NAME-CONFLICT"]
+    );
+    assert_eq!(
+        codes("type S = S | T fn f(s: Int) -> Int = 1 entry f"),
+        ["E-SUM-NAME-CONFLICT"]
+    );
+    assert_eq!(
+        c("type T = Empty | Full fn f(s: Int) -> Int = 1"),
+        ["E-SUM-DUPLICATE-CTOR"]
+    );
+    assert_eq!(
+        codes("type T = A | B | A fn f(s: Int) -> Int = 1 entry f"),
+        ["E-SUM-DUPLICATE-CTOR"]
+    );
+    assert_eq!(
+        c("fn f(s: Int) -> Int = match s { _ => 0 }"),
+        ["E-TYPE-MATCH-SCRUTINEE"]
+    );
+    assert_eq!(
+        c("fn f(s: Int) -> Int = match s { Empty => 0, _ => 1 }"),
+        ["E-TYPE-MATCH-SCRUTINEE"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circle(r) => r, _ => true }"),
+        ["E-TYPE-MATCH-BRANCH"]
+    );
     assert_eq!(c("fn f(s: Int) -> Shape = Circle(true)"), ["E-TYPE-ARG"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Rect(a, a) => a, _ => 0 }"), ["E-NAME-DUPLICATE-BINDER"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Circle(s) => s, _ => 0 }"), ["E-NAME-SHADOW"]);
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Rect(a, a) => a, _ => 0 }"),
+        ["E-NAME-DUPLICATE-BINDER"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Circle(s) => s, _ => 0 }"),
+        ["E-NAME-SHADOW"]
+    );
     // 再帰型・宣言前の型・未知の型
     // v1.14：自分自身を項に含む型は再帰する型として受理する（tests/recursive.rs）
     assert!(codes("type L = Nil | Cons(Int, L) fn f(s: Int) -> Int = 1 entry f").is_empty());
-    assert_eq!(codes("type S = A(P) | B type P = { x: Int } fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
-    assert_eq!(codes("type S = A(Foo) | B fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-UNKNOWN-TYPE"]);
-    assert_eq!(codes("type S = A | B type S = C fn f(s: Int) -> Int = 1 entry f"), ["E-RECORD-DUPLICATE-TYPE"]);
+    assert_eq!(
+        codes("type S = A(P) | B type P = { x: Int } fn f(s: Int) -> Int = 1 entry f"),
+        ["E-RECORD-UNKNOWN-TYPE"]
+    );
+    assert_eq!(
+        codes("type S = A(Foo) | B fn f(s: Int) -> Int = 1 entry f"),
+        ["E-RECORD-UNKNOWN-TYPE"]
+    );
+    assert_eq!(
+        codes("type S = A | B type S = C fn f(s: Int) -> Int = 1 entry f"),
+        ["E-RECORD-DUPLICATE-TYPE"]
+    );
     // 構文：小文字の構築子、pattern、`=>`
-    assert_eq!(codes("type S = a | B fn f(s: Int) -> Int = 1 entry f"), ["E-PARSE-EXPECTED-IDENT"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { 1 => 0 }"), ["E-PARSE-EXPECTED-PATTERN"]);
-    assert_eq!(c("fn f(s: Shape) -> Int = match s { Empty -> 0 }"), ["E-PARSE-EXPECTED-TOKEN"]);
+    assert_eq!(
+        codes("type S = a | B fn f(s: Int) -> Int = 1 entry f"),
+        ["E-PARSE-EXPECTED-IDENT"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { 1 => 0 }"),
+        ["E-PARSE-EXPECTED-PATTERN"]
+    );
+    assert_eq!(
+        c("fn f(s: Shape) -> Int = match s { Empty -> 0 }"),
+        ["E-PARSE-EXPECTED-TOKEN"]
+    );
 }
 
 #[test]
@@ -315,7 +468,11 @@ fn sum_repair_hints() {
     assert_eq!(d.expected.as_deref(), Some("Rect(_, _), Empty"));
     let r = d.repair.unwrap();
     assert_eq!(r.kind, "insert_text");
-    assert!(r.constraint.contains("Rect(_, _) => ..., Empty => ..."), "{}", r.constraint);
+    assert!(
+        r.constraint.contains("Rect(_, _) => ..., Empty => ..."),
+        "{}",
+        r.constraint
+    );
     let d = first("fn f(s: Int) -> Shape = Rectt(s, s)");
     assert!(d.repair.unwrap().constraint.contains("Rect"));
     let d = first("fn f(s: Shape) -> Int = match s { Rect(w) => w, _ => 0 }");
@@ -332,7 +489,8 @@ fn sum_and_result_names_in_messages() {
     assert_eq!(d.code, "E-TYPE-RETURN");
     assert_eq!(d.actual.as_deref(), Some("Shape"));
     // v1.15：型の等価性は型の名前で決まる（同じ形の Result とは別の型。文面は両方の名前で出る）
-    let r = compiled("type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n");
+    let r =
+        compiled("type Opt = Has(Int) | Nothing\nfn f(x: Result<Int, Unit>) -> Opt = x\nentry f\n");
     let d = &r.errors()[0];
     assert_eq!(d.code, "E-TYPE-RETURN");
     assert_eq!(d.expected.as_deref(), Some("Opt"));
@@ -349,7 +507,10 @@ entry solve
 #[test]
 fn exec_result_output() {
     assert_eq!(exec(CHECK, &[], b"abc"), (0, "cba".into(), String::new()));
-    assert_eq!(exec(CHECK, &[], b""), (1, String::new(), "empty input\n".into()));
+    assert_eq!(
+        exec(CHECK, &[], b""),
+        (1, String::new(), "empty input\n".into())
+    );
     // 直和型・match を使うプログラムも exec できる
     let src = "type Cmd = Add(Int) | Neg
 fn parse(w: String) -> Result<Cmd, String> =
@@ -360,9 +521,40 @@ fn solve(args: List<String>) -> Result<String, String> =
   match fold(args, ok<Int, String>(0), |acc, w| step(acc, w)) { ok(v) => ok<String, String>(to_string(v)), err(e) => err<String, String>(e) }
 entry solve
 ";
-    assert_eq!(exec(src, &["1", "2", "neg"], b""), (0, "-3".into(), String::new()));
-    assert_eq!(exec(src, &["1", "x"], b""), (1, String::new(), "bad: x".into()));
+    assert_eq!(
+        exec(src, &["1", "2", "neg"], b""),
+        (0, "-3".into(), String::new())
+    );
+    assert_eq!(
+        exec(src, &["1", "x"], b""),
+        (1, String::new(), "bad: x".into())
+    );
     // 他の Result 出力は従来どおり plain JSON
-    let other = "fn solve(s: String) -> Result<Int, String> = ok<Int, String>(length(s)) entry solve";
-    assert_eq!(exec(other, &[], b"abcd"), (0, "{\"ok\":4}\n".into(), String::new()));
+    let other =
+        "fn solve(s: String) -> Result<Int, String> = ok<Int, String>(length(s)) entry solve";
+    assert_eq!(
+        exec(other, &[], b"abcd"),
+        (0, "{\"ok\":4}\n".into(), String::new())
+    );
+}
+
+#[test]
+fn wildcard_only_match_is_accepted_on_sums_and_options() {
+    // 最後の `_ => e` だけの match は、残りの全部の場合をまとめる（v1.4 の規則）。枝から族が決まらないので
+    // MatchKind::Any になり、直和型と Option の対象を受理する。値は `_` の枝が決める（§18.1c の O-5）。
+    let sum = "type T = A | B\nfn f(x: T) -> Int = match x { _ => 0 }\nentry f\n";
+    let opt = "fn f(x: Option<Int>) -> Int = match x { _ => 0 }\nentry f\n";
+    for src in [sum, opt] {
+        assert!(
+            matches!(
+                compile(src.as_bytes(), &StaticProfile::default()),
+                SourceCompile::Result(CompileResult::Accepted { .. })
+            ),
+            "{src}"
+        );
+    }
+    with_file(sum, "tlvm", |p| {
+        let (code, out, _) = tlvm(&["run", p, r#"{"A":[]}"#, "--plain"]);
+        assert_eq!((code, out.trim_end()), (0, "0"));
+    });
 }

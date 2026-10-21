@@ -73,7 +73,7 @@ Int
 
 標準入出力の JSON-RPC（`Content-Length` の header）で話す最小の server です。文書を開く・変えるたびに診断
 （`publishDiagnostics`。位置は UTF-16 の列、修復ヒントは message に添える）を出し、`textDocument/formatting` で正準の整形
-（`tlvm fmt` と同じ。構文の誤りがあれば何もしない）を返します。`file://` の文書の import は、開いている文書を先に、なければ
+（`tlvm fmt` と同じ。構文・名前・型などの検査に誤りがあれば何もしない）を返します。`file://` の文書の import は、開いている文書を先に、なければ
 ディスクを読みます。editor では、拡張子 `.tlvm` の言語の server のコマンドを `tlvm lsp` にします。例：
 
 - Neovim（0.11 以降）：`vim.lsp.config('tlvm', { cmd = { 'tlvm', 'lsp' }, filetypes = { 'tlvm' } })` と `vim.lsp.enable('tlvm')`

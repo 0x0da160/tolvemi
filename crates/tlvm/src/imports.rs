@@ -37,15 +37,26 @@ pub struct FsLoader {
 impl FsLoader {
     /// `root_path` は根のファイルのパス（CLI に渡されたもの）。
     pub fn new(root_path: &str) -> FsLoader {
-        FsLoader { root_dir: Path::new(root_path).parent().map(Path::to_path_buf).unwrap_or_default() }
+        FsLoader {
+            root_dir: Path::new(root_path)
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
+        }
     }
 }
 
 impl Loader for FsLoader {
     fn load(&mut self, rel: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
-        let dir = if self.root_dir.as_os_str().is_empty() { Path::new(".") } else { self.root_dir.as_path() };
+        let dir = if self.root_dir.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            self.root_dir.as_path()
+        };
         let path = dir.join(rel);
-        let (Ok(real), Ok(base)) = (path.canonicalize(), dir.canonicalize()) else { return Err("no such file".into()) };
+        let (Ok(real), Ok(base)) = (path.canonicalize(), dir.canonicalize()) else {
+            return Err("no such file".into());
+        };
         if !real.starts_with(&base) {
             return Err("resolves outside the root file's directory".into());
         }
@@ -54,7 +65,9 @@ impl Loader for FsLoader {
         }
         let f = std::fs::File::open(&real).map_err(|e| e.to_string())?;
         let mut v = vec![];
-        f.take(max_bytes as u64 + 1).read_to_end(&mut v).map_err(|e| e.to_string())?;
+        f.take(max_bytes as u64 + 1)
+            .read_to_end(&mut v)
+            .map_err(|e| e.to_string())?;
         Ok(v)
     }
     fn display(&self, rel: &str) -> String {
@@ -85,7 +98,10 @@ impl MapLoader<'_> {
 
 impl Loader for MapLoader<'_> {
     fn load(&mut self, rel: &str, _max_bytes: usize) -> Result<Vec<u8>, String> {
-        self.files.get(&self.key(rel)).map(|s| s.as_bytes().to_vec()).ok_or_else(|| "not in the map of sources".into())
+        self.files
+            .get(&self.key(rel))
+            .map(|s| s.as_bytes().to_vec())
+            .ok_or_else(|| "not in the map of sources".into())
     }
     fn display(&self, rel: &str) -> String {
         self.key(rel)
@@ -100,7 +116,10 @@ fn check_path(path: &str) -> Result<(), &'static str> {
     if path.starts_with('/') {
         return Err("absolute paths are not allowed");
     }
-    if path.chars().any(|c| c == '\\' || c == ':' || c.is_control()) {
+    if path
+        .chars()
+        .any(|c| c == '\\' || c == ':' || c.is_control())
+    {
         return Err("use '/' as the separator; '\\', ':' and control characters are not allowed");
     }
     if !path.ends_with(".tlvm") {
@@ -204,7 +223,10 @@ impl Merged {
     }
 
     pub fn source_of(&self, file: &str) -> Option<&[u8]> {
-        self.files.iter().find(|(f, _)| f == file).map(|(_, b)| b.as_slice())
+        self.files
+            .iter()
+            .find(|(f, _)| f == file)
+            .map(|(_, b)| b.as_slice())
     }
 }
 
@@ -213,9 +235,14 @@ pub enum Resolved {
     Single,
     Merged(Merged),
     /// 解決の誤り・読んだファイルの構文の誤り・名前の衝突（`file` 付き）。読めたファイルの名前と中身も返す
-    Rejected { errors: Vec<Diagnostic>, files: Vec<(String, Vec<u8>)> },
+    Rejected {
+        errors: Vec<Diagnostic>,
+        files: Vec<(String, Vec<u8>)>,
+    },
     /// 読んだファイルが UTF-8 でない
-    SourceBoundaryFailure { file: String },
+    SourceBoundaryFailure {
+        file: String,
+    },
 }
 
 struct File {
@@ -276,14 +303,24 @@ impl Walk<'_> {
         if let Some(s) = self.pkgs.get(dir) {
             return s.clone();
         }
-        let key = if dir.is_empty() { packages::MANIFEST.to_string() } else { format!("{dir}/{}", packages::MANIFEST) };
+        let key = if dir.is_empty() {
+            packages::MANIFEST.to_string()
+        } else {
+            format!("{dir}/{}", packages::MANIFEST)
+        };
         let display = self.loader.display(&key);
         let s = match self.loader.load(&key, packages::MANIFEST_MAX_BYTES) {
             Err(_) => Slot::Absent,
             Ok(bytes) => {
                 self.manifests.push((display.clone(), bytes.clone()));
                 match packages::parse(&bytes) {
-                    Ok(m) => Slot::Pkg(Rc::new(Pkg { dir: dir.to_string(), display, name: m.name, version: m.version, deps: m.deps })),
+                    Ok(m) => Slot::Pkg(Rc::new(Pkg {
+                        dir: dir.to_string(),
+                        display,
+                        name: m.name,
+                        version: m.version,
+                        deps: m.deps,
+                    })),
                     Err((why, span)) => {
                         self.diags.push(err("E-PKG-MANIFEST", &display, span).act(why).fix(
                             "replace_expression",
@@ -321,10 +358,18 @@ impl Walk<'_> {
         let dir = match packages::join_dir(&from.dir, &dep.path) {
             Ok(d) if !d.is_empty() && d != from.dir => d,
             Ok(_) => {
-                self.diags.push(err("E-PKG-PATH", &from.display, dep.path_span).act(format!(
+                self.diags.push(
+                    err("E-PKG-PATH", &from.display, dep.path_span)
+                        .act(format!(
                     "\"{}\": resolves to the project root or to the declaring package itself",
                     dep.path
-                )).fix("replace_expression", dep.path_span, "a path to a subdirectory that holds the dependency's tlvm.json"));
+                ))
+                        .fix(
+                            "replace_expression",
+                            dep.path_span,
+                            "a path to a subdirectory that holds the dependency's tlvm.json",
+                        ),
+                );
                 return Err(());
             }
             Err(why) => {
@@ -339,32 +384,47 @@ impl Walk<'_> {
         let p = match self.slot(&dir) {
             Slot::Pkg(p) => p,
             Slot::Absent => {
-                self.diags.push(err("E-PKG-NOT-FOUND", &from.display, dep.path_span).act(format!("{dir}/{}: no such file", packages::MANIFEST)).fix(
-                    "replace_expression",
-                    dep.path_span,
-                    "the path of a directory that holds a tlvm.json declaring the package",
-                ));
+                self.diags.push(
+                    err("E-PKG-NOT-FOUND", &from.display, dep.path_span)
+                        .act(format!("{dir}/{}: no such file", packages::MANIFEST))
+                        .fix(
+                            "replace_expression",
+                            dep.path_span,
+                            "the path of a directory that holds a tlvm.json declaring the package",
+                        ),
+                );
                 return Err(());
             }
             Slot::Bad => return Err(()),
         };
         if p.name.as_deref() != Some(name) {
-            let said = p.name.as_deref().map_or("no name".to_string(), |n| format!("\"{n}\""));
-            self.diags.push(err("E-PKG-NAME", &from.display, dep.name_span).act(format!("{name}: {} says {said}", p.display)).fix(
-                "replace_identifier",
-                dep.name_span,
-                "the dependency's name, the same as the \"name\" in its tlvm.json",
-            ));
+            let said = p
+                .name
+                .as_deref()
+                .map_or("no name".to_string(), |n| format!("\"{n}\""));
+            self.diags.push(
+                err("E-PKG-NAME", &from.display, dep.name_span)
+                    .act(format!("{name}: {} says {said}", p.display))
+                    .fix(
+                        "replace_identifier",
+                        dep.name_span,
+                        "the dependency's name, the same as the \"name\" in its tlvm.json",
+                    ),
+            );
             return Err(());
         }
         if let Some(pin) = &dep.pin {
             if p.version.as_deref() != Some(pin.as_str()) {
                 let has = p.version.as_deref().unwrap_or("no version");
-                self.diags.push(err("E-PKG-VERSION", &from.display, dep.pin_span).act(format!("{name}: pinned {pin}, but {} has {has}", p.display)).fix(
-                    "replace_expression",
-                    dep.pin_span,
-                    "the version of the dependency's tlvm.json, or the version it declares",
-                ));
+                self.diags.push(
+                    err("E-PKG-VERSION", &from.display, dep.pin_span)
+                        .act(format!("{name}: pinned {pin}, but {} has {has}", p.display))
+                        .fix(
+                            "replace_expression",
+                            dep.pin_span,
+                            "the version of the dependency's tlvm.json, or the version it declares",
+                        ),
+                );
                 return Err(());
             }
         }
@@ -372,7 +432,13 @@ impl Walk<'_> {
     }
 
     /// `@名前/パス` の import（v1.16）を、依存のディレクトリからの正規形の相対パスにする。`body` は `@` の後ろ。
-    fn package_target(&mut self, i: usize, body: &str, span: (usize, usize), from: &str) -> Result<String, ()> {
+    fn package_target(
+        &mut self,
+        i: usize,
+        body: &str,
+        span: (usize, usize),
+        from: &str,
+    ) -> Result<String, ()> {
         let dir = dir_of(&self.files[i].rel).to_string();
         let Some(pkg) = self.nearest(&dir)? else {
             self.diags.push(err("E-PKG-UNKNOWN", from, span).act(format!("@{body}: this file is in no package (no tlvm.json at or above its directory)")).fix(
@@ -383,48 +449,76 @@ impl Walk<'_> {
             return Err(());
         };
         let Some((name, path)) = body.split_once('/') else {
-            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{body}\": expected @name/path.tlvm")).fix(
-                "replace_expression",
-                span,
-                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
-            ));
+            self.diags.push(
+                err("E-IMPORT-PATH", from, span)
+                    .act(format!("\"@{body}\": expected @name/path.tlvm"))
+                    .fix(
+                        "replace_expression",
+                        span,
+                        "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+                    ),
+            );
             return Err(());
         };
         if !packages::valid_name(name) {
-            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{body}\": the name must match [a-z][a-z0-9_]*")).fix(
-                "replace_expression",
-                span,
-                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
-            ));
+            self.diags.push(
+                err("E-IMPORT-PATH", from, span)
+                    .act(format!("\"@{body}\": the name must match [a-z][a-z0-9_]*"))
+                    .fix(
+                        "replace_expression",
+                        span,
+                        "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+                    ),
+            );
             return Err(());
         }
         if !pkg.deps.contains_key(name) {
             let declared: Vec<&str> = pkg.deps.keys().map(String::as_str).collect();
-            let list = if declared.is_empty() { "none".to_string() } else { declared.join(", ") };
-            self.diags.push(err("E-PKG-UNKNOWN", from, span).act(format!("@{name}: not a dependency of this package (declared: {list})")).fix(
-                "replace_expression",
-                span,
-                "the name of a dependency declared in tlvm.json, or a relative path",
-            ));
+            let list = if declared.is_empty() {
+                "none".to_string()
+            } else {
+                declared.join(", ")
+            };
+            self.diags.push(
+                err("E-PKG-UNKNOWN", from, span)
+                    .act(format!(
+                        "@{name}: not a dependency of this package (declared: {list})"
+                    ))
+                    .fix(
+                        "replace_expression",
+                        span,
+                        "the name of a dependency declared in tlvm.json, or a relative path",
+                    ),
+            );
             return Err(());
         }
         let dep = self.dependency(&pkg, name)?;
         if let Err(why) = check_path(path) {
-            self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{name}/{path}\": {why}")).fix(
-                "replace_expression",
-                span,
-                "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
-            ));
+            self.diags.push(
+                err("E-IMPORT-PATH", from, span)
+                    .act(format!("\"@{name}/{path}\": {why}"))
+                    .fix(
+                        "replace_expression",
+                        span,
+                        "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+                    ),
+            );
             return Err(());
         }
         match packages::join_dir(&dep.dir, path) {
             Ok(key) if key.starts_with(&format!("{}/", dep.dir)) => Ok(key),
             _ => {
-                self.diags.push(err("E-IMPORT-PATH", from, span).act(format!("\"@{name}/{path}\": must stay inside the dependency's directory")).fix(
-                    "replace_expression",
-                    span,
-                    "a path inside the dependency's directory",
-                ));
+                self.diags.push(
+                    err("E-IMPORT-PATH", from, span)
+                        .act(format!(
+                            "\"@{name}/{path}\": must stay inside the dependency's directory"
+                        ))
+                        .fix(
+                            "replace_expression",
+                            span,
+                            "a path inside the dependency's directory",
+                        ),
+                );
                 Err(())
             }
         }
@@ -432,7 +526,11 @@ impl Walk<'_> {
 
     fn visit(&mut self, i: usize) {
         self.stack.push(i);
-        let imports = self.files[i].program.as_ref().map(|p| p.imports.clone()).unwrap_or_default();
+        let imports = self.files[i]
+            .program
+            .as_ref()
+            .map(|p| p.imports.clone())
+            .unwrap_or_default();
         let from = self.files[i].display.clone();
         for imp in imports {
             if self.stop {
@@ -457,7 +555,10 @@ impl Walk<'_> {
                 }
             };
             if let Some(pos) = self.stack.iter().position(|&j| self.files[j].rel == target) {
-                let mut cycle: Vec<String> = self.stack[pos..].iter().map(|&j| self.files[j].display.clone()).collect();
+                let mut cycle: Vec<String> = self.stack[pos..]
+                    .iter()
+                    .map(|&j| self.files[j].display.clone())
+                    .collect();
                 cycle.push(self.files[self.stack[pos]].display.clone());
                 self.diags.push(err("E-IMPORT-CYCLE", &from, imp.span.t()).act(cycle.join(" -> ")).fix(
                     "delete_span",
@@ -520,7 +621,12 @@ impl Walk<'_> {
             };
             let j = self.files.len();
             self.index.insert(target.clone(), j);
-            self.files.push(File { rel: target, display, bytes, program });
+            self.files.push(File {
+                rel: target,
+                display,
+                bytes,
+                program,
+            });
             if self.files[j].program.is_some() {
                 self.visit(j);
             }
@@ -551,15 +657,28 @@ fn declared(p: &Program) -> Vec<(String, (usize, usize))> {
 
 /// 根のファイルから import をたどり、一つの source にまとめる。`root_rel` は根のファイル名（ディレクトリを除いた名前）、
 /// `root_display` は診断に出す根の名前。
-pub fn resolve(root_display: &str, root_rel: &str, root: &[u8], loader: &mut dyn Loader, profile: &StaticProfile) -> Resolved {
-    let Parsed::Program(rp) = parse_source(root, profile) else { return Resolved::Single };
+pub fn resolve(
+    root_display: &str,
+    root_rel: &str,
+    root: &[u8],
+    loader: &mut dyn Loader,
+    profile: &StaticProfile,
+) -> Resolved {
+    let Parsed::Program(rp) = parse_source(root, profile) else {
+        return Resolved::Single;
+    };
     if rp.imports.is_empty() {
         return Resolved::Single;
     }
     let mut w = Walk {
         loader,
         profile,
-        files: vec![File { rel: root_rel.to_string(), display: root_display.to_string(), bytes: root.to_vec(), program: Some(rp) }],
+        files: vec![File {
+            rel: root_rel.to_string(),
+            display: root_display.to_string(),
+            bytes: root.to_vec(),
+            program: Some(rp),
+        }],
         index: HashMap::new(),
         stack: vec![],
         order: vec![],
@@ -572,13 +691,20 @@ pub fn resolve(root_display: &str, root_rel: &str, root: &[u8], loader: &mut dyn
     };
     w.index.insert(root_rel.to_string(), 0);
     w.visit(0);
-    let mut files: Vec<(String, Vec<u8>)> = w.files.iter().map(|f| (f.display.clone(), f.bytes.clone())).collect();
+    let mut files: Vec<(String, Vec<u8>)> = w
+        .files
+        .iter()
+        .map(|f| (f.display.clone(), f.bytes.clone()))
+        .collect();
     files.extend(w.manifests.iter().cloned());
     if let Some(file) = w.boundary {
         return Resolved::SourceBoundaryFailure { file };
     }
     if !w.diags.is_empty() || w.stop {
-        return Resolved::Rejected { errors: finalize(w.diags).0, files };
+        return Resolved::Rejected {
+            errors: finalize(w.diags).0,
+            files,
+        };
     }
     // 名前の衝突：同じ名前を二つのファイルが定義する（一つのファイルの中の重複は今までの診断に任せる）
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -609,7 +735,10 @@ pub fn resolve(root_display: &str, root_rel: &str, root: &[u8], loader: &mut dyn
         }
     }
     if !diags.is_empty() {
-        return Resolved::Rejected { errors: finalize(diags).0, files };
+        return Resolved::Rejected {
+            errors: finalize(diags).0,
+            files,
+        };
     }
     // つなぐ：import の行と、根以外の entry を空白にする（改行は残して位置を保つ）
     let mut source = vec![b'\n'];
@@ -633,11 +762,19 @@ pub fn resolve(root_display: &str, root_rel: &str, root: &[u8], loader: &mut dyn
                 blank(e.meta.span());
             }
         }
-        segments.push(Segment { file: f.display.clone(), start: source.len(), len: b.len() });
+        segments.push(Segment {
+            file: f.display.clone(),
+            start: source.len(),
+            len: b.len(),
+        });
         source.extend_from_slice(&b);
         source.push(b'\n');
     }
-    Resolved::Merged(Merged { source, segments, files })
+    Resolved::Merged(Merged {
+        source,
+        segments,
+        files,
+    })
 }
 
 /// まとめた source を検査し、診断をファイルに戻す。
@@ -648,12 +785,24 @@ pub fn compile_merged(m: &Merged, profile: &StaticProfile) -> SourceCompile {
     match compile(&m.source, &mp) {
         SourceCompile::SourceBoundaryFailure => SourceCompile::SourceBoundaryFailure,
         SourceCompile::Result(r) => SourceCompile::Result(match r {
-            crate::api::CompileResult::Accepted { program, warnings, work } => {
-                crate::api::CompileResult::Accepted { program, warnings: m.attribute(warnings), work }
-            }
-            crate::api::CompileResult::Rejected { errors, warnings, work } => {
-                crate::api::CompileResult::Rejected { errors: m.attribute(errors), warnings: m.attribute(warnings), work }
-            }
+            crate::api::CompileResult::Accepted {
+                program,
+                warnings,
+                work,
+            } => crate::api::CompileResult::Accepted {
+                program,
+                warnings: m.attribute(warnings),
+                work,
+            },
+            crate::api::CompileResult::Rejected {
+                errors,
+                warnings,
+                work,
+            } => crate::api::CompileResult::Rejected {
+                errors: m.attribute(errors),
+                warnings: m.attribute(warnings),
+                work,
+            },
         }),
     }
 }
@@ -667,9 +816,14 @@ pub fn compile_root(
     profile: &StaticProfile,
 ) -> (SourceCompile, Vec<(String, Vec<u8>)>) {
     match resolve(root_display, root_rel, root, loader, profile) {
-        Resolved::Single => (compile(root, profile), vec![(root_display.to_string(), root.to_vec())]),
+        Resolved::Single => (
+            compile(root, profile),
+            vec![(root_display.to_string(), root.to_vec())],
+        ),
         Resolved::Merged(m) => (compile_merged(&m, profile), m.files),
-        Resolved::Rejected { errors, files } => (SourceCompile::Result(result(errors, None)), files),
+        Resolved::Rejected { errors, files } => {
+            (SourceCompile::Result(result(errors, None)), files)
+        }
         Resolved::SourceBoundaryFailure { .. } => (SourceCompile::SourceBoundaryFailure, vec![]),
     }
 }

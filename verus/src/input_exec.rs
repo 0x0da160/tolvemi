@@ -6,7 +6,9 @@
 use crate::bigint::*;
 use crate::input::*;
 use crate::input_proof::*;
+use crate::ir::ty_clone;
 use crate::json::*;
+use crate::keysort::*;
 use crate::spec::*;
 use crate::surface::*;
 use crate::value::*;
@@ -678,6 +680,60 @@ fn codes(w: &Vec<char>) -> (r: Vec<u32>)
     r
 }
 
+/// 文字列の各文字の符号（scalar 値）の列。末尾から一文字ずつ取り出し、逆順に並べ直す。
+fn str_codes(s: String) -> (r: Vec<u32>)
+    ensures
+        r@ == cs(s@),
+{
+    let ghost w = s@;
+    let mut s = s;
+    let mut rev: Vec<u32> = Vec::new();
+    proof {
+        assert(w.subrange(0, w.len() as int) =~= w);
+    }
+    loop
+        invariant
+            s@.len() <= w.len(),
+            s@ == w.subrange(0, s@.len() as int),
+            rev@.len() == w.len() - s@.len(),
+            forall|k: int| 0 <= k < rev@.len() ==> #[trigger] rev@[k] == w[w.len() - 1 - k] as u32,
+        ensures
+            rev@.len() == w.len(),
+            forall|k: int| 0 <= k < rev@.len() ==> #[trigger] rev@[k] == w[w.len() - 1 - k] as u32,
+        decreases s@.len(),
+    {
+        let ghost n = s@.len();
+        match s.pop() {
+            Some(c) => {
+                proof {
+                    assert(c == w[n - 1]);
+                    assert(s@ =~= w.subrange(0, n - 1));
+                }
+                rev.push(c as u32);
+            },
+            None => break,
+        }
+    }
+    let mut r: Vec<u32> = Vec::with_capacity(rev.len());
+    let mut k = rev.len();
+    while k > 0
+        invariant
+            k <= rev@.len(),
+            rev@.len() == w.len(),
+            r@.len() == w.len() - k,
+            forall|m: int| 0 <= m < rev@.len() ==> #[trigger] rev@[m] == w[w.len() - 1 - m] as u32,
+            forall|m: int| 0 <= m < r@.len() ==> #[trigger] r@[m] == w[m] as u32,
+        decreases k,
+    {
+        k = k - 1;
+        r.push(rev[k]);
+    }
+    proof {
+        assert(r@ =~= cs(w));
+    }
+    r
+}
+
 fn k_tag_e() -> (r: Vec<u32>)
     ensures
         r@ == k_tag(),
@@ -951,39 +1007,82 @@ fn kpos_e(ks: &Vec<Vec<u32>>, k: &Vec<u32>) -> (r: usize)
     m
 }
 
+/// 鍵の列のどの二つも異なるか。鍵を辞書式順序に整列し（keysort::sort_keys_e、併合整列）、隣り合う二つを比べる。
+/// 比較は O(n log n) 回（n は鍵の数）。整列した並べ替えでの判定の正しさは keysort::sorted_perm_distinct。
+/// 鍵が三つ以下（タグ付き JSON の一つの対象の鍵）なら列を作らずに整列して比べる。
 fn distinct_e(ks: &Vec<Vec<u32>>) -> (r: bool)
     ensures
         r == distinct(vks(ks@)),
 {
-    let ghost kv = vks(ks@);
-    let mut a = 0;
-    while a < ks.len()
-        invariant
-            a <= ks.len(),
-            kv == vks(ks@),
-            forall|x: int, y: int| 0 <= x < y < ks.len() && x < a ==> kv[x] != kv[y],
-        decreases ks.len() - a,
-    {
-        let mut b = a + 1;
-        while b < ks.len()
-            invariant
-                a < ks.len(),
-                a + 1 <= b <= ks.len(),
-                kv == vks(ks@),
-                forall|x: int, y: int| 0 <= x < y < ks.len() && x < a ==> kv[x] != kv[y],
-                forall|y: int| a < y < b ==> kv[a as int] != kv[y],
-            decreases ks.len() - b,
-        {
-            proof {
-                assert(kv[a as int] == ks@[a as int]@);
-                assert(kv[b as int] == ks@[b as int]@);
-            }
-            if eq_u32s(&ks[a], &ks[b]) {
-                return false;
-            }
-            b = b + 1;
+    if ks.len() < 2 {
+        return true;
+    }
+    if ks.len() == 2 {
+        // 二つを整列しても、隣り合う組は元の二つ
+        proof {
+            assert(vks(ks@)[0] == ks@[0]@);
+            assert(vks(ks@)[1] == ks@[1]@);
         }
-        a = a + 1;
+        return !eq_u32s(&ks[0], &ks[1]);
+    }
+    if ks.len() == 3 {
+        // 三つを比較三回までで x <= y <= z に整列し、隣り合う二つを比べる
+        let a = &ks[0];
+        let b = &ks[1];
+        let c = &ks[2];
+        let (x, y, z) = if lex_le_e(a, b) {
+            if lex_le_e(b, c) {
+                (a, b, c)
+            } else if lex_le_e(a, c) {
+                (a, c, b)
+            } else {
+                (c, a, b)
+            }
+        } else if lex_le_e(a, c) {
+            (b, a, c)
+        } else if lex_le_e(b, c) {
+            (b, c, a)
+        } else {
+            (c, b, a)
+        };
+        proof {
+            lex_total(a@, b@);
+            lex_total(b@, c@);
+            lex_total(a@, c@);
+            assert(lex_le(x@, y@) && lex_le(y@, z@));
+            // x == z なら x <= y <= x で x == y
+            if x@ == z@ {
+                lex_antisym(x@, y@);
+            }
+            assert(vks(ks@)[0] == a@);
+            assert(vks(ks@)[1] == b@);
+            assert(vks(ks@)[2] == c@);
+        }
+        return !eq_u32s(x, y) && !eq_u32s(y, z);
+    }
+    let s = sort_keys_e(ks);
+    let ghost t = rkeys(s@);
+    let mut k: usize = 1;
+    while k < s.len()
+        invariant
+            1 <= k,
+            t == rkeys(s@),
+            t.to_multiset() == vks(ks@).to_multiset(),
+            lex_sorted(t),
+            forall|m: int| 1 <= m < k && m < t.len() ==> #[trigger] t[m] != t[m - 1],
+        decreases s.len() - k,
+    {
+        if eq_u32s(s[k - 1], s[k]) {
+            proof {
+                assert(t[k as int] == t[k - 1]);
+                sorted_perm_distinct(vks(ks@), t);
+            }
+            return false;
+        }
+        k = k + 1;
+    }
+    proof {
+        sorted_perm_distinct(vks(ks@), t);
     }
     true
 }
@@ -1323,6 +1422,43 @@ pub fn jd_e(j: &EJ, t: &Ty) -> (r: Option<Rc<Value>>)
                         _ => None,
                     }
                 },
+                Ty::Named(_) => None,
+                Ty::Dict(kt, vt) => {
+                    if !(eq_u32s(g, &t_list_e()) && only_e(ks, &req2(k_tag_e(), k_items_e()))) || ii >= vs.len() {
+                        return None;
+                    }
+                    proof {
+                        assert(vsv[ii as int] == vj(vs@[ii as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, ii as int);
+                    }
+                    match &vs[ii] {
+                        EJ::Arr(xs) => {
+                            let pt = Ty::Pair(Box::new(ty_clone(&**kt)), Box::new(ty_clone(&**vt)));
+                            match jds_e(xs, &pt) {
+                                Some(out) => {
+                                    // 鍵の正準 JSON の符号の列を整列して、隣り合う二つを比べる（distinct_e）
+                                    let codes = key_codes_e(&out);
+                                    let ghost ov = view_vals(out@);
+                                    proof {
+                                        assert forall|q: int| 0 <= q < ov.len() implies #[trigger] vks(codes@)[q] == cs(
+                                            pkey_enc(ov[q]),
+                                        ) by {
+                                            assert(codes@[q]@ == cs(pkey_enc(view_val(*out@[q]))));
+                                        }
+                                        distinct_codes(vks(codes@), ov);
+                                    }
+                                    if distinct_e(&codes) {
+                                        Some(list_of(out))
+                                    } else {
+                                        None
+                                    }
+                                },
+                                None => None,
+                            }
+                        },
+                        _ => None,
+                    }
+                },
             }
         },
         _ => None,
@@ -1420,13 +1556,342 @@ fn list_of(vs: Vec<Rc<Value>>) -> (r: Rc<Value>)
     out
 }
 
-/// 入力 JSON 文書を型 t の値として読む。返した値は spec の `input_val` が定める唯一の値で、型 t を持つ。
+/// 対の値 v の鍵の正準 JSON（検証済みの enc）の各文字の符号。対でなければ空。
+fn key_code_e(v: &Rc<Value>) -> (r: Vec<u32>)
+    ensures
+        r@ == cs(pkey_enc(view_val(**v))),
+{
+    let mut s = String::new();
+    match &**v {
+        Value::Pair(k, _) => encode(k, &mut s),
+        _ => {},
+    }
+    str_codes(s)
+}
+
+/// 対の列の鍵の正準 JSON の符号の列。q 番目は項 q の鍵の符号化の各文字の符号。
+fn key_codes_e(ps: &Vec<Rc<Value>>) -> (r: Vec<Vec<u32>>)
+    ensures
+        r@.len() == ps@.len(),
+        forall|q: int| 0 <= q < ps@.len() ==> #[trigger] r@[q]@ == cs(pkey_enc(view_val(*ps@[q]))),
+{
+    let mut r: Vec<Vec<u32>> = Vec::with_capacity(ps.len());
+    let mut q: usize = 0;
+    while q < ps.len()
+        invariant
+            q <= ps.len(),
+            r@.len() == q,
+            forall|m: int| 0 <= m < q ==> #[trigger] r@[m]@ == cs(pkey_enc(view_val(*ps@[m]))),
+        decreases ps.len() - q,
+    {
+        r.push(key_code_e(&ps[q]));
+        q = q + 1;
+    }
+    r
+}
+
+/// 項 xs を型 el で順に読む（values.rs の一覧の枝の順）：最初に読めない項の誤りが重複鍵か。
+fn dupfirst_items_e(xs: &Vec<EJ>, el: &Ty) -> (r: bool)
+    ensures
+        r == dupfirst_items(vjs(*xs), *el, 0),
+    decreases xs,
+{
+    let ghost xv = vjs(*xs);
+    let mut k: usize = 0;
+    while k < xs.len()
+        invariant
+            k <= xs.len(),
+            xv == vjs(*xs),
+            dupfirst_items(xv, *el, 0) == dupfirst_items(xv, *el, k as nat),
+        decreases xs.len() - k,
+    {
+        proof {
+            vstd::std_specs::vec::axiom_vec_index_decreases(*xs, k as int);
+            assert(xv[k as int] == vj(xs@[k as int]));
+        }
+        match jd_e(&xs[k], el) {
+            None => return dupfirst_e(&xs[k], el),
+            Some(_) => {},
+        }
+        k = k + 1;
+    }
+    false
+}
+
+/// 先頭 k 項がどれも読めて対で、codes がその鍵の正準 JSON の符号の列なら：codes が相異なれば dupfirst_dict は
+/// 項 k から読むものに等しく、相異ならなければ真。
+proof fn dict_prefix_codes(xv: Seq<J>, pt: Ty, k: nat, codes: Seq<Seq<u32>>)
+    requires
+        k <= xv.len(),
+        codes.len() == k,
+        forall|q: int| 0 <= q < k ==> #[trigger] jd(xv[q], pt) is Some,
+        forall|q: int| 0 <= q < k ==> #[trigger] jval(xv[q], pt) is Pair,
+        forall|q: int| 0 <= q < k ==> #[trigger] codes[q] == cs(pkey_enc(jval(xv[q], pt))),
+    ensures
+        distinct(codes) ==> dupfirst_dict(xv, pt, 0) == dupfirst_dict(xv, pt, k),
+        !distinct(codes) ==> dupfirst_dict(xv, pt, 0),
+{
+    let ps = jvals(xv, pt, k);
+    assert forall|q: int| 0 <= q < ps.len() implies #[trigger] codes[q] == cs(pkey_enc(ps[q])) by {
+        assert(ps[q] == jval(xv[q], pt));
+    }
+    distinct_codes(codes, ps);
+    dupfirst_dict_prefix(xv, pt, k);
+}
+
+/// 辞書の項 xs を対の型 pt で順に読む（values.rs の辞書の枝の順）：読めた項の鍵が前の項と等しいか。
+/// 読めて対である先頭の項の鍵の符号を集め、相異なるかを一度だけ整列で調べる（distinct_e）。
+/// 項ごとに前の鍵と比べる dupfirst_dict と同じ結果になることは dict_prefix_codes（input_proof::dupfirst_dict_prefix）。
+fn dupfirst_dict_e(xs: &Vec<EJ>, pt: &Ty) -> (r: bool)
+    ensures
+        r == dupfirst_dict(vjs(*xs), *pt, 0),
+    decreases xs,
+{
+    let ghost xv = vjs(*xs);
+    let mut codes: Vec<Vec<u32>> = Vec::new();
+    let mut k: usize = 0;
+    while k < xs.len()
+        invariant
+            k <= xs.len(),
+            xv == vjs(*xs),
+            codes@.len() == k,
+            forall|q: int| 0 <= q < k ==> #[trigger] jd(xv[q], *pt) is Some,
+            forall|q: int| 0 <= q < k ==> #[trigger] jval(xv[q], *pt) is Pair,
+            forall|q: int| 0 <= q < k ==> #[trigger] vks(codes@)[q] == cs(pkey_enc(jval(xv[q], *pt))),
+        decreases xs.len() - k,
+    {
+        proof {
+            vstd::std_specs::vec::axiom_vec_index_decreases(*xs, k as int);
+            assert(xv[k as int] == vj(xs@[k as int]));
+            dict_prefix_codes(xv, *pt, k as nat, vks(codes@));
+        }
+        match jd_e(&xs[k], pt) {
+            None => {
+                // 項 k は読めない：先頭 k 項の鍵に重複があれば真、無ければ項 k の誤りが重複鍵か
+                if !distinct_e(&codes) {
+                    return true;
+                }
+                return dupfirst_e(&xs[k], pt);
+            },
+            Some(v) => {
+                proof {
+                    assert(jval(xv[k as int], *pt) == view_val(*v));
+                    assert(jd(xv[k as int], *pt) == Some(view_val(*v)));
+                }
+                match &*v {
+                    Value::Pair(_, _) => {
+                        proof {
+                            assert(view_val(*v) is Pair);
+                        }
+                    },
+                    // 対でない値（対の型では起きない）：先頭 k 項の鍵に重複があるときだけ真
+                    _ => return !distinct_e(&codes),
+                }
+                let c = key_code_e(&v);
+                let ghost co = codes@;
+                let ghost cv = c@;
+                codes.push(c);
+                proof {
+                    vks_push(co, codes@[k as int]);
+                    assert(codes@ == co.push(codes@[k as int]));
+                    assert(vks(codes@)[k as int] == cv);
+                    assert forall|q: int| 0 <= q < k + 1 implies #[trigger] vks(codes@)[q] == cs(
+                        pkey_enc(jval(xv[q], *pt)),
+                    ) by {
+                        if q < k {
+                            assert(vks(codes@)[q] == vks(co)[q]);
+                        }
+                    }
+                }
+            },
+        }
+        k = k + 1;
+    }
+    proof {
+        dict_prefix_codes(xv, *pt, k as nat, vks(codes@));
+    }
+    !distinct_e(&codes)
+}
+
+/// 木 j を型 t で読むとき、trusted の復号器（values.rs）の最初の誤りが辞書の重複鍵である（dupfirst の写し）。
+fn dupfirst_e(j: &EJ, t: &Ty) -> (r: bool)
+    ensures
+        r == dupfirst(vj(*j), *t),
+    decreases j,
+{
+    match j {
+        EJ::Obj(ks, vs) => {
+            let ghost jv0 = vj(*j);
+            let ghost kv = vks(ks@);
+            let ghost vsv = vjs(*vs);
+            proof {
+                assert(jv0 == J::Obj(kv, vsv));
+                keys();
+            }
+            if ks.len() != vs.len() || ks.len() > 3 || !distinct_e(ks) {
+                return false;
+            }
+            let it = kpos_e(ks, &k_tag_e());
+            if it >= vs.len() {
+                return false;
+            }
+            proof {
+                assert(vsv[it as int] == vj(vs@[it as int]));
+            }
+            let g = match &vs[it] {
+                EJ::Str(g) => g,
+                _ => return false,
+            };
+            let iv = kpos_e(ks, &k_value_e());
+            let il = kpos_e(ks, &k_left_e());
+            let ir = kpos_e(ks, &k_right_e());
+            let ii = kpos_e(ks, &k_items_e());
+            match t {
+                Ty::Option(el) => {
+                    if !(eq_u32s(g, &t_some_e()) && only_e(ks, &req2(k_tag_e(), k_value_e()))) || iv >= vs.len() {
+                        return false;
+                    }
+                    proof {
+                        assert(vsv[iv as int] == vj(vs@[iv as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, iv as int);
+                    }
+                    dupfirst_e(&vs[iv], el)
+                },
+                Ty::Result(ta, tb) => {
+                    let ok = eq_u32s(g, &t_ok_e());
+                    if !((ok || eq_u32s(g, &t_err_e())) && only_e(ks, &req2(k_tag_e(), k_value_e())))
+                        || iv >= vs.len() {
+                        return false;
+                    }
+                    proof {
+                        assert(vsv[iv as int] == vj(vs@[iv as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, iv as int);
+                    }
+                    dupfirst_e(&vs[iv], if ok { ta } else { tb })
+                },
+                Ty::Pair(ta, tb) => {
+                    if !(eq_u32s(g, &t_pair_e()) && only_e(ks, &req3(k_tag_e(), k_left_e(), k_right_e())))
+                        || il >= vs.len() || ir >= vs.len() {
+                        return false;
+                    }
+                    proof {
+                        assert(vsv[il as int] == vj(vs@[il as int]));
+                        assert(vsv[ir as int] == vj(vs@[ir as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, il as int);
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, ir as int);
+                    }
+                    let lobj = match &vs[il] {
+                        EJ::Obj(_, _) => true,
+                        _ => false,
+                    };
+                    let robj = match &vs[ir] {
+                        EJ::Obj(_, _) => true,
+                        _ => false,
+                    };
+                    if !(lobj && robj) {
+                        return false;
+                    }
+                    match jd_e(&vs[il], ta) {
+                        None => dupfirst_e(&vs[il], ta),
+                        Some(_) => dupfirst_e(&vs[ir], tb),
+                    }
+                },
+                Ty::List(el) => {
+                    if !(eq_u32s(g, &t_list_e()) && only_e(ks, &req2(k_tag_e(), k_items_e()))) || ii >= vs.len() {
+                        return false;
+                    }
+                    proof {
+                        assert(vsv[ii as int] == vj(vs@[ii as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, ii as int);
+                    }
+                    match &vs[ii] {
+                        EJ::Arr(xs) => dupfirst_items_e(xs, el),
+                        _ => false,
+                    }
+                },
+                Ty::Dict(kt, vt) => {
+                    if !(eq_u32s(g, &t_list_e()) && only_e(ks, &req2(k_tag_e(), k_items_e()))) || ii >= vs.len() {
+                        return false;
+                    }
+                    proof {
+                        assert(vsv[ii as int] == vj(vs@[ii as int]));
+                        vstd::std_specs::vec::axiom_vec_index_decreases(*vs, ii as int);
+                    }
+                    match &vs[ii] {
+                        EJ::Arr(xs) => {
+                            let pt = Ty::Pair(Box::new(ty_clone(&**kt)), Box::new(ty_clone(&**vt)));
+                            dupfirst_dict_e(xs, &pt)
+                        },
+                        _ => false,
+                    }
+                },
+                _ => false,
+            }
+        },
+        _ => false,
+    }
+}
+
+/// 木のどの object にも重複キーは無い（検証済みの nodup）。
+fn nodup_e(j: &EJ) -> (r: bool)
+    ensures
+        r == nodup(vj(*j)),
+    decreases j,
+{
+    match j {
+        EJ::Obj(ks, vs) => distinct_e(ks) && nodups_e(vs),
+        EJ::Arr(xs) => nodups_e(xs),
+        _ => true,
+    }
+}
+
+/// 項の列の各木に重複キーは無い（検証済みの nodups）。
+fn nodups_e(xs: &Vec<EJ>) -> (r: bool)
+    ensures
+        r == nodups(vjs(*xs), 0),
+    decreases xs,
+{
+    let ghost xv = vjs(*xs);
+    let mut k: usize = 0;
+    while k < xs.len()
+        invariant
+            k <= xs.len(),
+            xv == vjs(*xs),
+            nodups(xv, 0) == nodups(xv, k as nat),
+        decreases xs.len() - k,
+    {
+        proof {
+            vstd::std_specs::vec::axiom_vec_index_decreases(*xs, k as int);
+            assert(xv[k as int] == vj(xs@[k as int]));
+        }
+        if !nodup_e(&xs[k]) {
+            return false;
+        }
+        k = k + 1;
+    }
+    true
+}
+
+/// 入力 JSON 文書の復号で、trusted の復号器の最初の誤りが辞書の重複鍵である（spec の input_dupfirst）。
+pub fn decode_input_dupfirst_e(s: &Vec<char>, d: usize, t: &Ty) -> (r: bool)
+    requires
+        s@.len() < 0x1000_0000,
+    ensures
+        r == input_dupfirst(s@, d as nat, *t),
+{
+    match jparse_e(s, d) {
+        Some(j) => nodup_e(&j) && dupfirst_e(&j, t),
+        None => false,
+    }
+}
+
+/// 入力 JSON 文書を型 t の値として読む。返した値は spec の `input_val` が定める唯一の値で、消去後の型 derase(t) を持つ。
 pub fn decode_input_e(s: &Vec<char>, d: usize, t: &Ty) -> (r: Option<Rc<Value>>)
     requires
         s@.len() < 0x1000_0000,
     ensures
         match r {
-            Some(v) => input_val(s@, d as nat, *t) == Some(view_val(*v)) && val_type(view_val(*v), *t),
+            Some(v) => input_val(s@, d as nat, *t) == Some(view_val(*v)) && val_type(view_val(*v), derase(*t)),
             None => input_val(s@, d as nat, *t) is None,
         },
 {

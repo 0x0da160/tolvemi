@@ -11,7 +11,7 @@ use num_bigint::BigInt;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
-use tlvm_verified::input_exec::decode_input_e;
+use tlvm_verified::input_exec::{decode_input_dupfirst_e, decode_input_e};
 use tlvm_verified::json::encode as json_encode;
 use tlvm_verified::spec::Ty as VTy;
 use tlvm_verified::value::Value as EV;
@@ -66,7 +66,9 @@ impl Drop for V {
         while let Some(rc) = stack.pop() {
             if let Ok(v) = Arc::try_unwrap(rc) {
                 match v {
-                    Value::Some(mut a) | Value::Ok(mut a) | Value::Err(mut a) => stack.extend(a.0.take()),
+                    Value::Some(mut a) | Value::Ok(mut a) | Value::Err(mut a) => {
+                        stack.extend(a.0.take())
+                    }
                     Value::Pair(mut a, mut b) | Value::Cons(mut a, mut b) => {
                         stack.extend(a.0.take());
                         stack.extend(b.0.take());
@@ -131,7 +133,11 @@ pub fn encode_value(v: &V) -> String {
                 out.push_str(&c.to_string());
                 out.push_str("\"}");
             }
-            Value::Bool(b) => out.push_str(if *b { "{\"tag\":\"bool\",\"value\":true}" } else { "{\"tag\":\"bool\",\"value\":false}" }),
+            Value::Bool(b) => out.push_str(if *b {
+                "{\"tag\":\"bool\",\"value\":true}"
+            } else {
+                "{\"tag\":\"bool\",\"value\":false}"
+            }),
             Value::Unit => out.push_str("{\"tag\":\"unit\"}"),
             Value::None => out.push_str("{\"tag\":\"none\"}"),
             Value::Some(a) => {
@@ -140,7 +146,11 @@ pub fn encode_value(v: &V) -> String {
                 stack.push(Piece::Val(a));
             }
             Value::Ok(a) | Value::Err(a) => {
-                out.push_str(if matches!(&**x, Value::Ok(_)) { "{\"tag\":\"ok\",\"value\":" } else { "{\"tag\":\"err\",\"value\":" });
+                out.push_str(if matches!(&**x, Value::Ok(_)) {
+                    "{\"tag\":\"ok\",\"value\":"
+                } else {
+                    "{\"tag\":\"err\",\"value\":"
+                });
                 stack.push(Piece::Lit("}"));
                 stack.push(Piece::Val(a));
             }
@@ -193,6 +203,26 @@ pub struct TypedValue {
 impl std::fmt::Debug for TypedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "TypedValue({})", encode_value(&self.value))
+    }
+}
+
+/// 検証済みの復号器が受理した値（`decode_input_keeping` で `keep` のときだけ残る）。取り出されずに捨てられるときは、
+/// 深い cons 列の再帰を避ける `release` で解放する。`TypedValue` は別のスレッドへ渡すので、`Rc` の値は持たせない。
+#[derive(Default)]
+pub struct Verified(Option<Rc<EV>>);
+
+impl Verified {
+    /// 検証済みの復号器の値を取り出す（受理したときだけ `Some`）。
+    pub fn take(&mut self) -> Option<Rc<EV>> {
+        self.0.take()
+    }
+}
+
+impl Drop for Verified {
+    fn drop(&mut self) {
+        if let Some(w) = self.0.take() {
+            release(w);
+        }
     }
 }
 
@@ -252,30 +282,59 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
         TyTag::Char => VTy::Char,
         TyTag::List => VTy::List(Box::new(verified_ty(&t.arg(0))?)),
         TyTag::Option => VTy::Option(Box::new(verified_ty(&t.arg(0))?)),
-        TyTag::Pair => VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
-        TyTag::Result => VTy::Result(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)),
-        // v1.9：検証済み部品は書き換え後の List<Pair<K, V>> を扱う
-        TyTag::Dict => VTy::List(Box::new(VTy::Pair(Box::new(verified_ty(&t.arg(0))?), Box::new(verified_ty(&t.arg(1))?)))),
+        TyTag::Pair => VTy::Pair(
+            Box::new(verified_ty(&t.arg(0))?),
+            Box::new(verified_ty(&t.arg(1))?),
+        ),
+        TyTag::Result => VTy::Result(
+            Box::new(verified_ty(&t.arg(0))?),
+            Box::new(verified_ty(&t.arg(1))?),
+        ),
+        // v1.9：Dict<K, V> は検証済みの復号器が読む（鍵の重複を拒否する。値は List<Pair<K, V>> の形）
+        TyTag::Dict => VTy::Dict(
+            Box::new(verified_ty(&t.arg(0))?),
+            Box::new(verified_ty(&t.arg(1))?),
+        ),
         TyTag::Error | TyTag::Param => return None,
     })
 }
 
 /// 資源上限による拒否（検証済みの復号器は値の深さ・node 数・桁数の上限を持たない）。
 fn limit_code(code: &str) -> bool {
-    matches!(code, "E-LIMIT-INPUT-VALUE-DEPTH" | "E-LIMIT-INPUT-VALUE-NODES" | "E-LIMIT-INPUT-INTEGER-DIGITS")
+    matches!(
+        code,
+        "E-LIMIT-INPUT-VALUE-DEPTH" | "E-LIMIT-INPUT-VALUE-NODES" | "E-LIMIT-INPUT-INTEGER-DIGITS"
+    )
 }
 
 pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeResult {
+    decode_input_keeping(t_in, data, profile, false).0
+}
+
+/// `decode_input` と同じ判定。`keep` のとき、受理した値の検証済みの復号器の値も一緒に返す（行の入力が使う）。
+pub fn decode_input_keeping(
+    t_in: &Ty,
+    data: &[u8],
+    profile: &InputProfile,
+    keep: bool,
+) -> (DecodeResult, Verified) {
     if data.len() > profile.json_bytes {
-        return DecodeResult::Invalid(vec![Diagnostic::error("input-boundary", "E-LIMIT-INPUT-JSON-BYTES", (0, 0))
+        return (
+            DecodeResult::Invalid(vec![Diagnostic::error(
+                "input-boundary",
+                "E-LIMIT-INPUT-JSON-BYTES",
+                (0, 0),
+            )
             .exp(profile.json_bytes.to_string())
-            .act(data.len().to_string())]);
+            .act(data.len().to_string())]),
+            Verified::default(),
+        );
     }
     let Ok(text) = std::str::from_utf8(data) else {
-        return DecodeResult::InputBoundaryFailure;
+        return (DecodeResult::InputBoundaryFailure, Verified::default());
     };
     let decoded = decode_diagnosed(t_in, data, profile);
-    cross_check(t_in, text, decoded, profile)
+    cross_check(t_in, text, decoded, profile, keep)
 }
 
 /// 診断を出す復号器の判定を、検証済みの strict JSON parser と値の復号器（decode_input_e）で確かめる。
@@ -283,11 +342,20 @@ pub fn decode_input(t_in: &Ty, data: &[u8], profile: &InputProfile) -> DecodeRes
 /// - 受理したなら、検証済みの復号器も受理し、同じ値（正準 JSON が一致）を返すこと。
 /// - 資源上限以外の理由で拒否したなら、検証済みの復号器も拒否すること。
 /// 食い違えば E-INTERNAL-VERIFIED-MISMATCH で拒否する。実行時に評価器へ渡すのは検証済みの復号器の値である。
-fn cross_check(t_in: &Ty, text: &str, decoded: Result<V, Diagnostic>, profile: &InputProfile) -> DecodeResult {
+/// `keep` のとき、受理した値の検証済みの復号器の値を一緒に返す（取り出しは `Verified::take`）。
+fn cross_check(
+    t_in: &Ty,
+    text: &str,
+    decoded: Result<V, Diagnostic>,
+    profile: &InputProfile,
+    keep: bool,
+) -> (DecodeResult, Verified) {
     let chars: Vec<char> = text.chars().collect();
     let vt = verified_ty(t_in);
     let verified = match &vt {
-        Some(vt) if chars.len() < VERIFIED_MAX_CHARS => Some(decode_input_e(&chars, profile.json_depth, vt)),
+        Some(vt) if chars.len() < VERIFIED_MAX_CHARS => {
+            Some(decode_input_e(&chars, profile.json_depth, vt))
+        }
         _ => None,
     };
     let r = match (decoded, &verified) {
@@ -295,23 +363,46 @@ fn cross_check(t_in: &Ty, text: &str, decoded: Result<V, Diagnostic>, profile: &
             let mut o = String::new();
             json_encode(w, &mut o);
             if o == encode_value(&value) {
-                DecodeResult::Decoded(TypedValue { value, ty: t_in.clone(), text: Arc::new(chars), json_depth: profile.json_depth })
+                DecodeResult::Decoded(TypedValue {
+                    value,
+                    ty: t_in.clone(),
+                    text: Arc::new(chars),
+                    json_depth: profile.json_depth,
+                })
             } else {
                 DecodeResult::Invalid(vec![mismatch("verified-decoder-value")])
             }
         }
         (Ok(_), Some(None)) => DecodeResult::Invalid(vec![mismatch("verified-decoder-rejected")]),
-        (Ok(_), None) => DecodeResult::Invalid(vec![mismatch("input-not-decodable-by-verified-decoder")]),
-        // v1.9：辞書の鍵の重複は接着部分だけの検査（検証済みの復号器は List<Pair<K, V>> として受理する）
-        (Err(d), Some(Some(_))) if !limit_code(d.code) && d.code != DICT_DUPLICATE_KEY => {
+        (Ok(_), None) => {
+            DecodeResult::Invalid(vec![mismatch("input-not-decodable-by-verified-decoder")])
+        }
+        (Err(d), Some(Some(_))) if !limit_code(d.code) => {
             DecodeResult::Invalid(vec![d, mismatch("verified-decoder-accepted")])
+        }
+        // v1.9：辞書の鍵の重複。検証済みの復号器は拒否し、その拒否の最初の失敗が重複かを、診断の符号と突き合わせる
+        (Err(d), Some(None)) if !limit_code(d.code) => {
+            let dup_first = vt
+                .as_ref()
+                .is_some_and(|vt| decode_input_dupfirst_e(&chars, profile.json_depth, vt));
+            if (d.code == DICT_DUPLICATE_KEY) == dup_first {
+                DecodeResult::Invalid(vec![d])
+            } else {
+                DecodeResult::Invalid(vec![d, mismatch("verified-dict-duplicate-order")])
+            }
         }
         (Err(d), _) => DecodeResult::Invalid(vec![d]),
     };
-    if let Some(Some(w)) = verified {
-        release(w);
+    match (r, verified) {
+        (DecodeResult::Decoded(tv), Some(Some(w))) if keep => {
+            (DecodeResult::Decoded(tv), Verified(Some(w)))
+        }
+        (r, Some(Some(w))) => {
+            release(w);
+            (r, Verified::default())
+        }
+        (r, _) => (r, Verified::default()),
     }
-    r
 }
 
 /// 深い cons 列の解放で再帰しないよう、所有している尾を順に外して解放する。
@@ -345,7 +436,10 @@ fn decode_diagnosed(t_in: &Ty, data: &[u8], profile: &InputProfile) -> Result<V,
             return Err(Diagnostic::error("input-parse", code, f.span));
         }
     };
-    let mut dec = Decoder { p: profile, nodes: 0 };
+    let mut dec = Decoder {
+        p: profile,
+        nodes: 0,
+    };
     dec.value(&root, t_in, 1)
 }
 
@@ -362,46 +456,81 @@ impl Decoder<'_> {
     fn value(&mut self, n: &JNode, t: &Ty, depth: usize) -> Result<V, Diagnostic> {
         // 1. object であること
         if n.kind != JKind::Object {
-            return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp("object").act(n.kind.name()));
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
+                    .exp("object")
+                    .act(n.kind.name()),
+            );
         }
         // 2. tag
         let tag_node = match n.get("tag") {
             Some(t) => t,
-            None => return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp("tag")),
+            None => {
+                return Err(Diagnostic::error(
+                    "input-decode",
+                    "E-INPUT-MISSING-FIELD",
+                    n.close_span(),
+                )
+                .exp("tag"))
+            }
         };
         let allowed = tags_for(t);
         if tag_node.kind != JKind::String || !allowed.contains(&tag_node.text.as_str()) {
-            return Err(Diagnostic::error("input-decode", "E-INPUT-TAG", tag_node.span()).exp(allowed.join(" | ")).act(t.to_string()));
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-TAG", tag_node.span())
+                    .exp(allowed.join(" | "))
+                    .act(t.to_string()),
+            );
         }
         let tag = tag_node.text.as_str();
         let fs = fields(tag);
         // 3. 必須キー → 余分キー
         for (k, _) in fs {
             if n.get(k).is_none() {
-                return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp(*k));
+                return Err(Diagnostic::error(
+                    "input-decode",
+                    "E-INPUT-MISSING-FIELD",
+                    n.close_span(),
+                )
+                .exp(*k));
             }
         }
-        let extra = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| *k != "tag" && !fs.iter().any(|(f, _)| f == k)));
+        let extra = smallest_key(
+            n.members
+                .iter()
+                .map(|m| m.key.as_str())
+                .filter(|k| *k != "tag" && !fs.iter().any(|(f, _)| f == k)),
+        );
         if let Some(k) = extra {
-            return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k),
+            );
         }
         // 4. 浅い JSON 型（正準 key 順）
         for (k, kind) in fs {
             let c = n.get(k).unwrap();
             if c.kind != *kind {
-                return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", c.span()).exp(kind.name()).act(c.kind.name()));
+                return Err(
+                    Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", c.span())
+                        .exp(kind.name())
+                        .act(c.kind.name()),
+                );
             }
         }
         // 5. InputAdmission（深さ超過を優先）
         if depth > self.p.value_depth {
-            return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-DEPTH", n.span())
-                .exp(self.p.value_depth.to_string())
-                .act(depth.to_string()));
+            return Err(
+                Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-DEPTH", n.span())
+                    .exp(self.p.value_depth.to_string())
+                    .act(depth.to_string()),
+            );
         }
         if self.nodes + 1 > self.p.value_nodes {
-            return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-NODES", n.span())
-                .exp(self.p.value_nodes.to_string())
-                .act((self.nodes + 1).to_string()));
+            return Err(
+                Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-NODES", n.span())
+                    .exp(self.p.value_nodes.to_string())
+                    .act((self.nodes + 1).to_string()),
+            );
         }
         self.nodes += 1;
         // 6. 内容
@@ -413,9 +542,13 @@ impl Decoder<'_> {
                 }
                 let digits = s.text.trim_start_matches('-').len();
                 if digits > self.p.integer_digits {
-                    return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-INTEGER-DIGITS", s.span())
-                        .exp(self.p.integer_digits.to_string())
-                        .act(digits.to_string()));
+                    return Err(Diagnostic::error(
+                        "input-decode",
+                        "E-LIMIT-INPUT-INTEGER-DIGITS",
+                        s.span(),
+                    )
+                    .exp(self.p.integer_digits.to_string())
+                    .act(digits.to_string()));
                 }
                 V::new(Value::Int(s.text.parse().unwrap()))
             }
@@ -432,9 +565,21 @@ impl Decoder<'_> {
             "bool" => V::new(Value::Bool(n.get("value").unwrap().boolean)),
             "unit" => V::new(Value::Unit),
             "none" => V::new(Value::None),
-            "some" => V::new(Value::Some(self.value(n.get("value").unwrap(), &t.arg(0), depth + 1)?)),
-            "ok" => V::new(Value::Ok(self.value(n.get("value").unwrap(), &t.arg(0), depth + 1)?)),
-            "err" => V::new(Value::Err(self.value(n.get("value").unwrap(), &t.arg(1), depth + 1)?)),
+            "some" => V::new(Value::Some(self.value(
+                n.get("value").unwrap(),
+                &t.arg(0),
+                depth + 1,
+            )?)),
+            "ok" => V::new(Value::Ok(self.value(
+                n.get("value").unwrap(),
+                &t.arg(0),
+                depth + 1,
+            )?)),
+            "err" => V::new(Value::Err(self.value(
+                n.get("value").unwrap(),
+                &t.arg(1),
+                depth + 1,
+            )?)),
             "pair" => {
                 let l = self.value(n.get("left").unwrap(), &t.arg(0), depth + 1)?;
                 let r = self.value(n.get("right").unwrap(), &t.arg(1), depth + 1)?;
@@ -450,7 +595,8 @@ impl Decoder<'_> {
                     if let Value::Pair(k, _) = &*v {
                         if !keys.insert(encode_value(k)) {
                             let key = c.get("left").map_or(c.span(), |k| k.span());
-                            return Err(Diagnostic::error("input-decode", DICT_DUPLICATE_KEY, key).act(encode_value(k)));
+                            return Err(Diagnostic::error("input-decode", DICT_DUPLICATE_KEY, key)
+                                .act(encode_value(k)));
                         }
                     }
                     items.push(v);

@@ -24,7 +24,8 @@
     "$id",
     "title",
     "properties.codec.const",
-    "call node の type_args（必須、DECISION-9）"
+    "call node の type_args（必須、DECISION-9）",
+    "全 node（v1.1〜v1.16）、fn の rec と type_params、名前の除外語（字句表の 68 語。DECISION-10 はオーナーの選択）"
   ],
   "schema_structure_preserved": true,
   "computational_rules_preserved_modulo_namespace": true,
@@ -47,18 +48,18 @@
   "outputs": [
     {
       "name": "LPTL_design_v1.md",
-      "bytes": 143744,
-      "sha256": "4fc5b6eddf3171732b2cc8afba9aefb5b91a80e74bf7aa86fc1adae08ad75fe8"
+      "bytes": 151244,
+      "sha256": "35dd84e6675f1cc727644820d738fb49d7d80bec29f8fedbf17af786cb0152b2"
     },
     {
       "name": "LPTL_v1_verification_report.md",
-      "bytes": 8685,
-      "sha256": "0fbec45016aa377f814c91a2e789c5701591b7f37e051dd5bec7b5449cd03232"
+      "bytes": 8730,
+      "sha256": "a8ef7c781ad03509da868e289ea0b6aff53a009ff7e3602d22dd575c796546d0"
     },
     {
       "name": "ast_codec_v1.schema.json",
-      "bytes": 10768,
-      "sha256": "44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe"
+      "bytes": 22699,
+      "sha256": "ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a"
     },
     {
       "name": "v1_limited_checks.py",
@@ -67,13 +68,13 @@
     },
     {
       "name": "v1_check_inputs.json",
-      "bytes": 46914,
-      "sha256": "625cc70b793dfbb95e865eb69aa0c945b95cae5e7645012cc676e19188c89aea"
+      "bytes": 46915,
+      "sha256": "6de560583a06d54e08c4cfa56630563abb616b3a47e00ebe6fee6eab4a5077d2"
     },
     {
       "name": "v1_checks.csv",
-      "bytes": 11637,
-      "sha256": "a0f3412642f57e681202be5359faba84375be7ba500b0d9afd644fa917826034"
+      "bytes": 11639,
+      "sha256": "a15f3f2e09e59bd815adfdb7fc0e0f0c55327824e67b7fcfb8de3e21aabe403d"
     },
     {
       "name": "v1_fixture_correspondence.csv",

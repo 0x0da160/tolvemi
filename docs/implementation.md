@@ -61,8 +61,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
    誤るだけで、型と一意性の保証は残る。
 2. **decode**（`values::decode_input`）：診断付きの strict JSON parser と値復号器が入力を読み、検証済みの
    `decode_input_e`（`verus/src/input_exec.rs`）の結果と突き合わせる。
-3. **run**（`evaluator::run`）：検証済みの `run_input_json` が、`check_prog` で `wf` を確かめ、入力 JSON の文字列を
-   検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。
+3. **run**（`api::run_input`、`evaluator::run_verified`、`evaluator::run`）：検証済みの評価器が、`check_prog` で `wf` を確かめ、結果を検証済み encoder で正準 JSON にする。入力の文字列（値 JSON と普通の JSON：`run`、`run --plain`、`tlvm test`、埋め込み API、repl）は `api::run_input` が一度だけ読み、検査で受理した検証済みの値を `evaluator::run_verified` が評価する（検証済みの復号器は一度だけ走る）。復号済みの `TypedValue` を受け取る `api::run` は、`evaluator::run` の中で入力の文字列を検証済みの復号器で読み直す（二度走る。テストと旧い呼出し用）。
 4. **fmt**：検証済みの `canonical_source` が整形する（v1.7：印 `rec` を外したもので照合し、印を付けて出す）。
 
 次が証明されています（`assume`・`admit` は使わず、`external_body` は `bigint.rs` の多倍長整数演算だけ）。
@@ -100,12 +99,12 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
 | `packages.rs` | v1.16 差分 | ローカルの依存：`tlvm.json` の読み方（厳格な JSON、名前と版の形、依存の path）と、依存のディレクトリの正規化。`imports.rs` が `@名前/パス` の import を依存のファイルに結びつける。未検証の接着部分 |
 | `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
-| `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_input` で読み、`decode_input_e` で値にして `run_checked` に渡す） |
+| `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_keeping` で読み、受理した検証済みの値をそのまま `run_checked` に渡す（二回目の復号はしない）） |
 | `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
-| `softnames.rs` | v1.1 差分 §2a | `tlvm ast` の出力で文脈キーワードの変数名を付け替える（α 変換。検査・実行には使わない） |
+| `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの一覧（49 語）と、`tlvm ast`・`encode_ast` が字句表の語を変数名に使ったプログラムを `E-AST-IDENTIFIER` で拒否する検査（検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
-| `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
-| `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形。未検証の front-end |
+| `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run_input` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
+| `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形（検査に誤りがあれば返さない）。未検証の front-end |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`（v1.12：`repl`・`lsp`）、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
 
 ```sh
@@ -139,6 +138,7 @@ cargo test --release
 | `input.rs` | 入力 JSON の spec：strict JSON の文法 `jparse`、値 JSON の復号 `jd`、`input_val` |
 | `input_proof.rs` | 型整合性 `input_typed`、重複キー拒否 `input_nodup`、往復性 `input_roundtrip` |
 | `input_exec.rs` | strict JSON parser `jparse_e` と復号器 `decode_input_e`。spec と一致 |
+| `keysort.rs` | 鍵の符号の列の辞書式順序 `lex_le` と併合整列 `sort_keys_e`（返す列は入力の並べ替えで、整列している）。整列した列では、隣り合う二つが異なることとどの二つも異なることが同じ（`sorted_perm_distinct`）。復号器の重複キーの検査 `distinct_e` は鍵を整列して隣り合う二つを比べる（O(n log n)） |
 | `bigint.rs` | 信頼する多倍長整数（num-bigint を `external_body` で包む。V1-A の信頼仮定） |
 | `ir.rs` | exec の中間表現 `EProg` と spec への写像 |
 | `value.rs` | exec の値（共有 cons セル）と spec の値への写像、環境 |
@@ -146,6 +146,10 @@ cargo test --release
 | `eval.rs` | 評価器。返した値は spec でも同じ値に評価され（`evals_to`）、Fault は spec の行き詰まり（`fails`）に限る |
 | `json.rs` | 出力の正準 JSON：encoder の正しさ、往復性 `roundtrip`、型整合性 `dec_typed` |
 | `pipeline.rs` | 入口 `compile_source`、`canonical_source`、`run_checked`、`run_checked_json`、`run_input_json` と中心定理 |
+| `simulation.rs` | SH4（書換えの前向きの模擬）。仮定の全体 `sim_ok` の下で、源の結果が書換え後の結果と一致する（`sh4_same_result`）。仮定は `sim_prog`・`homomorphic` と、hof の形ごとの意味・行き詰まりの義務（SH6 が示す） |
+| `hof_types.rs`、`hof_agree.rs`、`loop_types.rs`、`dict_types.rs`、`hof_total.rs` | SH1：`checker.rs` の `HofTypes` の写し（`hof_types.rs`）が検証済みの型付け規則と一致すること（`hof_agrees`、`hof_rw_agrees`、`loop_rw_agrees`、`loop_rw_note`、`dict_rw_agrees`）と、表の全域性（`hof_entry_total`、`entries_total`）。写しと `checker.rs` の表が同じことは `crates/tlvm/tests/hof_types.rs` が確かめる（証明ではない） |
+| `sh6_obligations.rs`、`sh6_stuck.rs`、`sh6_safe.rs` | SH6：書換えの形の仮定 `hof_shapes` から、hof の意味の義務（`sh6_ob_done`）と行き詰まりの義務（`sh6_ob_stuck`）、`sh6_sim_ok`、型の付いたプログラムの源の安全性と結果の一致（`sh6_source_safe`、`sh6_typed_same`）。`hof_shapes` は未検証 |
+| `sh4_back.rs` | SH4 の逆向き（型の付いたプログラム）：`sh4_back_typed`。書換え後の entry が値 w に評価すれば、源の entry も w に評価される（書換え後の燃料についての帰納。各形の閾値 `xat`、hof の走査 `fold_back`・`map_back`・`filter_back`・`any_back`・`all_back`・`find_back`・`sort_walk`、全体 `back_expr`）。仮定は `sim_prog`・`homomorphic`・`hof_shapes`、整形式、入力の型 |
 
 ### 証明したこと（§11.2）
 
@@ -186,6 +190,7 @@ cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
 - 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像、
   v1.7 の印 `rec` の除去と印の列（印の正しさは安全側：落とせば拒否、余計に付ければ停止を主張しなくなるだけ）。
   v1.11 の import のファイルのつなぎ方（検証済み部品はつないだ一つのプログラムを検査・実行する）と診断の span の写像。
+- 書換え（hof・dict・loop）：書換えに使う型の表（`checker.rs` の `HofTypes`）は、写しとの一致を証明したが、写しと表が同じことは証明していない（テストで確かめる）。書換えの形（`hof_shapes`、`homomorphic`、`sim_prog`）を作る Rust の実装は証明していない。書換えの逆向きは、型の付いたプログラムの値について証明した（`sh4_back_typed`）。型の付かないプログラムでは成り立たず、行き詰まりの逆向きは証明していない。
 - V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
@@ -243,7 +248,7 @@ registry が決まったら差し替える前提です。
   | `E-PKG-MANIFEST`、`E-PKG-PATH`、`E-PKG-NOT-FOUND`、`E-PKG-NAME`、`E-PKG-VERSION`、`E-PKG-UNKNOWN`（v1.16） | `replace_expression`、`replace_identifier`（名前） | `tlvm.json` の形／依存の相対パス／宣言した依存のディレクトリ／依存の名前と同じ name／固定した版と同じ version／宣言した依存の名前 |
 - message は暫定の日本語テンプレートです。
 - `E-CYCLE-CALL` の関数名関連情報は schema に関連情報キーが無いため `actual` と message に辞書順で入れています。
-- host-policy は `tlvm-rust-host-v0`（評価の入れ子深さ上限 400000、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です。
+- host-policy は `tlvm-rust-host-v1`（評価の入れ子深さ上限 400000、参照スロット上限 4000000（環境の束縛の同時数）、評価スレッドのスタック 1 GiB）で、超過は `HostAborted` です（参照スロットは `ref-slots`）。
   v1.7 の `rec fn` の止まらない再帰は、この深さ上限（`HostAborted` `eval-depth`）か step・割当の上限
   （`ResourceExhausted`）で終わります（スタックあふれにはならない）。
 - `tlvm check` の結果 JSON に `terminates`（v1.7）を足しました。`rec fn` がなければ true、あれば false です
@@ -254,7 +259,7 @@ registry が決まったら差し替える前提です。
 設計書の入出力（§9.2 の値 JSON）と診断 JSON（§10.1）はそのままにして、使いやすくするための層を足しています。
 どれも検証されていない接着部分です（`trust-boundary.toml` の `glue`）。
 
-- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::decode_plain_input`）：entry の入力型で普通の JSON を読み、
+- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::run_plain_input`（`api::run_input` の普通の JSON の場合））：entry の入力型で普通の JSON を読み、
   値 JSON に変換してから従来どおり診断付きの復号器と検証済みの復号器で読みます。出力は検証済み encoder の値 JSON を
   出力型で普通の JSON に戻します。対応は型ごとに一対一です。
 
@@ -302,7 +307,7 @@ cargo run --release -- test examples/sum_even.tlvm                              
   手で組み立てます。request の `id` は受け取った bytes をそのまま返します。文書は全文同期で保持し、開く・変えるたびに
   その文書と、ほかの開いている文書の診断を出し直します。`file://` の文書は `imports::compile_root` に、開いている文書の
   中身を先に返す loader（中で `FsLoader` に委ねる）を渡して検査します。span の写像は、byte 位置の前の `\n` の数を行に、
-  行頭からの文字の `len_utf16` の和を列にします。整形は `tlvm fmt` の source の経路と同じ判定（`needs_glue`・import の有無と、
+  行頭からの文字の `len_utf16` の和を列にします。整形は、検査に誤りがなければ `tlvm fmt` の source の経路と同じ判定（`needs_glue`・import の有無と、
   検証済み formatter との照合）です。
 
 ```sh
@@ -312,7 +317,7 @@ cargo test --release --test repl --test lsp
 
 ## 組み込み（Rust の embed API、Python binding）
 
-ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `decode_plain_input` → run →
+ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `run_plain_input` →
 `encode_plain` を既定の資源プロファイル（CLI と同じ reference-1）でつないだもので、判定と実行は CLI と同じく
 検証済み部品が行います。API 自体は検証されていない接着部分です。
 

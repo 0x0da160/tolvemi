@@ -5,8 +5,15 @@ use tlvm::api::*;
 use tlvm::profiles::*;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
-    let o = Command::new(env!("CARGO_BIN_EXE_tlvm")).args(args).output().unwrap();
-    (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+    let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap(),
+        String::from_utf8(o.stdout).unwrap(),
+        String::from_utf8(o.stderr).unwrap(),
+    )
 }
 
 fn with_file<T>(src: &str, f: impl FnOnce(&str) -> T) -> T {
@@ -59,8 +66,14 @@ fn floor_quotient() {
 fn big_integers() {
     // 大きい整数は plain JSON では文字列で出る
     let a = "123456789012345678901234567890123456789";
-    assert_eq!(run(DIV, &format!("[\"{a}\", 1000000000]")), "\"123456789012345678901234567890\"");
-    assert_eq!(run(DIV, &format!("[\"-{a}\", 1000000000]")), "\"-123456789012345678901234567891\"");
+    assert_eq!(
+        run(DIV, &format!("[\"{a}\", 1000000000]")),
+        "\"123456789012345678901234567890\""
+    );
+    assert_eq!(
+        run(DIV, &format!("[\"-{a}\", 1000000000]")),
+        "\"-123456789012345678901234567891\""
+    );
     assert_eq!(run(DIV, &format!("[\"{a}\", \"{a}\"]")), "1");
     assert_eq!(run(DIV, &format!("[1, \"{a}\"]")), "0");
 }
@@ -73,7 +86,17 @@ fn div_mod_identity() {
     if(eq(add(mul(q, snd(p)), r), fst(p)), if(le(0, r), lt(r, snd(p)), false), false)))
 entry f
 ";
-    for (a, b) in [(7, 2), (-7, 2), (0, 1), (13, 13), (-13, 13), (100, 7), (-100, 7), (5, 11), (-5, 11)] {
+    for (a, b) in [
+        (7, 2),
+        (-7, 2),
+        (0, 1),
+        (13, 13),
+        (-13, 13),
+        (100, 7),
+        (-100, 7),
+        (5, 11),
+        (-5, 11),
+    ] {
         assert_eq!(run(src, &format!("[{a}, {b}]")), "true", "{a} {b}");
     }
 }
@@ -81,19 +104,32 @@ entry f
 #[test]
 fn types() {
     assert!(codes(DIV).is_empty());
-    assert_eq!(codes("fn f(x: Int) -> Int = div(x, 2) entry f"), ["E-TYPE-RETURN"]);
-    assert_eq!(codes("fn f(x: Bool) -> Option<Int> = div(x, 2) entry f"), ["E-TYPE-ARG"]);
-    assert_eq!(codes("fn f(x: Int) -> Option<Int> = div(x) entry f"), ["E-ARITY-BUILTIN"]);
+    assert_eq!(
+        codes("fn f(x: Int) -> Int = div(x, 2) entry f"),
+        ["E-TYPE-RETURN"]
+    );
+    assert_eq!(
+        codes("fn f(x: Bool) -> Option<Int> = div(x, 2) entry f"),
+        ["E-TYPE-ARG"]
+    );
+    assert_eq!(
+        codes("fn f(x: Int) -> Option<Int> = div(x) entry f"),
+        ["E-ARITY-BUILTIN"]
+    );
 }
 
 #[test]
 fn soft_name() {
     // 変数名には使える
-    let src = "fn f(x: Int) -> Int = let div = add(x, 1) in match_option(div(div, 2), 0, |q| q) entry f";
+    let src =
+        "fn f(x: Int) -> Int = let div = add(x, 1) in match_option(div(div, 2), 0, |q| q) entry f";
     assert_eq!(run(src, "9"), "5");
     assert_eq!(run("fn f(div: Int) -> Int = mul(div, 2) entry f", "4"), "8");
     // 関数名には使えない
-    assert_eq!(codes("fn div(x: Int) -> Int = x entry div"), ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]);
+    assert_eq!(
+        codes("fn div(x: Int) -> Int = x entry div"),
+        ["E-PARSE-EXPECTED-IDENT", "E-PARSE-EXPECTED-IDENT"]
+    );
 }
 
 #[test]
@@ -109,13 +145,24 @@ fn fmt_round_trip() {
             assert_eq!(code, 0);
             assert_eq!(again, out);
         });
-        let (code, ast, _) = tlvm(&["ast", p]);
-        assert_eq!(code, 0);
-        assert!(ast.contains(r#""div""#), "{ast}");
-        match compile_ast(ast.trim_end().as_bytes(), &StaticProfile::default(), &AstTransportProfile::default()) {
-            AstCompile::Result(r) => assert!(r.errors().is_empty(), "{:?}", r.errors()),
-            _ => panic!("transport failure"),
-        }
+        // 字句表の語を変数名に使った AST は拒否する（§4.2）。組込みの div の呼出しは、変数名を変えれば受理される
+        let (code, ast, err) = tlvm(&["ast", p]);
+        assert_eq!(code, 1);
+        assert!(ast.is_empty() && err.contains("E-AST-IDENTIFIER"), "{err}");
+        let renamed = "fn f(d: Pair<Int, Int>) -> Option<Int> = div(fst(d), snd(d))\nentry f\n";
+        with_file(renamed, |q| {
+            let (code, ast, _) = tlvm(&["ast", q]);
+            assert_eq!(code, 0);
+            assert!(ast.contains(r#""callee":"div""#), "{ast}");
+            match compile_ast(
+                ast.trim_end().as_bytes(),
+                &StaticProfile::default(),
+                &AstTransportProfile::default(),
+            ) {
+                AstCompile::Result(r) => assert!(r.errors().is_empty(), "{:?}", r.errors()),
+                _ => panic!("transport failure"),
+            }
+        });
     });
 }
 

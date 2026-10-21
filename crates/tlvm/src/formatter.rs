@@ -1,5 +1,6 @@
 //! 正準フォーマッタ（設計書 §4.3）と ast_codec_v1 の encoder（§19.4）。
 
+use crate::diagnostics::Diagnostic;
 use crate::lexer::quote;
 use crate::syntax::*;
 
@@ -36,33 +37,121 @@ pub fn format_expr(e: &Expr) -> String {
         ExprKind::Bool(b) => b.to_string(),
         ExprKind::Unit => "unit".into(),
         ExprKind::Var(n) => n.clone(),
-        ExprKind::List { element_type, items } => format!("list<{}>({})", format_type(element_type), join(items)),
+        ExprKind::List {
+            element_type,
+            items,
+        } => format!("list<{}>({})", format_type(element_type), join(items)),
         ExprKind::Some(v) => format!("some({})", format_expr(v)),
         ExprKind::None(t) => format!("none<{}>()", format_type(t)),
         ExprKind::Pair(a, b) => format!("pair({}, {})", format_expr(a), format_expr(b)),
         // v1.9：`dict<K, V>()`
-        ExprKind::DictNew(t) => format!("dict<{}, {}>()", format_type(&t.args[0]), format_type(&t.args[1])),
+        ExprKind::DictNew(t) => format!(
+            "dict<{}, {}>()",
+            format_type(&t.args[0]),
+            format_type(&t.args[1])
+        ),
         // v1.10：明示した型引数 `f<Int>(x)`
-        ExprKind::Call { callee, args, type_args, .. } if !type_args.is_empty() => {
-            format!("{}<{}>({})", callee, type_args.iter().map(format_type).collect::<Vec<_>>().join(", "), join(args))
+        ExprKind::Call {
+            callee,
+            args,
+            type_args,
+            ..
+        } if !type_args.is_empty() => {
+            format!(
+                "{}<{}>({})",
+                callee,
+                type_args
+                    .iter()
+                    .map(format_type)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                join(args)
+            )
         }
         ExprKind::Call { callee, args, .. } => format!("{}({})", callee, join(args)),
-        ExprKind::Let { name, value, body, .. } => format!("let {} = {} in {}", name, format_expr(value), format_expr(body)),
-        ExprKind::If(c, t, f) => format!("if({}, {}, {})", format_expr(c), format_expr(t), format_expr(f)),
-        ExprKind::Fold { list, init, acc, item, body, .. } => {
-            format!("fold({}, {}, |{}, {}| {})", format_expr(list), format_expr(init), acc, item, format_expr(body))
+        ExprKind::Let {
+            name, value, body, ..
+        } => format!(
+            "let {} = {} in {}",
+            name,
+            format_expr(value),
+            format_expr(body)
+        ),
+        ExprKind::If(c, t, f) => format!(
+            "if({}, {}, {})",
+            format_expr(c),
+            format_expr(t),
+            format_expr(f)
+        ),
+        ExprKind::Fold {
+            list,
+            init,
+            acc,
+            item,
+            body,
+            ..
+        } => {
+            format!(
+                "fold({}, {}, |{}, {}| {})",
+                format_expr(list),
+                format_expr(init),
+                acc,
+                item,
+                format_expr(body)
+            )
         }
         // v1.5：`map(xs, |x| e)` など
-        ExprKind::Hof { op, list, binder, body, .. } => format!("{}({}, |{}| {})", op.name(), format_expr(list), binder, format_expr(body)),
+        ExprKind::Hof {
+            op,
+            list,
+            binder,
+            body,
+            ..
+        } => format!(
+            "{}({}, |{}| {})",
+            op.name(),
+            format_expr(list),
+            binder,
+            format_expr(body)
+        ),
         // v1.6：`loop(init, max, |s| e)`
-        ExprKind::Loop { init, max, binder, body, .. } => {
-            format!("loop({}, {}, |{}| {})", format_expr(init), format_expr(max), binder, format_expr(body))
+        ExprKind::Loop {
+            init,
+            max,
+            binder,
+            body,
+            ..
+        } => {
+            format!(
+                "loop({}, {}, |{}| {})",
+                format_expr(init),
+                format_expr(max),
+                binder,
+                format_expr(body)
+            )
         }
-        ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
-            format!("match_option({}, {}, |{}| {})", format_expr(scrutinee), format_expr(on_none), binder, format_expr(on_some))
+        ExprKind::Match {
+            scrutinee,
+            on_none,
+            binder,
+            on_some,
+            ..
+        } => {
+            format!(
+                "match_option({}, {}, |{}| {})",
+                format_expr(scrutinee),
+                format_expr(on_none),
+                binder,
+                format_expr(on_some)
+            )
         }
-        ExprKind::Record { name, fields, base, .. } => {
-            let mut parts: Vec<String> = fields.iter().map(|f| format!("{}: {}", f.name, format_expr(&f.value))).collect();
+        ExprKind::Record {
+            name, fields, base, ..
+        } => {
+            let mut parts: Vec<String> = fields
+                .iter()
+                .map(|f| format!("{}: {}", f.name, format_expr(&f.value)))
+                .collect();
             if let Some(b) = base {
                 parts.push(format!("..{}", format_expr(b)));
             }
@@ -76,7 +165,14 @@ pub fn format_expr(e: &Expr) -> String {
             format_type(&ty.args[1]),
             format_expr(value)
         ),
-        ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => format!(
+        ExprKind::MatchResult {
+            scrutinee,
+            ok_binder,
+            on_ok,
+            err_binder,
+            on_err,
+            ..
+        } => format!(
             "match_result({}, |{}| {}, |{}| {})",
             format_expr(scrutinee),
             ok_binder,
@@ -84,8 +180,13 @@ pub fn format_expr(e: &Expr) -> String {
             err_binder,
             format_expr(on_err)
         ),
-        ExprKind::SumMatch { scrutinee, arms, .. } => {
-            let arms: Vec<String> = arms.iter().map(|a| format!("{} => {}", format_pattern(&a.pat), format_expr(&a.body))).collect();
+        ExprKind::SumMatch {
+            scrutinee, arms, ..
+        } => {
+            let arms: Vec<String> = arms
+                .iter()
+                .map(|a| format!("{} => {}", format_pattern(&a.pat), format_expr(&a.body)))
+                .collect();
             format!("match {} {{ {} }}", format_expr(scrutinee), arms.join(", "))
         }
     }
@@ -114,7 +215,13 @@ fn format_type_params(ps: &[TypeParam]) -> String {
     if ps.is_empty() {
         String::new()
     } else {
-        format!("<{}>", ps.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "))
+        format!(
+            "<{}>",
+            ps.iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
@@ -127,7 +234,11 @@ pub fn format_program(p: &Program) -> String {
     for d in &p.declarations {
         match d {
             Decl::Fn(f) => {
-                let params: Vec<String> = f.params.iter().map(|p| format!("{}: {}", p.name, format_type(&p.ty))).collect();
+                let params: Vec<String> = f
+                    .params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, format_type(&p.ty)))
+                    .collect();
                 out.push_str(&format!(
                     "{}fn {}{}({}) -> {} = {}",
                     if f.rec { "rec " } else { "" },
@@ -140,8 +251,17 @@ pub fn format_program(p: &Program) -> String {
             }
             Decl::Entry(e) => out.push_str(&format!("entry {}", e.name)),
             Decl::Type(t) => {
-                let fs: Vec<String> = t.fields.iter().map(|f| format!("{}: {}", f.name, format_type(&f.ty))).collect();
-                out.push_str(&format!("type {}{} = {{ {} }}", t.name, format_type_params(&t.type_params), fs.join(", ")));
+                let fs: Vec<String> = t
+                    .fields
+                    .iter()
+                    .map(|f| format!("{}: {}", f.name, format_type(&f.ty)))
+                    .collect();
+                out.push_str(&format!(
+                    "type {}{} = {{ {} }}",
+                    t.name,
+                    format_type_params(&t.type_params),
+                    fs.join(", ")
+                ));
             }
             Decl::Sum(t) => {
                 let vs: Vec<String> = t
@@ -151,11 +271,24 @@ pub fn format_program(p: &Program) -> String {
                         if v.fields.is_empty() {
                             v.name.clone()
                         } else {
-                            format!("{}({})", v.name, v.fields.iter().map(format_type).collect::<Vec<_>>().join(", "))
+                            format!(
+                                "{}({})",
+                                v.name,
+                                v.fields
+                                    .iter()
+                                    .map(format_type)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
                         }
                     })
                     .collect();
-                out.push_str(&format!("type {}{} = {}", t.name, format_type_params(&t.type_params), vs.join(" | ")));
+                out.push_str(&format!(
+                    "type {}{} = {}",
+                    t.name,
+                    format_type_params(&t.type_params),
+                    vs.join(" | ")
+                ));
             }
         }
         out.push('\n');
@@ -173,7 +306,10 @@ fn type_json(t: &TypeNode, out: &mut String) {
     }
     // v1.10：型引数 `{"tag":"param","name":"T"}`
     if t.tag == TyTag::Param {
-        out.push_str(&format!("{{\"tag\":\"param\",\"name\":\"{}\"}}", t.name.as_deref().unwrap_or("")));
+        out.push_str(&format!(
+            "{{\"tag\":\"param\",\"name\":\"{}\"}}",
+            t.name.as_deref().unwrap_or("")
+        ));
         return;
     }
     let tag = t.tag.name().to_ascii_lowercase();
@@ -239,7 +375,9 @@ fn expr_json(e: &Expr, out: &mut String) {
     match &e.kind {
         ExprKind::Int(n) => out.push_str(&format!("{{\"tag\":\"int\",\"value\":\"{n}\"}}")),
         // v1.2：文字は code point の十進（値 JSON の char と同じ）、文字列は JSON 文字列
-        ExprKind::Char(c) => out.push_str(&format!("{{\"tag\":\"char\",\"value\":\"{}\"}}", *c as u32)),
+        ExprKind::Char(c) => {
+            out.push_str(&format!("{{\"tag\":\"char\",\"value\":\"{}\"}}", *c as u32))
+        }
         ExprKind::Str(w) => {
             out.push_str("{\"tag\":\"string\",\"value\":");
             json_string(w, out);
@@ -248,7 +386,10 @@ fn expr_json(e: &Expr, out: &mut String) {
         ExprKind::Bool(b) => out.push_str(&format!("{{\"tag\":\"bool\",\"value\":{b}}}")),
         ExprKind::Unit => out.push_str("{\"tag\":\"unit\"}"),
         ExprKind::Var(n) => out.push_str(&format!("{{\"tag\":\"var\",\"name\":\"{n}\"}}")),
-        ExprKind::List { element_type, items } => {
+        ExprKind::List {
+            element_type,
+            items,
+        } => {
             out.push_str("{\"tag\":\"list\",\"element_type\":");
             type_json(element_type, out);
             out.push_str(",\"items\":");
@@ -280,8 +421,15 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(b, out);
             out.push('}');
         }
-        ExprKind::Call { callee, args, type_args, .. } => {
-            out.push_str(&format!("{{\"tag\":\"call\",\"callee\":\"{callee}\",\"args\":"));
+        ExprKind::Call {
+            callee,
+            args,
+            type_args,
+            ..
+        } => {
+            out.push_str(&format!(
+                "{{\"tag\":\"call\",\"callee\":\"{callee}\",\"args\":"
+            ));
             exprs_json(args, out);
             // v1.10：明示した型引数。明示しないときは空配列（必ず出す）
             out.push_str(",\"type_args\":[");
@@ -293,7 +441,9 @@ fn expr_json(e: &Expr, out: &mut String) {
             }
             out.push_str("]}");
         }
-        ExprKind::Let { name, value, body, .. } => {
+        ExprKind::Let {
+            name, value, body, ..
+        } => {
             out.push_str(&format!("{{\"tag\":\"let\",\"name\":\"{name}\",\"value\":"));
             expr_json(value, out);
             out.push_str(",\"body\":");
@@ -309,7 +459,14 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(f, out);
             out.push('}');
         }
-        ExprKind::Fold { list, init, acc, item, body, .. } => {
+        ExprKind::Fold {
+            list,
+            init,
+            acc,
+            item,
+            body,
+            ..
+        } => {
             out.push_str("{\"tag\":\"fold\",\"list\":");
             expr_json(list, out);
             out.push_str(",\"init\":");
@@ -318,7 +475,13 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(body, out);
             out.push('}');
         }
-        ExprKind::Match { scrutinee, on_none, binder, on_some, .. } => {
+        ExprKind::Match {
+            scrutinee,
+            on_none,
+            binder,
+            on_some,
+            ..
+        } => {
             out.push_str("{\"tag\":\"match_option\",\"scrutinee\":");
             expr_json(scrutinee, out);
             out.push_str(",\"on_none\":");
@@ -328,7 +491,13 @@ fn expr_json(e: &Expr, out: &mut String) {
             out.push('}');
         }
         // v1.5：`{"tag":"map","list":...,"binder":"x","body":...}` など
-        ExprKind::Hof { op, list, binder, body, .. } => {
+        ExprKind::Hof {
+            op,
+            list,
+            binder,
+            body,
+            ..
+        } => {
             out.push_str(&format!("{{\"tag\":\"{}\",\"list\":", op.name()));
             expr_json(list, out);
             out.push_str(&format!(",\"binder\":\"{binder}\",\"body\":"));
@@ -336,7 +505,13 @@ fn expr_json(e: &Expr, out: &mut String) {
             out.push('}');
         }
         // v1.6：`{"tag":"loop","init":...,"max":...,"binder":"s","body":...}`
-        ExprKind::Loop { init, max, binder, body, .. } => {
+        ExprKind::Loop {
+            init,
+            max,
+            binder,
+            body,
+            ..
+        } => {
             out.push_str("{\"tag\":\"loop\",\"init\":");
             expr_json(init, out);
             out.push_str(",\"max\":");
@@ -346,7 +521,11 @@ fn expr_json(e: &Expr, out: &mut String) {
             out.push('}');
         }
         ExprKind::Inj { ok, ty, value } => {
-            out.push_str(if *ok { "{\"tag\":\"ok\",\"ok_type\":" } else { "{\"tag\":\"err\",\"ok_type\":" });
+            out.push_str(if *ok {
+                "{\"tag\":\"ok\",\"ok_type\":"
+            } else {
+                "{\"tag\":\"err\",\"ok_type\":"
+            });
             type_json(&ty.args[0], out);
             out.push_str(",\"err_type\":");
             type_json(&ty.args[1], out);
@@ -354,7 +533,14 @@ fn expr_json(e: &Expr, out: &mut String) {
             expr_json(value, out);
             out.push('}');
         }
-        ExprKind::MatchResult { scrutinee, ok_binder, on_ok, err_binder, on_err, .. } => {
+        ExprKind::MatchResult {
+            scrutinee,
+            ok_binder,
+            on_ok,
+            err_binder,
+            on_err,
+            ..
+        } => {
             out.push_str("{\"tag\":\"match_result\",\"scrutinee\":");
             expr_json(scrutinee, out);
             out.push_str(&format!(",\"ok_binder\":\"{ok_binder}\",\"on_ok\":"));
@@ -364,13 +550,19 @@ fn expr_json(e: &Expr, out: &mut String) {
             out.push('}');
         }
         // AST transport にレコード・直和型・match の形はない。呼び出し側が展開と lower を済ませてから渡す
-        ExprKind::Record { .. } | ExprKind::Field { .. } | ExprKind::SumMatch { .. } => out.push_str("{\"tag\":\"unit\"}"),
+        ExprKind::Record { .. } | ExprKind::Field { .. } | ExprKind::SumMatch { .. } => {
+            out.push_str("{\"tag\":\"unit\"}")
+        }
     }
 }
 
 /// 正準 AST JSON（UTF-8、最小空白、表の key 順、末尾改行なし）。名前は ASCII なので escape 不要
-/// （文字列リテラルだけは `json_string` で escape する）。
-pub fn encode_ast(p: &Program) -> String {
+/// （文字列リテラルだけは `json_string` で escape する）。字句表の語を名前に使ったプログラムは付け替えず、
+/// `E-AST-IDENTIFIER` で拒否する（§4.2）。
+pub fn encode_ast(p: &Program) -> Result<String, Vec<Diagnostic>> {
+    if let Some(d) = crate::softnames::keyword_name_error(p) {
+        return Err(vec![d]);
+    }
     let mut out = String::from("{\"codec\":\"ast_codec_v1\",\"declarations\":[");
     for (i, d) in p.declarations.iter().enumerate() {
         if i > 0 {
@@ -378,7 +570,10 @@ pub fn encode_ast(p: &Program) -> String {
         }
         match d {
             Decl::Fn(f) => {
-                out.push_str(&format!("{{\"tag\":\"fn\",\"name\":\"{}\",\"params\":[", f.name));
+                out.push_str(&format!(
+                    "{{\"tag\":\"fn\",\"name\":\"{}\",\"params\":[",
+                    f.name
+                ));
                 for (j, p) in f.params.iter().enumerate() {
                     if j > 0 {
                         out.push(',');
@@ -397,15 +592,21 @@ pub fn encode_ast(p: &Program) -> String {
                 }
                 // v1.10：型引数（総称の関数にだけ書く）
                 if !f.type_params.is_empty() {
-                    let names: Vec<String> = f.type_params.iter().map(|p| format!("\"{}\"", p.name)).collect();
+                    let names: Vec<String> = f
+                        .type_params
+                        .iter()
+                        .map(|p| format!("\"{}\"", p.name))
+                        .collect();
                     out.push_str(&format!(",\"type_params\":[{}]", names.join(",")));
                 }
                 out.push('}');
             }
-            Decl::Entry(e) => out.push_str(&format!("{{\"tag\":\"entry\",\"name\":\"{}\"}}", e.name)),
+            Decl::Entry(e) => {
+                out.push_str(&format!("{{\"tag\":\"entry\",\"name\":\"{}\"}}", e.name))
+            }
             Decl::Type(_) | Decl::Sum(_) => {}
         }
     }
     out.push_str("]}");
-    out
+    Ok(out)
 }

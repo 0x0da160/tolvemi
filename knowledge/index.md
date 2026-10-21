@@ -6,7 +6,7 @@ okf_version: "0.2"
 
 LLM向け純粋・全域言語 LPTL（LLM-Pure Total Language）設計方針 v1 と、その公開名称 Tolvemi（トルベミ、省略表記：tlvm）の知識を Open Knowledge Format v0.2 でまとめたバンドル。一次資料は [`/spec`](../spec/) にある設計書・検証資料で、本バンドルの各 concept は `sources` でそこへ遡れる。
 
-* [概要](overview/) - 憲章、名称、範囲、基本契約、設計状態と出荷ゲート
+* [概要](overview/) - 憲章、名称、範囲、基本契約、設計状態と出荷ゲート、既知の注意点
 * [言語](language/) - 型と値、字句、文法、名前、entry、呼出しグラフ、型規則、組込み、動的意味論、例
 * [保証](guarantees/) - 停止性の証明構造、Verus の層分離・証明義務・信頼境界
 * [API とコーデック](api/) - compile/decode/run の分離、値 JSON、strict JSON、AST codec、ハッシュ、REPL と Language Server（v1.12）

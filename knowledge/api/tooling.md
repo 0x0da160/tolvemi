@@ -16,7 +16,7 @@ sources:
 
 - 言語（構文・型規則・意味論・診断のコード・資源上限）は v1.11 のまま。加えるのは CLI の `tlvm repl [FILE]` と `tlvm lsp` だけ。[^lptl-v1-12]
 - v1.16 で加えたもの：import の `@名前/パス` と、マニフェスト `tlvm.json`（ローカルの依存。取得と版の解決はない）。[v1.16 差分仕様](../../spec/lptl-v1.16/LPTL_v1.16_delta.md)。CLI の使い方は変えない（根のファイルの隣の `tlvm.json` を import の解決で読む）。
-- どちらも source を組み立てて今までの API（`imports::compile_root`、`api::compile`、`api::run`）に渡し、結果を表示に写す。
+- どちらも source を組み立てて今までの API（`imports::compile_root`、`api::compile`、`api::run_input`）に渡し、結果を表示に写す。
   判定と実行は今までどおり検証済み部品が行い、組み立てと写像は検証されていない（[信頼境界](../guarantees/verus-and-trust-boundary.md)）。
 - パッケージ管理と性能の改善は v1.12 に含めない。LLM での確認は対象外（評価セットは変えない）。
 
@@ -47,7 +47,7 @@ sources:
   受理された文書には空の配列。
 - `file://` の文書の import は、開いている文書を先に、なければディスクを読む。import したファイルの誤りは根の最初の import の
   行に `path:行:列:` を付けて出す。ほかの URI では import は `E-IMPORT-UNSUPPORTED`。
-- 整形は `tlvm fmt` と同じ正準の整形を、文書全体を置き換える一つの edit で返す。既に正準なら `[]`、構文の誤りがあれば `null`。
+- 整形は `tlvm fmt` と同じ正準の整形を、文書全体を置き換える一つの edit で返す。既に正準なら `[]`。構文・名前・型などの検査に一つでも誤りがあれば `null` を返し、整形しない。
 - editor では、拡張子 `.tlvm` の言語の server のコマンドを `tlvm lsp` にする（`--stdio` は受け付けて無視する）。
 
 [^lptl-v1-12]: [LPTL v1.12 差分仕様](../../spec/lptl-v1.12/LPTL_v1.12_delta.md)

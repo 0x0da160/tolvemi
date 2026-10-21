@@ -13,8 +13,8 @@
 //! v1.4：出力が `Result<String, String>` なら、`ok(s)` は s をそのまま標準出力に（終了コード 0）、
 //! `err(s)` は s をそのまま標準エラーに書く（終了コード 1）。
 //! テキストと値の変換（`tlvm_verified::io`）と実行（`pipeline::run_checked`）は検証済み部品が行う。
-//! v1.13 の辞書は、行から作った普通の JSON を `run --plain` と同じ `api::decode_plain_input` で読み、
-//! 検証済みの復号器（`decode_input_e`。`run_input_json` と同じ）で値にする。
+//! v1.13 の辞書は、行から作った普通の JSON を `run --plain` と同じ経路で読み、その検査で検証済みの復号器が
+//! 作った値を使う（二回目の復号はしない。`api::decode_plain_keeping` と `values::cross_check`）。
 //! ここにあるのは入力の形の選択と、結果を `ExecResult` に写す接着部分だけである（`trust-boundary.toml`）。
 
 use crate::checker::TypedProgram;
@@ -24,17 +24,17 @@ use crate::lines::{self, LinesResult};
 use crate::plain::encode_plain;
 use crate::profiles::{ExecutionProfile, HostPolicy};
 use crate::syntax::Ty;
-use crate::values::{release, verified_ty};
+use crate::values::release;
 use std::rc::Rc;
 use tlvm_verified::eval::{Limits, Resource, Stop};
-use tlvm_verified::input_exec::decode_input_e;
 use tlvm_verified::io::{args_value, text_codes, text_value};
 use tlvm_verified::json::encode;
 use tlvm_verified::pipeline::{run_checked, Checked};
 use tlvm_verified::value::Value as EV;
 
 /// exec の entry の入力型として受け付ける形（UnsupportedEntry の説明に使う）。
-pub const ENTRY_SHAPES: &str = "String、List<String>、Pair<List<String>, String>、Dict<String, String>、Dict<String, Int>";
+pub const ENTRY_SHAPES: &str =
+    "String、List<String>、Pair<List<String>, String>、Dict<String, String>、Dict<String, Int>";
 
 /// entry が受け取るもの。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +78,13 @@ pub enum ExecResult {
 
 /// 型検査済みのプログラムを、引数と標準入力の全文で実行する。深い再帰に備えて host-policy のスタック量を
 /// 持つスレッドで評価する（`api::run` と同じ）。
-pub fn exec(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProfile, host: &HostPolicy) -> Result<ExecResult, String> {
+pub fn exec(
+    p: &TypedProgram,
+    args: &[String],
+    stdin: &str,
+    prof: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<ExecResult, String> {
     std::thread::scope(|s| {
         let h = std::thread::Builder::new()
             .stack_size(host.stack_bytes)
@@ -86,15 +92,30 @@ pub fn exec(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProf
             .map_err(|e| e.to_string())?;
         match h.join() {
             Ok(r) => r,
-            Err(_) => Ok(ExecResult::Stopped(RunResult::InternalFault("evaluator-panic".into()))),
+            Err(_) => Ok(ExecResult::Stopped(RunResult::InternalFault(
+                "evaluator-panic".into(),
+            ))),
         }
     })
 }
 
-fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionProfile, host: &HostPolicy) -> Result<ExecResult, String> {
-    let shape = exec_input(p).ok_or_else(|| format!("exec の entry の入力型は {} のどれか（この entry は {}）", ENTRY_SHAPES, p.input_type))?;
+fn exec_here(
+    p: &TypedProgram,
+    args: &[String],
+    stdin: &str,
+    prof: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<ExecResult, String> {
+    let shape = exec_input(p).ok_or_else(|| {
+        format!(
+            "exec の entry の入力型は {} のどれか（この entry は {}）",
+            ENTRY_SHAPES, p.input_type
+        )
+    })?;
     let Some(vp) = p.verified.as_ref() else {
-        return Ok(ExecResult::Stopped(RunResult::InternalFault("no-verified-program".into())));
+        return Ok(ExecResult::Stopped(RunResult::InternalFault(
+            "no-verified-program".into(),
+        )));
     };
     let text = || text_value(&stdin.chars().collect());
     let argv = || args_value(&args.iter().map(|a| a.chars().collect()).collect());
@@ -112,27 +133,45 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
         integer_bits: prof.integer_bits,
         allocated_nodes: prof.allocated_nodes.min(u64::MAX - 1),
         max_depth: (host.max_eval_depth as u64).min(u64::MAX - 1),
+        max_slots: (host.max_ref_slots as u64).min(u64::MAX - 1),
     };
     let r = run_checked(&vp.0, input.clone(), lim);
     release(input);
     let stopped = |r: RunResult| Ok(ExecResult::Stopped(r));
     match r {
-        Checked::NotWellFormed => stopped(RunResult::InternalFault("verified-check-rejected-program".into())),
-        Checked::InputTypeMismatch => stopped(RunResult::InternalFault("verified-input-type-mismatch".into())),
+        Checked::NotWellFormed => stopped(RunResult::InternalFault(
+            "verified-check-rejected-program".into(),
+        )),
+        Checked::InputTypeMismatch => stopped(RunResult::InternalFault(
+            "verified-input-type-mismatch".into(),
+        )),
         Checked::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
             let kind = match kind {
                 Resource::Steps => "Steps",
                 Resource::IntegerBits => "IntegerBits",
                 Resource::AllocatedNodes => "AllocatedNodes",
             };
-            stopped(RunResult::ResourceExhausted { kind, observed, limit })
+            stopped(RunResult::ResourceExhausted {
+                kind,
+                observed,
+                limit,
+            })
         }
-        Checked::Ran(Err(Stop::HostDepth), _, _) => stopped(RunResult::HostAborted("eval-depth".into())),
+        Checked::Ran(Err(Stop::HostDepth), _, _) => {
+            stopped(RunResult::HostAborted("eval-depth".into()))
+        }
+        Checked::Ran(Err(Stop::HostSlots), _, _) => {
+            stopped(RunResult::HostAborted("ref-slots".into()))
+        }
         Checked::Ran(Err(Stop::Fault), _, _) => stopped(RunResult::InternalFault("stuck".into())),
         Checked::Ran(Ok(w), _, _) => {
             let text = |v: &Rc<EV>| -> Option<String> {
                 // 出力型 String の値の文字はスカラー値（検証済み：val_type）
-                text_codes(v).map(|cs| cs.into_iter().map(|c| char::from_u32(c).unwrap_or('\u{FFFD}')).collect())
+                text_codes(v).map(|cs| {
+                    cs.into_iter()
+                        .map(|c| char::from_u32(c).unwrap_or('\u{FFFD}'))
+                        .collect()
+                })
             };
             let mut failed = false;
             let out = if p.output_type == Ty::string() {
@@ -166,32 +205,46 @@ fn exec_here(p: &TypedProgram, args: &[String], stdin: &str, prof: &ExecutionPro
             };
             release(w);
             if out.len() as u64 > prof.output_bytes {
-                return stopped(RunResult::ResourceExhausted { kind: "OutputBytes", observed: prof.output_bytes + 1, limit: prof.output_bytes });
+                return stopped(RunResult::ResourceExhausted {
+                    kind: "OutputBytes",
+                    observed: prof.output_bytes + 1,
+                    limit: prof.output_bytes,
+                });
             }
-            Ok(if failed { ExecResult::Failure(out) } else { ExecResult::Output(out) })
+            Ok(if failed {
+                ExecResult::Failure(out)
+            } else {
+                ExecResult::Output(out)
+            })
         }
     }
 }
 
-/// v1.13：標準入力の行から辞書の入力を作り、検証済みの復号器で値にする。`run --plain` と同じ経路を通る
-/// （`lines::dict_from_lines` が普通の JSON にして `api::decode_plain_input` で読み、`run_input_json` と同じく
-/// `decode_input_e` で値にする）。行の形の誤りと復号の拒否は、そのまま `ExecResult` で返す。
-fn lines_input(p: &TypedProgram, stdin: &str, prof: &ExecutionProfile) -> Result<Rc<EV>, ExecResult> {
-    let tv = match lines::dict_from_lines(&p.input_type, stdin) {
-        LinesResult::Decoded(tv) => tv,
-        LinesResult::BoundaryFailure(reason) => return Err(ExecResult::InputBoundaryFailure(reason)),
+/// v1.13：標準入力の行から辞書の入力を作る。`run --plain` と同じ経路を通る（`lines::dict_from_lines` が普通の JSON
+/// にして `api::decode_plain_keeping` で読む）。その検査で検証済みの復号器が一度だけ走り、受理した値をここで取り出す。
+/// 行の形の誤りと復号の拒否は、そのまま `ExecResult` で返す。
+fn lines_input(
+    p: &TypedProgram,
+    stdin: &str,
+    prof: &ExecutionProfile,
+) -> Result<Rc<EV>, ExecResult> {
+    let (tv, mut verified) = match lines::dict_from_lines(&p.input_type, stdin) {
+        LinesResult::Decoded(tv, verified) => (tv, verified),
+        LinesResult::BoundaryFailure(reason) => {
+            return Err(ExecResult::InputBoundaryFailure(reason))
+        }
         LinesResult::Invalid(ds) => return Err(ExecResult::InputInvalid(ds)),
     };
     // evaluator::run と同じ：入力の整数の bit 長が上限を超えるなら、実行せずに打ち切る
     if let Some(observed) = input_bits_over(&tv.value, prof.integer_bits) {
-        return Err(ExecResult::Stopped(RunResult::ResourceExhausted { kind: "IntegerBits", observed, limit: prof.integer_bits }));
+        return Err(ExecResult::Stopped(RunResult::ResourceExhausted {
+            kind: "IntegerBits",
+            observed,
+            limit: prof.integer_bits,
+        }));
     }
-    if tv.text.len() >= 0x1000_0000 {
-        return Err(ExecResult::Stopped(RunResult::InternalFault("input-too-long-for-verified-decoder".into())));
-    }
-    let Some(vt) = verified_ty(&tv.ty) else {
-        return Err(ExecResult::Stopped(RunResult::InternalFault("no-verified-type".into())));
-    };
-    decode_input_e(&tv.text, tv.json_depth, &vt)
-        .ok_or_else(|| ExecResult::Stopped(RunResult::InternalFault("verified-decoder-rejected-input".into())))
+    // cross_check が同じ文字列・同じ型・同じ深さで検証済みの復号器に通し、信頼側の値と一致を確かめた値そのもの
+    verified.take().ok_or_else(|| {
+        ExecResult::Stopped(RunResult::InternalFault("verified-value-missing".into()))
+    })
 }

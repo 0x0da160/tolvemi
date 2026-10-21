@@ -91,6 +91,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-RECORD-UNKNOWN-FIELD" => "この名前の field はありません",
         "E-RECORD-DUPLICATE-FIELD" => "同じ field が二度書かれています",
         "E-RECORD-MISSING-FIELD" => "レコードの構築に書かれていない field があります",
+        "E-RECORD-BASE-REDUNDANT" => "すべての field を書いたので、`..base` で写す field がありません",
         "E-RECORD-DUPLICATE-TYPE" => "同じ名前のレコード型が二度宣言されています",
         "E-RECORD-FIELD-CONFLICT" => "field 名は別のレコード型の field と重なってはいけません",
         "E-SUM-DUPLICATE-CTOR" => "構築子の名前が重複しています（構築子の名前はプログラム全体で一意）",
@@ -125,6 +126,7 @@ pub fn message_for(code: &str) -> &'static str {
         "E-LIMIT-STATIC-FOLD-DEPTH" => "fold のネスト深さが上限を超えました",
         "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH" => "推論された型の深さが上限を超えました",
         "E-LIMIT-STATIC-SEMANTIC-WORK" => "型検査の仕事量が上限を超えました",
+        "E-LIMIT-STATIC-REWRITTEN-BYTES" => "書換え後のプログラムの bytes が上限を超えました",
         "E-INTERNAL-VERIFIED-MISMATCH" => "検証済み部品と診断用の検査器の判定が食い違いました（処理系の不具合）",
         "E-DIAG-LIMIT" => "error が多すぎるため以降を省略しました",
         "W-DIAG-LIMIT" => "warning が多すぎるため以降を省略しました",
@@ -207,7 +209,10 @@ impl Diagnostic {
     }
 
     pub fn warning(phase: &'static str, code: &'static str, span: Span) -> Diagnostic {
-        Diagnostic { severity: "warning", ..Diagnostic::error(phase, code, span) }
+        Diagnostic {
+            severity: "warning",
+            ..Diagnostic::error(phase, code, span)
+        }
     }
 
     pub fn exp(mut self, e: impl Into<String>) -> Self {
@@ -220,8 +225,17 @@ impl Diagnostic {
         self
     }
 
-    pub fn fix(mut self, kind: &'static str, target_span: Span, constraint: impl Into<String>) -> Self {
-        self.repair = Some(Repair { kind, target_span, constraint: constraint.into() });
+    pub fn fix(
+        mut self,
+        kind: &'static str,
+        target_span: Span,
+        constraint: impl Into<String>,
+    ) -> Self {
+        self.repair = Some(Repair {
+            kind,
+            target_span,
+            constraint: constraint.into(),
+        });
         self
     }
 
@@ -231,7 +245,10 @@ impl Diagnostic {
     }
 
     pub fn is_cutoff(&self) -> bool {
-        matches!(self.phase, "lexical-limits" | "structural-limits" | "semantic-limits")
+        matches!(
+            self.phase,
+            "lexical-limits" | "structural-limits" | "semantic-limits"
+        )
     }
 
     /// 正準 key 順の一行 JSON（§10.1）。repair は実装した規則（`suggest_repairs` と名前検査）が出したものだけ。
@@ -290,7 +307,10 @@ pub fn json_string(s: &str) -> String {
 }
 
 fn phase_rank(p: &str) -> usize {
-    PHASE_ORDER.iter().position(|x| *x == p).unwrap_or(PHASE_ORDER.len())
+    PHASE_ORDER
+        .iter()
+        .position(|x| *x == p)
+        .unwrap_or(PHASE_ORDER.len())
 }
 
 /// phase 順・span 順に整列し、同一 node・同一 code を統合し、件数上限を適用する。
@@ -314,12 +334,22 @@ pub fn finalize(diags: Vec<Diagnostic>) -> (Vec<Diagnostic>, Vec<Diagnostic>) {
             if a.phase == "parse" {
                 a.seq.cmp(&b.seq)
             } else {
-                (&a.file, a.span.0, a.span.1, a.code, a.node_index).cmp(&(&b.file, b.span.0, b.span.1, b.code, b.node_index))
+                (&a.file, a.span.0, a.span.1, a.code, a.node_index).cmp(&(
+                    &b.file,
+                    b.span.0,
+                    b.span.1,
+                    b.code,
+                    b.node_index,
+                ))
             }
         })
     });
-    let (errors, warnings): (Vec<_>, Vec<_>) = unique.into_iter().partition(|d| d.severity == "error");
-    (limit(errors, "E-DIAG-LIMIT"), limit(warnings, "W-DIAG-LIMIT"))
+    let (errors, warnings): (Vec<_>, Vec<_>) =
+        unique.into_iter().partition(|d| d.severity == "error");
+    (
+        limit(errors, "E-DIAG-LIMIT"),
+        limit(warnings, "W-DIAG-LIMIT"),
+    )
 }
 
 fn limit(diags: Vec<Diagnostic>, code: &'static str) -> Vec<Diagnostic> {
@@ -330,7 +360,11 @@ fn limit(diags: Vec<Diagnostic>, code: &'static str) -> Vec<Diagnostic> {
     let cutoff = diags.iter().find(|d| d.is_cutoff()).cloned();
     let mut kept: Vec<Diagnostic> = match cutoff {
         Some(c) => {
-            let mut v: Vec<_> = diags.into_iter().filter(|d| !d.is_cutoff()).take(MAX_PER_SEVERITY - 2).collect();
+            let mut v: Vec<_> = diags
+                .into_iter()
+                .filter(|d| !d.is_cutoff())
+                .take(MAX_PER_SEVERITY - 2)
+                .collect();
             v.push(c);
             v
         }
@@ -509,7 +543,11 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
             _ => None,
         };
         if let Some((kind, target_span, constraint)) = r {
-            d.repair = Some(Repair { kind, target_span, constraint });
+            d.repair = Some(Repair {
+                kind,
+                target_span,
+                constraint,
+            });
         }
     }
 }
@@ -517,16 +555,35 @@ pub fn suggest_repairs(diags: &mut [Diagnostic], source: &[u8]) {
 /// v1.5：E-PARSE-EXPECTED-LAMBDA の修復ヒント。`map(xs, f)`（関数名だけ）、`map(xs, add(x, 1))`（ラムダの頭がない）、
 /// `map(xs)`（第 2 引数がない）、`|acc, x|`（binder が一つでない）を見分ける。
 /// v1.6：`loop(init, max, ...)` の第 3 引数も同じく見分ける（expected が `LOOP_*` のとき。binder は状態 s）。
-fn lambda_repair(span: Span, exp: Option<&str>, actual: Option<&str>, source: &[u8]) -> (&'static str, Span, String) {
+fn lambda_repair(
+    span: Span,
+    exp: Option<&str>,
+    actual: Option<&str>,
+    source: &[u8],
+) -> (&'static str, Span, String) {
     use crate::parser::{LOOP_LAMBDA_EXPECTED, LOOP_ONE_BINDER};
     let is_loop = exp == Some(LOOP_LAMBDA_EXPECTED) || exp == Some(LOOP_ONE_BINDER);
     let (x, what, nth, forms) = if is_loop {
-        ("s", "state", "third", "loop(init, max, |s| e), where e is some(next state) to continue or none<S>() to stop")
+        (
+            "s",
+            "state",
+            "third",
+            "loop(init, max, |s| e), where e is some(next state) to continue or none<S>() to stop",
+        )
     } else {
-        ("x", "element", "second", "map(xs, |x| e), filter(xs, |x| p), any / all / find(xs, |x| p), sort_by(xs, |x| key)")
+        (
+            "x",
+            "element",
+            "second",
+            "map(xs, |x| e), filter(xs, |x| p), any / all / find(xs, |x| p), sort_by(xs, |x| key)",
+        )
     };
     if exp == Some(LOOP_ONE_BINDER) {
-        return ("replace_expression", span, format!("exactly one binder between the bars, naming the state: {forms}"));
+        return (
+            "replace_expression",
+            span,
+            format!("exactly one binder between the bars, naming the state: {forms}"),
+        );
     }
     if exp == Some(crate::parser::LAMBDA_ONE_BINDER) {
         return (
@@ -535,8 +592,12 @@ fn lambda_repair(span: Span, exp: Option<&str>, actual: Option<&str>, source: &[
             format!("exactly one binder between the bars, naming the element: {forms}; use fold(xs, init, |acc, x| ...) to carry an accumulator"),
         );
     }
-    let ident = actual.is_some_and(|a| a.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
-    let next = source.get(span.1..).and_then(|r| r.iter().find(|b| !b.is_ascii_whitespace())).copied();
+    let ident =
+        actual.is_some_and(|a| a.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
+    let next = source
+        .get(span.1..)
+        .and_then(|r| r.iter().find(|b| !b.is_ascii_whitespace()))
+        .copied();
     match actual {
         Some(")") => ("insert_text", (span.0, span.0), format!("', |{x}| e' before ')': the {nth} argument is a one-binder lambda, as in {forms}")),
         Some(f) if ident && matches!(next, Some(b')' | b',')) => (
@@ -622,10 +683,16 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
 }
 
 /// `name` に近い候補を距離・名前の順に最大 `max` 件（距離は名前の長さに応じて 1〜3 まで）。
-pub fn closest<'a>(name: &str, candidates: impl Iterator<Item = &'a str>, max: usize) -> Vec<&'a str> {
+pub fn closest<'a>(
+    name: &str,
+    candidates: impl Iterator<Item = &'a str>,
+    max: usize,
+) -> Vec<&'a str> {
     let limit = (name.chars().count() / 3).clamp(1, 3);
-    let mut v: Vec<(usize, &str)> =
-        candidates.map(|c| (edit_distance(name, c), c)).filter(|(d, c)| *d <= limit && *c != name).collect();
+    let mut v: Vec<(usize, &str)> = candidates
+        .map(|c| (edit_distance(name, c), c))
+        .filter(|(d, c)| *d <= limit && *c != name)
+        .collect();
     v.sort();
     v.dedup();
     v.into_iter().take(max).map(|(_, c)| c).collect()
@@ -638,8 +705,14 @@ pub fn line_col(src: &[u8], offset: usize) -> (usize, usize) {
     let offset = offset.min(src.len());
     let before = &src[..offset];
     let line = before.iter().filter(|b| **b == b'\n').count() + 1;
-    let line_start = before.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
-    let col = String::from_utf8_lossy(&src[line_start..offset]).chars().count() + 1;
+    let line_start = before
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map_or(0, |i| i + 1);
+    let col = String::from_utf8_lossy(&src[line_start..offset])
+        .chars()
+        .count()
+        + 1;
     (line, col)
 }
 
@@ -647,7 +720,10 @@ pub fn line_col(src: &[u8], offset: usize) -> (usize, usize) {
 /// JSON 診断（§10.1）の代わりではなく、同じ内容を読みやすくしたもの。
 pub fn render_human(d: &Diagnostic, label: &str, src: &[u8]) -> String {
     let (line, col) = line_col(src, d.span.0);
-    let mut out = format!("{label}:{line}:{col}: {}[{}]: {}", d.severity, d.code, d.message);
+    let mut out = format!(
+        "{label}:{line}:{col}: {}[{}]: {}",
+        d.severity, d.code, d.message
+    );
     match (&d.expected, &d.actual) {
         (Some(e), Some(a)) => out.push_str(&format!(" (expected {e}, found {a})")),
         (Some(e), None) => out.push_str(&format!(" (expected {e})")),
@@ -656,14 +732,27 @@ pub fn render_human(d: &Diagnostic, label: &str, src: &[u8]) -> String {
     }
     if !src.is_empty() && d.span.0 <= src.len() {
         let start = d.span.0;
-        let line_start = src[..start].iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
-        let line_end = src[start..].iter().position(|b| *b == b'\n').map_or(src.len(), |i| start + i);
+        let line_start = src[..start]
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map_or(0, |i| i + 1);
+        let line_end = src[start..]
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(src.len(), |i| start + i);
         let text = String::from_utf8_lossy(&src[line_start..line_end]);
         let end = d.span.1.clamp(start, line_end);
-        let width = String::from_utf8_lossy(&src[start..end]).chars().count().max(1);
+        let width = String::from_utf8_lossy(&src[start..end])
+            .chars()
+            .count()
+            .max(1);
         let num = line.to_string();
         let pad = " ".repeat(num.len());
-        out.push_str(&format!("\n {num} | {text}\n {pad} | {}{}", " ".repeat(col - 1), "^".repeat(width)));
+        out.push_str(&format!(
+            "\n {num} | {text}\n {pad} | {}{}",
+            " ".repeat(col - 1),
+            "^".repeat(width)
+        ));
     }
     if let Some(r) = &d.repair {
         out.push_str(&format!("\n = repair ({}): {}", r.kind, r.constraint));

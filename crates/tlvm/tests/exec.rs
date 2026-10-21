@@ -27,7 +27,11 @@ fn exec(src: &str, args: &[&str], stdin: &[u8]) -> (i32, String, String) {
             .unwrap();
         c.stdin.take().unwrap().write_all(stdin).unwrap();
         let o = c.wait_with_output().unwrap();
-        (o.status.code().unwrap(), String::from_utf8(o.stdout).unwrap(), String::from_utf8(o.stderr).unwrap())
+        (
+            o.status.code().unwrap(),
+            String::from_utf8(o.stdout).unwrap(),
+            String::from_utf8(o.stderr).unwrap(),
+        )
     })
 }
 
@@ -40,7 +44,10 @@ entry solve
 
 #[test]
 fn stdin_to_stdout() {
-    assert_eq!(exec(UPPER, &[], "héllo\nworld\n".as_bytes()), (0, "HéLLO\nWORLD\n".into(), String::new()));
+    assert_eq!(
+        exec(UPPER, &[], "héllo\nworld\n".as_bytes()),
+        (0, "HéLLO\nWORLD\n".into(), String::new())
+    );
     assert_eq!(exec(UPPER, &[], b""), (0, String::new(), String::new()));
 }
 
@@ -51,7 +58,10 @@ fn args_and_stdin() {
 entry solve
 ";
     // FILE より後ろは --plain のような語もプログラムへの引数
-    assert_eq!(exec(src, &["a", "--plain", "b c"], b"xyz").1, "a;--plain;b c;|xyz");
+    assert_eq!(
+        exec(src, &["a", "--plain", "b c"], b"xyz").1,
+        "a;--plain;b c;|xyz"
+    );
     let count = "fn solve(a: List<String>) -> Int = length(a)\nentry solve\n";
     assert_eq!(exec(count, &["1", "2", "3"], b"").1, "3\n");
 }
@@ -70,7 +80,11 @@ fn errors() {
     let (code, _, err) = exec("fn solve(x: Int) -> Int = x\nentry solve\n", &[], b"");
     assert_eq!(code, 64);
     assert!(err.contains("UnsupportedEntry"));
-    let (code, _, err) = exec("fn solve(s: String) -> String = s entry solve oops", &[], b"");
+    let (code, _, err) = exec(
+        "fn solve(s: String) -> String = s entry solve oops",
+        &[],
+        b"",
+    );
     assert_eq!(code, 1);
     assert!(err.contains("E-PARSE"));
 }

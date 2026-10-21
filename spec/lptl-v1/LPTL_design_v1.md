@@ -122,7 +122,7 @@ T, A, B ::= Int | Bool | Unit | Char | String
   - レコード型 `type N = { f1: T1, ..., fn: Tn }` は `Pair<T1, Pair<T2, ... Tn>>` の名前である（n = 1 なら `T1`。v1.1）。
   - 直和型 `type N = C1(...) | ... | Cn(...)` は `Result<P1, Result<P2, ... Result<Pn-1, Pn>>>` の名前である。`Pk` は k 番目の構築子の中身の型で、中身がなければ `Unit`、一つならその型、複数なら右に入れ子にした `Pair` である。n = 1 なら `P1` である（v1.4）。
   - 再帰する直和型は、項の型が `Int`、`Bool`、その型自身のどれかである直和型に限る（v1.14）。
-- 型の宣言は使う前に行う。
+- 型の宣言は使う前に行う。宣言の中の字段の型と直和型の中身は、前に宣言した型に限る。
 - 名義の型（v1.15）：レコード型、直和型、再帰する直和型の宣言は、展開後の構造が同じでも宣言ごとに別の型である。組込みの型（`Pair`、`Option`、`Result`、`List`、`Dict`）は宣言の名前を持たず、構造で決まる。
 - 総称の型と関数は型引数を単相化で扱う。型変数の量化（型スキーム）は含まない（§2.2）。
 
@@ -288,6 +288,7 @@ escape_s   ::= "\\" | "\"" | "\n" | "\t" | "\r"
 - 文脈キーワードは、変数、引数、束縛、field の名前に使える。式の位置では、直後が `(` か `<` のとき（v1.1 §1a の角括弧の旧い書き方 `[` も含む）だけキーワードとして働き、それ以外は変数の参照である。`entry` は宣言の先頭でだけキーワードとして働く（v1.1 §2a）。
 - 関数名と `entry` 宣言の名前には、予約語も文脈キーワードも使えない。
 - 予約語を変数名、関数名、型名に置いた場合、parser は `E-PARSE-EXPECTED-IDENT` として拒否する。
+- AST（§19.2）の変数・引数・束縛の名前も、関数名と同じく字句表の 68 語をすべて除く。Surface と異なり、文脈キーワードは AST の名前に使えない（`E-AST-IDENTIFIER`）。
 
 ### 4.3 正準ソースとハッシュ
 
@@ -510,7 +511,7 @@ fold(list<T>(x1, ..., xn), init, body)
 
 `match_option(some(v), e_none, |x| e_some)` は、`x=v` を環境に加えて `e_some` を評価した値である。`match_option(none<T>(), e_none, |x| e_some)` は `e_none` の値である（v1.1）。`match_result(ok<T, E>(v), |x| a, |y| b)` は `x=v` で `a` を、`match_result(err<T, E>(v), |x| a, |y| b)` は `y=v` で `b` を評価した値である（v1.4）。
 
-`loop(init, max, |s| e)` は、状態 `s` を `init` から始める（v1.6 §1）。`max <= 0` なら本体を評価せず `none<S>()`。そうでなければ `e` を評価し、`some(t)` なら状態を `t` にして続け、`none` なら止まって、そのとき本体に渡していた状態 `s` を `some(s)` として返す。`e` を `max` 回評価しても止まらなければ `none<S>()` を返す。
+`loop(init, max, |s| e)` は、状態 `s` を `init` から始める（v1.6 §1）。`max <= 0` なら本体を評価せず `none<S>()`。そうでなければ `e` を評価し、`some(t)` なら状態を `t` にして続け、`none` なら止まって、そのとき本体に渡していた状態 `s` を `some(s)` として返す。`e` を `max` 回評価しても止まらなければ `none<S>()` を返す。この形では、一般の左から右の順と違い、`max` を `init` より先に評価する。
 
 `map`、`filter`、`any`、`all`、`find`、`sort_by` は、`fold` への書換えとして意味を定める（v1.5 §2、接着部分 `hof.rs`）。`dict_*` の組込みも、同じく `fold` などへの書換えで意味を定める（v1.9）。レコードの構築と射影、直和型の構築と `match` は、§3 の展開どおりに評価する（v1.1、v1.4）。
 
@@ -601,7 +602,7 @@ v1 の標準資源プロファイルは、再現性のため **AllocatedNodeCoun
 `resource-profile-v1-reference-1` は第18節の参照機械と以下の割当規則を使う。
 
 - リストは不変 cons-cell DAG。空リスト、bool、unit、none は共有 singleton であり、割当数0。none は型を保持するコンパイラ側の型情報で区別し、実行値ごとに型ノードを割り当てない。
-- `cons` は一セル、`pair` は一ノード、`some` は一ノード。既存 payload は共有する。
+- `cons` は一セル、`pair` は一ノード、`some` は一ノード。`ok` と `err` も、`some` と同じく一ノードを確保する（v1.4）。既存 payload は共有する。
 - `list<T>(e1,...,en)` は引数を左から右に評価後、要素参照を一時スタックに置き、末尾から n セルを構築する。要素のコピーはしない。
 - `concat(xs,ys)` は xs の spine を先頭から走査し、要素参照を一時スタックへ置く。ys を初期末尾としてスタックを逆順に取り出し、xs の長さ m の新規セルを作る。ys と要素を共有し、LPTL の中間 cons spine を作らない。
 - `reverse(xs)` は先頭から走査し、空リストを初期末尾として n セルを作る。`length` はキャッシュせず spine を走査する。
@@ -1175,10 +1176,13 @@ LLMに対する優位性は未測定である。v1は、その検証に向けて
 | fold ネスト深さ | 32 | FOLD-DEPTH | structural-limits |
 | 推論された型深さ | 128 | SEMANTIC-TYPE-DEPTH | semantic-limits |
 | 型検査イベント数 | 2,000,000 | SEMANTIC-WORK | semantic-limits |
+| 書換え後のプログラムの bytes（型検査を通ったもの） | 4,194,304 | REWRITTEN-BYTES | semantic-limits |
 
 全コードは `E-LIMIT-STATIC-` に末尾を連結する。AST node は program、各 fn／entry、param、各型構成子、各式をそれぞれ一つと数える。lambda は fold node の binder fields であり独立 node ではない。名前 string、整数 string、配列、span は node に含めない。
 
 型・式深さは根を1とし、同種の子 node へ一段進むごとに1増加。関数本体の式深さは1から開始する。let／fold深さは一つの式経路上の該当 node 数であり、兄弟の合計ではない。明示された型の出現は全て別 node と数え、interning により静的計数を減らさない。
+
+書換えの後の式深さも、同じ上限で検査する。型検査を通ったプログラムを検証済み部品へ渡す文字列にしたとき、その式深さが上限を超えれば `E-LIMIT-STATIC-EXPR-DEPTH` で拒否する（検査点は semantic-limits。`exp` は上限、`act` は書換え後の深さ）。原文の式深さが上限の内でも拒否されうる。例：`loop` を 20 段入れ子にした program は原文の深さが上限の内だが、書換え後の深さは 522 になり拒否される。この検査は REWRITTEN-BYTES の上限とは別に行う。
 
 型検査仕事量は第18.1a節の論理イベント列で計測する。実装ヒープ上の型オブジェクトの生成数・共有数・interning・cache hit数を計測するものではない。型比較は外側から、Pair は第一成分から行い、不一致で止める。ErrorType は有限の特殊内部値で深さ0、ユーザー AST と値には存在しない。深さと仕事量は typecheck 中に検査し、深さ超過を優先する。
 
@@ -1274,15 +1278,52 @@ AST APIでは第19.3節のtransport検査を全て通過した後、物理AST全
 
 G0では完成ASTとの一致、不完全構文、破棄された親、同期で飛ばすtoken、guard同時超過をfixture化する。この論理契約の記述はparser実装・証明完了の証跡ではない。
 
-### 18.1c v1.1〜v1.16 の追加分の計数（未了）
+### 18.1c v1.1〜v1.16 の追加分の計数
 
-§18.1a の論理イベントと §18.3 の参照イベントは、v1 の核（v1.0 の組込みと構文）に対して定めている。次の追加分には、まだ規則を定めていない。
+§18.1a の論理イベント（VisitExpr、BuildType、CompareType）と Head・Equal の定義は、追加分にもそのまま適用する。追加分の計数は次の規則による。
 
-- 型検査：レコードの展開後の pair と `ok`／`err` の入れ子、直和型の構築と `match` の書換え後の型、`Char`、`String`、`Result`、`Dict`、`match_option`、`match_result`、`loop`、ラムダを取る組込み（`map` など）、`uncons`、`div`、`min`、`max`、`range`、`contains`、`sort`、`dict_*`、総称の単相化。
-- 実行：上の組込みと書換えの割当ノード数、整数の bit 数、評価遷移数。
-- 上の数値は、接着部分の書換え後のプログラムに対して trace fixture で固定する。その固定まで、これらに数値を与えない。
+1. **計数の木（規則 R）。** 型検査の論理仕事量は、型検査器が読む木で数える。この木は、名前の検査、型引数の解決、再帰する直和型の補助関数の追加、直和型とレコード型の展開を済ませたものであり、型検査の後の書換え（`map`・`filter`・`loop`・`dict_*` などの書換えと、`dict` 型の変換）を含まない。展開で生じた節点（`ok`・`err` の入れ子、`pair`、`Field`）は、それぞれ VisitExpr を一つ数える。
+2. **総称の関数（規則 G）。** 第一パスは全関数を宣言の形で一度検査する。総称の関数の本体は型引数を不透明な型として検査し、その中の総称の呼出しの型引数（型引数の数だけ）と戻り型の BuildType を数える。使われない総称の関数も数える。第二パスは、使われた型引数の組ごとに具体化した複製の本体だけを数え、非総称の関数は数え直さない。報告値は両パスの和であり、上限は、その和に対して各イベントの直前に検査する。
+3. **`loop` の結果型（規則 L）。** `loop(init, max, |s| e)` は init と max を検査し、max と Int を Equal で比べる（偽なら `E-TYPE-LOOP-MAX`）。次に e を検査し、e と Option<S> を Equal で比べる（偽なら `E-TYPE-LOOP-BODY`）。結果型 Option<S> の BuildType は、init・max・e がすべて正常なときだけ、この比較の後に一つ数える。
+4. **印つきの写し（規則 T、v1.15）。** 受理されたときは印なしの写しの仕事量を、拒否されたときは印つきの写しの仕事量を報告する。
 
-v1.1〜v1.16 の追加分を含めた計数は、G0 の未達項目である。
+書換え後のプログラムの大きさは数に入らない。その大きさは §18.1 の上限 REWRITTEN-BYTES で抑え、型検査を通ったプログラムについて、検証済み部品へ渡す文字列の bytes で検査する（拒否は `E-LIMIT-STATIC-REWRITTEN-BYTES`）。
+
+参照検査器の trace fixture（`crates/tlvm/tests/counting.rs`）で固定した値は次のとおり。各 program の entry は `f` である。
+
+| 代表 program | 結果 | 合計 |
+|---|---|---:|
+| `fn f(x: Int) -> Int = x` | 受理 | 2 |
+| `fn f(x: List<Int>) -> List<Int> = map(x, \|y\| add(y, 1))` | 受理 | 13 |
+| `fn g<T>(x: T) -> T = x` と `fn f(x: Int) -> Int = x`（未使用の総称） | 受理 | 4 |
+| `fn f(x: Int) -> Option<Int> = loop(x, true, \|s\| none<Int>())` | 拒否（E-TYPE-LOOP-MAX） | 9 |
+| `type S = Circle(Int) \| Sq(Bool)` と `fn f(x: Int) -> S = Sq(true)` | 受理 | 8 |
+| `type P = { x: Int, y: Bool }` と `fn f(p: Int) -> P = P { x: p, y: true }` | 受理 | 8 |
+| `fn f(x: Int) -> Option<Int> = dict_get(dict_put(dict<Int, Int>(), 1, x), 1)` | 受理 | 17 |
+| `fn f(x: Option<Int>) -> Int = match_option(x, 0, \|y\| y)` | 受理 | 8 |
+| `fn f(x: List<Int>) -> Option<Pair<Int, List<Int>>> = uncons(x)` | 受理 | 10 |
+| `fn id<T>(x: T) -> T = x` と `fn f(x: Int) -> Int = id(x)`（第一パス 8、複製 2） | 受理 | 10 |
+| `fn f(x: Int) -> String = "ab"` | 受理 | 5 |
+| `fn f(x: Int) -> Option<Int> = div(x, 2)` | 受理 | 10 |
+| `fn f(x: List<Int>) -> List<Int> = sort(x)` | 受理 | 6 |
+| `fn f(x: Int) -> List<Int> = range(0, x)` | 受理 | 10 |
+| `fn f(x: List<Int>) -> Bool = contains(x, 1)` | 受理 | 8 |
+| `fn f(x: Int) -> Option<Int> = loop(x, 3, \|s\| none<Int>())` | 受理（論理 trace は 12 イベント。結果型の BuildType は最後） | 12 |
+| `fn f(x: Int) -> Option<Int> = loop(x, 3, \|s\| 0)` | 拒否（E-TYPE-LOOP-BODY）。結果型の BuildType は数えない | 8 |
+
+上の `id` の program は、上限 10 で受理し、9 と 8 と 7 で `E-LIMIT-STATIC-SEMANTIC-WORK` により拒否する。第二パスの超過は、第一パスの総計を含めた和で判定する。
+
+次の項目の状態は以下のとおりである。この節は G0 の未達項目のままである。
+
+- 節点ごとの規則の全体（未了）。上の表は代表 program の値を固定したものであり、ほかの節点の規則は `docs/typecheck-counting-design.md` §4 の案の段階にあり、fixture で固定するまで規範としない。
+- 既に束縛された型変数への bind（同じ型変数が二度現れる呼出し、型引数を明示した呼出し）は、Compare を一つと、既存の束縛との Equal を両方数える（§4.6。オーナーが 2026-10-15 に決定）。`crates/tlvm/tests/counting_nodes.rs` の `calls` で固定した。
+- 実行の参照イベント（Steps と AllocatedNodes）。代表の値を固定した（`crates/tlvm/tests/counting.rs`）。P1〜P3 の値は §18.3 の規則から手で求めたもの。再帰する型の代表（入力 3 の `size`、Steps 2212、AllocatedNodes 305）は処理系の出力である。全体の網羅は未了。
+- 整数の bit 数（決定。オーナーが 2026-10-14 に確認）。成功した run の結果（`Completed`）には bit 数を含めない。上限の検査は §18.3 のとおり、入力の検査と割当ごとの検査で行う。成功時の最大の bit 数を取り出す方法は定めない。
+- 書換えの深さ（決定。オーナーが 2026-10-14 に確認）。§18.1 に書いた。書換え後の式深さを、同じ上限で検査する。
+- 再帰する直和型の補助関数の形（固定）。構築子・match の形と補助関数の本体の全文を `crates/tlvm/tests/recursive.rs` の `recursive_helper_shapes_match_the_deltas` で固定した。
+- 印つきの写しと印なしの写しの trace（一致しない。固定）。印つきは印の型と `tree_flat` の呼出しの分だけ多い（代表 program で 472 と 356）。受理のときは印なしの写し、拒否のときは印つきの写しの仕事量を報告する（規則 T）。この数は、印つきの写しの形（再帰する型の構築で印を `<名前>_wrap` の呼出しにせず、式の中に直接書く形）に依る。この形を正とすることを、オーナーが 2026-10-14 に選んだ。v1.15 差分 §3 の文言は、この形に合わせて直した。
+
+書換えの時間は、書換えを要しないものを複製せず、書換えを要するものの大きさに比例する。参照実装（release）では、約 9 MB の書換えを上限で拒否するまで約 1 秒である。
 
 ### 18.2 入力と AST transport
 
@@ -1312,7 +1353,7 @@ AST transport 上限は表記に固有であり source bytes と同じ数値に�
 4. fold／length／reverse／concat の spine cursor による一つの cons または末尾 nil の読取り。
 5. list 構築／concat での一時要素参照の push と pop。一要素につき各一回。
 6. 構造的 eq での一対の値根、または一対の list spine セル／nil の比較。一対の list 値根を比較した後、spine の対を走査する。
-7. 第8.4節の新規整数／cons／pair／some node の一つの確保。
+7. 第8.4節の新規整数／cons／pair／some／ok／err node の一つの確保。min と max の結果も、整数を返す算術として新規整数の一つに数える。
 
 複数イベントを伴う処理は上記の手続き順に発生させる。例として concat は引数評価、dispatch、xs の各セル読取りと push、nil読取り、各 pop とセル確保の順。reverse は各セル読取りと確保、最後にnil読取り。fold はセル読取り、binder 設定、body 評価を繰り返し最後にnil読取り。
 
@@ -1329,7 +1370,7 @@ step を加算する前に上限を検査し、許されないイベントを実
 
 ResourceKind は `Steps`、`AllocatedNodes`、`IntegerBits`、`OutputBytes` とする。カウンタは幅が不足して wrap しない。閾値超過が分かる場合は飽和値 limit+1 を報告してよいのではなく、当該イベントの正確な observed を報告する。steps／allocated は通常 limit+1、bit は結果の exact bit 数、出力 bytes は出力ストリームの最初の超過 byte で limit+1。
 
-run 開始時に入力の全整数 bit 長を値の左から右前順で検査し、超過なら step=0、割当=0 のまま IntegerBits を返す。入力 validation と実行の bit 上限は別契約である。
+run 開始時に入力の全整数 bit 長を値の左から右前順で検査し、超過なら step=0、割当=0 のまま IntegerBits を返す。入力 validation と実行の bit 上限は別契約である。成功した run の結果（`Completed`）は整数の bit 数を含まない。bit 数の超過は IntegerBits の ResourceExhausted で報告し、成功時の最大の bit 数は報告しない（§18.1c）。
 
 ホストの frame／参照スタック／ヒープ bytes／時間は `host-policy` に明記する。これらの違反は HostAborted であり、参照 step との一致・機種間再現性を保証しない。外部中断と実装バグは区別する。OS kill の場合に必ず構造化結果が返るとは約束しない。
 
@@ -1388,9 +1429,9 @@ AST は未型検査の表面 AST。明示注釈を source と同じ位置にだ�
 | expr loop | `tag`, `init`, `max`, `binder`, `body`（v1.6） |
 | expr dict | `tag`, `key_type`, `value_type`（空の辞書。v1.9） |
 
-callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee、args、type_args を持つ。`type_args` は型引数を明示した総称の関数の呼出し（`f<Int>(x)`）の型を書き、明示しない call では空配列を書く。構築子（`Leaf<Int>()`）は直和の宣言と同じく展開後の形で書くので、型引数は AST に現れない。let と fold binder は name と同じ IDENT 規則・予約語除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。
+callee は通常 builtin 名（v1.x の組込みを含む）または合法ユーザー関数名。some／pair／if 等の専用構文を call node で代用しない。辞書の操作は callee が `dict_get` などの call である（v1.9）。call は callee、args、type_args を持つ。`type_args` は型引数を明示した総称の関数の呼出し（`f<Int>(x)`）の型を書き、明示しない call では空配列を書く。構築子（`Leaf<Int>()`）は直和の宣言と同じく展開後の形で書くので、型引数は AST に現れない。let と fold binder は name と同じ IDENT 規則・字句表の 68 語の除外を適用する。fold の二 binder の相異性と shadow は共通 name phase で検査する。レコードと直和の宣言は AST に現れない（展開後の形で書く）。import は AST API で受理しない（`E-IMPORT-UNSUPPORTED`）。変数・引数・束縛の名前も、関数名と同じく字句表の 68 語をすべて除く（§4.2）。
 
-`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。同梱の schema は call の `type_args` を含む。ほかの v1.x の node（式の char、string、match_option、ok、err、match_result、map など、loop、dict、型の char、string、result、dict、param、fn の rec と type_params）と、予約語の `not.enum`（§4.2 の 19 語）はまだ反映していない。それらを含む schema の作成と、その bytes・SHA-256 の再記録は G0 の未達項目である（§20.4）。
+`ast_codec_v1.schema.json` は node の構造と文字列条件を検査する機械可読表現であり、JSON Schema Draft 2020-12 を用いる。各型・式nodeのtag集合、必須キー、余分キー禁止は本節の表に対応する。同梱schemaの識別子・整数patternは第19.6節の全体一致形であり、その実ファイルを照合対象とする。文書の記述だけで別のschemaファイルの適合を認定しない。同梱の schema は、本節の表の全 node（v1.1〜v1.16 を含む）、fn の任意の `rec` と `type_params`、識別子の除外語を含む。変数・引数・束縛・関数名・entry 名・組込みでない callee・型引数の名前は、いずれも字句表の 68 語をすべて除く（§4.2）。文字列の値の制御文字、char の値の範囲、整数の桁上限は schema 単体では表現できないため、codec が `E-AST-LITERAL` と `E-AST-LIMIT-INTEGER-DIGITS` で検査する。schema の bytes・SHA-256 は §20.4 に記録する。
 
 重複キー、バイト数、JSON深さ、UTF-8、不対surrogate、整数桁上限、元byte span、正準キー順、共通静的検査は JSON Schema 単体では保証されず、strict parser、コンパイラ、encoderが別途実施する。schema validator のエラー出力順を第19.3節の規範的診断順に代用しない。
 
@@ -1418,7 +1459,7 @@ field内容の検査は表のkey順で行う。name／binder／合法calleeの�
 
 duplicateの主spanは二番目のkey token。missing keyは当該objectの閉じ括弧のゼロ幅位置。unknown fieldは選択されたkey token。nodeの共通診断spanはそのobject全体、nameは対応string token（引用符を含む）。UTF-8 offsetは元JSON上で保持し、再符号化後のoffsetを使わない。
 
-ASTはSurfaceのlex／parseを通らないが、整数桁条件・予約語・専用構文の制約をtransportで等しく検査する。通常callのarityはschemaで固定せずtypecheckへ渡す。専用some／pair／if／foldの必須fieldsはschemaで固定する。
+ASTはSurfaceのlex／parseを通らないが、整数桁条件・名前の 68 語除外・専用構文の制約をtransportで等しく検査する。通常callのarityはschemaで固定せずtypecheckへ渡す。専用some／pair／if／foldの必須fieldsはschemaで固定する。
 
 AST transportコードはE-AST-JSON-SYNTAX、E-AST-STRING-SCALAR、E-AST-DUPLICATE-KEY、E-AST-CODEC、E-AST-TAG、E-AST-MISSING-FIELD、E-AST-UNKNOWN-FIELD、E-AST-FIELD-TYPE、E-AST-IDENTIFIER、E-AST-INTEGER、E-AST-LIMIT-BYTES、E-AST-LIMIT-JSON-DEPTH、E-AST-LIMIT-INTEGER-DIGITS。phaseはast-boundary、ast-parse、ast-schemaの対応責務とする。schema enumにない型tagはtransport errorであり、sourceのnone[Foo]と同じコードになるとは主張しない。
 
@@ -1473,7 +1514,7 @@ AST側に型推論の追加、欠落注釈の補完、未知 field の無視、b
 
 回帰用対照fixtureのアンカー候補 `^[A-Za-z_][A-Za-z0-9_]*$` と `^(0|-?[1-9][0-9]*)$` は、利用する正規表現処理系によっては末尾LF直前への一致を許す。二つのpatternだけをこの候補へ置き換える補助fixtureはアンカーの挙動を検査する対照であり、本コアの受理schemaではない。同梱schemaは末尾LF付き識別子・整数を拒否する。対照fixtureの受理挙動を本コアの受理契約に含めない。
 
-同梱schemaの `$defs.identifier.pattern` は次のJSON表記と一致する。以下はtype・patternの抜粋であり、予約語を除外する `not.enum` は維持する。
+同梱schemaの `$defs.identifier.pattern` は次のJSON表記と一致する。以下はtype・patternの抜粋であり、字句表の 68 語を除外する `not.enum` は維持する。
 
 ```json
 {
@@ -1491,7 +1532,7 @@ AST側に型推論の追加、欠落注釈の補完、未知 field の無視、b
 }
 ```
 
-上記の否定先読みは、文字列の残りにいかなる文字も存在しないことを要求する。対応しない正規表現処理系へ別のパターンを移植する場合も、文字列全体一致と予約語除外について同じ受理集合を保ち、回帰テストで照合する。strict parser側でも全体一致を検査し、schema validatorの部分一致や文字列のtrimに依存しない。識別子違反は `E-AST-IDENTIFIER`、整数正規形違反は `E-AST-INTEGER` とする。
+上記の否定先読みは、文字列の残りにいかなる文字も存在しないことを要求する。対応しない正規表現処理系へ別のパターンを移植する場合も、文字列全体一致と 68 語の除外について同じ受理集合を保ち、回帰テストで照合する。strict parser側でも全体一致を検査し、schema validatorの部分一致や文字列のtrimに依存しない。識別子違反は `E-AST-IDENTIFIER`、整数正規形違反は `E-AST-INTEGER` とする。
 
 schema適合と静的受理は別である。次の入力は構造検査を通過し得るが、共通検査を省略してはならない。
 
@@ -1608,7 +1649,7 @@ E-ARITY-USER と E-ARITY-BUILTIN は正式な具体コードとする。その�
 
 | 実体 | bytes | SHA-256 |
 |---|---:|---|
-| `ast_codec_v1.schema.json` | 10,768 | `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe` |
+| `ast_codec_v1.schema.json` | 22,699 | `ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a` |
 
 検査用の対照schemaは実体schemaの代用品ではない。未提示ファイルの実体・hashは推測せず、unavailableとする。
 

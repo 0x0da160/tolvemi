@@ -85,7 +85,7 @@ JSON Schema Draft 2020-12、Python、jsonschemaの実際のバージョンは外
 
 ASTの正準JSONにはcodecが含まれ、構文hashのdomainも変更したため、同じ計算を表すASTであっても旧hashをv1のhashとして流用しない。成果物hashのdomain変更と、仕様結合hashに含まれるcodec変更も反映した。仕様結合／再現domainはv1の固定値へ統一し、未確定spec時の未発行条件を保持した。
 
-新しいschemaは10,768 bytes、SHA-256は `44db132c4283def6206e2c5689e36994ef58179f695ff28ee435b09df93706fe`（2026-10-13 に call の `type_args` を必須にした後の値）。schemaをbyte同一と称さない。文書中のschema実体表もこの値へ更新した。他の配布ファイルのbytes／SHA-256は同梱manifestへ記録した。文書・manifest・ZIPは自己hashを内部へ埋め込まない。
+新しいschemaは22,699 bytes、SHA-256は `ff8ad602c3b5889acd8146a6b487aa81c0d93f88ed3e4680d9440da7e4085f4a`（2026-10-14 に v1.x の全 node を反映し、名前の除外語を字句表の 68 語へ改めた後の値）。schemaをbyte同一と称さない。文書中のschema実体表もこの値へ更新した。他の配布ファイルのbytes／SHA-256は同梱manifestへ記録した。文書・manifest・ZIPは自己hashを内部へ埋め込まない。
 
 ## 5. 配布資料と検証限界
 

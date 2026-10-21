@@ -28,17 +28,17 @@ fold を 16 段入れ子にする（16^16 = 2^64 歩まで受け持つ）。
 
 ```text
 loop(init, max, |s| e)
-  => let m = max in let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
-     match_result(snd(
-       fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(init)), |a1, i1|
+  => let s0 = pair(0, ok<S, S>(init)) in let m = max in
+     let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
+     let r = fold(if(lt(16^15, m), rg, one), s0, |a1, i1|
          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), nil), a1, |a2, i2|
            ...                                       -- 段 j（2〜15）の 1 要素は 16^(16-j) 歩を受け持つ
              let n = min(16, sub(m, fst(a15))) in   -- 段 16：残りが 16 未満なら残りの歩数だけ
              let res = fold(range(0, n), snd(a15), |acc, i|
                match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))) in
              pair(match_result(res, |x| add(fst(a15), n), |x| m), res)
-           ...)),
-       |r| none<S>(), |d| some(d))
+           ...) in
+     match_result(snd(r), |v| none<S>(), |d| some(d))
 ```
 
 （`16^15` などは実際には整数リテラル。）各段は、残りの歩 `m - c` がその段の 1 要素の受け持ちより多ければ 16 要素の
@@ -53,9 +53,7 @@ loop(init, max, |s| e)
   （step 数。`tlvm exec` でも 10^9）も 2^64 より小さいので、この違いは観測できない（その前に資源上限で止まる）。
 - acc・i・s2・d・r・m・a1 などは、プログラム中のどの名前とも重ならない新しい名前を使う。止まった後の歩では本体を
   評価しない。
-- `loop` は `fold` と同じく、診断用 parser では fold の入れ子の深さ 1 に数える。書き換え後は 1 つの `loop` が式の深さを
-  約 26 段使うので、検証済み parser の深さの上限（式の深さの上限 256 の 2 倍 + 2）により、`loop` を 20 段ほど直に入れ子に
-  すると受理できない（`E-INTERNAL-VERIFIED-MISMATCH`）。3 段程度の入れ子や、深さ上限近くの式の中の `loop` は受理する。
+- `loop` は `fold` と同じく、診断用 parser では fold の入れ子の深さ 1 に数える。書き換え後は 1 つの `loop` が式の深さを約 26 段使うので、式の深さの上限 256（`E-LIMIT-STATIC-EXPR-DEPTH`）により、`loop` を 10 段直に入れ子にすると拒否する（9 段までは受理する）。位置ごとの数は `knowledge/overview/status-and-gates.md` の DECISION-39 の段落にある。
 
 ### 2a. v1.8 での修正（問題 95）
 

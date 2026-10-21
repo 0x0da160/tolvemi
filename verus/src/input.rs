@@ -4,8 +4,12 @@
 //!   文字列は Unicode scalar 値の列として読み、対にならない surrogate は拒否する。
 //! - `jd` は値 JSON の復号（§9）。tag と型の対応、必須キーと余分なキーの拒否、重複キーの拒否、
 //!   正準整数を確かめる。資源上限（InputAdmission の値の深さ・node 数・桁数）は含まない。
-//! - 証明：復号した値は型を持つ（`jd_typed`）、受理した JSON に重複キーは無い（`jd_nodup`）、
-//!   型付き値の正準 JSON を読むと元の値に戻る（`input_roundtrip`）。
+//! - 辞書 `Dict<K, V>` は (鍵, 値) の対のリストとして読む。受理の条件は、鍵の正準 JSON（`enc`）が
+//!   どの二つも異なること（`keys_distinct`）。最初の誤りが辞書の重複鍵かどうかは `dupfirst` が
+//!   values.rs の順（DFS）で定める。
+//! - 証明：復号した値は消去後の型 `derase(t)` を持つ（`input_typed`）、受理した JSON に重複キーは無い（`input_nodup`）、
+//!   型付き値の正準 JSON を読むと元の値に戻る（`input_roundtrip`。辞書を含む型には及ばない）、
+//!   辞書の重複鍵の拒否（`input_dupfirst_rejects`）、受理した辞書の値は項の順の対のリスト（`dict_items_order`）。
 
 use crate::bigint::*;
 use crate::json::*;
@@ -654,6 +658,18 @@ pub open spec fn jd(j: J, t: Ty) -> Option<Val>
                             } else {
                                 None
                             },
+                            Ty::Named(_) => None,
+                            Ty::Dict(kb, vb) => if g == t_list() && only(ks, seq![k_tag(), k_items()]) && ii < vs.len() {
+                                match vs[ii as int] {
+                                    J::Arr(xs) => match jds(xs, Ty::Pair(kb, vb), 0) {
+                                        Some(ps) => if keys_distinct(ps) { Some(Val::List(ps)) } else { None },
+                                        None => None,
+                                    },
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            },
                         }
                     },
                     _ => None,
@@ -695,6 +711,163 @@ pub open spec fn nodups(xs: Seq<J>, i: nat) -> bool
         true
     } else {
         nodup(xs[i as int]) && nodups(xs, i + 1)
+    }
+}
+
+/// 型の消去：Dict<K, V> は値として List<Pair<K, V>> である。型付けの性質は消去後の型で述べる。
+pub open spec fn derase(t: Ty) -> Ty
+    decreases t,
+{
+    match t {
+        Ty::List(el) => Ty::List(Box::new(derase(*el))),
+        Ty::Option(el) => Ty::Option(Box::new(derase(*el))),
+        Ty::Pair(ta, tb) => Ty::Pair(Box::new(derase(*ta)), Box::new(derase(*tb))),
+        Ty::Result(ta, tb) => Ty::Result(Box::new(derase(*ta)), Box::new(derase(*tb))),
+        Ty::Dict(kb, vb) => Ty::List(Box::new(Ty::Pair(Box::new(derase(*kb)), Box::new(derase(*vb))))),
+        _ => t,
+    }
+}
+
+/// 対の値の鍵の正準 JSON（検証済みの符号化 enc）。対でなければ空。
+pub open spec fn pkey_enc(v: Val) -> Seq<char> {
+    match v {
+        Val::Pair(k, _) => enc(*k),
+        _ => Seq::empty(),
+    }
+}
+
+/// 対の列の鍵は、どの二つも正準 JSON が異なる（辞書の鍵の相異）。
+pub open spec fn keys_distinct(ps: Seq<Val>) -> bool {
+    forall|a: int, b: int| 0 <= a < b < ps.len() ==> pkey_enc(ps[a]) != pkey_enc(ps[b])
+}
+
+/// 木 j を型 t で読んだ値（読めないときは Unit。使うのは読めたときだけ）。
+pub open spec fn jval(j: J, t: Ty) -> Val {
+    match jd(j, t) {
+        Some(v) => v,
+        None => Val::Unit,
+    }
+}
+
+/// 先頭 i 項の鍵の符号化（項の順）。
+pub open spec fn pkeys(xs: Seq<J>, t: Ty, i: nat) -> Seq<Seq<char>>
+    decreases i,
+{
+    if i == 0 || i > xs.len() {
+        Seq::empty()
+    } else {
+        pkeys(xs, t, (i - 1) as nat).push(pkey_enc(jval(xs[(i - 1) as int], t)))
+    }
+}
+
+/// 木 j を型 t で読むとき、trusted の復号器（values.rs）の最初の誤りが辞書の重複鍵である。
+/// values.rs の DFS の順（形の検査、対の子の順、項の順）を写す。鍵の重複の検査の位置だけを表し、
+/// 資源上限の誤りは含まない（上限は性質の外）。
+pub open spec fn dupfirst(j: J, t: Ty) -> bool
+    decreases j, 0nat,
+{
+    match j {
+        J::Obj(ks, vs) => {
+            let it = kpos(ks, k_tag(), 0);
+            if ks.len() != vs.len() || !distinct(ks) || it >= vs.len() {
+                false
+            } else {
+                match vs[it as int] {
+                    J::Str(g) => {
+                        let iv = kpos(ks, k_value(), 0);
+                        let il = kpos(ks, k_left(), 0);
+                        let ir = kpos(ks, k_right(), 0);
+                        let ii = kpos(ks, k_items(), 0);
+                        match t {
+                            Ty::Option(el) => if g == t_some() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                dupfirst(vs[iv as int], *el)
+                            } else {
+                                false
+                            },
+                            Ty::Result(ta, tb) => if g == t_ok() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                dupfirst(vs[iv as int], *ta)
+                            } else if g == t_err() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                                dupfirst(vs[iv as int], *tb)
+                            } else {
+                                false
+                            },
+                            Ty::Pair(ta, tb) => if g == t_pair() && only(ks, seq![k_tag(), k_left(), k_right()]) && il
+                                < vs.len() && ir < vs.len() {
+                                match (vs[il as int], vs[ir as int]) {
+                                    (J::Obj(_, _), J::Obj(_, _)) => if jd(vs[il as int], *ta) is None {
+                                        dupfirst(vs[il as int], *ta)
+                                    } else {
+                                        dupfirst(vs[ir as int], *tb)
+                                    },
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            },
+                            Ty::List(el) => if g == t_list() && only(ks, seq![k_tag(), k_items()]) && ii < vs.len() {
+                                match vs[ii as int] {
+                                    J::Arr(xs) => dupfirst_items(xs, *el, 0),
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            },
+                            Ty::Dict(kb, vb) => if g == t_list() && only(ks, seq![k_tag(), k_items()]) && ii < vs.len() {
+                                match vs[ii as int] {
+                                    J::Arr(xs) => dupfirst_dict(xs, Ty::Pair(kb, vb), 0),
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            },
+                            _ => false,
+                        }
+                    },
+                    _ => false,
+                }
+            }
+        },
+        _ => false,
+    }
+}
+
+/// 項 xs[i..] を型 el で読む。最初に読めない項の誤りが重複鍵であるとき真。
+pub open spec fn dupfirst_items(xs: Seq<J>, el: Ty, i: nat) -> bool
+    decreases xs, xs.len() - i,
+{
+    if i >= xs.len() {
+        false
+    } else if jd(xs[i as int], el) is None {
+        dupfirst(xs[i as int], el)
+    } else {
+        dupfirst_items(xs, el, i + 1)
+    }
+}
+
+/// 辞書の項 xs[i..]（各項は対）。最初の誤りが項の誤りの重複鍵であるとき真。
+/// 項 i の鍵が、先頭 i 項の鍵のどれかと等しければ重複（values.rs は読んだ後に鍵を検査する）。
+pub open spec fn dupfirst_dict(xs: Seq<J>, pt: Ty, i: nat) -> bool
+    decreases xs, xs.len() - i,
+{
+    if i >= xs.len() {
+        false
+    } else if jd(xs[i as int], pt) is None {
+        dupfirst(xs[i as int], pt)
+    } else if !(jval(xs[i as int], pt) is Pair) {
+        false
+    } else if pkeys(xs, pt, i).contains(pkey_enc(jval(xs[i as int], pt))) {
+        true
+    } else {
+        dupfirst_dict(xs, pt, i + 1)
+    }
+}
+
+/// 入力 JSON 文書の復号で、trusted の復号器の最初の誤りが辞書の重複鍵である。
+/// 文書の object のキーの重複は trusted の構文解析が先に拒否する（nodup）。
+pub open spec fn input_dupfirst(s: Seq<char>, d: nat, t: Ty) -> bool {
+    match jparse(s, d) {
+        Some(j) => nodup(j) && dupfirst(j, t),
+        None => false,
     }
 }
 

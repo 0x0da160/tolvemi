@@ -29,6 +29,8 @@ pub enum Stop {
     Exhausted(Resource, u64, u64),
     /// host-policy の評価入れ子深さ上限
     HostDepth,
+    /// host-policy の参照スロット上限（同時に生きる環境の束縛数）。束縛を積まずに止める
+    HostSlots,
     /// 型付きプログラムでは起きない行き詰まり（spec の Stuck に当たる）
     Fault,
 }
@@ -43,10 +45,12 @@ pub struct Limits {
     pub integer_bits: u64,
     pub allocated_nodes: u64,
     pub max_depth: u64,
+    /// host-policy の参照スロット上限（環境の束縛の同時数）。AllocatedNodeCount には含めない
+    pub max_slots: u64,
 }
 
 pub open spec fn limits_ok(l: Limits) -> bool {
-    l.steps < u64::MAX && l.allocated_nodes < u64::MAX && l.max_depth < u64::MAX
+    l.steps < u64::MAX && l.allocated_nodes < u64::MAX && l.max_depth < u64::MAX && l.max_slots < u64::MAX
 }
 
 pub struct Machine {
@@ -182,6 +186,18 @@ impl Machine {
         }
         self.steps = self.steps + 1;
         self.alloc = self.alloc + 1;
+        Ok(())
+    }
+
+    /// 環境に n 個の束縛を積んでよいかを検査する。超過なら環境を変えずに HostSlots で止める。
+    fn room(&self, n: usize) -> (r: Result<(), Stop>)
+        ensures
+            r is Ok ==> self.env@.len() + n as int <= self.lim.max_slots as int,
+            r is Err ==> r->Err_0 is HostSlots,
+    {
+        if self.env.len() as u64 > self.lim.max_slots || n as u64 > self.lim.max_slots - (self.env.len() as u64) {
+            return Err(Stop::HostSlots);
+        }
         Ok(())
     }
 
@@ -386,6 +402,7 @@ impl Machine {
                     },
                 };
                 let ghost before = self.env@;
+                self.room(1)?;
                 self.env.push((*x, va.clone()));
                 proof {
                     env_view_push(before, *x, va);
@@ -468,6 +485,7 @@ impl Machine {
                     },
                     Value::Some(v) => {
                         let ghost before = self.env@;
+                        self.room(1)?;
                         self.env.push((*x, v.clone()));
                         proof {
                             env_view_push(before, *x, dr(v));
@@ -536,6 +554,7 @@ impl Machine {
                     },
                 };
                 let ghost before = self.env@;
+                self.room(1)?;
                 self.env.push((k, v.clone()));
                 proof {
                     env_view_push(before, k, dr(&v));
@@ -694,6 +713,7 @@ impl Machine {
                     proof {
                         spine_step(items, j, h, t);
                     }
+                    self.room(2)?;
                     self.env.push((*acc, a));
                     self.env.push((*item, h.clone()));
                     proof {
@@ -933,8 +953,17 @@ impl Machine {
                     Builtin::Sub => self.int(x.sub(y)),
                     Builtin::Mul => self.int(x.mul(y)),
                     Builtin::Lt => Ok(Rc::new(Value::Bool(x.lt(y)))),
-                    Builtin::Min => Ok(if x.le(y) { a[0].clone() } else { a[1].clone() }),
-                    Builtin::Max => Ok(if x.le(y) { a[1].clone() } else { a[0].clone() }),
+                    // 結果は引数の値だが、整数を返す算術として新しい整数の節点を一つ数える（§18.3 の規則 7）
+                    Builtin::Min => {
+                        let first = x.le(y);
+                        self.allocate(Some(if first { x.bits() } else { y.bits() }))?;
+                        Ok(if first { a[0].clone() } else { a[1].clone() })
+                    },
+                    Builtin::Max => {
+                        let first = x.le(y);
+                        self.allocate(Some(if first { y.bits() } else { x.bits() }))?;
+                        Ok(if first { a[1].clone() } else { a[0].clone() })
+                    },
                     Builtin::Range => self.range(x, y),
                     Builtin::Le => Ok(Rc::new(Value::Bool(x.le(y)))),
                     Builtin::Mod => {

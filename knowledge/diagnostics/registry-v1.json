@@ -1,0 +1,2419 @@
+{
+  "registry_version": 1,
+  "description": "LPTL v1 の診断 registry。code の順に並ぶ。severity・phase・message_template は処理系のソース（diagnostics.rs の message_for と各発生箇所）から、repair は修復ヒントを作るソース（diagnostics.rs の suggest_repairs、lambda_repair、open_paren と各 fix() 呼出し）から取った。phase は一つなら文字列、複数なら配列。repair は null か規則の配列（kind・constraint・source）。constraint はソースの文字列そのもので、{} と {名前} は実行時に埋まる部分。emitted_by は code の文字列を書いた行（file:line）。設計は spec/lptl-v1/LPTL_design_v1.md の §10.1 と §10.2、カタログは knowledge/diagnostics/diagnostic-codes.md。",
+  "codes": [
+    {
+      "code": "E-ARITY-BUILTIN",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "組込み関数の引数の数が一致しません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "call with {n}",
+          "source": "crates/tlvm/src/diagnostics.rs:429"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1497"
+      ]
+    },
+    {
+      "code": "E-ARITY-USER",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "関数の引数の数が一致しません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "call with {n}",
+          "source": "crates/tlvm/src/diagnostics.rs:429"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1388",
+        "crates/tlvm/src/checker.rs:1499"
+      ]
+    },
+    {
+      "code": "E-AST-CODEC",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "codec は \"ast_codec_v1\" でなければなりません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:279",
+        "crates/tlvm/src/ast_codec.rs:281"
+      ]
+    },
+    {
+      "code": "E-AST-DUPLICATE-KEY",
+      "severity": "error",
+      "phase": "ast-parse",
+      "message_template": "AST JSON に重複キーがあります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:193"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/ast_codec.rs:193）"
+    },
+    {
+      "code": "E-AST-FIELD-TYPE",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "JSON 型が不正です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:217",
+        "crates/tlvm/src/ast_codec.rs:255",
+        "crates/tlvm/src/ast_codec.rs:273",
+        "crates/tlvm/src/ast_codec.rs:301",
+        "crates/tlvm/src/ast_codec.rs:323"
+      ]
+    },
+    {
+      "code": "E-AST-IDENTIFIER",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "識別子が不正です",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "'{name}' is a keyword, which an AST name cannot be: use another name such as {name}_ here and at every use",
+          "source": "crates/tlvm/src/softnames.rs:159"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:267",
+        "crates/tlvm/src/ast_codec.rs:306",
+        "crates/tlvm/src/ast_codec.rs:339",
+        "crates/tlvm/src/softnames.rs:156"
+      ]
+    },
+    {
+      "code": "E-AST-INTEGER",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "整数が正規形ではありません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:373"
+      ]
+    },
+    {
+      "code": "E-AST-JSON-SYNTAX",
+      "severity": "error",
+      "phase": "ast-parse",
+      "message_template": "AST JSON の文法が不正です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:190"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/ast_codec.rs:190）"
+    },
+    {
+      "code": "E-AST-LIMIT-BYTES",
+      "severity": "error",
+      "phase": "ast-boundary",
+      "message_template": "AST JSON bytes が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:177"
+      ]
+    },
+    {
+      "code": "E-AST-LIMIT-INTEGER-DIGITS",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "整数の桁数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:377"
+      ]
+    },
+    {
+      "code": "E-AST-LIMIT-JSON-DEPTH",
+      "severity": "error",
+      "phase": "ast-parse",
+      "message_template": "AST JSON の構造深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:191"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/ast_codec.rs:191）"
+    },
+    {
+      "code": "E-AST-LITERAL",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "文字・文字列リテラルに書けない文字があります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:384",
+        "crates/tlvm/src/ast_codec.rs:390"
+      ]
+    },
+    {
+      "code": "E-AST-MISSING-FIELD",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "必須キーがありません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:223",
+        "crates/tlvm/src/ast_codec.rs:240"
+      ]
+    },
+    {
+      "code": "E-AST-STRING-SCALAR",
+      "severity": "error",
+      "phase": "ast-parse",
+      "message_template": "AST JSON の文字列に不正な Unicode scalar があります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:192"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/ast_codec.rs:192）"
+    },
+    {
+      "code": "E-AST-STRING-TYPE",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "List<Char> は {\"tag\":\"string\"} と書きます",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:352"
+      ]
+    },
+    {
+      "code": "E-AST-TAG",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "この位置で許されない tag です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:225",
+        "crates/tlvm/src/ast_codec.rs:230"
+      ]
+    },
+    {
+      "code": "E-AST-UNKNOWN-FIELD",
+      "severity": "error",
+      "phase": "ast-schema",
+      "message_template": "未知のキーがあります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/ast_codec.rs:250"
+      ]
+    },
+    {
+      "code": "E-CYCLE-CALL",
+      "severity": "error",
+      "phase": "call-graph",
+      "message_template": "関数呼出しが循環しています",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "'rec ' before 'fn' of every function on the cycle ({list}) to allow unbounded recursion (termination is then not guaranteed); prefer fold or loop when the number of steps is bounded",
+          "source": "crates/tlvm/src/checker.rs:475"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:460"
+      ],
+      "implementation_note": "message は message_template の後ろに「: 」と循環する関数名（{list}）が付く（checker.rs:463）。repair は checker.rs:471"
+    },
+    {
+      "code": "E-DIAG-LIMIT",
+      "severity": "error",
+      "phase": "diagnostic-limit",
+      "message_template": "error が多すぎるため以降を省略しました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/diagnostics.rs:350"
+      ],
+      "note": "件数上限の発生箇所は diagnostics.rs の limit()（diagnostics.rs:354）が code を引数で受けて作る（crates/tlvm/src/diagnostics.rs:349）",
+      "implementation_note": "phase は diagnostic-limit（diagnostics.rs の limit() が設定）。PHASE_ORDER（diagnostics.rs:7-20）と 設計 §10.2 の段階には無く、カタログは「—」"
+    },
+    {
+      "code": "E-ENTRY-ARITY",
+      "severity": "error",
+      "phase": "entry",
+      "message_template": "entry 関数はちょうど一つの引数を取らなければなりません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:2040"
+      ]
+    },
+    {
+      "code": "E-ENTRY-DUPLICATE",
+      "severity": "error",
+      "phase": "entry",
+      "message_template": "entry 宣言は一つだけにしてください",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:2015"
+      ]
+    },
+    {
+      "code": "E-ENTRY-GENERIC",
+      "severity": "error",
+      "phase": "entry",
+      "message_template": "entry の関数は型引数を持てません",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "a non-generic wrapper with concrete types, e.g. fn main(x: List<Int>) -> Int = {}(x), and name it in entry instead (entry main)",
+          "source": "crates/tlvm/src/checker.rs:2033"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:2025"
+      ]
+    },
+    {
+      "code": "E-ENTRY-MISSING",
+      "severity": "error",
+      "phase": "entry",
+      "message_template": "entry 宣言がありません",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "entry declaration naming a one-parameter function",
+          "source": "crates/tlvm/src/diagnostics.rs:434"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:2011"
+      ]
+    },
+    {
+      "code": "E-ENTRY-UNKNOWN",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "entry が未定義の関数を指しています",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "name of a defined one-parameter function",
+          "source": "crates/tlvm/src/checker.rs:320"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "defined function, e.g. {}",
+          "source": "crates/tlvm/src/checker.rs:322"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:325"
+      ]
+    },
+    {
+      "code": "E-IMPORT-AFTER-DECL",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "import は宣言（fn・type・entry）より前、ファイルの先頭に書きます",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "move this import line to the top of the file, above every fn, type and entry declaration",
+          "source": "crates/tlvm/src/diagnostics.rs:455"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:279"
+      ]
+    },
+    {
+      "code": "E-IMPORT-CONFLICT",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "同じ名前が二つのファイルで定義されています（import したファイルは名前空間を共有します）",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "a name not defined in any other file of the program ({name} is already defined in {}); imported files share one namespace",
+          "source": "crates/tlvm/src/imports.rs:725"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:720"
+      ]
+    },
+    {
+      "code": "E-IMPORT-CYCLE",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "import が循環しています",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "remove this import: files must not import each other in a cycle; move the definitions both files need into a third file that both import",
+          "source": "crates/tlvm/src/imports.rs:566"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:563"
+      ]
+    },
+    {
+      "code": "E-IMPORT-NOT-FOUND",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "import したファイルがありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "path of an existing .tlvm file, relative to the directory of the importing file",
+          "source": "crates/tlvm/src/imports.rs:589"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:156",
+        "crates/tlvm/src/imports.rs:586"
+      ]
+    },
+    {
+      "code": "E-IMPORT-PATH",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "import のパスは .tlvm で終わる相対パスで、根のファイルのディレクトリより上を指せません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "\"@name/path.tlvm\", such as \"@stats/summary.tlvm\"",
+          "source": "crates/tlvm/src/imports.rs:458"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a path inside the dependency's directory",
+          "source": "crates/tlvm/src/imports.rs:519"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "relative path ending in .tlvm, such as \"lib/util.tlvm\", resolved from the importing file's directory (no leading '/', no '\\', no '..' above the root file's directory)",
+          "source": "crates/tlvm/src/imports.rs:551"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:453",
+        "crates/tlvm/src/imports.rs:465",
+        "crates/tlvm/src/imports.rs:498",
+        "crates/tlvm/src/imports.rs:512",
+        "crates/tlvm/src/imports.rs:548"
+      ]
+    },
+    {
+      "code": "E-IMPORT-UNSUPPORTED",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "source の文字列だけを受け取る API では import を解決できません（ファイルから検査するか、ソースの対応表を渡す API を使います）",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "this API compiles a single source string and cannot read files: compile the file with the CLI (tlvm check FILE), use compile_files with a map of sources, or paste the imported definitions here",
+          "source": "crates/tlvm/src/diagnostics.rs:460"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:208"
+      ]
+    },
+    {
+      "code": "E-INPUT-CHAR",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力の文字が Unicode scalar value ではありません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/values.rs:562"
+      ]
+    },
+    {
+      "code": "E-INPUT-DICT-DUPLICATE-KEY",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力の辞書（Dict）に同じ鍵が二度あります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:462",
+        "crates/tlvm/src/values.rs:598"
+      ],
+      "note": "発生箇所は const DICT_DUPLICATE_KEY（values.rs:256）を使う行（crates/tlvm/src/plain.rs:462, crates/tlvm/src/values.rs:598）"
+    },
+    {
+      "code": "E-INPUT-DUPLICATE-KEY",
+      "severity": "error",
+      "phase": "input-parse",
+      "message_template": "入力 JSON に重複キーがあります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:128",
+        "crates/tlvm/src/values.rs:434"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:128, crates/tlvm/src/values.rs:434）"
+    },
+    {
+      "code": "E-INPUT-FIELD-TYPE",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値の JSON 型が不正です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:166",
+        "crates/tlvm/src/plain.rs:257",
+        "crates/tlvm/src/plain.rs:280",
+        "crates/tlvm/src/plain.rs:389",
+        "crates/tlvm/src/plain.rs:448",
+        "crates/tlvm/src/plain.rs:483",
+        "crates/tlvm/src/values.rs:460",
+        "crates/tlvm/src/values.rs:514"
+      ]
+    },
+    {
+      "code": "E-INPUT-INTEGER",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力整数が正規形ではありません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:343",
+        "crates/tlvm/src/values.rs:541",
+        "crates/tlvm/src/values.rs:558"
+      ]
+    },
+    {
+      "code": "E-INPUT-JSON-SYNTAX",
+      "severity": "error",
+      "phase": "input-parse",
+      "message_template": "入力 JSON の文法が不正です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:125",
+        "crates/tlvm/src/values.rs:431"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:125, crates/tlvm/src/values.rs:431）"
+    },
+    {
+      "code": "E-INPUT-MISSING-FIELD",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値に必須キーがありません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:219",
+        "crates/tlvm/src/plain.rs:509",
+        "crates/tlvm/src/plain.rs:547",
+        "crates/tlvm/src/values.rs:471",
+        "crates/tlvm/src/values.rs:492"
+      ]
+    },
+    {
+      "code": "E-INPUT-STRING-SCALAR",
+      "severity": "error",
+      "phase": "input-parse",
+      "message_template": "入力 JSON の文字列に不正な Unicode scalar があります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:127",
+        "crates/tlvm/src/values.rs:433"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:127, crates/tlvm/src/values.rs:433）"
+    },
+    {
+      "code": "E-INPUT-TAG",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値の tag が期待型と一致しません",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:266",
+        "crates/tlvm/src/values.rs:480"
+      ]
+    },
+    {
+      "code": "E-INPUT-UNKNOWN-FIELD",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値に未知のキーがあります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:214",
+        "crates/tlvm/src/plain.rs:522",
+        "crates/tlvm/src/plain.rs:560",
+        "crates/tlvm/src/values.rs:506"
+      ]
+    },
+    {
+      "code": "E-INTERNAL-SOURCE-BOUNDARY",
+      "severity": "error",
+      "phase": "source-boundary",
+      "message_template": "",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/embed.rs:132"
+      ],
+      "note": "embed.rs:130-135 の SourceCompile::SourceBoundaryFailure を変換して作る",
+      "implementation_note": "message_for に arm が無いので message_template は空。設計 spec/lptl-v1/LPTL_design_v1.md:814 は UTF-8 の境界の失敗を診断の列ではなく結果 envelope で伝え、E-LEX や E-TYPE へ変換しないとする。実装は embed.rs:132 で、この code の診断を一つだけ含む列として返す",
+      "unreached": "fixture なし：&str の入力は常に UTF-8 なので境界の失敗は起きない（embed.rs:129 の注釈）。起きるのは内部の不変条件が破れたときだけ"
+    },
+    {
+      "code": "E-INTERNAL-VERIFIED-MISMATCH",
+      "severity": "error",
+      "phase": "internal",
+      "message_template": "検証済み部品と診断用の検査器の判定が食い違いました（処理系の不具合）",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:391",
+        "crates/tlvm/src/values.rs:273"
+      ],
+      "note": "検証済み部品の判定の食い違いを報告する関数（api.rs:391、values.rs:273）で作る",
+      "unreached": "fixture なし：検証済み部品と診断用の検査器の判定が食い違うのは処理系の不具合のときだけ（api.rs:391、values.rs:273）"
+    },
+    {
+      "code": "E-LEX-CONTROL-CHAR-IN-LITERAL",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "リテラルの中に生の制御文字は書けません（改行・タブ・復帰はエスケープで書きます）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "escape \\n, \\t or \\r; other control chars cannot be written",
+          "source": "crates/tlvm/src/diagnostics.rs:541"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:115"
+      ]
+    },
+    {
+      "code": "E-LEX-INVALID-CHAR-LITERAL",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "文字リテラルは引用符 ' で囲んだちょうど 1 文字（またはエスケープ 1 つ）でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "one char between single quotes, such as 'a' or '\\n'; a sequence of chars is a string literal \"...\"",
+          "source": "crates/tlvm/src/diagnostics.rs:532"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:121"
+      ]
+    },
+    {
+      "code": "E-LEX-INVALID-ESCAPE",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "使えないエスケープです（\\\\、\\n、\\t、\\r と、文字では \\'、文字列では \\\" だけ）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "escape: \\\\, \\n, \\t, \\r, and the delimiter quote (\\' in a char literal, \\\" in a string literal)",
+          "source": "crates/tlvm/src/diagnostics.rs:522"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:136",
+        "crates/tlvm/src/lexer.rs:180"
+      ]
+    },
+    {
+      "code": "E-LEX-INVALID-INTEGER",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "整数リテラルが正規形ではありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "canonical integer literal (no '+', no leading zeros, no -0)",
+          "source": "crates/tlvm/src/diagnostics.rs:436"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:299"
+      ]
+    },
+    {
+      "code": "E-LEX-INVALID-NUMERIC-BOUNDARY",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "整数の直後に識別子文字や符号が続いています",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:310"
+      ]
+    },
+    {
+      "code": "E-LEX-NON-ASCII",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "コメントと文字・文字列リテラルの外に非 ASCII 文字があります",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:270"
+      ]
+    },
+    {
+      "code": "E-LEX-UNEXPECTED-CHARACTER",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "この文字はトークンを開始できません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "there are no operators: integer division is div(a, b), which returns Option<Int> (none when b <= 0); a line comment starts with //",
+          "source": "crates/tlvm/src/diagnostics.rs:538"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:252",
+        "crates/tlvm/src/lexer.rs:334",
+        "crates/tlvm/src/lexer.rs:349"
+      ]
+    },
+    {
+      "code": "E-LEX-UNTERMINATED-STRING",
+      "severity": "error",
+      "phase": "lex",
+      "message_template": "文字列リテラルが行末（または EOF）までに閉じていません",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "closing '\"' (a line break inside a string literal is written \\n)",
+          "source": "crates/tlvm/src/diagnostics.rs:527"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:164"
+      ]
+    },
+    {
+      "code": "E-LIMIT-INPUT-INTEGER-DIGITS",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力整数の桁数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:351",
+        "crates/tlvm/src/values.rs:547"
+      ]
+    },
+    {
+      "code": "E-LIMIT-INPUT-JSON-BYTES",
+      "severity": "error",
+      "phase": "input-boundary",
+      "message_template": "入力 JSON bytes が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:112",
+        "crates/tlvm/src/values.rs:325"
+      ]
+    },
+    {
+      "code": "E-LIMIT-INPUT-JSON-DEPTH",
+      "severity": "error",
+      "phase": "input-parse",
+      "message_template": "入力 JSON の構造深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:126",
+        "crates/tlvm/src/values.rs:432"
+      ],
+      "note": "発生箇所の対応表の行は JsonFailKind（strict_json.rs:82）から code を選ぶ行（crates/tlvm/src/plain.rs:126, crates/tlvm/src/values.rs:432）"
+    },
+    {
+      "code": "E-LIMIT-INPUT-VALUE-DEPTH",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値の深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:180",
+        "crates/tlvm/src/values.rs:523"
+      ]
+    },
+    {
+      "code": "E-LIMIT-INPUT-VALUE-NODES",
+      "severity": "error",
+      "phase": "input-decode",
+      "message_template": "入力値の node 数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/plain.rs:187",
+        "crates/tlvm/src/values.rs:530"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-AST-NODES",
+      "severity": "error",
+      "phase": "structural-limits",
+      "message_template": "AST node 数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:45"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:45）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-EXPR-DEPTH",
+      "severity": "error",
+      "phase": [
+        "structural-limits",
+        "semantic-limits"
+      ],
+      "message_template": "式の深さが上限を超えました",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "the nested loop is too deep to lower: fold over a List, or move an inner loop into a named rec fn and call it",
+          "source": "crates/tlvm/src/api.rs:506"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:499",
+        "crates/tlvm/src/parser.rs:49"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:49）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-FOLD-DEPTH",
+      "severity": "error",
+      "phase": "structural-limits",
+      "message_template": "fold のネスト深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:53"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:53）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-FUNCTIONS",
+      "severity": "error",
+      "phase": "structural-limits",
+      "message_template": "関数数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:43"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:43）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-GENERIC-INSTANCES",
+      "severity": "error",
+      "phase": "semantic-limits",
+      "message_template": "総称の関数の具体化の数か型引数の大きさが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:638"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-IMPORT-FILES",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "import で読むファイルの数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:576"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-INTEGER-DIGITS",
+      "severity": "error",
+      "phase": "lexical-limits",
+      "message_template": "整数リテラルの桁数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:317"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-LET-DEPTH",
+      "severity": "error",
+      "phase": "structural-limits",
+      "message_template": "let のネスト深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:51"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:51）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-REWRITTEN-BYTES",
+      "severity": "error",
+      "phase": "semantic-limits",
+      "message_template": "書換え後のプログラムの bytes が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:404"
+      ],
+      "implementation_note": "書換えの有無によらず、型検査を通ったプログラムを検査する（オーナーの決定 2026-10-19 23:38）。検査の場所は、書換えのない source の経路 api.rs:230、書換えを行う経路 api.rs:256、AST の経路 api.rs:637。既定の source_bytes（1,048,576）は rewritten_bytes（4,194,304）より小さい（profiles.rs:27,39）。そのため既定の profile では、書換えのない source の大きさは source の上限が先に働き、この検査は発火しない。設計 spec/lptl-v1/LPTL_design_v1.md:1179 は型検査を通ったプログラム全体を対象とする"
+    },
+    {
+      "code": "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH",
+      "severity": "error",
+      "phase": "semantic-limits",
+      "message_template": "推論された型の深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:718"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-SEMANTIC-WORK",
+      "severity": "error",
+      "phase": "semantic-limits",
+      "message_template": "型検査の仕事量が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:696"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-SOURCE-BYTES",
+      "severity": "error",
+      "phase": [
+        "source-boundary",
+        "import"
+      ],
+      "message_template": "source bytes が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/api.rs:106",
+        "crates/tlvm/src/imports.rs:597"
+      ],
+      "note": "発生箇所は二つ：api.rs:106 は source の大きさ（phase source-boundary）、imports.rs:597 は import したファイルの合計（phase import、v1.11）"
+    },
+    {
+      "code": "E-LIMIT-STATIC-TOKENS",
+      "severity": "error",
+      "phase": "lexical-limits",
+      "message_template": "token 数が上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/lexer.rs:230"
+      ]
+    },
+    {
+      "code": "E-LIMIT-STATIC-TYPE-DEPTH",
+      "severity": "error",
+      "phase": "structural-limits",
+      "message_template": "型構文の深さが上限を超えました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:47"
+      ],
+      "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:47）"
+    },
+    {
+      "code": "E-MATCH-DUPLICATE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同じ場合の枝が二つあります",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "delete this arm: an earlier arm already handles {}",
+          "source": "crates/tlvm/src/recursive.rs:1079"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1072",
+        "crates/tlvm/src/sums.rs:785"
+      ]
+    },
+    {
+      "code": "E-MATCH-MISSING",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "match に足りない場合があります",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "arms for the missing cases, inserted before '}': `, {}` (or one final `_ => ...`)",
+          "source": "crates/tlvm/src/recursive.rs:1160"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1157",
+        "crates/tlvm/src/sums.rs:809"
+      ]
+    },
+    {
+      "code": "E-MATCH-MIXED",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "一つの match に違う型の pattern が混ざっています",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "pattern for the same type as the first arm: constructor of {ty}",
+          "source": "crates/tlvm/src/recursive.rs:1098"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "declared constructor of {ty}: {}",
+          "source": "crates/tlvm/src/recursive.rs:1103"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "pattern for the same type as the first arm: {}",
+          "source": "crates/tlvm/src/sums.rs:745"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1137",
+        "crates/tlvm/src/sums.rs:740"
+      ]
+    },
+    {
+      "code": "E-MATCH-UNREACHABLE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "届かない枝です（`_` の後の枝、または全部の場合を書いた後の `_`）",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "delete this arm: the arms before it already cover every case it could match",
+          "source": "crates/tlvm/src/recursive.rs:1028"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1023",
+        "crates/tlvm/src/sums.rs:775"
+      ]
+    },
+    {
+      "code": "E-NAME-DUPLICATE-BINDER",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "fold の acc と item、match の一つの枝の束縛は相異なる名前でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "identifier not bound in any enclosing scope",
+          "source": "crates/tlvm/src/diagnostics.rs:431"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:158",
+        "crates/tlvm/src/checker.rs:273"
+      ]
+    },
+    {
+      "code": "E-NAME-DUPLICATE-FUNCTION",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同名のトップレベル関数が既に定義されています",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "function name not used by another function",
+          "source": "crates/tlvm/src/diagnostics.rs:433"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:47"
+      ]
+    },
+    {
+      "code": "E-NAME-DUPLICATE-PARAM",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同名の引数が既にあります",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "identifier not bound in any enclosing scope",
+          "source": "crates/tlvm/src/diagnostics.rs:431"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:305"
+      ]
+    },
+    {
+      "code": "E-NAME-SHADOW",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "外側の変数をシャドーする束縛は書けません",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "identifier not bound in any enclosing scope",
+          "source": "crates/tlvm/src/diagnostics.rs:431"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:129",
+        "crates/tlvm/src/checker.rs:151",
+        "crates/tlvm/src/checker.rs:164",
+        "crates/tlvm/src/checker.rs:186",
+        "crates/tlvm/src/checker.rs:207",
+        "crates/tlvm/src/checker.rs:227",
+        "crates/tlvm/src/checker.rs:250",
+        "crates/tlvm/src/checker.rs:279"
+      ]
+    },
+    {
+      "code": "E-NAME-UNBOUND-VARIABLE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "未束縛の変数です",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "variable in scope: {}",
+          "source": "crates/tlvm/src/checker.rs:78"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:64"
+      ]
+    },
+    {
+      "code": "E-NAME-UNKNOWN-FUNCTION",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "未定義の関数です",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "name of a defined function or builtin",
+          "source": "crates/tlvm/src/checker.rs:105"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "defined function or builtin, e.g. {}",
+          "source": "crates/tlvm/src/checker.rs:107"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:110"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-EXPR",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "式が必要です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:1320",
+        "crates/tlvm/src/parser.rs:1322"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-IDENT",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "識別子が必要です（予約語は使えません）",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "type parameter name starting with an uppercase letter, as in fn first<T>(xs: List<T>) -> Option<T> or type Box<T> = { value: T }",
+          "source": "crates/tlvm/src/diagnostics.rs:444"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "constructor name starting with an uppercase letter, as in type Shape = Circle(Int) | Empty",
+          "source": "crates/tlvm/src/diagnostics.rs:449"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "'{w}' is a reserved word; use another name such as {w}_ here and at every use",
+          "source": "crates/tlvm/src/diagnostics.rs:476"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:203",
+        "crates/tlvm/src/parser.rs:212",
+        "crates/tlvm/src/parser.rs:377",
+        "crates/tlvm/src/parser.rs:429",
+        "crates/tlvm/src/parser.rs:533"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-LAMBDA",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "map・filter・any・all・find・sort_by の第 2 引数と loop の第 3 引数は一つの binder のラムダ |x| e でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "exactly one binder between the bars, naming the state: {forms}",
+          "source": "crates/tlvm/src/diagnostics.rs:585"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "exactly one binder between the bars, naming the element: {forms}; use fold(xs, init, |acc, x| ...) to carry an accumulator",
+          "source": "crates/tlvm/src/diagnostics.rs:592"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "', |{x}| e' before ')': the {nth} argument is a one-binder lambda, as in {forms}",
+          "source": "crates/tlvm/src/diagnostics.rs:602"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "|{x}| {f}({x}): functions are not values, so pass a lambda that calls {f} on the {what}",
+          "source": "crates/tlvm/src/diagnostics.rs:606"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "'|{x}| ' before the expression, binding the {what} it uses: {forms}",
+          "source": "crates/tlvm/src/diagnostics.rs:608"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:680",
+        "crates/tlvm/src/parser.rs:691",
+        "crates/tlvm/src/parser.rs:700",
+        "crates/tlvm/src/parser.rs:709",
+        "crates/tlvm/src/parser.rs:735"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-PATTERN",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "match の枝には pattern（構築子、ok(x)、err(e)、some(x)、none、_）が必要です",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "pattern: Ctor, Ctor(x, y) (one name or _ per field), ok(x), err(e), some(x), none, or _ for the remaining cases",
+          "source": "crates/tlvm/src/diagnostics.rs:473"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:603"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-TOKEN",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "必要な区切り記号がありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "type arguments use angle brackets: list<T>(...) and none<T>()",
+          "source": "crates/tlvm/src/diagnostics.rs:483"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "type arguments before '(': ok<T, E>(x), err<T, E>(e), list<T>(...), none<T>(), dict<K, V>()",
+          "source": "crates/tlvm/src/diagnostics.rs:489"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "'=>' between the pattern and the arm's expression",
+          "source": "crates/tlvm/src/diagnostics.rs:491"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "() after none<T>, dict<K, V>, an explicit call f<T> or a constructor Leaf<T>, as in none<Int>(), dict<String, Int>(), f<Int>(x) or Leaf<Int>()",
+          "source": "crates/tlvm/src/diagnostics.rs:495"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "')' closing the '{what}(' opened at line {l}, column {c}: it already has all its arguments here, so one ')' is missing before this point (or there are too many arguments)",
+          "source": "crates/tlvm/src/diagnostics.rs:502"
+        },
+        {
+          "kind": "delete_span",
+          "constraint": "this ')' closes the '{what}(' opened at line {l}, column {c} before all its arguments are given: delete it if it is one too many, or else an earlier ')' closed something too soon",
+          "source": "crates/tlvm/src/diagnostics.rs:508"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:195",
+        "crates/tlvm/src/parser.rs:1011",
+        "crates/tlvm/src/parser.rs:1097",
+        "crates/tlvm/src/parser.rs:1119"
+      ]
+    },
+    {
+      "code": "E-PARSE-EXPECTED-TYPE",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "型が必要です",
+      "repair": [
+        {
+          "kind": "replace_type",
+          "constraint": "type: Int | Bool | Unit | Char | String | List<T> | Option<T> | Pair<A, B> | Result<T, E> | Dict<K, V> | a declared type name (Box<Int> for a generic one) | a type parameter of the declaration",
+          "source": "crates/tlvm/src/diagnostics.rs:516"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:844"
+      ]
+    },
+    {
+      "code": "E-PARSE-REC-ENTRY",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "entry には rec を付けられません（rec は関数の宣言 rec fn に付けます）",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "delete 'rec': entry only names the function to run; if that function recurses, mark its declaration as rec fn",
+          "source": "crates/tlvm/src/diagnostics.rs:466"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:292"
+      ]
+    },
+    {
+      "code": "E-PARSE-RECOVERY-LIMIT",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "parse error が多すぎるため解析を打ち切りました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:335"
+      ]
+    },
+    {
+      "code": "E-PARSE-STRING-TYPE",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "List<Char> は String と書きます",
+      "repair": [
+        {
+          "kind": "replace_type",
+          "constraint": "String",
+          "source": "crates/tlvm/src/diagnostics.rs:518"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:863"
+      ]
+    },
+    {
+      "code": "E-PARSE-UNEXPECTED-TOKEN",
+      "severity": "error",
+      "phase": "parse",
+      "message_template": "ここには fn、entry、type、EOF のいずれかが必要です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/parser.rs:310",
+        "crates/tlvm/src/parser.rs:403",
+        "crates/tlvm/src/parser.rs:467",
+        "crates/tlvm/src/parser.rs:510",
+        "crates/tlvm/src/parser.rs:561"
+      ]
+    },
+    {
+      "code": "E-PKG-MANIFEST",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "tlvm.json が正しくありません（JSON でない、大きすぎる、未知の鍵、名前・版の形が違う）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "a tlvm.json whose keys are only name, version and dependencies (see the LPTL v1.16 delta)",
+          "source": "crates/tlvm/src/imports.rs:328"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:325"
+      ]
+    },
+    {
+      "code": "E-PKG-NAME",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "依存の tlvm.json の name が、宣言した依存の名前と違います",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "the dependency's name, the same as the \"name\" in its tlvm.json",
+          "source": "crates/tlvm/src/imports.rs:411"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:406"
+      ]
+    },
+    {
+      "code": "E-PKG-NOT-FOUND",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "依存のディレクトリに tlvm.json がありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "the path of a directory that holds a tlvm.json declaring the package",
+          "source": "crates/tlvm/src/imports.rs:393"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:388"
+      ]
+    },
+    {
+      "code": "E-PKG-PATH",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "依存の path が不正です（根のディレクトリの外、絶対パス、根や宣言したパッケージ自身を指す、区切りの誤り）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "a path to a subdirectory that holds the dependency's tlvm.json",
+          "source": "crates/tlvm/src/imports.rs:370"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a relative path with '/' separators that stays inside the project, such as \"deps/stats\"",
+          "source": "crates/tlvm/src/imports.rs:379"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:362",
+        "crates/tlvm/src/imports.rs:376"
+      ]
+    },
+    {
+      "code": "E-PKG-UNKNOWN",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "`@名前/…` の名前が、このファイルのパッケージの依存として宣言されていません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "a relative path to the file, or a tlvm.json that declares the dependency",
+          "source": "crates/tlvm/src/imports.rs:447"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "the name of a dependency declared in tlvm.json, or a relative path",
+          "source": "crates/tlvm/src/imports.rs:490"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:444",
+        "crates/tlvm/src/imports.rs:483"
+      ]
+    },
+    {
+      "code": "E-PKG-VERSION",
+      "severity": "error",
+      "phase": "import",
+      "message_template": "依存の版が、宣言で固定した版と違います（依存に版がない場合も含む）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "the version of the dependency's tlvm.json, or the version it declares",
+          "source": "crates/tlvm/src/imports.rs:425"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/imports.rs:420"
+      ]
+    },
+    {
+      "code": "E-REC-FIELD-TYPE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "再帰する型の構築子の中身は Int、Bool、または再帰する型そのものだけです",
+      "repair": [
+        {
+          "kind": "replace_type",
+          "constraint": "Int, Bool, or the recursive type itself (String, List, records and other sum types are not supported in a constructor of a recursive type yet)",
+          "source": "crates/tlvm/src/recursive.rs:570"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:563"
+      ]
+    },
+    {
+      "code": "E-REC-TYPE-PARAM",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "再帰する型に型引数は付けられません（総称の再帰する型は未対応です）",
+      "repair": [
+        {
+          "kind": "replace_type",
+          "constraint": "{} without type parameters: generic recursive types are not supported yet",
+          "source": "crates/tlvm/src/recursive.rs:521"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:518"
+      ]
+    },
+    {
+      "code": "E-RECORD-BASE-REDUNDANT",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "すべての field を書いたので、`..base` で写す field がありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{name} { ... } with every field ({}), without `..base`",
+          "source": "crates/tlvm/src/records.rs:491"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:486"
+      ]
+    },
+    {
+      "code": "E-RECORD-DUPLICATE-FIELD",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同じ field が二度書かれています",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:433",
+        "crates/tlvm/src/records.rs:612"
+      ]
+    },
+    {
+      "code": "E-RECORD-DUPLICATE-TYPE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同じ名前のレコード型が二度宣言されています",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:602",
+        "crates/tlvm/src/recursive.rs:512",
+        "crates/tlvm/src/sums.rs:863"
+      ]
+    },
+    {
+      "code": "E-RECORD-FIELD-CONFLICT",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "field 名は別のレコード型の field と重なってはいけません",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "field name not used by another record type ('{}' is a field of {other})",
+          "source": "crates/tlvm/src/records.rs:620"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:615"
+      ]
+    },
+    {
+      "code": "E-RECORD-MISSING-FIELD",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "レコードの構築に書かれていない field があります",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{name} { ... } with every field ({}), or `..base` to copy the rest",
+          "source": "crates/tlvm/src/records.rs:478"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:473"
+      ]
+    },
+    {
+      "code": "E-RECORD-UNKNOWN-FIELD",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "この名前の field はありません",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "a field of a declared record type",
+          "source": "crates/tlvm/src/records.rs:325"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "declared field, e.g. {}",
+          "source": "crates/tlvm/src/records.rs:327"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "field of {name}: {}",
+          "source": "crates/tlvm/src/records.rs:438"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:329",
+        "crates/tlvm/src/records.rs:439"
+      ]
+    },
+    {
+      "code": "E-RECORD-UNKNOWN-TYPE",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "レコード型が宣言されていません（型はそれを使うより前に宣言します）",
+      "repair": [
+        {
+          "kind": "replace_type",
+          "constraint": "a type declared above with `type Name = { field: Type, ... }`",
+          "source": "crates/tlvm/src/records.rs:137"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "record type declared above, e.g. {}",
+          "source": "crates/tlvm/src/records.rs:139"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "a type declared above with `type Name = { field: Type, ... }`",
+          "source": "crates/tlvm/src/records.rs:415"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "record type declared above, e.g. {}",
+          "source": "crates/tlvm/src/records.rs:417"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "a type declared above with `type Name = { field: Type, ... }` or `type Name = A | B(T)`",
+          "source": "crates/tlvm/src/sums.rs:218"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "type declared above, e.g. {}",
+          "source": "crates/tlvm/src/sums.rs:220"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "a type declared above this declaration ({n} is declared here or later; types cannot be recursive)",
+          "source": "crates/tlvm/src/sums.rs:232"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/records.rs:142",
+        "crates/tlvm/src/records.rs:419",
+        "crates/tlvm/src/sums.rs:223",
+        "crates/tlvm/src/sums.rs:228"
+      ],
+      "note": "生成される constraint には、名前が型引数らしいとき generics.rs:118 の文が後ろに付く（規則の constraint はその前半）"
+    },
+    {
+      "code": "E-SUM-CTOR-ARITY",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "構築・pattern の中身の数が宣言と違います",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{ctor} has no fields: write it without parentheses",
+          "source": "crates/tlvm/src/recursive.rs:1000"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{} (one name or _ per field of {sig})",
+          "source": "crates/tlvm/src/recursive.rs:1003"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{ctor}(...) with {fm} argument(s), as declared: {sig}",
+          "source": "crates/tlvm/src/recursive.rs:1007"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{ctor}(...) with {m} argument(s), as declared: {sig}",
+          "source": "crates/tlvm/src/sums.rs:304"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1014",
+        "crates/tlvm/src/sums.rs:311"
+      ]
+    },
+    {
+      "code": "E-SUM-DUPLICATE-CTOR",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "構築子の名前が重複しています（構築子の名前はプログラム全体で一意）",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "constructor name not used by any other variant in the program",
+          "source": "crates/tlvm/src/recursive.rs:535"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:529",
+        "crates/tlvm/src/sums.rs:872"
+      ]
+    },
+    {
+      "code": "E-SUM-NAME-CONFLICT",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "構築子と同じ名前の関数・変数・型は使えません",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "constructor name different from the {what} {}",
+          "source": "crates/tlvm/src/recursive.rs:553"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "name different from the constructor {name} (constructors, functions, variables and types share one namespace)",
+          "source": "crates/tlvm/src/recursive.rs:685"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:547",
+        "crates/tlvm/src/recursive.rs:682",
+        "crates/tlvm/src/sums.rs:250",
+        "crates/tlvm/src/sums.rs:884"
+      ]
+    },
+    {
+      "code": "E-SUM-UNKNOWN-CTOR",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "宣言されていない構築子です",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "pattern for the same type as the first arm: constructor of {ty}",
+          "source": "crates/tlvm/src/recursive.rs:1098"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "declared constructor of {ty}: {}",
+          "source": "crates/tlvm/src/recursive.rs:1103"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "declared constructor, e.g. {}",
+          "source": "crates/tlvm/src/sums.rs:266"
+        },
+        {
+          "kind": "replace_identifier",
+          "constraint": "constructor declared with `type Name = A | B(T)`: {}{extra}",
+          "source": "crates/tlvm/src/sums.rs:276"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/recursive.rs:1132",
+        "crates/tlvm/src/sums.rs:280"
+      ],
+      "note": "constraint の {extra} は sums.rs:270-274 の文字列で、パターンのときだけ付く"
+    },
+    {
+      "code": "E-TYPE-ARG",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "引数の型が一致しません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1100",
+        "crates/tlvm/src/checker.rs:1426",
+        "crates/tlvm/src/checker.rs:1531",
+        "crates/tlvm/src/checker.rs:1544",
+        "crates/tlvm/src/checker.rs:1551",
+        "crates/tlvm/src/checker.rs:1575",
+        "crates/tlvm/src/checker.rs:1633",
+        "crates/tlvm/src/checker.rs:1660",
+        "crates/tlvm/src/checker.rs:1680",
+        "crates/tlvm/src/checker.rs:1696",
+        "crates/tlvm/src/checker.rs:1738",
+        "crates/tlvm/src/checker.rs:1752",
+        "crates/tlvm/src/checker.rs:1771",
+        "crates/tlvm/src/checker.rs:1819",
+        "crates/tlvm/src/checker.rs:1828"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-DICT-ARG",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "dict_get・dict_put・dict_remove・dict_has・dict_size・dict_keys・dict_values・dict_entries の第 1 引数は Dict でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Dict<K, V>: dict_from(xs) makes a Dict from a List<Pair<K, V>> (a later pair replaces the value of an earlier equal key)",
+          "source": "crates/tlvm/src/diagnostics.rs:420"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Dict<K, V>, such as dict<K, V>() (empty), dict_put(d, k, v) or dict_from(pairs)",
+          "source": "crates/tlvm/src/diagnostics.rs:422"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1806"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-DICT-FROM",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "dict_from の引数は (鍵, 値) の pair のリスト List<Pair<K, V>> でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type List<Pair<K, V>>: this is already a Dict, so use it without dict_from",
+          "source": "crates/tlvm/src/diagnostics.rs:425"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type List<Pair<K, V>>, such as map(xs, |x| pair(key, value))",
+          "source": "crates/tlvm/src/diagnostics.rs:426"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1791"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-EQ-OPERANDS",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "eq の両引数は同じ型でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1589"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-EXPECTED-LIST",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "List 型の値が必要です",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
+          "source": "crates/tlvm/src/diagnostics.rs:414"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type List<...>",
+          "source": "crates/tlvm/src/diagnostics.rs:416"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1624",
+        "crates/tlvm/src/checker.rs:1644",
+        "crates/tlvm/src/checker.rs:1651",
+        "crates/tlvm/src/checker.rs:1671",
+        "crates/tlvm/src/checker.rs:1706",
+        "crates/tlvm/src/checker.rs:1720"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-FIELD-ACCESS",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "field を参照する式の型が、その field を持つレコード型ではありません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1047"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-FOLD-BODY",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "fold 本体の型は初期値の型と一致しなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:980"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-FOLD-LIST",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "fold の第1引数は List でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
+          "source": "crates/tlvm/src/diagnostics.rs:414"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type List<...>",
+          "source": "crates/tlvm/src/diagnostics.rs:416"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:966"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-FST-ARG",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "fst の引数は Pair でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Pair<..., ...>",
+          "source": "crates/tlvm/src/diagnostics.rs:428"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1602"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-GENERIC-ARITY",
+      "severity": "error",
+      "phase": [
+        "name",
+        "typecheck"
+      ],
+      "message_template": "型引数の数が宣言と違います",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{shown}(...) without type arguments: {shown} is not generic",
+          "source": "crates/tlvm/src/checker.rs:1368"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{shown}<{}>(...) with {} type argument(s), one per type parameter",
+          "source": "crates/tlvm/src/checker.rs:1371"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "{name} without type arguments: {name} is not generic",
+          "source": "crates/tlvm/src/generics.rs:133"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "{name}<{}> with {} type argument(s), one per type parameter of {name}",
+          "source": "crates/tlvm/src/generics.rs:136"
+        },
+        {
+          "kind": "replace_type",
+          "constraint": "{n} without type arguments: {n} is a type parameter, which stands for a whole type",
+          "source": "crates/tlvm/src/generics.rs:291"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1377",
+        "crates/tlvm/src/generics.rs:142",
+        "crates/tlvm/src/generics.rs:287"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-GENERIC-DUPLICATE-PARAM",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "同じ名前の型引数が二度宣言されています",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "type parameter name not used by another type parameter of the same declaration",
+          "source": "crates/tlvm/src/generics.rs:350"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:347"
+      ]
+    },
+    {
+      "code": "E-TYPE-GENERIC-INFER",
+      "severity": "error",
+      "phase": [
+        "name",
+        "typecheck"
+      ],
+      "message_template": "型引数を引数の型から推論できません（f<Int>(x) のように明示します）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "'<{}>' after {shown}, replacing {} with concrete types: {} cannot be inferred from the argument types (it appears only in the return type or nowhere in the parameters), so write {shown}<{}>{parens}",
+          "source": "crates/tlvm/src/checker.rs:1457"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "{n}<{}>() with each type parameter replaced by a concrete type, e.g. {n}<{}>() (like none<T>())",
+          "source": "crates/tlvm/src/sums.rs:445"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1449",
+        "crates/tlvm/src/sums.rs:441"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-GENERIC-INFINITE",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "再帰のたびに型引数が大きくなる呼び出し（多相再帰）は具体化が終わりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a recursive call whose type arguments do not grow: calling {shown} from {}<{}> builds a larger type from {} on every round of the recursion, which would need infinitely many instances; pass the type parameters unchanged, or keep the growing data in a value (for example a List) instead of in the type",
+          "source": "crates/tlvm/src/generics.rs:532"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:528"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-GENERIC-MISMATCH",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "同じ型引数に、引数によって違う型が当たっています",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression whose type gives {v} = {prev}: the type parameter {v} of {shown} was inferred as {prev} from an earlier argument, so every argument written with {v} must use {prev}; if a different type is meant, convert the arguments first or write {shown}<...>(...) explicitly",
+          "source": "crates/tlvm/src/checker.rs:1414"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1406"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-GENERIC-PARAM-CONFLICT",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "型引数の名前が宣言された型の名前と重なっています",
+      "repair": [
+        {
+          "kind": "replace_identifier",
+          "constraint": "type parameter name different from the declared type {} (for example a single letter such as T)",
+          "source": "crates/tlvm/src/generics.rs:360"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:354"
+      ]
+    },
+    {
+      "code": "E-TYPE-GENERIC-UNKNOWN-PARAM",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "宣言されていない型引数です（型引数は関数・型の名前の後の <T, ...> で宣言します）",
+      "repair": [
+        {
+          "kind": "insert_text",
+          "constraint": "'<{n}>' after the name of {owner} to declare the type parameter {n} (fn first<{n}>(xs: List<{n}>) -> Option<{n}> = ...), or use a concrete or declared type instead of {n}",
+          "source": "crates/tlvm/src/generics.rs:320"
+        },
+        {
+          "kind": "insert_text",
+          "constraint": "', {n}' at the end of the type parameters of {owner} (<{}, {n}>) to declare {n}, or use one of the declared type parameters ({}) or a concrete type",
+          "source": "crates/tlvm/src/generics.rs:324"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:330"
+      ]
+    },
+    {
+      "code": "E-TYPE-GENERIC-UNUSED-PARAM",
+      "severity": "error",
+      "phase": "name",
+      "message_template": "型の宣言の型引数が field・variant のどこにも使われていません",
+      "repair": [
+        {
+          "kind": "delete_span",
+          "constraint": "delete the type parameter {} of {name} (with its comma), or use it in a field: a type parameter of a type must appear in a field or variant, since types are compared by their structure",
+          "source": "crates/tlvm/src/generics.rs:449"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/generics.rs:442"
+      ]
+    },
+    {
+      "code": "E-TYPE-HOF-BODY",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "ラムダの本体の型が違います（filter・any・all・find は Bool、sort_by は Int）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1185"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-HOF-LIST",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "map・filter・any・all・find・sort_by の第 1 引数は List でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "a List taken from the Dict: dict_entries(d) (List<Pair<K, V>> in insertion order), dict_keys(d) or dict_values(d)",
+          "source": "crates/tlvm/src/diagnostics.rs:414"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type List<...>",
+          "source": "crates/tlvm/src/diagnostics.rs:416"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1167"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-IF-BRANCH",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "if の両分岐は同じ型でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:947"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-IF-CONDITION",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "if の条件は Bool でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:943"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-LIST-ITEM",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "リスト要素の型が注釈と一致しません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:893"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-LOOP-BODY",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "loop の本体の型は Option<S>（S は初期値の型）でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1227"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-LOOP-MAX",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "loop の第 2 引数（反復の上限）は Int でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1216"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-MATCH-BRANCH",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "match_option・match_result・match の分岐はすべて同じ型でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1080",
+        "crates/tlvm/src/checker.rs:1135",
+        "crates/tlvm/src/checker.rs:1335"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-MATCH-SCRUTINEE",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "分解する値の型が合いません（match_option は Option、match_result は Result、match は pattern の直和型・Result・Option）",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Result<..., ...>",
+          "source": "crates/tlvm/src/diagnostics.rs:406"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Option<...>",
+          "source": "crates/tlvm/src/diagnostics.rs:407"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}",
+          "source": "crates/tlvm/src/diagnostics.rs:408"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1068",
+        "crates/tlvm/src/checker.rs:1119",
+        "crates/tlvm/src/checker.rs:1254",
+        "crates/tlvm/src/checker.rs:1259",
+        "crates/tlvm/src/checker.rs:1285",
+        "crates/tlvm/src/checker.rs:1297"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-RETURN",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "関数本体の型が宣言した戻り型と一致しません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type {t}{how}",
+          "source": "crates/tlvm/src/diagnostics.rs:403"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:828"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "E-TYPE-SND-ARG",
+      "severity": "error",
+      "phase": "typecheck",
+      "message_template": "snd の引数は Pair でなければなりません",
+      "repair": [
+        {
+          "kind": "replace_expression",
+          "constraint": "{t} is a type parameter of {name}: in the body a value of type {t} supports only what works for every type (eq, pair, some, cons, list<{t}>(...), passing it on); to use it as {need}, give {name} a parameter of type {need} instead of {t}, or do this part in the caller where the type is known",
+          "source": "crates/tlvm/src/checker.rs:851"
+        },
+        {
+          "kind": "replace_expression",
+          "constraint": "expression of type Pair<..., ...>",
+          "source": "crates/tlvm/src/diagnostics.rs:428"
+        }
+      ],
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:1604"
+      ],
+      "note": "checker.rs:818（check_function）の総称の関数の規則：本体で actual が型引数の名前に等しく、repair の無い typecheck 段階の E-TYPE-* 診断に付く（診断ごとの発生は actual の値による）"
+    },
+    {
+      "code": "W-DIAG-LIMIT",
+      "severity": "warning",
+      "phase": "diagnostic-limit",
+      "message_template": "warning が多すぎるため以降を省略しました",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/diagnostics.rs:351"
+      ],
+      "note": "件数上限の発生箇所は diagnostics.rs の limit()（diagnostics.rs:354）が code を引数で受けて作る（crates/tlvm/src/diagnostics.rs:350）",
+      "implementation_note": "phase は diagnostic-limit（diagnostics.rs の limit() が設定）。PHASE_ORDER（diagnostics.rs:7-20）と 設計 §10.2 の段階には無く、カタログは「—」"
+    },
+    {
+      "code": "W-UNUSED-FUNCTION",
+      "severity": "warning",
+      "phase": "warnings",
+      "message_template": "entry から到達しない関数です",
+      "repair": null,
+      "emitted_by": [
+        "crates/tlvm/src/checker.rs:2066"
+      ]
+    }
+  ]
+}

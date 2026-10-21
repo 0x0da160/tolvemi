@@ -21,7 +21,10 @@
 //! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は単相化・書き換え後の
 //! プログラムを検査・実行するので、停止性・型安全性・決定性は書き換え後のプログラムについて成り立つ。
 
-use crate::checker::{check_program, collect_params, user_calls, CheckOutcome, Instances};
+use crate::checker::{
+    check_program_second, check_program_with, collect_params, user_calls, CheckOptions,
+    CheckOutcome, Instances, SecondPass,
+};
 use crate::diagnostics::Diagnostic;
 use crate::profiles::StaticProfile;
 use crate::syntax::*;
@@ -45,10 +48,16 @@ pub fn idents(p: &Program) -> HashSet<String> {
                 out.insert(acc.clone());
                 out.insert(item.clone());
             }
-            ExprKind::Match { binder, .. } | ExprKind::Hof { binder, .. } | ExprKind::Loop { binder, .. } => {
+            ExprKind::Match { binder, .. }
+            | ExprKind::Hof { binder, .. }
+            | ExprKind::Loop { binder, .. } => {
                 out.insert(binder.clone());
             }
-            ExprKind::MatchResult { ok_binder, err_binder, .. } => {
+            ExprKind::MatchResult {
+                ok_binder,
+                err_binder,
+                ..
+            } => {
                 out.insert(ok_binder.clone());
                 out.insert(err_binder.clone());
             }
@@ -90,7 +99,11 @@ pub fn idents(p: &Program) -> HashSet<String> {
 pub fn fresh(taken: &mut HashSet<String>, base: &str) -> String {
     let mut n = 1;
     loop {
-        let name = if n == 1 { base.to_string() } else { format!("{base}{n}") };
+        let name = if n == 1 {
+            base.to_string()
+        } else {
+            format!("{base}{n}")
+        };
         if !taken.contains(&name) && !is_keyword(&name) {
             taken.insert(name.clone());
             return name;
@@ -109,11 +122,21 @@ pub fn param_note(n: &str, fix: String) -> String {
 }
 
 /// 型の名前 `name`（型引数 `params`）に `given` 個の型引数を書いた誤り（E-TYPE-GENERIC-ARITY、phase name）。
-pub fn arity_error(diags: &mut Vec<Diagnostic>, name: &str, params: &[String], given: usize, meta: Meta) {
+pub fn arity_error(
+    diags: &mut Vec<Diagnostic>,
+    name: &str,
+    params: &[String],
+    given: usize,
+    meta: Meta,
+) {
     let fix = if params.is_empty() {
         format!("{name} without type arguments: {name} is not generic")
     } else {
-        format!("{name}<{}> with {} type argument(s), one per type parameter of {name}", params.join(", "), params.len())
+        format!(
+            "{name}<{}> with {} type argument(s), one per type parameter of {name}",
+            params.join(", "),
+            params.len()
+        )
     };
     diags.push(
         Diagnostic::error("name", "E-TYPE-GENERIC-ARITY", meta.span())
@@ -128,7 +151,12 @@ pub fn arity_error(diags: &mut Vec<Diagnostic>, name: &str, params: &[String], g
 /// field の参照の target と `match` の種類（展開後の型）は書き換えない。
 fn map_expr_types(e: &mut Expr, f: &mut dyn FnMut(&TypeNode) -> TypeNode) {
     match &mut e.kind {
-        ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::DictNew(t) | ExprKind::Inj { ty: t, .. } => *t = f(t),
+        ExprKind::List {
+            element_type: t, ..
+        }
+        | ExprKind::None(t)
+        | ExprKind::DictNew(t)
+        | ExprKind::Inj { ty: t, .. } => *t = f(t),
         ExprKind::Call { type_args, .. } => type_args.iter_mut().for_each(|t| *t = f(t)),
         _ => {}
     }
@@ -139,7 +167,12 @@ fn map_expr_types(e: &mut Expr, f: &mut dyn FnMut(&TypeNode) -> TypeNode) {
 
 fn walk_expr_types<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a TypeNode)) {
     match &e.kind {
-        ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::DictNew(t) | ExprKind::Inj { ty: t, .. } => f(t),
+        ExprKind::List {
+            element_type: t, ..
+        }
+        | ExprKind::None(t)
+        | ExprKind::DictNew(t)
+        | ExprKind::Inj { ty: t, .. } => f(t),
         ExprKind::Call { type_args, .. } => type_args.iter().for_each(&mut *f),
         _ => {}
     }
@@ -156,7 +189,8 @@ pub fn has_generics(p: &Program) -> bool {
     let mut look = |t: &TypeNode| {
         fn go(t: &TypeNode, declared: &HashSet<&str>) -> bool {
             t.tag == TyTag::Param
-                || (t.is_named() && (!t.args.is_empty() || !declared.contains(t.name.as_deref().unwrap_or(""))))
+                || (t.is_named()
+                    && (!t.args.is_empty() || !declared.contains(t.name.as_deref().unwrap_or(""))))
                 || t.args.iter().any(|a| go(a, declared))
         }
         found |= go(t, &declared);
@@ -171,7 +205,8 @@ pub fn has_generics(p: &Program) -> bool {
                 look(&f.return_type);
                 walk_expr_types(&f.body, &mut |t| look(t));
                 fn calls(e: &Expr) -> bool {
-                    matches!(&e.kind, ExprKind::Call { type_args, .. } if !type_args.is_empty()) || e.children().into_iter().any(calls)
+                    matches!(&e.kind, ExprKind::Call { type_args, .. } if !type_args.is_empty())
+                        || e.children().into_iter().any(calls)
                 }
                 if calls(&f.body) {
                     return true;
@@ -187,7 +222,10 @@ pub fn has_generics(p: &Program) -> bool {
                 if !s.type_params.is_empty() {
                     return true;
                 }
-                s.variants.iter().flat_map(|v| &v.fields).for_each(&mut look);
+                s.variants
+                    .iter()
+                    .flat_map(|v| &v.fields)
+                    .for_each(&mut look);
             }
             Decl::Entry(_) => {}
         }
@@ -227,7 +265,13 @@ fn looks_like_param(n: &str) -> bool {
 impl Resolve<'_> {
     /// 一つの宣言の型引数 `params` の下で型の node を解決する。`owner` は宣言の種類と名前（修復ヒント用）、
     /// `insert_at` は型引数を足す位置（宣言の名前の直後か、既にある型引数の最後の直後）。
-    fn ty(&mut self, t: &TypeNode, params: &[TypeParam], owner: &str, insert_at: usize) -> TypeNode {
+    fn ty(
+        &mut self,
+        t: &TypeNode,
+        params: &[TypeParam],
+        owner: &str,
+        insert_at: usize,
+    ) -> TypeNode {
         let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
         if t.tag == TyTag::Param {
             let n = t.name.as_deref().unwrap_or("");
@@ -251,13 +295,23 @@ impl Resolve<'_> {
             }
             // 総称でない宣言では、型引数らしい名前で、近い名前の型も宣言されていないときだけ（それ以外は
             // レコード型・直和型の名前の誤りとして records・sums が E-RECORD-UNKNOWN-TYPE を出す）
-            let near_type = || !crate::diagnostics::closest(n, self.declared.iter().copied(), 1).is_empty();
-            if !self.declared.contains(n) && (!names.is_empty() || (looks_like_param(n) && !near_type())) {
+            let near_type =
+                || !crate::diagnostics::closest(n, self.declared.iter().copied(), 1).is_empty();
+            if !self.declared.contains(n)
+                && (!names.is_empty() || (looks_like_param(n) && !near_type()))
+            {
                 self.unknown(n, t.meta, &names, owner, insert_at);
                 return TypeNode::new(TyTag::Unit, vec![], t.meta);
             }
         }
-        TypeNode { args: t.args.iter().map(|a| self.ty(a, params, owner, insert_at)).collect(), ..t.clone() }
+        TypeNode {
+            args: t
+                .args
+                .iter()
+                .map(|a| self.ty(a, params, owner, insert_at))
+                .collect(),
+            ..t.clone()
+        }
     }
 
     fn unknown(&mut self, n: &str, meta: Meta, names: &[&str], owner: &str, insert_at: usize) {
@@ -274,7 +328,11 @@ impl Resolve<'_> {
         };
         self.diags.push(
             Diagnostic::error("name", "E-TYPE-GENERIC-UNKNOWN-PARAM", meta.span())
-                .exp(if names.is_empty() { "declared type".to_string() } else { format!("type parameter {}", names.join(", ")) })
+                .exp(if names.is_empty() {
+                    "declared type".to_string()
+                } else {
+                    format!("type parameter {}", names.join(", "))
+                })
                 .act(n)
                 .at(meta.index)
                 .fix("insert_text", (insert_at, insert_at), fix),
@@ -313,7 +371,10 @@ fn insert_point(name_span: Sp, params: &[TypeParam]) -> usize {
 
 /// 宣言の型引数を検査し、型の位置の型引数の名前を `TyTag::Param` の node にする（phase name）。
 pub fn resolve(p: &Program) -> Result<Program, Vec<Diagnostic>> {
-    let mut r = Resolve { declared: type_names(p), diags: vec![] };
+    let mut r = Resolve {
+        declared: type_names(p),
+        diags: vec![],
+    };
     let mut out = p.clone();
     for d in &mut out.declarations {
         match d {
@@ -364,9 +425,16 @@ pub fn resolve(p: &Program) -> Result<Program, Vec<Diagnostic>> {
 
 /// 型の宣言の型引数は field（variant の中身）のどこかに現れなければならない（型は宣言の印と展開後の構造で決まるので、
 /// 現れない型引数は型の区別にも構造にも効かない）。
-fn unused(diags: &mut Vec<Diagnostic>, params: &[TypeParam], used: &[&TypeNode], name: &str, index: usize) {
+fn unused(
+    diags: &mut Vec<Diagnostic>,
+    params: &[TypeParam],
+    used: &[&TypeNode],
+    name: &str,
+    index: usize,
+) {
     fn mentions(t: &TypeNode, n: &str) -> bool {
-        (t.tag == TyTag::Param && t.name.as_deref() == Some(n)) || t.args.iter().any(|a| mentions(a, n))
+        (t.tag == TyTag::Param && t.name.as_deref() == Some(n))
+            || t.args.iter().any(|a| mentions(a, n))
     }
     for p in params {
         if !used.iter().any(|t| mentions(t, &p.name)) {
@@ -393,24 +461,42 @@ fn unused(diags: &mut Vec<Diagnostic>, params: &[TypeParam], used: &[&TypeNode],
 /// 総称の関数 f の型引数 P から、f の本体の呼び出し `g<..., A_j, ...>` の g の j 番目の型引数へ、A_j が P を含めば
 /// 辺を引く（A_j が P そのものなら重み 0、P を真に含めば重み 1）。重み 1 の辺が閉路に乗れば、単相化は止まらない。
 pub fn infinite(p: &Program, inst: &Instances) -> Vec<Diagnostic> {
-    let generic: HashMap<&str, &FnDecl> = p.functions().filter(|f| !f.type_params.is_empty()).map(|f| (f.name.as_str(), f)).collect();
+    let generic: HashMap<&str, &FnDecl> = p
+        .functions()
+        .filter(|f| !f.type_params.is_empty())
+        .map(|f| (f.name.as_str(), f))
+        .collect();
     // 辺：（f、P の位置）→（g、j）、重み、呼び出しの span と node、表示
     type Node<'a> = (&'a str, usize);
     let mut edges: Vec<(Node, Node, bool, (usize, usize), usize, String)> = vec![];
     for f in generic.values() {
         let names: Vec<&str> = f.type_params.iter().map(|q| q.name.as_str()).collect();
         for c in user_calls(&f.body) {
-            let (Some(g), Some(tys)) = (generic.get(c.callee), inst.get(&c.index)) else { continue };
+            let (Some(g), Some(tys)) = (generic.get(c.callee), inst.get(&c.index)) else {
+                continue;
+            };
             let shown = format!(
                 "{}<{}>",
                 g.ctor.as_deref().unwrap_or(&g.name),
-                tys.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+                tys.iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
             for (j, t) in tys.iter().enumerate() {
                 for q in collect_params(t) {
-                    let Some(i) = names.iter().position(|n| *n == q) else { continue };
+                    let Some(i) = names.iter().position(|n| *n == q) else {
+                        continue;
+                    };
                     let grows = t.param_name() != Some(q.as_str());
-                    edges.push(((f.name.as_str(), i), (g.name.as_str(), j), grows, c.span, c.index, shown.clone()));
+                    edges.push((
+                        (f.name.as_str(), i),
+                        (g.name.as_str(), j),
+                        grows,
+                        c.span,
+                        c.index,
+                        shown.clone(),
+                    ));
                 }
             }
         }
@@ -458,7 +544,11 @@ pub fn infinite(p: &Program, inst: &Instances) -> Vec<Diagnostic> {
 
 /// 意味論上の型を構文上の型にする（名前は保つ）。
 fn node_of(t: &Ty, meta: Meta) -> TypeNode {
-    let mut n = TypeNode::new(t.tag(), t.args().iter().map(|a| node_of(a, meta)).collect(), meta);
+    let mut n = TypeNode::new(
+        t.tag(),
+        t.args().iter().map(|a| node_of(a, meta)).collect(),
+        meta,
+    );
     if let Some(p) = t.param_name() {
         n.name = Some(p.to_string());
     }
@@ -514,7 +604,10 @@ impl Mono<'_> {
     fn instance(&mut self, f: &str, tys: Vec<Ty>, call: &Expr) -> Option<String> {
         for t in &tys {
             if size(t, MAX_INSTANCE_TYPE_NODES + 1) > MAX_INSTANCE_TYPE_NODES {
-                self.limit(call, format!("a type argument with more than {MAX_INSTANCE_TYPE_NODES} type nodes"));
+                self.limit(
+                    call,
+                    format!("a type argument with more than {MAX_INSTANCE_TYPE_NODES} type nodes"),
+                );
                 return None;
             }
         }
@@ -555,16 +648,35 @@ impl Mono<'_> {
             if cur.is_empty() {
                 return t.clone();
             }
-            t.subst(&|n| cur.iter().find(|(m, _)| m == n).map(|(_, ty)| node_of(ty, t.meta)))
+            t.subst(&|n| {
+                cur.iter()
+                    .find(|(m, _)| m == n)
+                    .map(|(_, ty)| node_of(ty, t.meta))
+            })
         };
         let mut out = e.clone();
         match &mut out.kind {
-            ExprKind::List { element_type: t, .. } | ExprKind::None(t) | ExprKind::DictNew(t) | ExprKind::Inj { ty: t, .. } => *t = sub(t),
-            ExprKind::Call { callee, builtin: false, type_args, .. } => {
+            ExprKind::List {
+                element_type: t, ..
+            }
+            | ExprKind::None(t)
+            | ExprKind::DictNew(t)
+            | ExprKind::Inj { ty: t, .. } => *t = sub(t),
+            ExprKind::Call {
+                callee,
+                builtin: false,
+                type_args,
+                ..
+            } => {
                 type_args.clear();
                 if self.generic.contains_key(callee.as_str()) {
                     let tys: Vec<Ty> = self.inst.get(&e.meta.index).cloned().unwrap_or_default();
-                    let tys: Vec<Ty> = tys.iter().map(|t| t.subst(&|n| cur.iter().find(|(m, _)| m == n).map(|(_, ty)| ty.clone()))).collect();
+                    let tys: Vec<Ty> = tys
+                        .iter()
+                        .map(|t| {
+                            t.subst(&|n| cur.iter().find(|(m, _)| m == n).map(|(_, ty)| ty.clone()))
+                        })
+                        .collect();
                     if let Some(n) = self.instance(callee, tys, e) {
                         *callee = n;
                     }
@@ -589,7 +701,12 @@ impl Mono<'_> {
 
 fn max_index(p: &Program) -> usize {
     fn ex(e: &Expr) -> usize {
-        e.children().into_iter().map(ex).max().unwrap_or(0).max(e.meta.index)
+        e.children()
+            .into_iter()
+            .map(ex)
+            .max()
+            .unwrap_or(0)
+            .max(e.meta.index)
     }
     p.declarations
         .iter()
@@ -607,7 +724,11 @@ fn max_index(p: &Program) -> usize {
 /// 総称の関数を、使われた型引数の組ごとの具体的な関数に複製する。総称でない関数はそのまま（総称の関数の呼び出しは
 /// 複製の名前にする）、総称の関数の宣言は除き、複製を宣言の末尾に足す。`inst` は総称のプログラムの型検査の結果。
 pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagnostic>> {
-    let generic: HashMap<&str, &FnDecl> = p.functions().filter(|f| !f.type_params.is_empty()).map(|f| (f.name.as_str(), f)).collect();
+    let generic: HashMap<&str, &FnDecl> = p
+        .functions()
+        .filter(|f| !f.type_params.is_empty())
+        .map(|f| (f.name.as_str(), f))
+        .collect();
     let mut m = Mono {
         generic,
         inst,
@@ -634,9 +755,27 @@ pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagno
             break;
         }
         let f = m.generic[name.as_str()];
-        let cur: Vec<(String, Ty)> = f.type_params.iter().map(|q| q.name.clone()).zip(tys).collect();
-        let sub = |t: &TypeNode| t.subst(&|n| cur.iter().find(|(q, _)| q == n).map(|(_, ty)| node_of(ty, t.meta)));
-        let params = f.params.iter().map(|q| Param { ty: sub(&q.ty), ..q.clone() }).collect();
+        let cur: Vec<(String, Ty)> = f
+            .type_params
+            .iter()
+            .map(|q| q.name.clone())
+            .zip(tys)
+            .collect();
+        let sub = |t: &TypeNode| {
+            t.subst(&|n| {
+                cur.iter()
+                    .find(|(q, _)| q == n)
+                    .map(|(_, ty)| node_of(ty, t.meta))
+            })
+        };
+        let params = f
+            .params
+            .iter()
+            .map(|q| Param {
+                ty: sub(&q.ty),
+                ..q.clone()
+            })
+            .collect();
         let return_type = sub(&f.return_type);
         let mut body = m.body(&f.body, &cur);
         m.renumber(&mut body);
@@ -651,7 +790,11 @@ pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagno
         }));
     }
     if m.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
+        Ok(Program {
+            declarations: decls,
+            meta: p.meta,
+            imports: p.imports.clone(),
+        })
     } else {
         Err(m.diags)
     }
@@ -661,7 +804,21 @@ pub fn monomorphize(p: &Program, inst: &Instances) -> Result<Program, Vec<Diagno
 /// 型検査する。返すのは（検査の結果、以降の書き換えに使うプログラム）。診断は総称のプログラムの検査のもの
 /// （警告を含む）に、単相化の拒否と単相化後の検査の error を足したもの。受理したプログラムは単相化後のもの。
 pub fn check(px: &Program, eof: usize, profile: &StaticProfile) -> (CheckOutcome, Program) {
-    let mut o = check_program(px, eof, profile);
+    check_with(px, eof, profile, &CheckOptions::default())
+}
+
+/// `check` と同じ検査を、比較 cache の切替と論理 trace の有無を選んで行う（試験用）。仕事量は二つのパスの和で、
+/// 論理 trace は第一パスに第二パス（複製の本体だけ）を続けたもの（規則 G、§18.1c）。
+pub fn check_with(
+    px: &Program,
+    eof: usize,
+    profile: &StaticProfile,
+    opts: &CheckOptions,
+) -> (CheckOutcome, Program) {
+    // 二つのパスで同じ正準化の表を使う（Interned のとき。表は外側のこの範囲で開き、内側の検査は開いたまま使う）
+    let _interning =
+        crate::intern::Scope::enter(opts.sharing == crate::checker::TypeSharing::Interned);
+    let mut o = check_program_with(px, eof, profile, opts);
     if !is_generic(px) || o.typed.is_none() {
         return (o, px.clone());
     }
@@ -678,11 +835,42 @@ pub fn check(px: &Program, eof: usize, profile: &StaticProfile) -> (CheckOutcome
             (o, px.clone())
         }
         Ok(pm) => {
-            let o2 = check_program(&pm, eof, profile);
+            // 規則 G：第二パスは単相化で作った複製だけを数え、第一パスの総計から続けて数える
+            let orig: HashSet<&str> = px.functions().map(|f| f.name.as_str()).collect();
+            let counted: HashSet<String> = pm
+                .functions()
+                .filter(|f| !orig.contains(f.name.as_str()))
+                .map(|f| f.name.clone())
+                .collect();
+            let pass = SecondPass {
+                counted,
+                start: o.work.unwrap_or_default(),
+            };
+            let o2 = check_program_second(&pm, eof, profile, opts, &pass);
             let mut diagnostics = o.diagnostics;
             diagnostics.extend(o2.diagnostics.into_iter().filter(|d| d.severity == "error"));
-            let typed = if diagnostics.iter().any(|d| d.severity == "error") { None } else { o2.typed };
-            let out = CheckOutcome { diagnostics, typed, work: o2.work, hof: o2.hof, inst: o2.inst };
+            let typed = if diagnostics.iter().any(|d| d.severity == "error") {
+                None
+            } else {
+                o2.typed
+            };
+            let trace = match (o.trace, o2.trace) {
+                (Some(mut a), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                (a, b) => a.or(b),
+            };
+            let sharing_hits = o.sharing_hits + o2.sharing_hits;
+            let out = CheckOutcome {
+                diagnostics,
+                typed,
+                work: o2.work,
+                hof: o2.hof,
+                inst: o2.inst,
+                trace,
+                sharing_hits,
+            };
             (out, pm)
         }
     }

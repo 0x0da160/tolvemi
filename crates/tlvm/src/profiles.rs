@@ -16,6 +16,8 @@ pub struct StaticProfile {
     pub semantic_work: u64,
     /// v1.11：import で読むファイルの数（根を含む）。bytes の合計は source_bytes で抑える
     pub import_files: usize,
+    /// 書換え後のプログラムの bytes（§18.1）。型検査を通ったプログラムの、検証済み部品へ渡す文字列がこれを超えると拒否する
+    pub rewritten_bytes: usize,
 }
 
 impl Default for StaticProfile {
@@ -34,6 +36,7 @@ impl Default for StaticProfile {
             semantic_type_depth: 128,
             semantic_work: 2_000_000,
             import_files: 64,
+            rewritten_bytes: 4_194_304,
         }
     }
 }
@@ -70,7 +73,11 @@ pub struct AstTransportProfile {
 
 impl Default for AstTransportProfile {
     fn default() -> Self {
-        AstTransportProfile { id: "ast-transport-v1-reference-1", json_bytes: 16_777_216, json_depth: 1_024 }
+        AstTransportProfile {
+            id: "ast-transport-v1-reference-1",
+            json_bytes: 16_777_216,
+            json_depth: 1_024,
+        }
     }
 }
 
@@ -113,11 +120,18 @@ impl Default for ExecutionProfile {
 pub struct HostPolicy {
     pub id: &'static str,
     pub max_eval_depth: usize,
+    /// 参照スロット（環境の束縛の同時数）の上限。超過は HostAborted("ref-slots")
+    pub max_ref_slots: usize,
     pub stack_bytes: usize,
 }
 
 impl Default for HostPolicy {
     fn default() -> Self {
-        HostPolicy { id: "tlvm-rust-host-v0", max_eval_depth: 400_000, stack_bytes: 1 << 30 }
+        HostPolicy {
+            id: "tlvm-rust-host-v1",
+            max_eval_depth: 400_000,
+            max_ref_slots: 4_000_000,
+            stack_bytes: 1 << 30,
+        }
     }
 }

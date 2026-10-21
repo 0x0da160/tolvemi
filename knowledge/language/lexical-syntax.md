@@ -73,12 +73,12 @@ let in if fold add sub mul neg lt le eq mod fst snd cons concat reverse length
 
 予約語に `map`、`filter`、`any`、`all`、`find`、`sort_by` を加えた（計 56 語）。6 語とも文脈キーワードで、変数・引数・
 束縛・field の名前に使える。関数名と entry の名前には使えない（`E-PARSE-EXPECTED-IDENT`）。AST transport の識別子にも
-使えないので、`tlvm ast` は `map_kw` などに付け替える。詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
+使えないので、`tlvm ast` は変数名に `map` を使ったプログラムを付け替えずに拒否する（`E-AST-IDENTIFIER`）。詳細は [v1.5 差分仕様](../../spec/lptl-v1.5/LPTL_v1.5_delta.md)。
 
 # v1.6 の追加：loop
 
 予約語に `loop` を加えた（計 57 語）。文脈キーワードで、変数・引数・束縛・field の名前に使える。関数名と entry の名前には
-使えない（`E-PARSE-EXPECTED-IDENT`）。`tlvm ast` は変数名の `loop` を `loop_kw` などに付け替える。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
+使えない（`E-PARSE-EXPECTED-IDENT`）。`tlvm ast` は変数名に `loop` を使ったプログラムを付け替えずに拒否する（`E-AST-IDENTIFIER`）。詳細は [v1.6 差分仕様](../../spec/lptl-v1.6/LPTL_v1.6_delta.md)。
 
 # v1.7 の追加：rec
 
@@ -95,7 +95,7 @@ IDENT（変数・引数・束縛・field・関数の名前、AST transport の�
 
 予約語に `dict`、`dict_get`、`dict_put`、`dict_remove`、`dict_has`、`dict_size`、`dict_keys`、`dict_values`、`dict_entries`、
 `dict_from` を加えた（計 68 語）。10 語とも文脈キーワードで、変数・引数・束縛・field の名前に使える。関数名と entry の名前には
-使えない（`E-PARSE-EXPECTED-IDENT`）。AST transport の識別子にも使えないので、`tlvm ast` は `dict_kw` などに付け替える。
+使えない（`E-PARSE-EXPECTED-IDENT`）。AST transport の識別子にも使えないので、`tlvm ast` は変数名に `dict` を使ったプログラムを付け替えずに拒否する（`E-AST-IDENTIFIER`）。
 型の `Dict` は予約語ではなく IDENT で、型の位置で直後が `<` のときだけ辞書の型（レコード型の名前にも使える）。
 検証済み部品のキーワード表には入れない（書き換え後のソースには現れない）。詳細は [v1.9 差分仕様](../../spec/lptl-v1.9/LPTL_v1.9_delta.md)。
 

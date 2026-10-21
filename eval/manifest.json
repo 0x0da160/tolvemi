@@ -4,6 +4,10 @@
     "sha256": "407f3c8007437e49847421756b4d83e125c0fffc30f05cb0281d5fb06cc386bd",
     "bytes": 29214
   },
+  "prompts": {
+    "SKILL-nolet.md": "a6d1651ce169a5487730d03bda088c0d78335e516579b4468dd6f7e050e8f5f6",
+    "ast_output.md": "951b87f41571ac439c8711b84e0d568008ab131fc09f4ac0882ffff4d68a2dd5"
+  },
   "task_set_sha256": "5f44f50a1dbd7cbd01fad6af93f93e5fab61193e40c4ed4f377b7b1e7e36954a",
   "tasks": 99,
   "hidden_cases": 2970,

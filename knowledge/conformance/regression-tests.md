@@ -1,10 +1,10 @@
 ---
 type: Test Suite
 title: 必須回帰テスト
-description: LPTL v1 設計書 §20.1 が定める必須回帰テストを領域別に整理した表。処理系実装はまだなく、これらは G0 以降で照合する期待結果である。
-tags: [lptl, conformance, tests, fixtures]
+description: LPTL v1 設計書 §20.1 の 69 行を既存テストと補助モデルへ対応付けた表。対応・部分・未対応・モデルのみの別と、残りの扱いを示す（2026-10-15 時点）。
+tags: [lptl, conformance, tests, traceability]
 status: draft
-generated: { by: claude-code/2026-10-06, at: 2026-10-06T16:00:00Z }
+generated: { by: claude-code/2026-10-14, at: 2026-10-14T00:00:00Z }
 sources:
   - id: lptl-design
     resource: ../../spec/lptl-v1/LPTL_design_v1.md
@@ -14,87 +14,108 @@ sources:
 
 # 位置付け
 
-処理系が存在しないため、下表は実行結果ではなく期待される主結果である。一部は [限定検査](limited-checks.md) の補助モデルで照合済み。全件は設計書 §20.1 を参照。[^lptl-design]
+- 行番号は設計書 §20.1 の表の出現順（1〜69）。
+- 「テスト」は `crates/tlvm/tests/` の Rust テスト（関数名で示す。`regression.rs` の関数を指す場合は省略）。「モデル」は `spec/lptl-v1/v1_check_inputs.json` の case（`v1-C0xx` の下 3 桁で示す）。モデルは仕様の補助モデルの検査であり、処理系の検査ではない（[限定検査](limited-checks.md)）。
+- 2026-10-15 時点の内訳：対応 53、部分 8、未対応 0、モデルのみ 8（合計 69）。
+- 部分・未対応・モデルのみの行は G0 の未達項目である（[出荷ゲート](../overview/status-and-gates.md)）。[^lptl-design]
 
-# Examples
+# 対応表
 
-## entry・宣言境界・parse
+| 行 | 要件（要約） | 状態 | 根拠 | 残り |
+|---|---|---|---|---|
+| 1 | entry がない → E-ENTRY-MISSING | 対応 | `entry_rules` | - |
+| 2 | entry 名が未定義 → E-ENTRY-UNKNOWN（DUPLICATE なし） | 対応 | `entry_rules` | - |
+| 3 | entry が二重 → E-ENTRY-DUPLICATE 一件 | 対応 | `entry_rules` | - |
+| 4 | entry の引数個数違い → E-ENTRY-ARITY | 対応 | `entry_rules` | - |
+| 5 | 未使用 fn → Accepted と W-UNUSED-FUNCTION | 対応 | `unused_function_warning` | - |
+| 6 | 余分な token → E-PARSE-UNEXPECTED-TOKEN | 対応 | `parse_errors` | - |
+| 7 | `none[…]` → E-PARSE-EXPECTED-TOKEN | 対応 | `option_elim.rs` | - |
+| 8 | `f(1,true)`（既知の `f(Int)`）→ E-ARITY-USER のみ | 対応 | `types_arity_dag` | - |
+| 9 | `add(1,true,0)` → E-ARITY-BUILTIN のみ | 対応 | `types_arity_dag`；モデル C041 | - |
+| 10 | `f(1,fst(unit))` で E-ARITY-USER と E-TYPE-FST-ARG が独立 | 対応 | `types_arity_dag` | - |
+| 11 | fold 内で現在の関数を呼ぶ → E-CYCLE-CALL | 対応 | `types_arity_dag` | - |
+| 12 | token 上限 L と L+1 の境界 | 対応 | `lexical_limits` | - |
+| 13 | typecheck 中の semantic cutoff → entry と warnings を実行しない | 対応 | `semantic_limits` | - |
+| 14 | recovery 8 回の後の error → E-PARSE-RECOVERY-LIMIT で停止 | 対応 | `recovery`；モデル C049 | - |
+| 15 | AST object の重複 key → E-AST-DUPLICATE-KEY | 対応 | `ast_transport` | - |
+| 16 | AST に `inferred_type` → E-AST-UNKNOWN-FIELD | 対応 | `ast_transport` | - |
+| 17 | AST の `var.name="if"` → E-AST-IDENTIFIER | 対応 | `ast_transport` | - |
+| 18 | 識別子末尾の LF・CR・CRLF・tab | 対応 | `ast_transport`（var）；`rows_20_1_boundaries`（fn・entry・param・let・fold・callee）；モデル C002, C006–C008 | - |
+| 19 | 識別子の前後空白・非 ASCII・U+2028/2029 | 対応 | `ast_transport`（var）；モデル C009–C013（fn） | U+2029 と fn 名の実装テストなし |
+| 20 | int の value 末尾の制御文字・空白・U+2028/2029 | 対応 | `rows_20_1_boundaries`；モデル C003, C017–C023 | - |
+| 21 | int の `"-0"`・`"01"`・`"+1"` → E-AST-INTEGER、JSON number → E-AST-FIELD-TYPE | 対応 | `ast_transport`；モデル C024–C027 | - |
+| 22 | 識別子 `"x"` は受理、`"x\n"` は拒否 | 対応 | `ast_transport` | - |
+| 23 | `declarations: []` → E-ENTRY-MISSING | 対応 | `ast_transport` | - |
+| 24 | AST fold の acc と item が同名 → binder 重複 | 対応 | `rows_20_1_boundaries` | - |
+| 25 | AST callee `uncons` の組込み解決と個数検査（v1.1） | 対応 | `ast_transport`、`rows_20_1_boundaries`；`option_elim.rs` | - |
+| 26 | AST call の余分な実引数 → transport は通り E-ARITY-USER | 対応 | `rows_20_1_boundaries`；`types_arity_dag`（source） | - |
+| 27 | AST some に value がない → E-AST-MISSING-FIELD | 対応 | `ast_transport` | - |
+| 28 | input int の value が JSON number → E-INPUT-*、Int として受理しない | 対応 | `input_decode`；モデル C063 | - |
+| 29 | decode 後の同じ key（escape 違い）→ duplicate 拒否 | 部分 | `rows_20_1_boundaries`（AST のみ）；モデル C057, C073, C080 | input 側の実装テストなし |
+| 30 | concat 長さ m,n → 結果 m+n、追加 cons は m | 対応 | `builtins_and_sharing`（割当数） | 共有は割当数からの推定 |
+| 31 | none の反復評価 → none 由来の割当 0 | 部分 | `builtins_and_sharing`（none リテラル 2 個）；`counting.rs` の `none_repeated_in_a_fold_allocates_nothing`（fold の反復で割当 0） | loop 内の反復を未検査 |
+| 32 | let の値を pair の両側で参照 → 束縛 1 回、pair 1 ノード | 対応 | `builtins_and_sharing`（割当数） | 束縛 1 回は割当数からの推定 |
+| 33 | bytes 上限超過かつ不正 UTF-8 → bytes 優先 | 部分 | `lexical_limits`、`ast_transport`（AST）；`tooling.rs`（input は有効 UTF-8 のみ） | input 側の不正 UTF-8 なし |
+| 34 | error 候補 33 件 → 通常 31 件＋E-DIAG-LIMIT | 部分 | `rows_20_1_boundaries`（33 件）、`error_limit`（40 件） | 一件 cutoff の特別選択を未検査 |
+| 35 | host の参照スロット・frame 上限 → HostAborted | 対応 | `host_ref_slots`；`rec.rs`（eval-depth） | stack_bytes 超過は未検査 |
+| 36 | Steps・AllocatedNodes・IntegerBits・OutputBytes 超過 → ResourceExhausted | 対応 | `resource_exhausted` | - |
+| 37 | 型共有・interning・比較 cache の有無 → 同じ trace と仕事量 | 対応 | `sharing_replays_cached_comparisons`、`interning_shares_equal_types_that_the_cache_misses`、`sharing_keeps_trace_work_and_cutoff`（リポジトリの全 `.tlvm` を上限の既定・40・400 で Off・On・Interned と比べる）、`sharing_keeps_trace_work_and_cutoff_on_the_two_pass_path`（総称の二つのパス）（`tests/sharing.rs`）；`sharing_does_not_change_counts_or_trace`、`interned_keeps_the_generic_cutoffs_of_both_passes`（`tests/counting.rs`）；`intern.rs` の単体テスト | - |
+| 38 | add 例、SemanticWork 9 と 8 | 対応 | `semantic_work_trace_fixtures`、`semantic_limits`；モデル C036, C042, C043 | - |
+| 39 | 型深さと SemanticWork の同時超過 → SEMANTIC-TYPE-DEPTH 優先 | 対応 | `semantic_limits` | 同時超過の例は一件のみ |
+| 40 | 合法な param `{"tag":"int"}` は tag 検査なしで受理 | 対応 | `ast_transport` | - |
+| 41 | 合法な param に tag を追加 → E-AST-UNKNOWN-FIELD | 対応 | `ast_transport`；モデル C030–C031 | - |
+| 42 | fn 名 `"if"` と数値 body → E-AST-FIELD-TYPE（名前の内容は後） | 対応 | `ast_transport`；モデル C032 | - |
+| 43 | AST の必須キー複数欠落・余分キー複数の選択順 | 対応 | `rows_20_1_boundaries` | - |
+| 44 | add(1,true,0)、SemanticWork 0 と 1 の cutoff 位置 | 対応 | `semantic_limits`；モデル C040, C041 | - |
+| 45 | some の子 unit が budget 超過 → AST-NODES が閉じ括弧欠落より先 | 対応 | `structural_limits`；モデル C044, C045 | - |
+| 46 | expr 位置の fn の parse error 後の同期（一回） | 対応 | `recovery`；モデル C046, C047 | - |
+| 47 | 未消費 token が EOF → 停止、RECOVERY-LIMIT を加算しない | 対応 | `parse_errors`；モデル C048 | - |
+| 48 | 同期で飛ばす token の node 開始 keyword → Admission 抑止、budget 非リセット | 対応 | `recovery_admission`（診断の node_index で Admission の位置を読む） | - |
+| 49 | 524,276 字名の formatter 境界、再投入拒否 | 対応 | `formatter_boundary_fixture`；モデル C051 | - |
+| 50 | Int `10^4096`：抽象往復は成立、標準 input は桁上限で拒否 | 対応 | `input_decode`；モデル C052 | 抽象往復は証明対象 |
+| 51 | 3 失敗後 1 成功の episode、S=1、分母に 4 試行を加えない | モデルのみ | モデル C053；`eval/test_harness.py`（1 失敗後の成功） | 実装テストなし |
+| 52 | 最終候補の隠しテスト不合格 → episode 失敗、選び直さない | モデルのみ | モデル C054 | 実装テストなし |
+| 53 | 予算 B の一成分ちょうど上限・次操作禁止 → 既存の Accepted 候補を選択 | モデルのみ | モデル C082–C085 | 実装テストなし |
+| 54 | Render 正解 AST とモデル AST → 主 Render と連結 arm を別報告 | 対応 | `eval/test_harness.py` の `test_render_scores_the_ast`、`test_gen_render_reports_generation_and_render_apart`（別行の報告） | 実測は G4 で行う。ここではオラクルと偽のモデルで経路だけを確かめた |
+| 55 | input Pair の左に余分な key → E-INPUT-UNKNOWN-FIELD（子の Admission 前） | 対応 | `input_decode`；モデル C058 | - |
+| 56 | input Pair の深さ上限 1、子 Unit → E-LIMIT-INPUT-VALUE-DEPTH | 対応 | `input_decode`；モデル C059 | - |
+| 57 | 値の深さと node 数の同時超過 → VALUE-DEPTH 優先 | モデルのみ | モデル C060 | 既定の上限では同時超過にならない |
+| 58 | Int 正規形違反と node 超過 → VALUE-NODES が先 | 対応 | `input_decode`；モデル C061 | - |
+| 59 | Int 正規形違反と桁上限超過 → E-INPUT-INTEGER が先 | 対応 | `input_decode`；モデル C062 | - |
+| 60 | Int の value が number、node 上限 0 → E-INPUT-FIELD-TYPE が先 | 対応 | `input_decode`；モデル C063 | - |
+| 61 | 不対 surrogate と重複・unknown key → STRING-SCALAR が先 | 部分 | `rows_20_1_boundaries`（AST）、`strings.rs`；モデル C071–C077, C081 | span 未検査。input の組合せはモデルのみ |
+| 62 | 正しい surrogate escape の対 → scalar 検査を通る | 部分 | `rows_20_1_boundaries`（AST）、`strings.rs`；モデル C074, C078 | input 側はモデルのみ |
+| 63 | input の重複 key と root tag 違反 → E-INPUT-DUPLICATE-KEY が先 | 対応 | `input_decode`；モデル C073 | - |
+| 64 | Accepted あり、予算ちょうど上限・次操作禁止 → S=1 | モデルのみ | モデル C082–C084 | 実装テストなし |
+| 65 | 予算内で停止、Accepted なし → no_accepted_candidate、S=0 | モデルのみ | モデル C085 | 実装テストなし |
+| 66 | 実測 usage が一成分でも超過 → budget_exceeded、S=0 | モデルのみ | モデル C086, C056 | 実装テストなし |
+| 67 | 予算 vector の欠落成分・長さ不一致 → 計測不正 | 部分 | モデル C087（長さ 3）、C088（負値） | 計測不正の分岐（`v1_limited_checks.py` の `budget_end_model`）の case がない |
+| 68 | 同じ AST、異なる spec_version → preimage が異なる | 部分 | モデル C089, C090 | crate に hash の実装がない |
+| 69 | spec_version 未確定 → 正式 hash を発行しない | モデルのみ | モデル C091, C092 | crate に hash の実装がない |
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| `fn f(x: Int) -> Int = x` | `E-ENTRY-MISSING` |
-| `fn f(x: Int) -> Int = x entry missing entry f` | `E-ENTRY-UNKNOWN`。DUPLICATE なし |
-| `fn f(x: Int) -> Int = x entry f entry f` | `E-ENTRY-DUPLICATE` 一件 |
-| `fn f() -> Int = 0 entry f` | `E-ENTRY-ARITY` |
-| `fn f(x: Int) -> Int = x fn g(y: Int) -> Int = y entry f` | Accepted と g の `W-UNUSED-FUNCTION` |
-| `fn f(x: Int) -> Int = x 1 entry f` | `E-PARSE-UNEXPECTED-TOKEN` |
-| `fn f(x: Int) -> Option<Int> = none[Foo] entry f` | `E-PARSE-EXPECTED-TYPE` |
-| recovery 8回後に更に error | 通常 error と `E-PARSE-RECOVERY-LIMIT`、停止 |
-| expr 位置の fn へ parse error 後に同期 | 前の宣言開始より先なら fn を保持して新宣言試行。同期は一回 |
-| parse error 時の未消費 token が EOF | 停止。同期回数／RECOVERY-LIMIT を加算しない |
+# 残りの扱い（判断が要る行）
 
-## 型・arity・DAG
+判断カード（§20.1 の 35・37・54）の回答は「三行とも実装」である（2026-10-14）。それぞれ次のとおり実装した。残りは行 35 の stack_bytes と行 54 の実測だけである。
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| 既知の `f(Int)` を `f(1,true)` と呼出し | `E-ARITY-USER`。true を Int と比較しない |
-| `add(1,true,0)` | `E-ARITY-BUILTIN`。引数型比較を抑制 |
-| `f(1,fst(unit))`、f は一引数 | `E-ARITY-USER` と独立した `E-TYPE-FST-ARG` |
-| fold 内から現在関数を呼ぶ | `E-CYCLE-CALL` |
-| 型共有・interning・比較 cache の有無 | 同じ論理型検査 trace・仕事量・cutoff |
+- 行 35：`HostPolicy.max_ref_slots` と、検証済み評価器の `Limits.max_slots`・`Stop::HostSlots` を実装した。環境の束縛を積む直前に検査し、超過は `HostAborted("ref-slots")` とする。ResourceExhausted へは統合しない。stack_bytes の超過は未検査のまま残る。
+- 行 37：型比較の cache（`TypeSharing::On`、2026-10-14）と型の正準化（`TypeSharing::Interned`、2026-10-15）を実装した。cache は両型の Arc の address を鍵にし、再照合では覚えた CompareType の数を計数するので、trace・仕事量・cutoff は Off と同じになる（trace を取るときは一つずつ記録する）。正準化は型検査の一回の実行の中だけ、構造の同じ型を一つの node にする（`intern.rs`）。論理イベント列は変えず、§18.1a が求める「同じ列・cutoff を再現する計数」を持つ。残りはない。
+- 行 54：`eval/harness.py` に `render`（正解 AST を示して書かせ、`tlvm ast` の一致で採点する）と `gen-render`（連結 arm、`render` とは別行に報告する）を追加した。実測は G4 で行い、ここでは実行していない。
 
-## 上限・cutoff
+# 更新の記録
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| token limit=L、ちょうど L／L+1 | 前者は次 phase、後者は TOKENS cutoff |
-| typecheck 中の semantic cutoff | entry／warnings を実行しない |
-| add 例、SemanticWork 上限 9／8 | 前者は完了、後者は SEMANTIC-WORK cutoff |
-| 型構成イベントで型深さと SemanticWork が同時超過 | SEMANTIC-TYPE-DEPTH を優先 |
-| `add(1,true,0)`、SemanticWork 上限 0／1 | 0 は call VisitExpr 前 cutoff のみ。1 は `E-ARITY-BUILTIN` を保持し最初の子 VisitExpr 前 cutoff |
-| Admission 済み some の子 unit が budget 超過の不完全構文 | 閉じ括弧欠落より先に AST-NODES cutoff |
-| source／AST／input の bytes 上限超過かつ不正 UTF-8 | bytes 上限を優先、UTF-8 未検査 |
-| error 候補33件 | 通常31件＋`E-DIAG-LIMIT` |
-| 524,276 文字名の formatter 境界 fixture | 元 1,048,576 bytes、format 後 1,048,582 bytes。再投入は拒否 |
+- 2026-10-15（§18.1c の未了の項目）：`crates/tlvm/tests/counting_nodes.rs` を追加した（`docs/typecheck-counting-design.md` §4.1〜§4.6 の節点の手計算の総計。`literals_and_text_builtins`、`arithmetic_and_comparison_builtins`、`list_and_pair_builtins`、`dict_builtins`、`result_and_sum_nodes`、`records_and_recursive_sums`、`function_taking_builtins`、`calls`、`rejected_calls_count_no_comparison_or_result_type`）。`counting.rs` に書換えの族ごとの Steps と AllocatedNodes（`reference_events_of_function_taking_builtins_are_fixed`、`reference_events_of_dict_operations_are_fixed`、`reference_events_of_loop_are_fixed`、`reference_events_of_matches_are_fixed`、`reference_events_of_sum_construction_are_fixed`、`reference_events_of_records_are_fixed`、`reference_events_of_recursive_helpers_are_fixed`）を追加した。§20.1 の件数（対応 53、部分 8、未対応 0、モデルのみ 8）は変わらない。
 
-## AST transport
+- 2026-10-15：行 37 を対応にした。`TypeSharing::Interned`（型検査の一回の実行の中で構造の同じ型を一つの node にする。`crates/tlvm/src/intern.rs`）を実装し、Off・On・Interned の論理 trace・仕事量・cutoff・診断・型が同じことを `tests/sharing.rs` と `tests/counting.rs` で確かめた。既定は Off のまま。2026-10-14 の見出しの内訳（対応 49、部分 9、未対応 3）は表と合わなかったので、表に合わせた（対応 53、部分 8、未対応 0、モデルのみ 8）。
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| AST object 重複 key | map 化前に `E-AST-DUPLICATE-KEY` |
-| AST に `inferred_type` field | `E-AST-UNKNOWN-FIELD` |
-| `var.name="if"` | `E-AST-IDENTIFIER` |
-| 識別子の末尾 LF・CR・CRLF・tab、前後空白、非 ASCII、U+2028/2029 | schema 拒否、`E-AST-IDENTIFIER` |
-| 整数 `"-0"`／`"01"`／`"+1"`／JSON number | 前三者は `E-AST-INTEGER`、number は `E-AST-FIELD-TYPE` |
-| 識別子 `"x"`／`"x\n"` | 前者は `x` として受理、後者は `E-AST-IDENTIFIER` |
-| `declarations: []` | schema 適合、共通検査で `E-ENTRY-MISSING` |
-| `callee="uncons"`、同名 fn なし／あり | `E-NAME-UNKNOWN-FUNCTION`／通常ユーザー call |
-| some node に value なし | `E-AST-MISSING-FIELD` |
-| 合法 param へ tag 追加 | `E-AST-UNKNOWN-FIELD` |
-| fn の name が if、body が JSON number | 浅い型検査が先なので `E-AST-FIELD-TYPE` |
+- 2026-10-14（§18.1c の未了の項目）：`counting.rs` に `none_repeated_in_a_fold_allocates_nothing`（行 31 の fold の反復）、`reference_events_of_a_recursive_program_are_fixed`（再帰する型の代表の Steps と AllocatedNodes）、`tagged_copy_is_reported_only_when_rejected`（規則 T と、印つきと印なしの trace の差）を追加した。`recursive.rs` に `recursive_helper_shapes_match_the_deltas`（補助関数の全文の fixture）、`sums.rs` に `wildcard_only_match_is_accepted_on_sums_and_options`（`_` だけの `match`）、`rewritten.rs` に `rewritten_expression_depth_is_checked_after_lowering`（書換え後の式深さ）を追加した。行 31 は fold の反復まで覆ったが、loop の反復が未検査なので部分のままである。§20.1 の件数（対応 52、部分 9、未対応 0、モデルのみ 8）は変わらない。
 
-## 入力・実行・資源
+- 2026-10-14：`crates/tlvm/tests/regression.rs` に `rows_20_1_boundaries` を追加した。行 18・20・24・25・26・29（AST 側）・34（33 件）・43・61・62（AST 側）の実装テストになった。`ast_transport`、`names`、`types_arity_dag` などの既存テストは変更していない。
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| input int の value が JSON number | `E-INPUT-*`、Int として受理しない |
-| decode 後の同じ key を escape 違いで重複 | duplicate key として拒否 |
-| concat 長さ m,n | 結果 m+n、追加 cons は m、要素と ys を共有 |
-| none を反復評価 | none 由来の新規割当0 |
-| let の同じ値を pair の両側で参照 | 束縛式一回、pair 一ノード |
-| host-policy の参照スロット／frame 上限超過 | HostAborted |
-| Steps／AllocatedNodes／IntegerBits／OutputBytes 上限超過 | ResourceExhausted |
-| Int `10^4096` の codec 往復 | 抽象往復は成立、標準 input は桁数上限で拒否 |
+- 2026-10-14：行 35・37・48・54 を実装し、tlvm の全テスト（271 件、失敗 0）と Verus（627 verified、error 0）を通した。
 
-## 評価・hash
+- 2026-10-15：`cargo fmt`（`56c5ce5`）の後、Verus の `push_inj`（`verus/src/surface.rs`）と `ft_app`（`verus/src/syntax_proof.rs`）が rlimit を超えて失敗していた（625 verified、error 2）。並びを変えた `verus/src/lib.rs` と `verus/src/pipeline.rs` を戻すと 627・0 になり、両関数に `#[verifier::rlimit(50)]` を付けても 627・0 になった。後者を採り（`5ff847f`）、証明と仕様は変えていない。
 
-| 入力／条件 | 期待される主結果 |
-|---|---|
-| 3失敗候補後に1成功候補 | episode の S=1、分母へ4試行を加えない |
-| 最終候補選択後の隠しテスト不合格 | episode 失敗。選び直さない |
-| 予算一成分ちょうど上限／次操作が guard で禁止 | budget 内で終了 |
-| 実測 usage が一成分でも超過 | budget_exceeded、S=0 |
-| 同 AST／codec、異なる spec_version | structural_hash 同じ、spec_bound_syntax_hash の preimage は異なる |
-| spec_version 未確定 | 正式 hash を発行しない |
+- 2026-10-15（計数の決定、DECISION-25〜27）：`counting_nodes.rs` の `calls` に、同じ型変数が二度現れる呼出し（`fn same<T>(a: T, b: T) -> T = a` と `same(x, 1)`、(5, 3, 6) の 14）と、型引数を明示した呼出し（`id<Int>(x)`、(4, 2, 5) の 11）を加えた。内訳は手で求めてコメントに書いた。`counting.rs` の `reference_events_of_small_programs_are_fixed` に `min(x, 1)` と `max(x, 1)` を加えた（Steps 7、割当 2。選んだ引数の値でも結果の整数を一つ数える）。本体を評価する loop（max ≥ 1）の値は、まだ固定していない（`counting.rs` の `reference_events_of_loop_are_fixed` の注記）。
+- 2026-10-15（`..base`、DECISION-21）：全部の field を書いた `..base` は、base が既知の変数でも未束縛の名前でも `E-RECORD-BASE-REDUNDANT` で拒否する。固定は `crates/tlvm/tests/records.rs` の `record_diagnostics` と、診断 registry の fixture（`crates/tlvm/tests/diagnostic_registry.rs`）。registry は 138 コード。
 
 [^lptl-design]: LLM向け純粋・全域言語：設計方針 v1

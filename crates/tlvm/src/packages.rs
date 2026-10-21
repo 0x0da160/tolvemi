@@ -39,13 +39,18 @@ pub struct Manifest {
 /// 名前の形（パッケージ・依存）：`[a-z][a-z0-9_]*`、64 bytes まで。
 pub fn valid_name(s: &str) -> bool {
     let mut cs = s.chars();
-    s.len() <= 64 && matches!(cs.next(), Some('a'..='z')) && cs.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_'))
+    s.len() <= 64
+        && matches!(cs.next(), Some('a'..='z'))
+        && cs.all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_'))
 }
 
 /// 版の形：`MAJOR.MINOR.PATCH`（十進の数字の三つ組。各部は 1〜9 桁）。
 pub fn valid_version(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| (1..=9).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| (1..=9).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// 誤りの理由と、マニフェストの中の位置。
@@ -56,7 +61,8 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, Failure> {
     if bytes.len() > MANIFEST_MAX_BYTES {
         return Err((format!("larger than {MANIFEST_MAX_BYTES} bytes"), (0, 0)));
     }
-    let root = strict_json::parse(bytes, MANIFEST_DEPTH).map_err(|f| ("not valid JSON, or nested too deeply".to_string(), f.span))?;
+    let root = strict_json::parse(bytes, MANIFEST_DEPTH)
+        .map_err(|f| ("not valid JSON, or nested too deeply".to_string(), f.span))?;
     if root.kind != JKind::Object {
         return Err(("the top level must be an object".into(), root.span()));
     }
@@ -67,16 +73,27 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, Failure> {
             "version" => m.version = Some(version_of(&mem.value, "version")?),
             "dependencies" => {
                 if mem.value.kind != JKind::Object {
-                    return Err(("\"dependencies\" must be an object".into(), mem.value.span()));
+                    return Err((
+                        "\"dependencies\" must be an object".into(),
+                        mem.value.span(),
+                    ));
                 }
                 for d in &mem.value.members {
                     if !valid_name(&d.key) {
-                        return Err((format!("dependency name \"{}\" must match [a-z][a-z0-9_]*", d.key), d.key_span));
+                        return Err((
+                            format!("dependency name \"{}\" must match [a-z][a-z0-9_]*", d.key),
+                            d.key_span,
+                        ));
                     }
                     m.deps.insert(d.key.clone(), dep_of(&d.value, d.key_span)?);
                 }
             }
-            other => return Err((format!("unknown key \"{other}\" (allowed: name, version, dependencies)"), mem.key_span)),
+            other => {
+                return Err((
+                    format!("unknown key \"{other}\" (allowed: name, version, dependencies)"),
+                    mem.key_span,
+                ))
+            }
         }
     }
     Ok(m)
@@ -92,7 +109,10 @@ fn string_of<'a>(n: &'a JNode, what: &str) -> Result<&'a str, Failure> {
 fn name_of(n: &JNode, what: &str) -> Result<String, Failure> {
     let s = string_of(n, what)?;
     if !valid_name(s) {
-        return Err((format!("\"{what}\" \"{s}\" must match [a-z][a-z0-9_]*"), n.span()));
+        return Err((
+            format!("\"{what}\" \"{s}\" must match [a-z][a-z0-9_]*"),
+            n.span(),
+        ));
     }
     Ok(s.to_string())
 }
@@ -100,14 +120,20 @@ fn name_of(n: &JNode, what: &str) -> Result<String, Failure> {
 fn version_of(n: &JNode, what: &str) -> Result<String, Failure> {
     let s = string_of(n, what)?;
     if !valid_version(s) {
-        return Err((format!("\"{what}\" \"{s}\" must be MAJOR.MINOR.PATCH (digits)"), n.span()));
+        return Err((
+            format!("\"{what}\" \"{s}\" must be MAJOR.MINOR.PATCH (digits)"),
+            n.span(),
+        ));
     }
     Ok(s.to_string())
 }
 
 fn dep_of(n: &JNode, name_span: (usize, usize)) -> Result<Dep, Failure> {
     if n.kind != JKind::Object {
-        return Err(("a dependency must be an object with \"path\" (and optionally \"version\")".into(), n.span()));
+        return Err((
+            "a dependency must be an object with \"path\" (and optionally \"version\")".into(),
+            n.span(),
+        ));
     }
     let mut path = None;
     let mut pin = None;
@@ -115,7 +141,12 @@ fn dep_of(n: &JNode, name_span: (usize, usize)) -> Result<Dep, Failure> {
         match mem.key.as_str() {
             "path" => path = Some((string_of(&mem.value, "path")?.to_string(), mem.value.span())),
             "version" => pin = Some((version_of(&mem.value, "version")?, mem.value.span())),
-            other => return Err((format!("unknown key \"{other}\" in a dependency (allowed: path, version)"), mem.key_span)),
+            other => {
+                return Err((
+                    format!("unknown key \"{other}\" in a dependency (allowed: path, version)"),
+                    mem.key_span,
+                ))
+            }
         }
     }
     let Some((path, path_span)) = path else {
@@ -125,7 +156,13 @@ fn dep_of(n: &JNode, name_span: (usize, usize)) -> Result<Dep, Failure> {
         Some((v, s)) => (Some(v), s),
         None => (None, (0, 0)),
     };
-    Ok(Dep { path, path_span, pin, pin_span, name_span })
+    Ok(Dep {
+        path,
+        path_span,
+        pin,
+        pin_span,
+        name_span,
+    })
 }
 
 /// 宣言したパッケージのディレクトリ `dir`（根からの正規形。根は空）に対して、依存の `path` を解決して正規形にする。
@@ -137,7 +174,10 @@ pub fn join_dir(dir: &str, path: &str) -> Result<String, &'static str> {
     if path.starts_with('/') {
         return Err("absolute paths are not allowed");
     }
-    if path.chars().any(|c| c == '\\' || c == ':' || c.is_control()) {
+    if path
+        .chars()
+        .any(|c| c == '\\' || c == ':' || c.is_control())
+    {
         return Err("use '/' as the separator; '\\', ':' and control characters are not allowed");
     }
     let mut parts: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
@@ -162,15 +202,30 @@ mod tests {
 
     #[test]
     fn names_and_versions() {
-        assert!(valid_name("stats") && valid_name("a_1") && !valid_name("Stats") && !valid_name("1a") && !valid_name("a-b"));
-        assert!(valid_version("1.0.0") && valid_version("10.2.333") && !valid_version("1.0") && !valid_version("1.0.0-rc") && !valid_version("01.0.0.0"));
+        assert!(
+            valid_name("stats")
+                && valid_name("a_1")
+                && !valid_name("Stats")
+                && !valid_name("1a")
+                && !valid_name("a-b")
+        );
+        assert!(
+            valid_version("1.0.0")
+                && valid_version("10.2.333")
+                && !valid_version("1.0")
+                && !valid_version("1.0.0-rc")
+                && !valid_version("01.0.0.0")
+        );
     }
 
     #[test]
     fn dependency_paths_stay_under_the_root() {
         assert_eq!(join_dir("", "deps/stats").unwrap(), "deps/stats");
         assert_eq!(join_dir("deps/a", "../b").unwrap(), "deps/b");
-        assert_eq!(join_dir("deps/a", "./x/").err(), Some("empty path component ('//' or a trailing '/')"));
+        assert_eq!(
+            join_dir("deps/a", "./x/").err(),
+            Some("empty path component ('//' or a trailing '/')")
+        );
         assert!(join_dir("", "../x").is_err());
         assert!(join_dir("", "/x").is_err());
         assert!(join_dir("", "a\\b").is_err());

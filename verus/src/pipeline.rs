@@ -14,9 +14,9 @@ use crate::json::*;
 use crate::parse_proof::*;
 use crate::proof::*;
 use crate::resolve::*;
+use crate::spec::*;
 use crate::surface::*;
 use crate::syntax::*;
-use crate::spec::*;
 use crate::value::*;
 use std::rc::Rc;
 use vstd::prelude::*;
@@ -196,9 +196,10 @@ pub fn run_input_json(p: &EProg, text: &Vec<char>, d: usize, lim: Limits) -> (r:
 // ------------------------------------------------------------------ source から実行可能プログラムまで
 
 /// source が表す名前解決済みプログラム（関数列と entry）。d、td は式と型の入れ子の深さ上限。
-pub open spec fn source_prog(src: Seq<char>, d: nat, td: nat) -> Option<(Seq<Func>, nat)> {
+/// tagged は印つきの名前解決（S5b。resolve_t の tagged）。偽のときは resolve と同じ。
+pub open spec fn source_prog(src: Seq<char>, d: nat, td: nat, tagged: bool) -> Option<(Seq<Func>, nat)> {
     match parse(src, d, td) {
-        Some(p) => resolve(p),
+        Some(p) => resolve_t(p, tagged),
         None => None,
     }
 }
@@ -213,16 +214,39 @@ pub enum Compiled {
     Accepted(EProg),
 }
 
+/// 印なし（tagged が偽）は resolve_e、印つき（真）は resolve_tagged_e。どちらも resolve_t の結果を返す。
+fn resolve_by_mode(sp: &Vec<SDecl>, tagged: bool) -> (r: Option<(Vec<EFunc>, usize)>)
+    ensures
+        match r {
+            Some((fs, g)) => resolve_t(vds(sp@), tagged) == Some((vfuncs(fs@), g as nat)) && g < fs@.len(),
+            None => resolve_t(vds(sp@), tagged) is None,
+        },
+{
+    if tagged {
+        resolve_tagged_e(sp)
+    } else {
+        resolve_e(sp)
+    }
+}
+
 /// 検証済みの lexer・parser・名前解決・型検査を通して実行可能プログラムを作る。
 /// rank は呼出しグラフのランク（未検証の Tarjan が作る）で、ここで検査する。
 /// rec は関数ごとの `rec` の印（v1.7。これも未検証の接着部分が作る）。
-pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>, rec: Vec<bool>) -> (r: Compiled)
+/// tagged は印つきの名前解決（S5b）。印つきの写しは、受理すれば型検査を通る。印なしの写しの IR が実行に使われる。
+pub fn compile_source(
+    src: &Vec<char>,
+    d: usize,
+    td: usize,
+    rank: Vec<usize>,
+    rec: Vec<bool>,
+    tagged: bool,
+) -> (r: Compiled)
     requires
         src@.len() < 0x1000_0000,
     ensures
         r is ParseRejected <==> parse(src@, d as nat, td as nat) is None,
-        r is NameRejected ==> parse(src@, d as nat, td as nat) is Some && source_prog(src@, d as nat, td as nat) is None,
-        r matches Compiled::Accepted(p) ==> source_prog(src@, d as nat, td as nat) == Some(
+        r is NameRejected ==> parse(src@, d as nat, td as nat) is Some && source_prog(src@, d as nat, td as nat, tagged) is None,
+        r matches Compiled::Accepted(p) ==> source_prog(src@, d as nat, td as nat, tagged) == Some(
             (view_prog(p).funcs, view_prog(p).entry),
         ) && wf(view_prog(p)) && view_prog(p).rec == rec@,
 {
@@ -230,7 +254,7 @@ pub fn compile_source(src: &Vec<char>, d: usize, td: usize, rank: Vec<usize>, re
         Some(sp) => sp,
         None => return Compiled::ParseRejected,
     };
-    let (funcs, entry) = match resolve_e(&sp) {
+    let (funcs, entry) = match resolve_by_mode(&sp, tagged) {
         Some(r) => r,
         None => return Compiled::NameRejected,
     };

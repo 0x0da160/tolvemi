@@ -69,7 +69,12 @@ fn mentions(t: &TypeNode, out: &mut Vec<String>) {
 /// `from` の辺をたどって `target` に戻るか。
 fn reaches(edges: &HashMap<String, Vec<String>>, from: &str, target: &str) -> bool {
     let mut seen: HashSet<&str> = HashSet::new();
-    let mut todo: Vec<&str> = edges.get(from).into_iter().flatten().map(String::as_str).collect();
+    let mut todo: Vec<&str> = edges
+        .get(from)
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+        .collect();
     while let Some(n) = todo.pop() {
         if n == target {
             return true;
@@ -163,7 +168,10 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
     let rec = recursive_names(p);
     // v1.15：印つきの写しの番号は宣言の番号（名義の型の印と同じ）。印なしは番号を使わない
     let idx: HashMap<String, usize> = match tags {
-        Some(t) => rec.iter().filter_map(|n| t.get(n).map(|r| (n.clone(), r))).collect(),
+        Some(t) => rec
+            .iter()
+            .filter_map(|n| t.get(n).map(|r| (n.clone(), r)))
+            .collect(),
         None => type_index(p, &rec),
     };
     let mut env = Env {
@@ -185,7 +193,8 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
     env.take = env.name("rec_take");
     env.drop = env.name("rec_drop");
     if tagged {
-        let mut names: Vec<(usize, String)> = env.idx.iter().map(|(n, r)| (*r, n.clone())).collect();
+        let mut names: Vec<(usize, String)> =
+            env.idx.iter().map(|(n, r)| (*r, n.clone())).collect();
         names.sort();
         for (r, n) in names {
             let f = env.name(&format!("{}_flat", n.to_ascii_lowercase()));
@@ -203,27 +212,59 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
                 let mut variants = vec![];
                 for v in &s.variants {
                     let fields = v.fields.iter().map(|f| env.rty(f)).collect();
-                    variants.push(VariantDecl { fields, ..v.clone() });
+                    variants.push(VariantDecl {
+                        fields,
+                        ..v.clone()
+                    });
                 }
-                decls.push(Decl::Sum(SumDecl { variants, ..s.clone() }));
+                decls.push(Decl::Sum(SumDecl {
+                    variants,
+                    ..s.clone()
+                }));
             }
             Decl::Type(t) => {
-                let fields = t.fields.iter().map(|f| FieldDecl { ty: env.rty(&f.ty), ..f.clone() }).collect();
-                decls.push(Decl::Type(TypeDecl { fields, ..t.clone() }));
+                let fields = t
+                    .fields
+                    .iter()
+                    .map(|f| FieldDecl {
+                        ty: env.rty(&f.ty),
+                        ..f.clone()
+                    })
+                    .collect();
+                decls.push(Decl::Type(TypeDecl {
+                    fields,
+                    ..t.clone()
+                }));
             }
             Decl::Entry(e) => decls.push(Decl::Entry(e.clone())),
             Decl::Fn(f) => {
-                let params = f.params.iter().map(|q| Param { ty: env.rty(&q.ty), ..q.clone() }).collect();
+                let params = f
+                    .params
+                    .iter()
+                    .map(|q| Param {
+                        ty: env.rty(&q.ty),
+                        ..q.clone()
+                    })
+                    .collect();
                 let return_type = env.rty(&f.return_type);
                 let body = env.expr(&f.body);
-                decls.push(Decl::Fn(FnDecl { params, return_type, body, ..f.clone() }));
+                decls.push(Decl::Fn(FnDecl {
+                    params,
+                    return_type,
+                    body,
+                    ..f.clone()
+                }));
             }
         }
     }
     // 構築の関数と補助関数は宣言の末尾に置く（sums と同じ）
     decls.extend(std::mem::take(&mut env.fns).into_iter().map(Decl::Fn));
     if env.diags.is_empty() {
-        Ok(Program { declarations: decls, meta: p.meta, imports: p.imports.clone() })
+        Ok(Program {
+            declarations: decls,
+            meta: p.meta,
+            imports: p.imports.clone(),
+        })
     } else {
         Err(env.diags)
     }
@@ -258,9 +299,15 @@ fn type_index(p: &Program, rec: &HashSet<String>) -> HashMap<String, usize> {
 /// 印つきの写しの型を診断に書く形と、それが指す再帰する型の名前の組（番号の順）。
 pub fn tagged_names(p: &Program) -> Vec<(String, String)> {
     let tags = Tags::of(p);
-    let mut names: Vec<(usize, String)> = recursive_names(p).into_iter().filter_map(|n| tags.get(&n).map(|r| (r, n))).collect();
+    let mut names: Vec<(usize, String)> = recursive_names(p)
+        .into_iter()
+        .filter_map(|n| tags.get(&n).map(|r| (r, n)))
+        .collect();
     names.sort();
-    names.into_iter().map(|(r, n)| (tagged_text(r), n)).collect()
+    names
+        .into_iter()
+        .map(|(r, n)| (tagged_text(r), n))
+        .collect()
 }
 
 /// 番号 `r` の印つきの型を診断に書く形：`Pair<Pair<Unit, Unit>, List<Int>>`（`tag_ty(r)` の書き方）。
@@ -304,17 +351,41 @@ fn var(n: &str, m: Meta) -> Expr {
 
 /// 組み込みの関数の呼び出し。
 fn builtin(f: &str, args: Vec<Expr>, m: Meta) -> Expr {
-    ex(ExprKind::Call { callee: f.to_string(), args, builtin: true, callee_span: m.span, type_args: vec![] }, m)
+    ex(
+        ExprKind::Call {
+            callee: f.to_string(),
+            args,
+            builtin: true,
+            callee_span: m.span,
+            type_args: vec![],
+        },
+        m,
+    )
 }
 
 /// 補助関数の呼び出し（利用者の関数と同じ扱い）。
 fn call(f: &str, args: Vec<Expr>, m: Meta) -> Expr {
-    ex(ExprKind::Call { callee: f.to_string(), args, builtin: false, callee_span: m.span, type_args: vec![] }, m)
+    ex(
+        ExprKind::Call {
+            callee: f.to_string(),
+            args,
+            builtin: false,
+            callee_span: m.span,
+            type_args: vec![],
+        },
+        m,
+    )
 }
 
 /// `Int` の列 `list<Int>(items)`。
 fn list(items: Vec<Expr>, m: Meta) -> Expr {
-    ex(ExprKind::List { element_type: int_node(m), items }, m)
+    ex(
+        ExprKind::List {
+            element_type: int_node(m),
+            items,
+        },
+        m,
+    )
 }
 
 fn pair(a: Expr, b: Expr, m: Meta) -> Expr {
@@ -326,7 +397,15 @@ fn if_(c: Expr, t: Expr, f: Expr, m: Meta) -> Expr {
 }
 
 fn let_(name: &str, span: Sp, value: Expr, body: Expr, m: Meta) -> Expr {
-    ex(ExprKind::Let { name: name.to_string(), name_span: span, value: Box::new(value), body: Box::new(body) }, m)
+    ex(
+        ExprKind::Let {
+            name: name.to_string(),
+            name_span: span,
+            value: Box::new(value),
+            body: Box::new(body),
+        },
+        m,
+    )
 }
 
 fn fold(list: Expr, init: Expr, acc: &str, item: &str, body: Expr, m: Meta) -> Expr {
@@ -349,7 +428,15 @@ fn func(name: &str, params: Vec<(String, TypeNode)>, ret: TypeNode, body: Expr, 
     FnDecl {
         name: name.to_string(),
         name_span: Sp::default(),
-        params: params.into_iter().map(|(n, ty)| Param { name: n, name_span: Sp::default(), ty, meta: m }).collect(),
+        params: params
+            .into_iter()
+            .map(|(n, ty)| Param {
+                name: n,
+                name_span: Sp::default(),
+                ty,
+                meta: m,
+            })
+            .collect(),
         return_type: ret,
         body,
         meta: m,
@@ -422,7 +509,9 @@ impl Env {
             }
             let idx = s.meta.index;
             if type_count[s.name.as_str()] > 1 {
-                let d = Diagnostic::error("name", "E-RECORD-DUPLICATE-TYPE", s.name_span.t()).at(idx).act(&s.name);
+                let d = Diagnostic::error("name", "E-RECORD-DUPLICATE-TYPE", s.name_span.t())
+                    .at(idx)
+                    .act(&s.name);
                 self.push(d);
             }
             if !s.type_params.is_empty() {
@@ -437,19 +526,32 @@ impl Env {
             for (k, v) in s.variants.iter().enumerate() {
                 let generic = !s.type_params.is_empty();
                 if ctor_count[v.name.as_str()] > 1 {
-                    let d = Diagnostic::error("name", "E-SUM-DUPLICATE-CTOR", v.name_span.t()).at(idx).act(&v.name).fix(
-                        "replace_identifier",
-                        v.name_span.t(),
-                        "constructor name not used by any other variant in the program".to_string(),
-                    );
+                    let d = Diagnostic::error("name", "E-SUM-DUPLICATE-CTOR", v.name_span.t())
+                        .at(idx)
+                        .act(&v.name)
+                        .fix(
+                            "replace_identifier",
+                            v.name_span.t(),
+                            "constructor name not used by any other variant in the program"
+                                .to_string(),
+                        );
                     self.push(d);
-                } else if fn_names.contains(v.name.as_str()) || type_count.contains_key(v.name.as_str()) {
-                    let what = if fn_names.contains(v.name.as_str()) { "function" } else { "type" };
-                    let d = Diagnostic::error("name", "E-SUM-NAME-CONFLICT", v.name_span.t()).at(idx).act(&v.name).fix(
-                        "replace_identifier",
-                        v.name_span.t(),
-                        format!("constructor name different from the {what} {}", v.name),
-                    );
+                } else if fn_names.contains(v.name.as_str())
+                    || type_count.contains_key(v.name.as_str())
+                {
+                    let what = if fn_names.contains(v.name.as_str()) {
+                        "function"
+                    } else {
+                        "type"
+                    };
+                    let d = Diagnostic::error("name", "E-SUM-NAME-CONFLICT", v.name_span.t())
+                        .at(idx)
+                        .act(&v.name)
+                        .fix(
+                            "replace_identifier",
+                            v.name_span.t(),
+                            format!("constructor name different from the {what} {}", v.name),
+                        );
                     self.push(d);
                 }
                 let mut kinds = vec![];
@@ -476,11 +578,29 @@ impl Env {
                 let sig = if v.fields.is_empty() {
                     v.name.clone()
                 } else {
-                    format!("{}({})", v.name, v.fields.iter().map(format_type).collect::<Vec<_>>().join(", "))
+                    format!(
+                        "{}({})",
+                        v.name,
+                        v.fields
+                            .iter()
+                            .map(format_type)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
                 };
                 let func = self.name(&format!("{}_new", v.name.to_ascii_lowercase()));
-                self.ctors.entry(v.name.clone()).or_insert_with(|| (s.name.clone(), k));
-                variants.push(Variant { name: v.name.clone(), kinds, sig, func, ty: self.idx[&s.name], meta: s.meta, span: v.name_span });
+                self.ctors
+                    .entry(v.name.clone())
+                    .or_insert_with(|| (s.name.clone(), k));
+                variants.push(Variant {
+                    name: v.name.clone(),
+                    kinds,
+                    sig,
+                    func,
+                    ty: self.idx[&s.name],
+                    meta: s.meta,
+                    span: v.name_span,
+                });
             }
             self.tys.insert(s.name.clone(), variants.clone());
             for (k, v) in variants.iter().enumerate() {
@@ -495,17 +615,45 @@ impl Env {
         fn walk(e: &Expr, out: &mut Vec<(String, Sp, usize)>) {
             let i = e.meta.index;
             match &e.kind {
-                ExprKind::Let { name, name_span, .. } | ExprKind::Hof { binder: name, binder_span: name_span, .. } => {
+                ExprKind::Let {
+                    name, name_span, ..
+                }
+                | ExprKind::Hof {
+                    binder: name,
+                    binder_span: name_span,
+                    ..
+                } => {
                     out.push((name.clone(), *name_span, i));
                 }
-                ExprKind::Loop { binder, binder_span, .. } | ExprKind::Match { binder, binder_span, .. } => {
+                ExprKind::Loop {
+                    binder,
+                    binder_span,
+                    ..
+                }
+                | ExprKind::Match {
+                    binder,
+                    binder_span,
+                    ..
+                } => {
                     out.push((binder.clone(), *binder_span, i));
                 }
-                ExprKind::Fold { acc, acc_span, item, item_span, .. } => {
+                ExprKind::Fold {
+                    acc,
+                    acc_span,
+                    item,
+                    item_span,
+                    ..
+                } => {
                     out.push((acc.clone(), *acc_span, i));
                     out.push((item.clone(), *item_span, i));
                 }
-                ExprKind::MatchResult { ok_binder, ok_span, err_binder, err_span, .. } => {
+                ExprKind::MatchResult {
+                    ok_binder,
+                    ok_span,
+                    err_binder,
+                    err_span,
+                    ..
+                } => {
                     out.push((ok_binder.clone(), *ok_span, i));
                     out.push((err_binder.clone(), *err_span, i));
                 }
@@ -566,7 +714,11 @@ impl Env {
                 Kind::Bool => list(vec![int(1, m), if_(a.clone(), int(1, m), int(0, m), m)], m),
                 Kind::Rec(r) => {
                     let d = self.unwrap(*r, a.clone(), m);
-                    builtin("concat", vec![list(vec![builtin("length", vec![d.clone()], m)], m), d], m)
+                    builtin(
+                        "concat",
+                        vec![list(vec![builtin("length", vec![d.clone()], m)], m), d],
+                        m,
+                    )
                 }
             })
             .collect();
@@ -595,45 +747,125 @@ impl Env {
         let m = Meta::default();
         let (drop, take, at) = (self.drop.clone(), self.take.clone(), self.at.clone());
         // rec_drop
-        let (xs, n, acc, item) = (self.name("xs"), self.name("n"), self.name("acc"), self.name("item"));
+        let (xs, n, acc, item) = (
+            self.name("xs"),
+            self.name("n"),
+            self.name("acc"),
+            self.name("item"),
+        );
         let step = if_(
-            builtin("lt", vec![builtin("fst", vec![var(&acc, m)], m), var(&n, m)], m),
-            pair(builtin("add", vec![builtin("fst", vec![var(&acc, m)], m), int(1, m)], m), builtin("snd", vec![var(&acc, m)], m), m),
+            builtin(
+                "lt",
+                vec![builtin("fst", vec![var(&acc, m)], m), var(&n, m)],
+                m,
+            ),
+            pair(
+                builtin(
+                    "add",
+                    vec![builtin("fst", vec![var(&acc, m)], m), int(1, m)],
+                    m,
+                ),
+                builtin("snd", vec![var(&acc, m)], m),
+                m,
+            ),
             pair(
                 builtin("fst", vec![var(&acc, m)], m),
-                builtin("cons", vec![var(&item, m), builtin("snd", vec![var(&acc, m)], m)], m),
+                builtin(
+                    "cons",
+                    vec![var(&item, m), builtin("snd", vec![var(&acc, m)], m)],
+                    m,
+                ),
                 m,
             ),
             m,
         );
-        let folded = fold(var(&xs, m), pair(int(0, m), list(vec![], m), m), &acc, &item, step, m);
+        let folded = fold(
+            var(&xs, m),
+            pair(int(0, m), list(vec![], m), m),
+            &acc,
+            &item,
+            step,
+            m,
+        );
         let body = builtin("reverse", vec![builtin("snd", vec![folded], m)], m);
-        let f = func(&drop, vec![(xs, list_int_node(m)), (n, int_node(m))], list_int_node(m), body, m);
+        let f = func(
+            &drop,
+            vec![(xs, list_int_node(m)), (n, int_node(m))],
+            list_int_node(m),
+            body,
+            m,
+        );
         self.fns.push(f);
         // rec_take
-        let (xs, n, acc, item) = (self.name("xs"), self.name("n"), self.name("acc"), self.name("item"));
+        let (xs, n, acc, item) = (
+            self.name("xs"),
+            self.name("n"),
+            self.name("acc"),
+            self.name("item"),
+        );
         let step = if_(
-            builtin("lt", vec![builtin("fst", vec![var(&acc, m)], m), var(&n, m)], m),
+            builtin(
+                "lt",
+                vec![builtin("fst", vec![var(&acc, m)], m), var(&n, m)],
+                m,
+            ),
             pair(
-                builtin("add", vec![builtin("fst", vec![var(&acc, m)], m), int(1, m)], m),
-                builtin("cons", vec![var(&item, m), builtin("snd", vec![var(&acc, m)], m)], m),
+                builtin(
+                    "add",
+                    vec![builtin("fst", vec![var(&acc, m)], m), int(1, m)],
+                    m,
+                ),
+                builtin(
+                    "cons",
+                    vec![var(&item, m), builtin("snd", vec![var(&acc, m)], m)],
+                    m,
+                ),
                 m,
             ),
             var(&acc, m),
             m,
         );
-        let folded = fold(var(&xs, m), pair(int(0, m), list(vec![], m), m), &acc, &item, step, m);
+        let folded = fold(
+            var(&xs, m),
+            pair(int(0, m), list(vec![], m), m),
+            &acc,
+            &item,
+            step,
+            m,
+        );
         let body = builtin("reverse", vec![builtin("snd", vec![folded], m)], m);
-        let f = func(&take, vec![(xs, list_int_node(m)), (n, int_node(m))], list_int_node(m), body, m);
+        let f = func(
+            &take,
+            vec![(xs, list_int_node(m)), (n, int_node(m))],
+            list_int_node(m),
+            body,
+            m,
+        );
         self.fns.push(f);
         // rec_at
-        let (xs, i, acc, item) = (self.name("xs"), self.name("i"), self.name("acc"), self.name("item"));
-        let one = call(&take, vec![call(&drop, vec![var(&xs, m), var(&i, m)], m), int(1, m)], m);
+        let (xs, i, acc, item) = (
+            self.name("xs"),
+            self.name("i"),
+            self.name("acc"),
+            self.name("item"),
+        );
+        let one = call(
+            &take,
+            vec![call(&drop, vec![var(&xs, m), var(&i, m)], m), int(1, m)],
+            m,
+        );
         let body = fold(one, int(0, m), &acc, &item, var(&item, m), m);
-        let f = func(&at, vec![(xs, list_int_node(m)), (i, int_node(m))], int_node(m), body, m);
+        let f = func(
+            &at,
+            vec![(xs, list_int_node(m)), (i, int_node(m))],
+            int_node(m),
+            body,
+            m,
+        );
         self.fns.push(f);
         // 印つきの写し：印の型の値から中身の列を取り出す（引数の型で印を確かめる）
-        let mut flats: Vec<(usize, String)> = self.flat.iter().map(|(r, f)| (*r, f.clone())).collect();
+        let mut flats: Vec<(usize, String)> =
+            self.flat.iter().map(|(r, f)| (*r, f.clone())).collect();
         flats.sort();
         for (r, f) in flats {
             let v = self.name("v");
@@ -676,7 +908,13 @@ impl Env {
                 let r = self.tys[&ty][k].ty;
                 self.wrap(r, list(vec![int(k, m)], m), m)
             }
-            ExprKind::Call { callee, args, builtin: false, callee_span, type_args } if self.ctors.contains_key(callee) => {
+            ExprKind::Call {
+                callee,
+                args,
+                builtin: false,
+                callee_span,
+                type_args,
+            } if self.ctors.contains_key(callee) => {
                 let args: Vec<Expr> = args.iter().map(|a| self.expr(a)).collect();
                 let (ty, k) = self.ctors[callee].clone();
                 let fm = self.tys[&ty][k].kinds.len();
@@ -685,19 +923,43 @@ impl Env {
                     return ex(ExprKind::Unit, m);
                 }
                 if fm == 0 || args.len() != fm {
-                    self.arity(callee, args.len(), true, (callee_span.0, m.span.1), m.index, false);
+                    self.arity(
+                        callee,
+                        args.len(),
+                        true,
+                        (callee_span.0, m.span.1),
+                        m.index,
+                        false,
+                    );
                     return ex(ExprKind::Unit, m);
                 }
                 let func = self.tys[&ty][k].func.clone();
-                ex(ExprKind::Call { callee: func, args, builtin: false, callee_span: *callee_span, type_args: vec![] }, m)
+                ex(
+                    ExprKind::Call {
+                        callee: func,
+                        args,
+                        builtin: false,
+                        callee_span: *callee_span,
+                        type_args: vec![],
+                    },
+                    m,
+                )
             }
-            ExprKind::SumMatch { scrutinee, arms, kw_span, close_span, .. } if arms.iter().any(|a| self.rec_arm(a)) => {
+            ExprKind::SumMatch {
+                scrutinee,
+                arms,
+                kw_span,
+                close_span,
+                ..
+            } if arms.iter().any(|a| self.rec_arm(a)) => {
                 self.sum_match(e, scrutinee, arms, *kw_span, *close_span)
             }
             _ => {
                 let mut out = e.clone();
                 match &mut out.kind {
-                    ExprKind::List { element_type: t, .. }
+                    ExprKind::List {
+                        element_type: t, ..
+                    }
                     | ExprKind::None(t)
                     | ExprKind::DictNew(t)
                     | ExprKind::Inj { ty: t, .. } => {
@@ -722,28 +984,49 @@ impl Env {
     }
 
     /// 構築子の引数の個数の誤り（sums と同じ診断）。
-    fn arity(&mut self, ctor: &str, given: usize, parens: bool, span: (usize, usize), index: usize, pattern: bool) {
+    fn arity(
+        &mut self,
+        ctor: &str,
+        given: usize,
+        parens: bool,
+        span: (usize, usize),
+        index: usize,
+        pattern: bool,
+    ) {
         let (ty, k) = self.ctors[ctor].clone();
         let v = &self.tys[&ty][k];
         let (fm, sig) = (v.kinds.len(), v.sig.clone());
         let fix = if fm == 0 {
             format!("{ctor} has no fields: write it without parentheses")
         } else if pattern {
-            format!("{} (one name or _ per field of {sig})", pattern_text(ctor, fm))
+            format!(
+                "{} (one name or _ per field of {sig})",
+                pattern_text(ctor, fm)
+            )
         } else {
             format!("{ctor}(...) with {fm} argument(s), as declared: {sig}")
         };
-        let act = if fm == 0 && parens { "parentheses".to_string() } else { format!("{given} fields") };
-        let d = Diagnostic::error("name", "E-SUM-CTOR-ARITY", span).at(index).exp(format!("{fm} fields")).act(act).fix("replace_expression", span, fix);
+        let act = if fm == 0 && parens {
+            "parentheses".to_string()
+        } else {
+            format!("{given} fields")
+        };
+        let d = Diagnostic::error("name", "E-SUM-CTOR-ARITY", span)
+            .at(index)
+            .exp(format!("{fm} fields"))
+            .act(act)
+            .fix("replace_expression", span, fix);
         self.push(d);
     }
 
     fn unreachable(&mut self, span: (usize, usize), index: usize) {
-        let d = Diagnostic::error("name", "E-MATCH-UNREACHABLE", span).at(index).fix(
-            "delete_span",
-            span,
-            "delete this arm: the arms before it already cover every case it could match",
-        );
+        let d = Diagnostic::error("name", "E-MATCH-UNREACHABLE", span)
+            .at(index)
+            .fix(
+                "delete_span",
+                span,
+                "delete this arm: the arms before it already cover every case it could match",
+            );
         self.push(d);
     }
 
@@ -758,8 +1041,14 @@ impl Env {
         }) else {
             return ex(ExprKind::Unit, m);
         };
-        let variants: Vec<(String, usize)> = self.tys[&ty].iter().map(|v| (v.name.clone(), v.kinds.len())).collect();
-        let names: Vec<String> = variants.iter().map(|(n, fm)| pattern_text(n, *fm)).collect();
+        let variants: Vec<(String, usize)> = self.tys[&ty]
+            .iter()
+            .map(|v| (v.name.clone(), v.kinds.len()))
+            .collect();
+        let names: Vec<String> = variants
+            .iter()
+            .map(|(n, fm)| pattern_text(n, *fm))
+            .collect();
         let mut done = vec![false; variants.len()];
         let mut wild: Option<usize> = None;
         let mut plan: Vec<(usize, usize)> = vec![];
@@ -780,11 +1069,17 @@ impl Env {
                 PatKind::Ctor(c) if self.ctors.get(c).is_some_and(|(t, _)| *t == ty) => {
                     let k = self.ctors[c].1;
                     if done[k] {
-                        let d = Diagnostic::error("name", "E-MATCH-DUPLICATE", a.span.t()).at(m.index).act(names[k].clone()).fix(
-                            "delete_span",
-                            a.span.t(),
-                            format!("delete this arm: an earlier arm already handles {}", names[k]),
-                        );
+                        let d = Diagnostic::error("name", "E-MATCH-DUPLICATE", a.span.t())
+                            .at(m.index)
+                            .act(names[k].clone())
+                            .fix(
+                                "delete_span",
+                                a.span.t(),
+                                format!(
+                                    "delete this arm: an earlier arm already handles {}",
+                                    names[k]
+                                ),
+                            );
                         self.push(d);
                     } else {
                         let fm = variants[k].1;
@@ -797,33 +1092,68 @@ impl Env {
                 }
                 _ => {
                     let (act, fix) = match &p.kind {
-                        PatKind::Ctor(c) if self.ctors.contains_key(c) => {
-                            (c.clone(), format!("pattern for the same type as the first arm: constructor of {ty}"))
-                        }
-                        PatKind::Ctor(c) => (c.clone(), format!("declared constructor of {ty}: {}", names.join(", "))),
-                        PatKind::Ok => ("ok(..)".into(), format!("pattern for the same type as the first arm: constructor of {ty}")),
-                        PatKind::Err => ("err(..)".into(), format!("pattern for the same type as the first arm: constructor of {ty}")),
-                        PatKind::Some => ("some(..)".into(), format!("pattern for the same type as the first arm: constructor of {ty}")),
-                        PatKind::None => ("none".into(), format!("pattern for the same type as the first arm: constructor of {ty}")),
+                        PatKind::Ctor(c) if self.ctors.contains_key(c) => (
+                            c.clone(),
+                            format!(
+                                "pattern for the same type as the first arm: constructor of {ty}"
+                            ),
+                        ),
+                        PatKind::Ctor(c) => (
+                            c.clone(),
+                            format!("declared constructor of {ty}: {}", names.join(", ")),
+                        ),
+                        PatKind::Ok => (
+                            "ok(..)".into(),
+                            format!(
+                                "pattern for the same type as the first arm: constructor of {ty}"
+                            ),
+                        ),
+                        PatKind::Err => (
+                            "err(..)".into(),
+                            format!(
+                                "pattern for the same type as the first arm: constructor of {ty}"
+                            ),
+                        ),
+                        PatKind::Some => (
+                            "some(..)".into(),
+                            format!(
+                                "pattern for the same type as the first arm: constructor of {ty}"
+                            ),
+                        ),
+                        PatKind::None => (
+                            "none".into(),
+                            format!(
+                                "pattern for the same type as the first arm: constructor of {ty}"
+                            ),
+                        ),
                         PatKind::Wild => unreachable!("wildcard arms are handled above"),
                     };
                     let d = if matches!(&p.kind, PatKind::Ctor(c) if !self.all_ctors.contains(c)) {
-                        Diagnostic::error("name", "E-SUM-UNKNOWN-CTOR", p.span.t()).at(m.index).act(act).fix("replace_identifier", p.span.t(), fix)
+                        Diagnostic::error("name", "E-SUM-UNKNOWN-CTOR", p.span.t())
+                            .at(m.index)
+                            .act(act)
+                            .fix("replace_identifier", p.span.t(), fix)
                     } else {
-                        Diagnostic::error("name", "E-MATCH-MIXED", p.span.t()).at(m.index).exp(format!("constructor of {ty}")).act(act).fix(
-                            "replace_expression",
-                            p.span.t(),
-                            fix,
-                        )
+                        Diagnostic::error("name", "E-MATCH-MIXED", p.span.t())
+                            .at(m.index)
+                            .exp(format!("constructor of {ty}"))
+                            .act(act)
+                            .fix("replace_expression", p.span.t(), fix)
                     };
                     self.push(d);
                 }
             }
         }
         if self.diags.len() == before && wild.is_none() {
-            let missing: Vec<String> = names.iter().zip(&done).filter(|(_, d)| !**d).map(|(n, _)| n.clone()).collect();
+            let missing: Vec<String> = names
+                .iter()
+                .zip(&done)
+                .filter(|(_, d)| !**d)
+                .map(|(n, _)| n.clone())
+                .collect();
             if !missing.is_empty() {
-                let arms_text: Vec<String> = missing.iter().map(|p| format!("{p} => ...")).collect();
+                let arms_text: Vec<String> =
+                    missing.iter().map(|p| format!("{p} => ...")).collect();
                 let d = Diagnostic::error("name", "E-MATCH-MISSING", kw.t()).at(m.index).exp(missing.join(", ")).fix(
                     "insert_text",
                     (close.0, close.0),
@@ -842,7 +1172,10 @@ impl Env {
         }
         let default = match wild {
             Some(i) => self.expr(&arms[i].body),
-            None => tests.pop().map(|(_, b)| b).unwrap_or_else(|| ex(ExprKind::Unit, m)),
+            None => tests
+                .pop()
+                .map(|(_, b)| b)
+                .unwrap_or_else(|| ex(ExprKind::Unit, m)),
         };
         if self.diags.len() > before {
             return ex(ExprKind::Unit, m);
@@ -867,22 +1200,43 @@ impl Env {
         if n > 0 {
             let (drop, take, at) = (self.drop.clone(), self.take.clone(), self.at.clone());
             let mut rest = self.name("rest");
-            lets.push((rest.clone(), m.span, call(&drop, vec![var(sv, m), int(1, m)], m)));
+            lets.push((
+                rest.clone(),
+                m.span,
+                call(&drop, vec![var(sv, m), int(1, m)], m),
+            ));
             for j in 0..n {
-                let (bind, bind_span) = a.pat.binds.get(j).cloned().unwrap_or_else(|| ("_".to_string(), Sp::default()));
+                let (bind, bind_span) = a
+                    .pat
+                    .binds
+                    .get(j)
+                    .cloned()
+                    .unwrap_or_else(|| ("_".to_string(), Sp::default()));
                 let want = bind != "_";
                 if !want && j + 1 == n {
                     break;
                 }
                 let len = self.name("len");
-                lets.push((len.clone(), m.span, call(&at, vec![var(&rest, m), int(0, m)], m)));
+                lets.push((
+                    len.clone(),
+                    m.span,
+                    call(&at, vec![var(&rest, m), int(0, m)], m),
+                ));
                 if want {
                     let data = self.name("data");
                     let inner = call(&drop, vec![var(&rest, m), int(1, m)], m);
-                    lets.push((data.clone(), m.span, call(&take, vec![inner, var(&len, m)], m)));
+                    lets.push((
+                        data.clone(),
+                        m.span,
+                        call(&take, vec![inner, var(&len, m)], m),
+                    ));
                     let value = match kinds[j] {
                         Kind::Int => call(&at, vec![var(&data, m), int(0, m)], m),
-                        Kind::Bool => builtin("eq", vec![call(&at, vec![var(&data, m), int(0, m)], m), int(1, m)], m),
+                        Kind::Bool => builtin(
+                            "eq",
+                            vec![call(&at, vec![var(&data, m), int(0, m)], m), int(1, m)],
+                            m,
+                        ),
                         Kind::Rec(r) => self.wrap(r, var(&data, m), m),
                     };
                     lets.push((bind, bind_span, value));
@@ -890,7 +1244,11 @@ impl Env {
                 if j + 1 < n {
                     let next = self.name("rest");
                     let skip = builtin("add", vec![int(1, m), var(&len, m)], m);
-                    lets.push((next.clone(), m.span, call(&drop, vec![var(&rest, m), skip], m)));
+                    lets.push((
+                        next.clone(),
+                        m.span,
+                        call(&drop, vec![var(&rest, m), skip], m),
+                    ));
                     rest = next;
                 }
             }

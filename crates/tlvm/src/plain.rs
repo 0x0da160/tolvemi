@@ -82,7 +82,10 @@ pub fn plain_shape(t: &Ty) -> String {
     }
     if let Some(s) = t.sum() {
         let vs: Vec<&str> = s.variants.iter().map(|(v, _)| v.as_str()).collect();
-        return format!("object with one key ({}) whose value is an array of the fields", vs.join(" | "));
+        return format!(
+            "object with one key ({}) whose value is an array of the fields",
+            vs.join(" | ")
+        );
     }
     match t.tag() {
         TyTag::Int => "integer".into(),
@@ -104,9 +107,13 @@ pub fn plain_shape(t: &Ty) -> String {
 /// 入力の資源上限（bytes、JSON の深さ、値の深さ・node 数・整数の桁数）は plain JSON の上で数える。
 pub fn decode_plain(t: &Ty, data: &[u8], profile: &InputProfile) -> PlainDecode {
     if data.len() > profile.json_bytes {
-        return PlainDecode::Invalid(vec![Diagnostic::error("input-boundary", "E-LIMIT-INPUT-JSON-BYTES", (0, 0))
-            .exp(profile.json_bytes.to_string())
-            .act(data.len().to_string())]);
+        return PlainDecode::Invalid(vec![Diagnostic::error(
+            "input-boundary",
+            "E-LIMIT-INPUT-JSON-BYTES",
+            (0, 0),
+        )
+        .exp(profile.json_bytes.to_string())
+        .act(data.len().to_string())]);
     }
     if std::str::from_utf8(data).is_err() {
         return PlainDecode::InputBoundaryFailure;
@@ -123,7 +130,11 @@ pub fn decode_plain(t: &Ty, data: &[u8], profile: &InputProfile) -> PlainDecode 
             return PlainDecode::Invalid(vec![Diagnostic::error("input-parse", code, f.span)]);
         }
     };
-    let mut c = Conv { p: profile, nodes: 0, out: String::new() };
+    let mut c = Conv {
+        p: profile,
+        nodes: 0,
+        out: String::new(),
+    };
     match c.value(&root, t, 1) {
         Ok(()) => PlainDecode::Canonical(c.out),
         Err(d) => PlainDecode::Invalid(vec![d]),
@@ -135,7 +146,11 @@ pub fn decode_plain(t: &Ty, data: &[u8], profile: &InputProfile) -> PlainDecode 
 pub fn canonical_profile(p: &InputProfile) -> InputProfile {
     InputProfile {
         json_bytes: usize::MAX,
-        json_depth: p.value_depth.saturating_mul(2).saturating_add(2).max(p.json_depth),
+        json_depth: p
+            .value_depth
+            .saturating_mul(2)
+            .saturating_add(2)
+            .max(p.json_depth),
         ..p.clone()
     }
 }
@@ -148,7 +163,9 @@ struct Conv<'a> {
 
 impl Conv<'_> {
     fn shape_err(&self, n: &JNode, t: &Ty) -> Diagnostic {
-        Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(n.kind.name())
+        Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
+            .exp(plain_shape(t))
+            .act(n.kind.name())
     }
 
     fn push_char(&mut self, c: char) {
@@ -159,29 +176,49 @@ impl Conv<'_> {
 
     fn admit(&mut self, n: &JNode, depth: usize) -> Result<(), Diagnostic> {
         if depth > self.p.value_depth {
-            return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-DEPTH", n.span())
-                .exp(self.p.value_depth.to_string())
-                .act(depth.to_string()));
+            return Err(
+                Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-DEPTH", n.span())
+                    .exp(self.p.value_depth.to_string())
+                    .act(depth.to_string()),
+            );
         }
         if self.nodes + 1 > self.p.value_nodes {
-            return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-NODES", n.span())
-                .exp(self.p.value_nodes.to_string())
-                .act((self.nodes + 1).to_string()));
+            return Err(
+                Diagnostic::error("input-decode", "E-LIMIT-INPUT-VALUE-NODES", n.span())
+                    .exp(self.p.value_nodes.to_string())
+                    .act((self.nodes + 1).to_string()),
+            );
         }
         self.nodes += 1;
         Ok(())
     }
 
     /// v1.1：レコード型は field 名を key にした object。値 JSON では pair の入れ子になる。
-    fn record(&mut self, n: &JNode, t: &Ty, fields: &[String], depth: usize) -> Result<(), Diagnostic> {
+    fn record(
+        &mut self,
+        n: &JNode,
+        t: &Ty,
+        fields: &[String],
+        depth: usize,
+    ) -> Result<(), Diagnostic> {
         if n.kind != JKind::Object {
             return Err(self.shape_err(n, t));
         }
-        if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| !fields.iter().any(|f| f == k))) {
-            return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+        if let Some(k) = smallest_key(
+            n.members
+                .iter()
+                .map(|m| m.key.as_str())
+                .filter(|k| !fields.iter().any(|f| f == k)),
+        ) {
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k),
+            );
         }
         if let Some(f) = fields.iter().find(|f| n.get(f).is_none()) {
-            return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp(f.as_str()));
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span())
+                    .exp(f.as_str()),
+            );
         }
         let mut cur = t.unlabeled();
         for (i, f) in fields.iter().enumerate() {
@@ -203,21 +240,47 @@ impl Conv<'_> {
     }
 
     /// v1.4：直和型は `{"Variant": [fields...]}`。値 JSON では ok／err の入れ子と、中身の pair の入れ子になる。
-    fn sum(&mut self, n: &JNode, t: &Ty, variants: &[(String, usize)], depth: usize) -> Result<(), Diagnostic> {
+    fn sum(
+        &mut self,
+        n: &JNode,
+        t: &Ty,
+        variants: &[(String, usize)],
+        depth: usize,
+    ) -> Result<(), Diagnostic> {
         if n.kind != JKind::Object || n.members.len() != 1 {
-            let act = if n.kind == JKind::Object { format!("object with {} keys", n.members.len()) } else { n.kind.name().to_string() };
-            return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(act));
+            let act = if n.kind == JKind::Object {
+                format!("object with {} keys", n.members.len())
+            } else {
+                n.kind.name().to_string()
+            };
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
+                    .exp(plain_shape(t))
+                    .act(act),
+            );
         }
         let key = &n.members[0].key;
         let Some(k) = variants.iter().position(|(v, _)| v == key) else {
             let names: Vec<&str> = variants.iter().map(|(v, _)| v.as_str()).collect();
-            return Err(Diagnostic::error("input-decode", "E-INPUT-TAG", n.key_span(key)).exp(names.join(" | ")).act(key.clone()));
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-TAG", n.key_span(key))
+                    .exp(names.join(" | "))
+                    .act(key.clone()),
+            );
         };
         let arr = n.get(key).unwrap();
         let m = variants[k].1;
         if arr.kind != JKind::Array || arr.items.len() != m {
-            let act = if arr.kind == JKind::Array { format!("array of {} elements", arr.items.len()) } else { arr.kind.name().to_string() };
-            return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", arr.span()).exp(format!("array of {m} elements")).act(act));
+            let act = if arr.kind == JKind::Array {
+                format!("array of {} elements", arr.items.len())
+            } else {
+                arr.kind.name().to_string()
+            };
+            return Err(
+                Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", arr.span())
+                    .exp(format!("array of {m} elements"))
+                    .act(act),
+            );
         }
         let nv = variants.len();
         let mut d = depth;
@@ -276,13 +339,20 @@ impl Conv<'_> {
                 }
                 self.admit(n, depth)?;
                 if !is_canonical_int(&n.text) {
-                    return Err(Diagnostic::error("input-decode", "E-INPUT-INTEGER", n.span()).act(n.text.clone()));
+                    return Err(
+                        Diagnostic::error("input-decode", "E-INPUT-INTEGER", n.span())
+                            .act(n.text.clone()),
+                    );
                 }
                 let digits = n.text.trim_start_matches('-').len();
                 if digits > self.p.integer_digits {
-                    return Err(Diagnostic::error("input-decode", "E-LIMIT-INPUT-INTEGER-DIGITS", n.span())
-                        .exp(self.p.integer_digits.to_string())
-                        .act(digits.to_string()));
+                    return Err(Diagnostic::error(
+                        "input-decode",
+                        "E-LIMIT-INPUT-INTEGER-DIGITS",
+                        n.span(),
+                    )
+                    .exp(self.p.integer_digits.to_string())
+                    .act(digits.to_string()));
                 }
                 self.out.push_str("{\"tag\":\"int\",\"value\":\"");
                 self.out.push_str(&n.text);
@@ -293,7 +363,11 @@ impl Conv<'_> {
                     return Err(self.shape_err(n, t));
                 }
                 self.admit(n, depth)?;
-                self.out.push_str(if n.boolean { "{\"tag\":\"bool\",\"value\":true}" } else { "{\"tag\":\"bool\",\"value\":false}" });
+                self.out.push_str(if n.boolean {
+                    "{\"tag\":\"bool\",\"value\":true}"
+                } else {
+                    "{\"tag\":\"bool\",\"value\":false}"
+                });
             }
             TyTag::Unit => {
                 if n.kind != JKind::Null {
@@ -306,8 +380,16 @@ impl Conv<'_> {
                 let mut cs = n.text.chars();
                 let c = cs.next();
                 if n.kind != JKind::String || c.is_none() || cs.next().is_some() {
-                    let act = if n.kind == JKind::String { format!("string of {} chars", n.text.chars().count()) } else { n.kind.name().to_string() };
-                    return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span()).exp(plain_shape(t)).act(act));
+                    let act = if n.kind == JKind::String {
+                        format!("string of {} chars", n.text.chars().count())
+                    } else {
+                        n.kind.name().to_string()
+                    };
+                    return Err(
+                        Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
+                            .exp(plain_shape(t))
+                            .act(act),
+                    );
                 }
                 self.admit(n, depth)?;
                 self.push_char(c.unwrap());
@@ -356,8 +438,18 @@ impl Conv<'_> {
                         self.out.push(',');
                     }
                     if c.kind != JKind::Array || c.items.len() != 2 {
-                        let act = if c.kind == JKind::Array { format!("array of {} elements", c.items.len()) } else { c.kind.name().to_string() };
-                        return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", c.span()).exp("[key, value]").act(act));
+                        let act = if c.kind == JKind::Array {
+                            format!("array of {} elements", c.items.len())
+                        } else {
+                            c.kind.name().to_string()
+                        };
+                        return Err(Diagnostic::error(
+                            "input-decode",
+                            "E-INPUT-FIELD-TYPE",
+                            c.span(),
+                        )
+                        .exp("[key, value]")
+                        .act(act));
                     }
                     self.admit(c, depth + 1)?;
                     self.out.push_str("{\"tag\":\"pair\",\"left\":");
@@ -365,8 +457,16 @@ impl Conv<'_> {
                     self.value(&c.items[0], &t.arg(0), depth + 2)?;
                     let key = self.out[at..].to_string();
                     if !keys.insert(key) {
-                        let d = Diagnostic::error("input-decode", DICT_DUPLICATE_KEY, c.items[0].span());
-                        return Err(if c.items[0].text.is_empty() { d } else { d.act(c.items[0].text.clone()) });
+                        let d = Diagnostic::error(
+                            "input-decode",
+                            DICT_DUPLICATE_KEY,
+                            c.items[0].span(),
+                        );
+                        return Err(if c.items[0].text.is_empty() {
+                            d
+                        } else {
+                            d.act(c.items[0].text.clone())
+                        });
                     }
                     self.out.push_str(",\"right\":");
                     self.value(&c.items[1], &t.arg(1), depth + 2)?;
@@ -379,9 +479,11 @@ impl Conv<'_> {
                     return Err(self.shape_err(n, t));
                 }
                 if n.items.len() != 2 {
-                    return Err(Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
-                        .exp(plain_shape(t))
-                        .act(format!("array of {} elements", n.items.len())));
+                    return Err(
+                        Diagnostic::error("input-decode", "E-INPUT-FIELD-TYPE", n.span())
+                            .exp(plain_shape(t))
+                            .act(format!("array of {} elements", n.items.len())),
+                    );
                 }
                 self.admit(n, depth)?;
                 self.out.push_str("{\"tag\":\"pair\",\"left\":");
@@ -402,10 +504,25 @@ impl Conv<'_> {
                         return Err(self.shape_err(n, t));
                     }
                     let Some(v) = n.get("some") else {
-                        return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp("some"));
+                        return Err(Diagnostic::error(
+                            "input-decode",
+                            "E-INPUT-MISSING-FIELD",
+                            n.close_span(),
+                        )
+                        .exp("some"));
                     };
-                    if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| *k != "some")) {
-                        return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+                    if let Some(k) = smallest_key(
+                        n.members
+                            .iter()
+                            .map(|m| m.key.as_str())
+                            .filter(|k| *k != "some"),
+                    ) {
+                        return Err(Diagnostic::error(
+                            "input-decode",
+                            "E-INPUT-UNKNOWN-FIELD",
+                            n.key_span(k),
+                        )
+                        .act(k));
                     }
                     v
                 } else {
@@ -425,13 +542,32 @@ impl Conv<'_> {
                 } else if n.get("err").is_some() {
                     ("err", t.arg(1))
                 } else {
-                    return Err(Diagnostic::error("input-decode", "E-INPUT-MISSING-FIELD", n.close_span()).exp("ok | err"));
+                    return Err(Diagnostic::error(
+                        "input-decode",
+                        "E-INPUT-MISSING-FIELD",
+                        n.close_span(),
+                    )
+                    .exp("ok | err"));
                 };
-                if let Some(k) = smallest_key(n.members.iter().map(|m| m.key.as_str()).filter(|k| *k != key)) {
-                    return Err(Diagnostic::error("input-decode", "E-INPUT-UNKNOWN-FIELD", n.key_span(k)).act(k));
+                if let Some(k) = smallest_key(
+                    n.members
+                        .iter()
+                        .map(|m| m.key.as_str())
+                        .filter(|k| *k != key),
+                ) {
+                    return Err(Diagnostic::error(
+                        "input-decode",
+                        "E-INPUT-UNKNOWN-FIELD",
+                        n.key_span(k),
+                    )
+                    .act(k));
                 }
                 self.admit(n, depth)?;
-                self.out.push_str(if key == "ok" { "{\"tag\":\"ok\",\"value\":" } else { "{\"tag\":\"err\",\"value\":" });
+                self.out.push_str(if key == "ok" {
+                    "{\"tag\":\"ok\",\"value\":"
+                } else {
+                    "{\"tag\":\"err\",\"value\":"
+                });
                 self.value(n.get(key).unwrap(), &inner, depth + 1)?;
                 self.out.push('}');
             }
@@ -455,7 +591,8 @@ pub fn encode_plain(t: &Ty, canonical: &str) -> Result<String, String> {
 
 /// `exact` なら整数を桁数によらず JSON number で出す（任意精度の整数を読めるホスト、たとえば Python 用）。
 pub fn encode_plain_with(t: &Ty, canonical: &str, exact: bool) -> Result<String, String> {
-    let root = parse(canonical.as_bytes(), usize::MAX).map_err(|f| format!("値 JSON を読めません（{:?}）", f.kind))?;
+    let root = parse(canonical.as_bytes(), usize::MAX)
+        .map_err(|f| format!("値 JSON を読めません（{:?}）", f.kind))?;
     let mut out = String::new();
     write_plain(&root, t, &mut out, exact)?;
     Ok(out)
@@ -463,7 +600,11 @@ pub fn encode_plain_with(t: &Ty, canonical: &str, exact: bool) -> Result<String,
 
 /// 値 JSON の char の value（code point の十進）。
 fn plain_char(v: &JNode) -> Result<char, String> {
-    v.text.parse::<u32>().ok().and_then(char::from_u32).ok_or_else(|| format!("値 JSON の char {} が不正です", v.text))
+    v.text
+        .parse::<u32>()
+        .ok()
+        .and_then(char::from_u32)
+        .ok_or_else(|| format!("値 JSON の char {} が不正です", v.text))
 }
 
 fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), String> {
@@ -479,7 +620,10 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
             if i + 1 == r.fields.len() {
                 write_plain(node, &cur, out, exact)?;
             } else {
-                let get = |k: &str| node.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
+                let get = |k: &str| {
+                    node.get(k)
+                        .ok_or_else(|| format!("値 JSON に {k} がありません"))
+                };
                 write_plain(get("left")?, &cur.arg(0), out, exact)?;
                 node = get("right")?;
                 cur = cur.arg(1);
@@ -516,7 +660,12 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
                 if i + 1 == *m {
                     write_plain(node, ty, out, exact)?;
                 } else {
-                    write_plain(node.get("left").ok_or("値 JSON に left がありません")?, ty, out, exact)?;
+                    write_plain(
+                        node.get("left").ok_or("値 JSON に left がありません")?,
+                        ty,
+                        out,
+                        exact,
+                    )?;
                     node = node.get("right").ok_or("値 JSON に right がありません")?;
                 }
             }
@@ -524,7 +673,10 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
         out.push_str("]}");
         return Ok(());
     }
-    let field = |k: &str| n.get(k).ok_or_else(|| format!("値 JSON に {k} がありません"));
+    let field = |k: &str| {
+        n.get(k)
+            .ok_or_else(|| format!("値 JSON に {k} がありません"))
+    };
     let tag = field("tag")?.text.as_str();
     match (t.tag(), tag) {
         (TyTag::Int, "int") => {
@@ -542,11 +694,17 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
         (TyTag::List, "list") if t.is_string() => {
             let mut w = String::new();
             for c in field("items")?.items.iter() {
-                w.push(plain_char(c.get("value").ok_or("値 JSON に value がありません")?)?);
+                w.push(plain_char(
+                    c.get("value").ok_or("値 JSON に value がありません")?,
+                )?);
             }
             json_string(&w, out);
         }
-        (TyTag::Bool, "bool") => out.push_str(if field("value")?.boolean { "true" } else { "false" }),
+        (TyTag::Bool, "bool") => out.push_str(if field("value")?.boolean {
+            "true"
+        } else {
+            "false"
+        }),
         (TyTag::Unit, "unit") | (TyTag::Option, "none") => out.push_str("null"),
         (TyTag::List, "list") => {
             out.push('[');
@@ -579,7 +737,12 @@ fn write_plain(n: &JNode, t: &Ty, out: &mut String, exact: bool) -> Result<(), S
         }
         (TyTag::Result, "ok" | "err") => {
             out.push_str(if tag == "ok" { "{\"ok\":" } else { "{\"err\":" });
-            write_plain(field("value")?, &t.arg(if tag == "ok" { 0 } else { 1 }), out, exact)?;
+            write_plain(
+                field("value")?,
+                &t.arg(if tag == "ok" { 0 } else { 1 }),
+                out,
+                exact,
+            )?;
             out.push('}');
         }
         (TyTag::Option, "some") => {

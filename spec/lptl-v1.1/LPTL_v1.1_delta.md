@@ -47,6 +47,7 @@ expr     ::= ... | IDENT "{" (IDENT ":" expr ("," IDENT ":" expr)*)? ("," ".." e
   `..base` で残りを base から写す。
 - **診断**（phase は name）：`E-RECORD-UNKNOWN-TYPE`、`E-RECORD-UNKNOWN-FIELD`、`E-RECORD-MISSING-FIELD`、
   `E-RECORD-DUPLICATE-FIELD`、`E-RECORD-DUPLICATE-TYPE`、`E-RECORD-FIELD-CONFLICT`。typecheck に `E-TYPE-FIELD-ACCESS`。
+- **2026-10-15 追記（DECISION-21）**：`..base` は、書かれていない field が一つ以上あるときだけ書ける。全部の field を書いて `..base` を添えた構築は `E-RECORD-BASE-REDUNDANT`（phase は name）で拒否する。base は検査せずに捨てていた（不具合）ので、この規則で拒否に変えた。この拒否では base の中の誤りは報告しない。
 - **入出力**：値 JSON（§9.2）では pair の入れ子のまま。plain JSON では field 名を key にした object。
 - **検証との関係**：展開は検証されていない接着部分（`crates/tlvm/src/records.rs`）。検証済み部品には、展開して
   `fst`／`snd` に書き換えたプログラムの整形ソースを渡し、それを検査・実行する。したがって §11.2 の保証は書き換え後の
@@ -92,7 +93,7 @@ length uncons min max range contains sort` と宣言のキーワード `entry`�
   キーワードの token を出し、式の位置で直後が `(` でも `<` でもない文脈キーワードを変数として読む。名前の位置
   （束縛・引数）は IDENT か文脈キーワードを受け取る。parser の健全性・完全性と formatter の往復の証明はこの規則で
   通っている。`tlvm ast` だけは AST transport の識別子が v1 のままなので、該当する名前をプログラム中に現れない名前
-  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。
+  （`length_kw` など）に付け替えた AST を出す（`crates/tlvm/src/softnames.rs`）。ただし 2026-10-14 に改めた。付け替えはやめ、字句表の語を変数名に使ったプログラムは `tlvm ast` が `E-AST-IDENTIFIER` で拒否する。
 
 動機：状態の多い 24 問（§9）で、Haiku の初回失敗 5 件のうち 2 件が `length` と `pair` を名前に使ったものだった。
 
