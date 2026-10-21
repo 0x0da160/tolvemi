@@ -107,9 +107,9 @@ verified = [
 ]
 unverified = ["crates/tlvm"]
 glue = [
-  "crates/tlvm/src/api.rs：source の UTF-8 から文字列への変換（chars().collect()）、検証済み部品との突き合わせ、compile_ast の AST 整形（tlvm の format_program）",
+  "crates/tlvm/src/api.rs：source の UTF-8 から文字列への変換（chars().collect()）、検証済み部品との突き合わせ、compile_ast の AST 整形（tlvm の format_program）、普通の JSON の入力の読みと実行 `run_plain_input`（復号は一度だけ。検証済みの値を同じスレッドで `evaluator::run_verified` に渡し、`run` と同じ写しで結果を返す）",
   "crates/tlvm/src/values.rs：入力の UTF-8 から文字列への変換、型の変換（verified_ty）、検証済み復号器との突き合わせ",
-  "crates/tlvm/src/evaluator.rs：実行結果を RunResult の envelope に写す、入力整数の bit 長の事前検査",
+  "crates/tlvm/src/evaluator.rs：実行結果を RunResult の envelope に写す、入力整数の bit 長の事前検査、普通の JSON の入力の評価（`run_verified`。検証済みの値をそのまま評価し、`run` と同じ写し）",
   "crates/tlvm/src/main.rs：fmt で検証済み formatter の出力を tlvm の整形と突き合わせる",
   "crates/tlvm/src/plain.rs：普通の JSON と値 JSON の相互変換（設計書の外側の便宜。変換後の値 JSON は検証済みの復号器で読む）",
   "crates/tlvm/src/main.rs：tlvm test の期待値との照合（出力の正準 JSON の文字列比較）",

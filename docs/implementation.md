@@ -62,7 +62,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 2. **decode**（`values::decode_input`）：診断付きの strict JSON parser と値復号器が入力を読み、検証済みの
    `decode_input_e`（`verus/src/input_exec.rs`）の結果と突き合わせる。
 3. **run**（`evaluator::run`）：検証済みの `run_input_json` が、`check_prog` で `wf` を確かめ、入力 JSON の文字列を
-   検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。
+   検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。普通の JSON の入力（`run --plain` と埋め込み API）は読み直さず、検査で受理した検証済みの値を `evaluator::run_verified` が評価する（検証済みの復号器は一度だけ走る）。
 4. **fmt**：検証済みの `canonical_source` が整形する（v1.7：印 `rec` を外したもので照合し、印を付けて出す）。
 
 次が証明されています（`assume`・`admit` は使わず、`external_body` は `bigint.rs` の多倍長整数演算だけ）。
@@ -100,7 +100,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `generics.rs` | v1.10 差分 §2 | 型引数の解決、多相再帰の検査、単相化（呼び出しごとの型引数は型検査器が記録する）と単相のプログラムの再検査。総称の型の展開は `records.rs`・`sums.rs`。未検証の接着部分 |
 | `packages.rs` | v1.16 差分 | ローカルの依存：`tlvm.json` の読み方（厳格な JSON、名前と版の形、依存の path）と、依存のディレクトリの正規化。`imports.rs` が `@名前/パス` の import を依存のファイルに結びつける。未検証の接着部分 |
 | `imports.rs` | v1.11 差分 §2 | `import` の解決（パスの正規化、`FsLoader`／`MapLoader`、循環・欠落・衝突・上限の検査）、ファイルをつないだ source の作成、診断の span をファイルに戻す写像。未検証の接着部分 |
-| `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_input` で読み、`decode_input_e` で値にして `run_checked` に渡す） |
+| `runtime.rs` | v1.3 差分、v1.4 差分 §4、v1.13 差分 §1 | `tlvm exec`（入力の形の選択、出力型 `Result<String, String>` の標準出力・標準エラーと終了コードへの写像。v1.13：辞書の入力は `lines.rs` が作った普通の JSON を `api::decode_plain_keeping` で読み、受理した検証済みの値をそのまま `run_checked` に渡す（二回目の復号はしない）） |
 | `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
 | `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの一覧（49 語）と、`tlvm ast`・`encode_ast` が字句表の語を変数名に使ったプログラムを `E-AST-IDENTIFIER` で拒否する検査（検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
@@ -255,7 +255,7 @@ registry が決まったら差し替える前提です。
 設計書の入出力（§9.2 の値 JSON）と診断 JSON（§10.1）はそのままにして、使いやすくするための層を足しています。
 どれも検証されていない接着部分です（`trust-boundary.toml` の `glue`）。
 
-- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::decode_plain_input`）：entry の入力型で普通の JSON を読み、
+- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::run_plain_input`）：entry の入力型で普通の JSON を読み、
   値 JSON に変換してから従来どおり診断付きの復号器と検証済みの復号器で読みます。出力は検証済み encoder の値 JSON を
   出力型で普通の JSON に戻します。対応は型ごとに一対一です。
 
@@ -313,7 +313,7 @@ cargo test --release --test repl --test lsp
 
 ## 組み込み（Rust の embed API、Python binding）
 
-ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `decode_plain_input` → run →
+ホストのプログラムから LPTL を呼ぶための小さな API です。中身は `api` の compile → `run_plain_input` →
 `encode_plain` を既定の資源プロファイル（CLI と同じ reference-1）でつないだもので、判定と実行は CLI と同じく
 検証済み部品が行います。API 自体は検証されていない接着部分です。
 
