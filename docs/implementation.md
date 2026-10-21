@@ -150,6 +150,7 @@ cargo test --release
 | `simulation.rs` | SH4（書換えの前向きの模擬）。仮定の全体 `sim_ok` の下で、源の結果が書換え後の結果と一致する（`sh4_same_result`）。仮定は `sim_prog`・`homomorphic` と、hof の形ごとの意味・行き詰まりの義務（SH6 が示す） |
 | `hof_types.rs`、`hof_agree.rs`、`loop_types.rs`、`dict_types.rs`、`hof_total.rs` | SH1：`checker.rs` の `HofTypes` の写し（`hof_types.rs`）が検証済みの型付け規則と一致すること（`hof_agrees`、`hof_rw_agrees`、`loop_rw_agrees`、`loop_rw_note`、`dict_rw_agrees`）と、表の全域性（`hof_entry_total`、`entries_total`）。写しと `checker.rs` の表が同じことは `crates/tlvm/tests/hof_types.rs` が確かめる（証明ではない） |
 | `sh6_obligations.rs`、`sh6_stuck.rs`、`sh6_safe.rs` | SH6：書換えの形の仮定 `hof_shapes` から、hof の意味の義務（`sh6_ob_done`）と行き詰まりの義務（`sh6_ob_stuck`）、`sh6_sim_ok`、型の付いたプログラムの源の安全性と結果の一致（`sh6_source_safe`、`sh6_typed_same`）。`hof_shapes` は未検証 |
+| `sh4_back.rs` | SH4 の逆向き（型の付いたプログラム）：`sh4_back_typed`。書換え後の entry が値 w に評価すれば、源の entry も w に評価される（書換え後の燃料についての帰納。各形の閾値 `xat`、hof の走査 `fold_back`・`map_back`・`filter_back`・`any_back`・`all_back`・`find_back`・`sort_walk`、全体 `back_expr`）。仮定は `sim_prog`・`homomorphic`・`hof_shapes`、整形式、入力の型 |
 
 ### 証明したこと（§11.2）
 
@@ -190,7 +191,7 @@ cd path/to/tolvemi/verus && cargo verus focus -- --triggers-mode silent
 - 接着部分：UTF-8 から文字列への変換、型の変換、`compile_ast` の AST 整形（tlvm の `format_program`）、envelope への写像、
   v1.7 の印 `rec` の除去と印の列（印の正しさは安全側：落とせば拒否、余計に付ければ停止を主張しなくなるだけ）。
   v1.11 の import のファイルのつなぎ方（検証済み部品はつないだ一つのプログラムを検査・実行する）と診断の span の写像。
-- 書換え（hof・dict・loop）：書換えに使う型の表（`checker.rs` の `HofTypes`）は、写しとの一致を証明したが、写しと表が同じことは証明していない（テストで確かめる）。書換えの形（`hof_shapes`、`homomorphic`、`sim_prog`）を作る Rust の実装は証明していない。書換えの逆向き（書換え後の値から源の値）は未了。
+- 書換え（hof・dict・loop）：書換えに使う型の表（`checker.rs` の `HofTypes`）は、写しとの一致を証明したが、写しと表が同じことは証明していない（テストで確かめる）。書換えの形（`hof_shapes`、`homomorphic`、`sim_prog`）を作る Rust の実装は証明していない。書換えの逆向きは、型の付いたプログラムの値について証明した（`sh4_back_typed`）。型の付かないプログラムでは成り立たず、行き詰まりの逆向きは証明していない。
 - V1-B／V1-C（BigInt と算術の検証）。
 
 ## 設計書が決めていないため暫定で選んだこと
