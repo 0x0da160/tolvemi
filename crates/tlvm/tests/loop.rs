@@ -151,6 +151,35 @@ fn body_not_evaluated_after_stop_or_without_steps() {
 }
 
 #[test]
+fn init_is_evaluated_before_max() {
+    // 評価の順は左から右：init を先に評価するので、init と max が両方とも資源の上限で失敗するときは init のエラーを
+    // 報告する（max を先に評価していた以前は IntegerBits だった）。init は 300 万 node の列（割当の上限 100 万 node
+    // で止まる）、max は 2^65536 を超える整数（整数の bit の上限 65536 で止まる）。
+    let init = "fn f(n: Int) -> Option<Int> = loop(length(range(0, 3000000)), 3, |s| none<Int>())
+entry f
+";
+    let max = "fn f(n: Int) -> Option<Int> = loop(0, fold(range(0, 70000), 1, |a, i| mul(a, 2)), |s| none<Int>())
+entry f
+";
+    let both = "fn f(n: Int) -> Option<Int> = loop(length(range(0, 3000000)), fold(range(0, 70000), 1, |a, i| mul(a, 2)), |s| none<Int>())
+entry f
+";
+    let fails = |src: &str| {
+        let (code, out) = run_code(src, "0");
+        assert_eq!(code, 2, "{out}");
+        assert!(out.contains("ResourceExhausted"), "{out}");
+        out
+    };
+    let out = fails(init);
+    assert!(out.contains(r#""kind":"AllocatedNodes""#), "{out}");
+    let out = fails(max);
+    assert!(out.contains(r#""kind":"IntegerBits""#), "{out}");
+    let out = fails(both);
+    assert!(out.contains(r#""kind":"AllocatedNodes""#), "{out}");
+    assert!(!out.contains("IntegerBits"), "{out}");
+}
+
+#[test]
 fn nesting() {
     // loop の本体に loop：各 k について 2^m >= k となる最小の m
     let nested = "fn f(n: Int) -> Option<Int> =
@@ -255,7 +284,8 @@ entry solve
 
 /// DOUBLING の書き換え後の本体（hof.rs の LOOP_BASE = 16、LOOP_LEVELS = 16）。外側の 15 段のうち段 j の 1 要素は
 /// 16^(15-j) 歩を受け持ち、残りの歩がそれより多ければ range(0, 16)（hof2）、そうでなければ range(0, 1)（hof3）を辿る。
-/// 2 段目からは、止まったか max 回評価した後（c >= max）は空のリスト（hof41）を辿る。
+/// 2 段目からは、止まったか max 回評価した後（c >= max）は空のリスト（list<Int>()）を辿る。
+/// 初期状態 init は一番外側の束縛（hof41）で、max（hof1）より先に評価する。
 /// 一番内側の段は min(16, max - c) 歩を v1.6 当初の形の fold で進める。本体は一度だけ現れる。
 fn doubling_lowered() -> String {
     let mut inner = "let hof34 = min(16, sub(hof1, fst(hof32))) in let hof39 = fold(range(0, hof34), snd(hof32), |hof35, hof36| match_result(hof35, |x| match_option(if(lt(x, 1000), some(mul(x, 2)), none<Int>()), err<Int, Int>(x), |hof37| ok<Int, Int>(hof37)), |hof38| err<Int, Int>(hof38))) in pair(match_result(hof39, |hof40| add(fst(hof32), hof34), |hof40| hof1), hof39)".to_string();
@@ -263,13 +293,13 @@ fn doubling_lowered() -> String {
         let (a, i) = (4 + 2 * j, 5 + 2 * j);
         let width = 16u64.pow(15 - j);
         inner = if j == 0 {
-            format!("fold(if(lt({width}, hof1), hof2, hof3), pair(0, ok<Int, Int>(1)), |hof{a}, hof{i}| {inner})")
+            format!("fold(if(lt({width}, hof1), hof2, hof3), pair(0, ok<Int, Int>(hof41)), |hof{a}, hof{i}| {inner})")
         } else {
             let p = a - 2;
-            format!("fold(if(lt(fst(hof{p}), hof1), if(lt({width}, sub(hof1, fst(hof{p}))), hof2, hof3), hof41), hof{p}, |hof{a}, hof{i}| {inner})")
+            format!("fold(if(lt(fst(hof{p}), hof1), if(lt({width}, sub(hof1, fst(hof{p}))), hof2, hof3), list<Int>()), hof{p}, |hof{a}, hof{i}| {inner})")
         };
     }
-    format!("let hof1 = n in let hof2 = range(0, 16) in let hof3 = range(0, 1) in let hof41 = list<Int>() in match_result(snd({inner}), |hof42| none<Int>(), |hof38| some(hof38))")
+    format!("let hof41 = 1 in let hof1 = n in let hof2 = range(0, 16) in let hof3 = range(0, 1) in match_result(snd({inner}), |hof42| none<Int>(), |hof38| some(hof38))")
 }
 
 #[test]

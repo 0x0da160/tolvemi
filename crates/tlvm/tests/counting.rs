@@ -474,7 +474,7 @@ fn reference_events_of_loop_are_fixed() {
     // k は ok／err の構築の回数。§18.3 の規則 7 と v1.4 差分は ok／err の割当を書いていない。ここでは some と同じく
     // 一つの node の確保（step 1、割当 1）と読む。この読みのほかは手計算である。
     //
-    // max = 0、本体 none<Int>()、入力 5（本体を評価しない。段 2 は nil を辿る）。k = 1（init の ok(x)）
+    // max = 0、本体 none<Int>()、入力 5（本体を評価しない。段 2 は空のリストを辿る）。k = 1（init の ok(x)）
     //   入場 1、let 4 個の node 4、m の 0 の node 1 と割当 1
     //   range(0, 16) 38（node 3、割当 2、組込み 1、要素の整数と cons の割当 32）、range(0, 1) 8、list<Int>() の node 1
     //   match_result・snd・fold の node 3、snd の組込み 1、ok 枝の none の node 1

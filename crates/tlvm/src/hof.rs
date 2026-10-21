@@ -20,10 +20,10 @@
 //!                                 pair(fst(st), pair(cons(y, fst(snd(st))), false)))))) in
 //!                         reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r))))))
 //! loop(init, max, |s| e)
-//!   => let m = max in let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
+//!   => let s0 = init in let m = max in let rg = range(0, 16) in let one = range(0, 1) in
 //!      match_result(snd(
-//!        fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(init)), |a1, i1|      -- 段 1（1 要素 = 16^15 歩）
-//!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), nil), a1, |a2, i2|
+//!        fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(s0)), |a1, i1|      -- 段 1（1 要素 = 16^15 歩）
+//!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), list<Int>()), a1, |a2, i2|
 //!            ...                                                            -- 段 2〜15（1 要素 = 16^(16-j) 歩）
 //!              let n = min(16, sub(m, fst(a15))) in                         -- 段 16：n 歩
 //!              let res = fold(range(0, n), snd(a15), |acc, i|
@@ -33,14 +33,16 @@
 //!        |r| none<S>(), |d| some(d))
 //! ```
 //!
+//! 評価の順は左から右：init（`s0`）を max（`m`）より先に評価する。両方が資源の上限で失敗するなら、報告されるのは init のエラー。
+//!
 //! `loop` の状態は `pair(c, Result<S, S>)`。c は本体を評価した回数（止まったときは m にする）、ok = 続行中、
 //! err = 止まった。一番内側の段は v1.6 当初の書き換えと同じ fold を高々 16 歩ずつ進める（止まった後の歩では本体を
 //! 評価しない）。外側の 15 段は、残りの歩 `m - c` がその段の 1 要素の受け持ち（16^(16-j)）より多ければ 16 要素の
-//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空の `nil` を辿る。
+//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空のリスト `list<Int>()` を辿る。
 //! 本体の評価はちょうど `min(m, 止まるまでの回数)` 回で、手間はそれに比例する歩と、止まった後に各段で残る高々 15 要素
 //! （m が 16^k 以下なら高々 k 段）の比較で済む（以前の `fold(range(0, max), ...)` は max に比例した）。
 //! 受け持てる歩は 16^16 = 2^64 回までで、それより大きい max でも 2^64 回で打ち切るが、どの実行上限（step 数）も
-//! 2^64 より小さいので観測できない。`max <= 0` なら段 2 から `nil` を辿るので本体を評価しない。
+//! 2^64 より小さいので観測できない。`max <= 0` なら段 2 から空のリストを辿るので本体を評価しない。
 //! s はユーザーの binder（外側の名前をシャドーしないことは名前の検査で確かめてある）。本体はソースに一度だけ現れる。
 //!
 //! `sort_by` は安定な挿入整列：整列済みの acc を小さい方から見て、鍵が e の鍵より大きい最初の要素の前に e を
@@ -373,7 +375,7 @@ impl Lower<'_> {
             .collect();
         let (a, _) = &outer[outer.len() - 1];
         // 一番内側の段：n = min(LOOP_BASE, max - c) 歩を v1.6 当初の形の fold で進める（c >= max なら n <= 0 で何もしない）
-        let (n, acc, i, s2, d, res, x, nil) = (
+        let (n, acc, i, s2, d, res, x, s0) = (
             self.fresh(),
             self.fresh(),
             self.fresh(),
@@ -425,7 +427,7 @@ impl Lower<'_> {
                     k.var(&rg),
                     k.var(&one),
                 );
-                k.fold(list, k.pair(int(0), inj(true, init.clone())), a, i, inner)
+                k.fold(list, k.pair(int(0), inj(true, k.var(&s0))), a, i, inner)
             } else {
                 let prev = &outer[j - 1].0;
                 let list = k.if_(
@@ -436,7 +438,7 @@ impl Lower<'_> {
                 let guarded = k.if_(
                     k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]),
                     list,
-                    k.var(&nil),
+                    k.empty(&Ty::int()),
                 );
                 k.fold(guarded, k.var(prev), a, i, inner)
             };
@@ -451,11 +453,12 @@ impl Lower<'_> {
         );
         let full = k.call("range", vec![int(0), int(LOOP_BASE)]);
         let single = k.call("range", vec![int(0), int(1)]);
-        let empty = k.empty(&Ty::int());
+        // 初期状態 init は max より先に評価する（一番外側の束縛）。空のリストは束縛せず使う所に書く
+        // （束縛を一つ増やすと、書換え後の式の深さが loop ごとに 1 増える）。
         k.let_(
-            &mx,
-            max,
-            k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))),
+            &s0,
+            init,
+            k.let_(&mx, max, k.let_(&rg, full, k.let_(&one, single, result))),
         )
     }
 }
