@@ -53,9 +53,7 @@ loop(init, max, |s| e)
   （step 数。`tlvm exec` でも 10^9）も 2^64 より小さいので、この違いは観測できない（その前に資源上限で止まる）。
 - acc・i・s2・d・r・m・a1 などは、プログラム中のどの名前とも重ならない新しい名前を使う。止まった後の歩では本体を
   評価しない。
-- `loop` は `fold` と同じく、診断用 parser では fold の入れ子の深さ 1 に数える。書き換え後は 1 つの `loop` が式の深さを
-  約 26 段使うので、検証済み parser の深さの上限（式の深さの上限 256 の 2 倍 + 2）により、`loop` を 20 段ほど直に入れ子に
-  すると受理できない（`E-INTERNAL-VERIFIED-MISMATCH`）。3 段程度の入れ子や、深さ上限近くの式の中の `loop` は受理する。
+- `loop` は `fold` と同じく、診断用 parser では fold の入れ子の深さ 1 に数える。書き換え後は 1 つの `loop` が式の深さを約 26 段使うので、式の深さの上限 256（`E-LIMIT-STATIC-EXPR-DEPTH`）により、`loop` を 10 段直に入れ子にすると拒否する（9 段までは受理する）。位置ごとの数は `knowledge/overview/status-and-gates.md` の DECISION-39 の段落にある。
 
 ### 2a. v1.8 での修正（問題 95）
 
