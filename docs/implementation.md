@@ -139,6 +139,7 @@ cargo test --release
 | `input.rs` | 入力 JSON の spec：strict JSON の文法 `jparse`、値 JSON の復号 `jd`、`input_val` |
 | `input_proof.rs` | 型整合性 `input_typed`、重複キー拒否 `input_nodup`、往復性 `input_roundtrip` |
 | `input_exec.rs` | strict JSON parser `jparse_e` と復号器 `decode_input_e`。spec と一致 |
+| `keysort.rs` | 鍵の符号の列の辞書式順序 `lex_le` と併合整列 `sort_keys_e`（返す列は入力の並べ替えで、整列している）。整列した列では、隣り合う二つが異なることとどの二つも異なることが同じ（`sorted_perm_distinct`）。復号器の重複キーの検査 `distinct_e` は鍵を整列して隣り合う二つを比べる（O(n log n)） |
 | `bigint.rs` | 信頼する多倍長整数（num-bigint を `external_body` で包む。V1-A の信頼仮定） |
 | `ir.rs` | exec の中間表現 `EProg` と spec への写像 |
 | `value.rs` | exec の値（共有 cons セル）と spec の値への写像、環境 |

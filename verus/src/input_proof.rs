@@ -354,6 +354,93 @@ pub proof fn dupfirst_dict_found(xs: Seq<J>, pt: Ty, i: nat, q: nat)
     assert(exists|r: int| 0 <= r < i && pkey_enc(jval(xs[r], pt)) == pkey_enc(jval(xs[i as int], pt)));
 }
 
+/// 先頭 i 項を型 t で読んだ値の列（証明の補助。読めない項は Unit）。
+pub open spec fn jvals(xs: Seq<J>, t: Ty, i: nat) -> Seq<Val> {
+    Seq::new(i, |q: int| jval(xs[q], t))
+}
+
+/// 項 0..i がどれも読めて対なら：先頭 i 項の鍵が相異なれば、dupfirst_dict は項 i から読むものに等しい。
+/// 相異ならなければ dupfirst_dict は真（前の項と等しい鍵を持つ最初の項で止まる）。
+pub proof fn dupfirst_dict_prefix(xs: Seq<J>, pt: Ty, i: nat)
+    requires
+        i <= xs.len(),
+        forall|q: int| 0 <= q < i ==> #[trigger] jd(xs[q], pt) is Some,
+        forall|q: int| 0 <= q < i ==> #[trigger] jval(xs[q], pt) is Pair,
+    ensures
+        keys_distinct(jvals(xs, pt, i)) ==> dupfirst_dict(xs, pt, 0) == dupfirst_dict(xs, pt, i),
+        !keys_distinct(jvals(xs, pt, i)) ==> dupfirst_dict(xs, pt, 0),
+    decreases i,
+{
+    if i > 0 {
+        let j = (i - 1) as nat;
+        dupfirst_dict_prefix(xs, pt, j);
+        let pj = jvals(xs, pt, j);
+        let pi = jvals(xs, pt, i);
+        let kj = pkey_enc(jval(xs[j as int], pt));
+        assert(jd(xs[j as int], pt) is Some);
+        assert(jval(xs[j as int], pt) is Pair);
+        assert(forall|q: int| 0 <= q < j ==> #[trigger] pi[q] == pj[q]);
+        if keys_distinct(pi) {
+            assert forall|a: int, b: int| 0 <= a < b < pj.len() implies pkey_enc(pj[a]) != pkey_enc(pj[b]) by {
+                assert(pkey_enc(pi[a]) != pkey_enc(pi[b]));
+            }
+            contains_pkeys(xs, pt, j, kj);
+            if pkeys(xs, pt, j).contains(kj) {
+                let q = choose|q: int| 0 <= q < j && pkey_enc(jval(xs[q], pt)) == kj;
+                assert(pkey_enc(pi[q]) == pkey_enc(pi[j as int]));
+                assert(false);
+            }
+            dupfirst_dict_step(xs, pt, j);
+        } else {
+            let (a, b) = choose|a: int, b: int| 0 <= a < b < pi.len() && pkey_enc(pi[a]) == pkey_enc(pi[b]);
+            if b < j {
+                assert(pkey_enc(pj[a]) == pkey_enc(pj[b]));
+            } else if keys_distinct(pj) {
+                assert(pkey_enc(jval(xs[a], pt)) == kj);
+                dupfirst_dict_found(xs, pt, j, a as nat);
+            }
+        }
+    }
+}
+
+/// 文字の符号（scalar 値）の列が等しければ、文字の列も等しい。
+pub proof fn cs_injective(x: Seq<char>, y: Seq<char>)
+    requires
+        cs(x) == cs(y),
+    ensures
+        x == y,
+{
+    assert(x.len() == cs(x).len() && y.len() == cs(y).len());
+    assert forall|k: int| 0 <= k < x.len() implies x[k] == y[k] by {
+        assert(cs(x)[k] == x[k] as u32);
+        assert(cs(y)[k] == y[k] as u32);
+    }
+    assert(x =~= y);
+}
+
+/// codes の q 番目が、対の列 ps の q 番目の鍵の正準 JSON の各文字の符号なら、codes のどの二つも異なることと、
+/// ps の鍵が相異なること（keys_distinct）は同じ。
+pub proof fn distinct_codes(codes: Seq<Seq<u32>>, ps: Seq<Val>)
+    requires
+        codes.len() == ps.len(),
+        forall|q: int| 0 <= q < ps.len() ==> #[trigger] codes[q] == cs(pkey_enc(ps[q])),
+    ensures
+        distinct(codes) == keys_distinct(ps),
+{
+    if distinct(codes) {
+        assert forall|a: int, b: int| 0 <= a < b < ps.len() implies pkey_enc(ps[a]) != pkey_enc(ps[b]) by {
+            assert(codes[a] != codes[b]);
+        }
+    }
+    if keys_distinct(ps) {
+        assert forall|a: int, b: int| 0 <= a < b < codes.len() implies codes[a] != codes[b] by {
+            if codes[a] == codes[b] {
+                cs_injective(pkey_enc(ps[a]), pkey_enc(ps[b]));
+            }
+        }
+    }
+}
+
 /// 読みの最初の誤りが辞書の重複鍵なら、その項の値は読めない（判定は拒否）。
 proof fn dupfirst_rejects(j: J, t: Ty)
     requires
