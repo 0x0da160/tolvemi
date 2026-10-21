@@ -171,8 +171,10 @@ pub(crate) fn run_verified(
     release(w);
     match r {
         // run と同じく、入力の検査の失敗は run_input_json の NotWellFormed（整形式の検査の不一致）に写す
-        Output::NotWellFormed | Output::InputTypeMismatch => {
-            RunResult::InternalFault("verified-check-rejected-program".into())
+        Output::NotWellFormed => RunResult::InternalFault("verified-check-rejected-program".into()),
+        // exec（runtime.rs）と同じ符号。値の型は復号のときに決まるので、ここには来ない
+        Output::InputTypeMismatch => {
+            RunResult::InternalFault("verified-input-type-mismatch".into())
         }
         Output::Ran(Err(Stop::Exhausted(kind, observed, limit)), _, _) => {
             let kind = match kind {
