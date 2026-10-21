@@ -57,7 +57,7 @@ proof fn nodups_from_each(xs: Seq<J>, i: nat)
 
 pub proof fn jd_props(j: J, t: Ty)
     ensures
-        jd(j, t) is Some ==> val_type(jd(j, t)->Some_0, t) && nodup(j),
+        jd(j, t) is Some ==> val_type(jd(j, t)->Some_0, derase(t)) && nodup(j),
     decreases j, 0nat,
 {
     if let J::Obj(ks, vs) = j {
@@ -101,7 +101,15 @@ pub proof fn jd_props(j: J, t: Ty)
                     if let J::Arr(xs) = vs[ii as int] {
                         jds_props(xs, *el, 0);
                         let w = jds(xs, *el, 0)->Some_0;
-                        val_type_list(w, *el);
+                        val_type_list(w, derase(*el));
+                        assert(nodup(vs[ii as int]));
+                    }
+                },
+                Ty::Dict(kb, vb) => {
+                    if let J::Arr(xs) = vs[ii as int] {
+                        jds_props(xs, Ty::Pair(kb, vb), 0);
+                        let w = jds(xs, Ty::Pair(kb, vb), 0)->Some_0;
+                        val_type_list(w, derase(Ty::Pair(kb, vb)));
                         assert(nodup(vs[ii as int]));
                     }
                 },
@@ -135,7 +143,7 @@ pub proof fn jds_props(xs: Seq<J>, t: Ty, i: nat)
         jds(xs, t, i) is Some ==> {
             let w = jds(xs, t, i)->Some_0;
             &&& i <= xs.len() ==> w.len() == xs.len() - i
-            &&& forall|k: int| 0 <= k < w.len() ==> #[trigger] val_type(w[k], t)
+            &&& forall|k: int| 0 <= k < w.len() ==> #[trigger] val_type(w[k], derase(t))
             &&& nodups(xs, i)
         },
     decreases xs, xs.len() - i,
@@ -146,7 +154,7 @@ pub proof fn jds_props(xs: Seq<J>, t: Ty, i: nat)
         if jds(xs, t, i) is Some {
             let w = jds(xs, t, i)->Some_0;
             let r = jds(xs, t, i + 1)->Some_0;
-            assert forall|k: int| 0 <= k < w.len() implies #[trigger] val_type(w[k], t) by {
+            assert forall|k: int| 0 <= k < w.len() implies #[trigger] val_type(w[k], derase(t)) by {
                 if k > 0 {
                     assert(w[k] == r[k - 1]);
                 }
@@ -158,10 +166,288 @@ pub proof fn jds_props(xs: Seq<J>, t: Ty, i: nat)
 /// 型整合性：入力として受理した値は entry の入力型を持つ。
 pub proof fn input_typed(s: Seq<char>, d: nat, t: Ty)
     ensures
-        input_val(s, d, t) is Some ==> val_type(input_val(s, d, t)->Some_0, t),
+        input_val(s, d, t) is Some ==> val_type(input_val(s, d, t)->Some_0, derase(t)),
 {
     if let Some(j) = jparse(s, d) {
         jd_props(j, t);
+    }
+}
+
+// ------------------------------------------------------------------ 辞書の重複鍵の拒否
+
+/// 成功した項の列の k 番目は、項 i+k の値（jval）に一致する。
+proof fn jds_index(xs: Seq<J>, t: Ty, i: nat)
+    requires
+        jds(xs, t, i) is Some,
+    ensures
+        forall|k: int| 0 <= k && (i as int) + k < xs.len() ==> #[trigger] (jds(xs, t, i)->Some_0)[k] == jval(
+            xs[(i as int) + k],
+            t,
+        ),
+    decreases xs.len() - i,
+{
+    if i < xs.len() {
+        assert(jd(xs[i as int], t) is Some);
+        assert(jds(xs, t, i + 1) is Some);
+        jds_props(xs, t, i + 1);
+        jds_index(xs, t, i + 1);
+        let w = jds(xs, t, i)->Some_0;
+        let r = jds(xs, t, i + 1)->Some_0;
+        assert forall|k: int| 0 <= k && (i as int) + k < xs.len() implies #[trigger] w[k] == jval(
+            xs[(i as int) + k],
+            t,
+        ) by {
+            if k == 0 {
+                assert(w[0] == jd(xs[i as int], t)->Some_0);
+            } else {
+                assert(w[k] == r[k - 1]);
+            }
+        }
+    }
+}
+
+/// 先頭 i 項の鍵の符号化は i 個ある。
+proof fn pkeys_len(xs: Seq<J>, t: Ty, i: nat)
+    requires
+        i <= xs.len(),
+    ensures
+        pkeys(xs, t, i).len() == i,
+    decreases i,
+{
+    if i > 0 {
+        pkeys_len(xs, t, (i - 1) as nat);
+    }
+}
+
+/// 先頭 i 項の鍵の符号化の a 番目は、項 a の鍵。
+proof fn pkeys_index(xs: Seq<J>, t: Ty, i: nat, a: nat)
+    requires
+        a < i,
+        i <= xs.len(),
+    ensures
+        pkeys(xs, t, i)[a as int] == pkey_enc(jval(xs[a as int], t)),
+    decreases i,
+{
+    pkeys_len(xs, t, (i - 1) as nat);
+    assert(pkeys(xs, t, i) == pkeys(xs, t, (i - 1) as nat).push(pkey_enc(jval(xs[(i - 1) as int], t))));
+    if a + 1 < i {
+        pkeys_index(xs, t, (i - 1) as nat, a);
+    }
+}
+
+/// 先頭 i 項の鍵の並びに x があることと、項 q < i の鍵が x に等しいことは同じ。
+pub proof fn contains_pkeys(xs: Seq<J>, t: Ty, i: nat, x: Seq<char>)
+    requires
+        i <= xs.len(),
+    ensures
+        pkeys(xs, t, i).contains(x) <==> (exists|q: int| 0 <= q < i && pkey_enc(jval(xs[q], t)) == x),
+{
+    pkeys_len(xs, t, i);
+    assert forall|q: int| 0 <= q < i implies pkeys(xs, t, i)[q] == pkey_enc(jval(xs[q], t)) by {
+        pkeys_index(xs, t, i, q as nat);
+    }
+    if pkeys(xs, t, i).contains(x) {
+        let q = choose|q: int| 0 <= q < pkeys(xs, t, i).len() && pkeys(xs, t, i)[q] == x;
+        assert(0 <= q < i && pkey_enc(jval(xs[q], t)) == x);
+    }
+    if exists|q: int| 0 <= q < i && pkey_enc(jval(xs[q], t)) == x {
+        let q = choose|q: int| 0 <= q < i && pkey_enc(jval(xs[q], t)) == x;
+        assert(pkeys(xs, t, i)[q] == x);
+        assert(pkeys(xs, t, i).contains(x));
+    }
+}
+
+/// jds が失敗すれば、先頭に向かっても失敗する。
+proof fn jds_none_down(xs: Seq<J>, t: Ty, i: nat, j: nat)
+    requires
+        jds(xs, t, i) is None,
+        j <= i,
+    ensures
+        jds(xs, t, j) is None,
+    decreases i - j,
+{
+    if j < i {
+        jds_none_down(xs, t, i, j + 1);
+        if j >= xs.len() {
+            assert(jds(xs, t, i) is Some);
+        }
+    }
+}
+
+/// 項の列の dupfirst は、列の読みが失敗することを意味する。
+proof fn dupfirst_items_rejects(xs: Seq<J>, el: Ty, i: nat)
+    requires
+        dupfirst_items(xs, el, i),
+    ensures
+        jds(xs, el, i) is None,
+    decreases xs.len() - i,
+{
+    if i < xs.len() {
+        if jd(xs[i as int], el) is None {
+            assert(jds(xs, el, i) is None);
+        } else {
+            dupfirst_items_rejects(xs, el, i + 1);
+        }
+    }
+}
+
+/// 辞書の項の dupfirst は、項の列の読みが失敗するか、読めた項の鍵に重複があることを意味する。
+proof fn dupfirst_dict_rejects(xs: Seq<J>, pt: Ty, i: nat)
+    requires
+        dupfirst_dict(xs, pt, i),
+    ensures
+        jds(xs, pt, 0) is None || !keys_distinct(jds(xs, pt, 0)->Some_0),
+    decreases xs.len() - i,
+{
+    if i < xs.len() {
+        if jd(xs[i as int], pt) is None {
+            assert(jds(xs, pt, i) is None);
+            jds_none_down(xs, pt, i, 0);
+        } else if !(jval(xs[i as int], pt) is Pair) {
+            assert(false);
+        } else if pkeys(xs, pt, i).contains(pkey_enc(jval(xs[i as int], pt))) {
+            contains_pkeys(xs, pt, i, pkey_enc(jval(xs[i as int], pt)));
+            if jds(xs, pt, 0) is Some {
+                jds_props(xs, pt, 0);
+                jds_index(xs, pt, 0);
+                let ps = jds(xs, pt, 0)->Some_0;
+                let q = choose|q: int| 0 <= q < i && pkey_enc(jval(xs[q], pt)) == pkey_enc(jval(xs[i as int], pt));
+                assert(ps[q] == jval(xs[q], pt));
+                assert(ps[i as int] == jval(xs[i as int], pt));
+                if keys_distinct(ps) {
+                    assert(pkey_enc(ps[q]) != pkey_enc(ps[i as int]));
+                    assert(false);
+                }
+            }
+        } else {
+            dupfirst_dict_rejects(xs, pt, i + 1);
+        }
+    }
+}
+
+/// 項 i が読めて対で、その鍵が先頭 i 項の鍵に無いなら、dupfirst_dict は一つ先の項へ進む。
+pub proof fn dupfirst_dict_step(xs: Seq<J>, pt: Ty, i: nat)
+    requires
+        i < xs.len(),
+        jd(xs[i as int], pt) is Some,
+        jval(xs[i as int], pt) is Pair,
+        !pkeys(xs, pt, i).contains(pkey_enc(jval(xs[i as int], pt))),
+    ensures
+        dupfirst_dict(xs, pt, i) == dupfirst_dict(xs, pt, i + 1),
+{
+    reveal_with_fuel(dupfirst_dict, 2);
+}
+
+/// 項 i が読めて対で、その鍵が先頭 i 項のうち項 q（q < i）の鍵に等しければ、dupfirst_dict は真。
+pub proof fn dupfirst_dict_found(xs: Seq<J>, pt: Ty, i: nat, q: nat)
+    requires
+        q < i,
+        i < xs.len(),
+        jd(xs[i as int], pt) is Some,
+        jval(xs[i as int], pt) is Pair,
+        pkey_enc(jval(xs[q as int], pt)) == pkey_enc(jval(xs[i as int], pt)),
+    ensures
+        dupfirst_dict(xs, pt, i),
+{
+    reveal_with_fuel(dupfirst_dict, 2);
+    contains_pkeys(xs, pt, i, pkey_enc(jval(xs[i as int], pt)));
+    assert(exists|r: int| 0 <= r < i && pkey_enc(jval(xs[r], pt)) == pkey_enc(jval(xs[i as int], pt)));
+}
+
+/// 読みの最初の誤りが辞書の重複鍵なら、その項の値は読めない（判定は拒否）。
+proof fn dupfirst_rejects(j: J, t: Ty)
+    requires
+        dupfirst(j, t),
+    ensures
+        jd(j, t) is None,
+    decreases j, 0nat,
+{
+    if let J::Obj(ks, vs) = j {
+        let it = kpos(ks, k_tag(), 0);
+        let iv = kpos(ks, k_value(), 0);
+        let il = kpos(ks, k_left(), 0);
+        let ir = kpos(ks, k_right(), 0);
+        let ii = kpos(ks, k_items(), 0);
+        kpos_props(ks, k_tag(), 0);
+        kpos_props(ks, k_value(), 0);
+        kpos_props(ks, k_left(), 0);
+        kpos_props(ks, k_right(), 0);
+        kpos_props(ks, k_items(), 0);
+        keys();
+        let g = vs[it as int]->Str_0;
+        match t {
+            Ty::Option(el) => {
+                if g == t_some() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                    dupfirst_rejects(vs[iv as int], *el);
+                }
+            },
+            Ty::Result(ta, tb) => {
+                if g == t_ok() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                    dupfirst_rejects(vs[iv as int], *ta);
+                } else if g == t_err() && only(ks, seq![k_tag(), k_value()]) && iv < vs.len() {
+                    dupfirst_rejects(vs[iv as int], *tb);
+                }
+            },
+            Ty::Pair(ta, tb) => {
+                if g == t_pair() && only(ks, seq![k_tag(), k_left(), k_right()]) && il < vs.len() && ir < vs.len() {
+                    if vs[il as int] is Obj && vs[ir as int] is Obj && jd(vs[il as int], *ta) is Some {
+                        dupfirst_rejects(vs[ir as int], *tb);
+                    }
+                }
+            },
+            Ty::List(el) => {
+                if g == t_list() && only(ks, seq![k_tag(), k_items()]) && ii < vs.len() {
+                    if let J::Arr(xs) = vs[ii as int] {
+                        dupfirst_items_rejects(xs, *el, 0);
+                    }
+                }
+            },
+            Ty::Dict(kb, vb) => {
+                if g == t_list() && only(ks, seq![k_tag(), k_items()]) && ii < vs.len() {
+                    if let J::Arr(xs) = vs[ii as int] {
+                        dupfirst_dict_rejects(xs, Ty::Pair(kb, vb), 0);
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+}
+
+/// 入力の辞書の重複鍵の誤りは、検証済みの復号器の拒否である。
+pub proof fn input_dupfirst_rejects(s: Seq<char>, d: nat, t: Ty)
+    requires
+        input_dupfirst(s, d, t),
+    ensures
+        input_val(s, d, t) is None,
+{
+    if let Some(j) = jparse(s, d) {
+        dupfirst_rejects(j, t);
+    }
+}
+
+/// 辞書の受理（iii）：受理した項の列は入力の項の順に並ぶ。k 番目の値は k 番目の項を対として読んだもので、どれも対である。
+pub proof fn dict_items_order(xs: Seq<J>, kb: Box<Ty>, vb: Box<Ty>)
+    requires
+        jds(xs, Ty::Pair(kb, vb), 0) is Some,
+    ensures
+        ({
+            let w = jds(xs, Ty::Pair(kb, vb), 0)->Some_0;
+            &&& w.len() == xs.len()
+            &&& forall|k: int| 0 <= k < w.len() ==> #[trigger] w[k] == jval(xs[k], Ty::Pair(kb, vb))
+            &&& forall|k: int| 0 <= k < w.len() ==> #[trigger] w[k] is Pair
+        }),
+{
+    jds_props(xs, Ty::Pair(kb, vb), 0);
+    jds_index(xs, Ty::Pair(kb, vb), 0);
+    let w = jds(xs, Ty::Pair(kb, vb), 0)->Some_0;
+    assert(w.len() == xs.len());
+    assert forall|k: int| 0 <= k < w.len() implies #[trigger] w[k] == jval(xs[k], Ty::Pair(kb, vb)) by {
+        assert(0 + k == k);
+        assert(w[k] == jval(xs[(0 as int) + k], Ty::Pair(kb, vb)));
+    }
+    assert forall|k: int| 0 <= k < w.len() implies #[trigger] w[k] is Pair by {
+        assert(val_type(w[k], derase(Ty::Pair(kb, vb))));
     }
 }
 

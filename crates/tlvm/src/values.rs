@@ -11,7 +11,7 @@ use num_bigint::BigInt;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
-use tlvm_verified::input_exec::decode_input_e;
+use tlvm_verified::input_exec::{decode_input_dupfirst_e, decode_input_e};
 use tlvm_verified::json::encode as json_encode;
 use tlvm_verified::spec::Ty as VTy;
 use tlvm_verified::value::Value as EV;
@@ -270,11 +270,11 @@ pub fn verified_ty(t: &Ty) -> Option<VTy> {
             Box::new(verified_ty(&t.arg(0))?),
             Box::new(verified_ty(&t.arg(1))?),
         ),
-        // v1.9：検証済み部品は書き換え後の List<Pair<K, V>> を扱う
-        TyTag::Dict => VTy::List(Box::new(VTy::Pair(
+        // v1.9：Dict<K, V> は検証済みの復号器が読む（鍵の重複を拒否する。値は List<Pair<K, V>> の形）
+        TyTag::Dict => VTy::Dict(
             Box::new(verified_ty(&t.arg(0))?),
             Box::new(verified_ty(&t.arg(1))?),
-        ))),
+        ),
         TyTag::Error | TyTag::Param => return None,
     })
 }
@@ -342,9 +342,19 @@ fn cross_check(
         (Ok(_), None) => {
             DecodeResult::Invalid(vec![mismatch("input-not-decodable-by-verified-decoder")])
         }
-        // v1.9：辞書の鍵の重複は接着部分だけの検査（検証済みの復号器は List<Pair<K, V>> として受理する）
-        (Err(d), Some(Some(_))) if !limit_code(d.code) && d.code != DICT_DUPLICATE_KEY => {
+        (Err(d), Some(Some(_))) if !limit_code(d.code) => {
             DecodeResult::Invalid(vec![d, mismatch("verified-decoder-accepted")])
+        }
+        // v1.9：辞書の鍵の重複。検証済みの復号器は拒否し、その拒否の最初の失敗が重複かを、診断の符号と突き合わせる
+        (Err(d), Some(None)) if !limit_code(d.code) => {
+            let dup_first = vt
+                .as_ref()
+                .is_some_and(|vt| decode_input_dupfirst_e(&chars, profile.json_depth, vt));
+            if (d.code == DICT_DUPLICATE_KEY) == dup_first {
+                DecodeResult::Invalid(vec![d])
+            } else {
+                DecodeResult::Invalid(vec![d, mismatch("verified-dict-duplicate-order")])
+            }
         }
         (Err(d), _) => DecodeResult::Invalid(vec![d]),
     };
