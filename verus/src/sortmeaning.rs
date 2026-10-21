@@ -671,7 +671,7 @@ proof fn keyed_ins(p: Prog, env: Map<nat, Val>, x: nat, k: Expr, s: Seq<(Val, in
 }
 
 /// 整列の途中の列（先頭 i 個）も鍵の式は正しい。
-proof fn keyed_prefix(p: Prog, env: Map<nat, Val>, x: nat, k: Expr, zp: Seq<(Val, int)>, i: nat)
+pub proof fn keyed_prefix(p: Prog, env: Map<nat, Val>, x: nat, k: Expr, zp: Seq<(Val, int)>, i: nat)
     requires
         i <= zp.len(),
         keyed(p, env, x, k, zp),
@@ -692,7 +692,7 @@ proof fn keyed_prefix(p: Prog, env: Map<nat, Val>, x: nat, k: Expr, zp: Seq<(Val
 // ------------------------------------------------------------------ 外側の一段
 
 /// 外側の一段（要素 zp[i]）：整列済みの列 s = sort_prefix(zp, i) へ zp[i] を挿入する。
-proof fn outer_step(
+pub proof fn outer_step(
     p: Prog,
     env: Map<nat, Val>,
     acc: nat,

@@ -48,3 +48,6 @@ pub mod hof_agree;
 pub mod loop_types;
 pub mod dict_types;
 pub mod hof_total;
+pub mod sh6_obligations;
+pub mod sh6_stuck;
+pub mod sh6_safe;
