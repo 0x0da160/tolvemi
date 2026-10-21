@@ -39,7 +39,7 @@ sources:
 - **`stack_bytes` の超過は未検査。** [必須回帰テスト](../conformance/regression-tests.md) の行 35 では、ref-slot の上限は検査するが、stack_bytes の超過は検査していない。
 - **全部の field を書いた `..base` は拒否する（DECISION-21。2026-10-15 に修正）。** 以前は `R { a: x, b: 2, ..undefined_name }` と `R { a: x, b: 2, ..true }` が通った。`records.rs` が base を名前解決も型検査もせずに捨てていたためで、v1 の規則に反する不具合だった。今は `E-RECORD-BASE-REDUNDANT` で拒否する。この拒否では base の中の誤りは報告しない（`..base` を外すと報告される）。レコードの証明の試作（`verus/src/records_proof.rs`）は、この形を前提から外している。
 
-- **検証済みの経路は、記録と名前だけのプログラムに限る（2026-10-20）。** 範囲は `route_scope`（`crates/tlvm/src/api.rs:769–775`）。総称、直和型、再帰する型、`Dict`、hof（`map`・`filter`・`any`・`all`・`find`・`sort_by`。`crates/tlvm/src/hof.rs:63–69`）、`loop` を外す。範囲の外は従来の経路（ゲートと糖衣の IR）で判定する。`fold` は範囲に入る（核の形。設計書 454、473 行）。
+- **検証済みの経路は、記録と名前だけのプログラムに限る（2026-10-20）。** 範囲は `route_scope`（`crates/tlvm/src/api.rs:769–775`）。総称、直和型、再帰する型、`Dict`、hof（`map`・`filter`・`any`・`all`・`find`・`sort_by`。`crates/tlvm/src/hof.rs:72–78`）、`loop` を外す。範囲の外は従来の経路（ゲートと糖衣の IR）で判定する。`fold` は範囲に入る（核の形。設計書 454、473 行）。
 - **末尾のコンマの記録の式（`P { a: x, }`）は構文で拒否する（2026-10-20、オーナーの決定）。** 信頼側の構文器が拒否する（`crates/tlvm/src/parser.rs:937`。設計書の record_items に合わせた）。検証済みの文法も同じく拒否するので、この形は経路に届かない。宣言の末尾のコンマ（`type P = { a: Int, b: Int, }`）は受理し、経路に入る（`crates/tlvm/tests/record_names.rs:379`）。
 - **突き合わせは、受理と拒否の別だけを比べる（2026-10-20）。** 符号・位置・理由は比べない（`crates/tlvm/src/api.rs:446`、`541–542`）。型の拒否は調べない（片方向）。展開段階の名前の 8 符号（`api.rs:748`）の拒否だけを、検証済みの解決器が受理するかで調べる。`E-SUM-NAME-CONFLICT` と `E-SUM-DUPLICATE-CTOR` は検証済みの側に規則がなく（`api.rs:742`）、突き合わせない。名前の診断の符号と位置は信頼する（`crates/tlvm/src/records.rs:606–610`、`sums.rs:176–232`）。
 - **印の形は閉じていない。** 経路の中で印は検証済みの表の番号で作るが（`verus/src/resolve.rs:490–493`）、手で組んだ印の形は v1.15 差分仕様 §5 のとおり未決。`Tags::of` の番号と検証済みの番号の一致は証明せず、テスト（V3、S3c）で確かめるだけ。

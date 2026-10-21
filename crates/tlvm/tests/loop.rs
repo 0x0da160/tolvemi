@@ -284,8 +284,9 @@ entry solve
 
 /// DOUBLING の書き換え後の本体（hof.rs の LOOP_BASE = 16、LOOP_LEVELS = 16）。外側の 15 段のうち段 j の 1 要素は
 /// 16^(15-j) 歩を受け持ち、残りの歩がそれより多ければ range(0, 16)（hof2）、そうでなければ range(0, 1)（hof3）を辿る。
-/// 2 段目からは、止まったか max 回評価した後（c >= max）は空のリスト（list<Int>()）を辿る。
-/// 初期状態 init は一番外側の束縛（hof41）で、max（hof1）より先に評価する。
+/// 2 段目からは、止まったか max 回評価した後（c >= max）は空のリスト（hof42）を辿る。
+/// 段 1 の初期状態 pair(0, ok(init)) は一番外側の束縛（hof41）で、init を max（hof1）より先に評価する。
+/// 段の fold の結果（hof43）を match_result(snd(hof43), …) で Option にする。
 /// 一番内側の段は min(16, max - c) 歩を v1.6 当初の形の fold で進める。本体は一度だけ現れる。
 fn doubling_lowered() -> String {
     let mut inner = "let hof34 = min(16, sub(hof1, fst(hof32))) in let hof39 = fold(range(0, hof34), snd(hof32), |hof35, hof36| match_result(hof35, |x| match_option(if(lt(x, 1000), some(mul(x, 2)), none<Int>()), err<Int, Int>(x), |hof37| ok<Int, Int>(hof37)), |hof38| err<Int, Int>(hof38))) in pair(match_result(hof39, |hof40| add(fst(hof32), hof34), |hof40| hof1), hof39)".to_string();
@@ -293,13 +294,13 @@ fn doubling_lowered() -> String {
         let (a, i) = (4 + 2 * j, 5 + 2 * j);
         let width = 16u64.pow(15 - j);
         inner = if j == 0 {
-            format!("fold(if(lt({width}, hof1), hof2, hof3), pair(0, ok<Int, Int>(hof41)), |hof{a}, hof{i}| {inner})")
+            format!("fold(if(lt({width}, hof1), hof2, hof3), hof41, |hof{a}, hof{i}| {inner})")
         } else {
             let p = a - 2;
-            format!("fold(if(lt(fst(hof{p}), hof1), if(lt({width}, sub(hof1, fst(hof{p}))), hof2, hof3), list<Int>()), hof{p}, |hof{a}, hof{i}| {inner})")
+            format!("fold(if(lt(fst(hof{p}), hof1), if(lt({width}, sub(hof1, fst(hof{p}))), hof2, hof3), hof42), hof{p}, |hof{a}, hof{i}| {inner})")
         };
     }
-    format!("let hof41 = 1 in let hof1 = n in let hof2 = range(0, 16) in let hof3 = range(0, 1) in match_result(snd({inner}), |hof42| none<Int>(), |hof38| some(hof38))")
+    format!("let hof41 = pair(0, ok<Int, Int>(1)) in let hof1 = n in let hof2 = range(0, 16) in let hof3 = range(0, 1) in let hof42 = list<Int>() in let hof43 = {inner} in match_result(snd(hof43), |hof44| none<Int>(), |hof38| some(hof38))")
 }
 
 #[test]
@@ -740,13 +741,21 @@ entry solve
 
 // ---------------------------------------------------------------- 入れ子の上限（式の深さ）
 
-/// `depth` 段の入れ子の loop。各段の本体は `wrap` が受け取る内側の式（引数は `s{i}`）で作る。
-fn nested_with(depth: usize, wrap: impl Fn(usize, &str) -> String) -> String {
+/// `depth` 段の入れ子の loop の式。各段の本体は `wrap` が受け取る内側の式（引数は `s{i}`）で作る。
+fn nest_expr(depth: usize, wrap: impl Fn(usize, &str) -> String) -> String {
     let mut e = "none<Int>()".to_string();
     for i in (1..=depth).rev() {
         e = format!("loop(s{}, 3, |s{i}| {})", i - 1, wrap(i, &e));
     }
-    format!("fn f(s0: Int) -> Option<Int> = {e} entry f")
+    e
+}
+
+/// `depth` 段の入れ子の loop。各段の本体は `wrap` が受け取る内側の式（引数は `s{i}`）で作る。
+fn nested_with(depth: usize, wrap: impl Fn(usize, &str) -> String) -> String {
+    format!(
+        "fn f(s0: Int) -> Option<Int> = {} entry f",
+        nest_expr(depth, wrap)
+    )
 }
 
 fn nested(depth: usize) -> String {
@@ -787,4 +796,37 @@ fn loop_nesting_limit_is_a_static_limit() {
     ));
     assert_eq!(codes(&nested_with(10, wrap)), ["E-LIMIT-STATIC-EXPR-DEPTH"]);
     assert_eq!(codes(&nested_with(20, wrap)), ["E-LIMIT-STATIC-EXPR-DEPTH"]);
+}
+
+#[test]
+fn loop_nesting_limit_in_the_max_and_init_positions() {
+    // 本体だけの入れ子を、外側の loop の max または init の位置に置く（Int にするため match_option で包む）。どちらも
+    // 9 段まで受理し、10 段は式の深さの上限の診断になる。書換え後の深さは max の位置で 265、init の位置で 266
+    // （本体の位置は 262）。max は init を含む初期状態の束縛（一番外側）の内側にあるので、max を一番外側で束縛していた
+    // 評価の順の変更の前（264）より 1 段深い。init は段 1 の fold の初期状態の中にあった前（272）より 6 段浅い。
+    let at = |position: &str, depth: usize| {
+        let e = format!(
+            "match_option({}, 0, |r| r)",
+            nest_expr(depth, |_, inner| inner.to_string())
+        );
+        let outer = match position {
+            "max" => format!("loop(0, {e}, |s| none<Int>())"),
+            _ => format!("loop({e}, 3, |s| none<Int>())"),
+        };
+        format!("fn f(s0: Int) -> Option<Int> = {outer} entry f")
+    };
+    for (position, depth) in [("max", "265"), ("init", "266")] {
+        assert!(
+            matches!(compiled(&at(position, 9)), CompileResult::Accepted { .. }),
+            "{position}"
+        );
+        let r = compiled(&at(position, 10));
+        let es = r.errors();
+        assert_eq!(
+            es.iter().map(|d| d.code).collect::<Vec<_>>(),
+            ["E-LIMIT-STATIC-EXPR-DEPTH"],
+            "{position}: {es:?}"
+        );
+        assert_eq!(es[0].actual.as_deref(), Some(depth), "{position}");
+    }
 }

@@ -20,25 +20,32 @@
 //!                                 pair(fst(st), pair(cons(y, fst(snd(st))), false)))))) in
 //!                         reverse(if(snd(snd(r)), fst(snd(r)), cons(e, fst(snd(r))))))
 //! loop(init, max, |s| e)
-//!   => let s0 = init in let m = max in let rg = range(0, 16) in let one = range(0, 1) in
-//!      match_result(snd(
-//!        fold(if(lt(16^15, m), rg, one), pair(0, ok<S, S>(s0)), |a1, i1|      -- 段 1（1 要素 = 16^15 歩）
-//!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), list<Int>()), a1, |a2, i2|
+//!   => let s0 = pair(0, ok<S, S>(init)) in let m = max in
+//!      let rg = range(0, 16) in let one = range(0, 1) in let nil = list<Int>() in
+//!      let r = fold(if(lt(16^15, m), rg, one), s0, |a1, i1|                   -- 段 1（1 要素 = 16^15 歩）
+//!          fold(if(lt(fst(a1), m), if(lt(16^14, sub(m, fst(a1))), rg, one), nil), a1, |a2, i2|
 //!            ...                                                            -- 段 2〜15（1 要素 = 16^(16-j) 歩）
 //!              let n = min(16, sub(m, fst(a15))) in                         -- 段 16：n 歩
 //!              let res = fold(range(0, n), snd(a15), |acc, i|
 //!                match_result(acc, |s| match_option(e, err<S, S>(s), |s2| ok<S, S>(s2)), |d| err<S, S>(d))) in
 //!              pair(match_result(res, |x| add(fst(a15), n), |x| m), res)
-//!            ...)),
-//!        |r| none<S>(), |d| some(d))
+//!            ...) in
+//!      match_result(snd(r), |v| none<S>(), |d| some(d))
 //! ```
 //!
-//! 評価の順は左から右：init（`s0`）を max（`m`）より先に評価する。両方が資源の上限で失敗するなら、報告されるのは init のエラー。
+//! 評価の順は左から右：init（`s0` の初期状態の中）を max（`m`）より先に評価する。両方が資源の上限で失敗するなら、
+//! 報告されるのは init のエラー。
+//!
+//! 書換え後の式の深さ：段 1 の fold の上には束縛が 6 個（s0・m・rg・one・nil・r）あり、評価の順を変える前の形
+//! （`let m = max` を一番外側に置いた m・rg・one・nil の束縛 4 個と match_result・snd）と同じく深さ 6 に段 1 が来る。
+//! そのため loop の本体の深さは前と同じ（loop 1 段あたり 26）。max は s0 の束縛の内側に入るので前より 1 段深い
+//! （init を先に評価するには、init を含む束縛を max の束縛の外に置くので、この 1 段は避けられない）。init は段 1 の
+//! 初期状態の中（深さ 9）から一番外側の束縛の中（深さ 3）に移って 6 段浅い。
 //!
 //! `loop` の状態は `pair(c, Result<S, S>)`。c は本体を評価した回数（止まったときは m にする）、ok = 続行中、
 //! err = 止まった。一番内側の段は v1.6 当初の書き換えと同じ fold を高々 16 歩ずつ進める（止まった後の歩では本体を
 //! 評価しない）。外側の 15 段は、残りの歩 `m - c` がその段の 1 要素の受け持ち（16^(16-j)）より多ければ 16 要素の
-//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空のリスト `list<Int>()` を辿る。
+//! `rg`、そうでなければ 1 要素の `one` を辿り、`c >= m`（止まったか m 回評価した）になった後は空のリスト `nil` を辿る。
 //! 本体の評価はちょうど `min(m, 止まるまでの回数)` 回で、手間はそれに比例する歩と、止まった後に各段で残る高々 15 要素
 //! （m が 16^k 以下なら高々 k 段）の比較で済む（以前の `fold(range(0, max), ...)` は max に比例した）。
 //! 受け持てる歩は 16^16 = 2^64 回までで、それより大きい max でも 2^64 回で打ち切るが、どの実行上限（step 数）も
@@ -385,6 +392,8 @@ impl Lower<'_> {
             self.fresh(),
             self.fresh(),
         );
+        // 空のリスト list<Int>()（c >= max になった後に段 2〜15 が辿る）を束縛する名前
+        let nil = self.fresh();
         let step = k.ex(ExprKind::Match {
             scrutinee: Box::new(body),
             on_none: Box::new(inj(false, k.var(&s))),
@@ -427,7 +436,7 @@ impl Lower<'_> {
                     k.var(&rg),
                     k.var(&one),
                 );
-                k.fold(list, k.pair(int(0), inj(true, k.var(&s0))), a, i, inner)
+                k.fold(list, k.var(&s0), a, i, inner)
             } else {
                 let prev = &outer[j - 1].0;
                 let list = k.if_(
@@ -438,27 +447,37 @@ impl Lower<'_> {
                 let guarded = k.if_(
                     k.call("lt", vec![fst(k.var(prev)), k.var(&mx)]),
                     list,
-                    k.empty(&Ty::int()),
+                    k.var(&nil),
                 );
                 k.fold(guarded, k.var(prev), a, i, inner)
             };
         }
-        let r = self.fresh();
-        let result = match_result(
-            snd(inner),
-            &r,
-            k.none(st),
-            &d,
-            k.ex(ExprKind::Some(Box::new(k.var(&d)))),
+        let (fr, r) = (self.fresh(), self.fresh());
+        let result = k.let_(
+            &fr,
+            inner,
+            match_result(
+                snd(k.var(&fr)),
+                &r,
+                k.none(st),
+                &d,
+                k.ex(ExprKind::Some(Box::new(k.var(&d)))),
+            ),
         );
         let full = k.call("range", vec![int(0), int(LOOP_BASE)]);
         let single = k.call("range", vec![int(0), int(1)]);
-        // 初期状態 init は max より先に評価する（一番外側の束縛）。空のリストは束縛せず使う所に書く
-        // （束縛を一つ増やすと、書換え後の式の深さが loop ごとに 1 増える）。
+        let empty = k.empty(&Ty::int());
+        // 段 1 の初期状態 pair(0, ok(init)) を一番外側で束縛するので、init は max より先に評価する。段 1 の fold の上は
+        // 束縛 6 個（s0、m、rg、one、nil、段の結果 fr）で、評価の順を変える前（束縛 4 個と match_result、snd）と同じ
+        // 深さ 6 になり、loop の本体の書換え後の深さは変わらない。
         k.let_(
             &s0,
-            init,
-            k.let_(&mx, max, k.let_(&rg, full, k.let_(&one, single, result))),
+            k.pair(int(0), inj(true, init)),
+            k.let_(
+                &mx,
+                max,
+                k.let_(&rg, full, k.let_(&one, single, k.let_(&nil, empty, result))),
+            ),
         )
     }
 }

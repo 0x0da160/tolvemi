@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-21
+* **loop の深さの境界（2026-10-21）**：オーナーが「nil を束縛して深さを揃える」を選んだ。loop の書換えで空のリストを `let nil = list<Int>()` で束縛し、段の fold の結果も `let r` で束縛して、段 1 の fold を評価の順を変える前と同じ深さに置いた（`crates/tlvm/src/hof.rs` の `loop_`）。init は max より先のまま（init を含む初期状態 `pair(0, ok(init))` を一番外側で束縛する。DECISION-36）。十段の入れ子の書換え後の深さは、本体の位置 262（前と同じ）、max の位置 265（前は 264）、init の位置 266（前は 272）。Steps は loop の評価 1 回あたり 4 多く、値と割当の数は同じ。テスト `loop_nesting_limit_in_the_max_and_init_positions` を加え、`doubling_lowered` と `reference_events_of_loop_are_fixed`（86 → 90 step）を直した。[状態とゲート](overview/status-and-gates.md) と v1.6 差分仕様 §2 の書換えの形も直した。
+
 ## 2026-10-20
 * **決定（DECISION-35、2026-10-20）**：過去の commit の trailer は「そのまま」（オーナーの選択）。履歴は書き換えない。今後の commit の trailer にはモデル名を入れない。モデル名を含む trailer 75 件のうち 67 件が main の履歴にあり、全部を書き換えると main との共通の祖先が失われるため。
 * **決定（DECISION-36、2026-10-20）**：loop の上限と評価の順は「上限は外、評価は左から」（オーナーの選択、推奨）。2^64 回の打ち切りは資源の議論として凍結の外（資源の側は DECISION-31）。評価は init、次に max。両方が資源の上限で失敗するなら、報告されるのは init のエラー（`crates/tlvm/src/hof.rs` の `loop_`、テスト `init_is_evaluated_before_max`）。動的意味論のページの評価の順も直した。式の深さは、loop の本体では変わらず、max の位置では一段深く、init の位置では浅くなる。spec の 514 行は旧順のまま（文面はオーナーの判断）。

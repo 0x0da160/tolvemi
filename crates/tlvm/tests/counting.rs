@@ -469,22 +469,24 @@ fn reference_events_of_dict_operations_are_fixed() {
 
 #[test]
 fn reference_events_of_loop_are_fixed() {
-    // 書換え後の形は hof.rs の loop（16 段の fold。段 1 は if(lt(16^15, m), rg, one)、段 2〜15 は
+    // 書換え後の形は hof.rs の loop（段 1 の初期状態 s0 = pair(0, ok(init))、m、rg、one、nil を束縛し、16 段の fold の
+    // 結果 r を match_result(snd(r), …) で Option にする。段 1 は if(lt(16^15, m), rg, one)、段 2〜15 は
     // if(lt(fst(a), m), if(lt(W, sub(m, fst(a))), rg, one), nil)、一番内側は min(16, …) 歩の fold）。
     // k は ok／err の構築の回数。§18.3 の規則 7 と v1.4 差分は ok／err の割当を書いていない。ここでは some と同じく
     // 一つの node の確保（step 1、割当 1）と読む。この読みのほかは手計算である。
     //
-    // max = 0、本体 none<Int>()、入力 5（本体を評価しない。段 2 は空のリストを辿る）。k = 1（init の ok(x)）
-    //   入場 1、let 4 個の node 4、m の 0 の node 1 と割当 1
+    // max = 0、本体 none<Int>()、入力 5（本体を評価しない。段 2 は空のリスト nil を辿る）。k = 1（init の ok(x)）
+    //   入場 1、let 6 個（s0、m、rg、one、nil、r）の node 6
+    //   s0 の pair(0, ok(x)) 6 + k（node 4、0 と pair の割当 2）、m の 0 の node 1 と割当 1
     //   range(0, 16) 38（node 3、割当 2、組込み 1、要素の整数と cons の割当 32）、range(0, 1) 8、list<Int>() の node 1
-    //   match_result・snd・fold の node 3、snd の組込み 1、ok 枝の none の node 1
-    //   段 1：list 7（node 5、2^60 の割当 1、lt 1）、init pair(0, ok(x)) 6 + k（node 4、0 と pair の割当 2）、
-    //     反復 1 回 12（読取り 1、段 2 の fold の node 1、list の node 6 と組込み 2、init の node 1、nil の読取り 1）、
-    //     nil の読取り 1
-    //   計 85 + k step、割当 42 + k
+    //   段 1：fold の node 1、list 7（node 5、2^60 の割当 1、lt 1）、init の s0 の node 1、
+    //     反復 1 回 12（読取り 1、段 2 の fold の node 1、list の node 6 と組込み 2、init の node 1、空のリストの読取り 1）、
+    //     one の終わりの読取り 1
+    //   match_result・snd・r の node 3、snd の組込み 1、ok 枝の none の node 1
+    //   計 89 + k step、割当 42 + k（nil を束縛しなかった形より、let nil・list<Int>()・let r・r の node 4 個の分だけ多い）
     let k = 1;
     let max0 = "fn f(x: Int) -> Option<Int> = loop(x, 0, |s| none<Int>())\nentry f\n";
-    assert_eq!(steps_and_allocs(max0, INT5), (85 + k, 42 + k));
+    assert_eq!(steps_and_allocs(max0, INT5), (89 + k, 42 + k));
     // 本体を評価する loop（max >= 1）は固定していない。一番内側の min(16, …) の結果の整数を、§8.4 は新しい node と
     // 数え、評価器は引数の node を返して数えないので、手計算と処理系の出力が一つずつ違う。
 }
