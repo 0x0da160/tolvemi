@@ -34,16 +34,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use tlvm::api::*;
+use tlvm::embed::Program;
 use tlvm::nominal::Tags;
+use tlvm::plain::encode_plain_with;
 use tlvm::profiles::*;
 use tlvm::syntax::Decl;
-use tlvm::embed::Program;
-use tlvm::plain::encode_plain_with;
 use tlvm::values::DecodeResult;
-use tlvm_verified::eval::Limits;
-use tlvm_verified::pipeline::{compile_source, run_input_json, Compiled, InputRun};
 use tlvm_verified::check::check_prog;
+use tlvm_verified::eval::Limits;
 use tlvm_verified::ir::{ty_eq, EExpr, EProg};
+use tlvm_verified::pipeline::{compile_source, run_input_json, Compiled, InputRun};
 use tlvm_verified::resolve::{decl_numbers_e, resolve_e, resolve_tagged_e};
 use tlvm_verified::surface::{parse_e, SDecl};
 
@@ -74,7 +74,10 @@ fn trusted(src: &str) -> Option<Vec<(String, String)>> {
 /// 検証済みの解析。深さの上限は api の depth_bounds と同じ。
 fn verified_parse(src: &str) -> Option<Vec<SDecl>> {
     let p = StaticProfile::default();
-    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let (d, td) = (
+        p.expr_depth,
+        p.type_depth.saturating_mul(2).saturating_add(2),
+    );
     let chars: Vec<char> = src.chars().collect();
     parse_e(&chars, d, td)
 }
@@ -110,37 +113,94 @@ fn check(src: &str, want: Option<&str>) {
 /// (プログラム, 信頼側の期待する拒否の符号。受理なら None)。関数は記録と直和型を式に使わない。
 const V1: &[(&str, Option<&str>)] = &[
     // E-RECORD-UNKNOWN-TYPE：字段の型が未知、後で宣言、自己参照
-    ("type P = { a: Q }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-UNKNOWN-TYPE")),
-    ("type P = { q: Q }\ntype Q = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-UNKNOWN-TYPE")),
-    ("type R = { r: R }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-UNKNOWN-TYPE")),
+    (
+        "type P = { a: Q }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-UNKNOWN-TYPE"),
+    ),
+    (
+        "type P = { q: Q }\ntype Q = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-UNKNOWN-TYPE"),
+    ),
+    (
+        "type R = { r: R }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-UNKNOWN-TYPE"),
+    ),
     // E-RECORD-UNKNOWN-TYPE：直和型の中身が後で宣言した記録、後で宣言した直和型
-    ("type S = V(B) | W\ntype B = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-UNKNOWN-TYPE")),
-    ("type T = V(S) | U\ntype S = X | Y\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-UNKNOWN-TYPE")),
+    (
+        "type S = V(B) | W\ntype B = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-UNKNOWN-TYPE"),
+    ),
+    (
+        "type T = V(S) | U\ntype S = X | Y\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-UNKNOWN-TYPE"),
+    ),
     // E-RECORD-DUPLICATE-TYPE：同じ名前の記録が二つ
-    ("type P = { a: Int }\ntype P = { b: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-DUPLICATE-TYPE")),
+    (
+        "type P = { a: Int }\ntype P = { b: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-DUPLICATE-TYPE"),
+    ),
     // E-RECORD-DUPLICATE-FIELD：同じ記録の中で字段名が重なる
-    ("type R = { s: Int, s: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-DUPLICATE-FIELD")),
+    (
+        "type R = { s: Int, s: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-DUPLICATE-FIELD"),
+    ),
     // E-RECORD-FIELD-CONFLICT：別の記録と字段名が重なる
-    ("type A = { x: Int }\ntype B = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-FIELD-CONFLICT")),
+    (
+        "type A = { x: Int }\ntype B = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-FIELD-CONFLICT"),
+    ),
     // 受理：記録の字段が前の記録を使う。関数の注釈が後の記録を使う（現行の読み方）。型名と関数名の一致
-    ("type A = { x: Int }\ntype B = { a: A, y: Int }\nfn f(b: B) -> Int = 1\nentry f\n", None),
-    ("fn f(p: P) -> Int = 1\ntype P = { a: Int }\nentry f\n", None),
-    ("type P = { a: Int }\nfn P(a: Int) -> Int = a\nentry P\n", None),
+    (
+        "type A = { x: Int }\ntype B = { a: A, y: Int }\nfn f(b: B) -> Int = 1\nentry f\n",
+        None,
+    ),
+    (
+        "fn f(p: P) -> Int = 1\ntype P = { a: Int }\nentry f\n",
+        None,
+    ),
+    (
+        "type P = { a: Int }\nfn P(a: Int) -> Int = a\nentry P\n",
+        None,
+    ),
     // 受理：直和型の中身に前の記録、記録の字段に前の直和型（使わない）、直和型だけの宣言
-    ("type B = { x: Int }\ntype S = V(B) | W\nfn f(a: Int) -> Int = a\nentry f\n", None),
-    ("type S = X | Y\ntype R = { s: S, n: Int }\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    (
+        "type B = { x: Int }\ntype S = V(B) | W\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
+    (
+        "type S = X | Y\ntype R = { s: S, n: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
     ("type S = V | W\nfn f(a: Int) -> Int = a\nentry f\n", None),
     // 受理：字段名の重なりがない二つの記録、字段が一つの記録を関数の注釈に使う
-    ("type A = { x: Int }\ntype B = { y: Int }\nfn f(a: A) -> Int = 1\nentry f\n", None),
-    ("type P = { a: Int, b: Bool }\nfn f(p: P) -> Int = 1\nentry f\n", None),
+    (
+        "type A = { x: Int }\ntype B = { y: Int }\nfn f(a: A) -> Int = 1\nentry f\n",
+        None,
+    ),
+    (
+        "type P = { a: Int, b: Bool }\nfn f(p: P) -> Int = 1\nentry f\n",
+        None,
+    ),
 ];
 
 /// V2：記録と直和型をまたぐ型名の重複。宣言の順を変えても、どちらも拒否する。
 const V2: &[(&str, Option<&str>)] = &[
-    ("type A = { x: Int }\ntype A = V | W\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-DUPLICATE-TYPE")),
-    ("type A = V | W\ntype A = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-DUPLICATE-TYPE")),
-    ("type A = V | W\ntype A = X | Y\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-RECORD-DUPLICATE-TYPE")),
-    ("type A = { x: Int }\ntype B = V | W\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    (
+        "type A = { x: Int }\ntype A = V | W\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-DUPLICATE-TYPE"),
+    ),
+    (
+        "type A = V | W\ntype A = { x: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-DUPLICATE-TYPE"),
+    ),
+    (
+        "type A = V | W\ntype A = X | Y\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-RECORD-DUPLICATE-TYPE"),
+    ),
+    (
+        "type A = { x: Int }\ntype B = V | W\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
 ];
 
 #[test]
@@ -212,7 +272,13 @@ fn v3_numbers_agree_with_tags_of() {
         let by_position: Vec<Option<usize>> = decls
             .iter()
             .enumerate()
-            .map(|(i, x)| if x.0 == 'R' || x.0 == 'S' { Some(i) } else { None })
+            .map(|(i, x)| {
+                if x.0 == 'R' || x.0 == 'S' {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
             .collect();
         // 記録だけを数える（直和型は数えず、その時点の記録の数を番号にする）。
         let mut recs: usize = 0;
@@ -230,8 +296,14 @@ fn v3_numbers_agree_with_tags_of() {
         position_differs |= by_position != want;
         records_only_differs |= by_records != want;
     }
-    assert!(position_differs, "corpus に、宣言の位置で数えた番号と違う例がない");
-    assert!(records_only_differs, "corpus に、記録だけで数えた番号と違う例がない");
+    assert!(
+        position_differs,
+        "corpus に、宣言の位置で数えた番号と違う例がない"
+    );
+    assert!(
+        records_only_differs,
+        "corpus に、記録だけで数えた番号と違う例がない"
+    );
 }
 
 // ---------------------------------------------------------------- S2c：再帰する直和型の項と、前方の参照
@@ -240,21 +312,57 @@ fn v3_numbers_agree_with_tags_of() {
 /// 検証済みも拒否する。受理する形は両方が受理する。
 const S2C_RECURSIVE: &[(&str, Option<&str>)] = &[
     // 記録の項（前に宣言した記録、後に宣言した記録）
-    ("type P = { a: Int }\ntype L = Nil | Cons(P, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
-    ("type L = Nil | Cons(P, L)\ntype P = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
-    ("type R = { s: L }\ntype L = Nil | Cons(R, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    (
+        "type P = { a: Int }\ntype L = Nil | Cons(P, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
+    (
+        "type L = Nil | Cons(P, L)\ntype P = { a: Int }\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
+    (
+        "type R = { s: L }\ntype L = Nil | Cons(R, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
     // 直和型の項（前に宣言した直和型）、Unit、List の項
-    ("type S = V | W\ntype L = Nil | Cons(S, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
-    ("type L = Nil | Cons(Unit, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
-    ("type L = Nil | Cons(List<Int>, L)\nfn f(a: Int) -> Int = a\nentry f\n", Some("E-REC-FIELD-TYPE")),
+    (
+        "type S = V | W\ntype L = Nil | Cons(S, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
+    (
+        "type L = Nil | Cons(Unit, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
+    (
+        "type L = Nil | Cons(List<Int>, L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        Some("E-REC-FIELD-TYPE"),
+    ),
     // 受理：Int、Bool、その型自身の項だけ（一つだけの自己参照も）
-    ("type T = Leaf | Node(T, Int, T)\nfn f(a: Int) -> Int = a\nentry f\n", None),
-    ("type T = Leaf | Node(T, Bool, T)\nfn f(a: Int) -> Int = a\nentry f\n", None),
-    ("type L = Nil | Cons(L)\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    (
+        "type T = Leaf | Node(T, Int, T)\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
+    (
+        "type T = Leaf | Node(T, Bool, T)\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
+    (
+        "type L = Nil | Cons(L)\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
     // 受理：再帰する直和型を字段の型に使う記録、再帰しない直和型が記録を項に持つ、再帰する直和型を項に持つ直和型
-    ("type L = Nil | Cons(Int, L)\ntype Q = { b: L }\nfn f(a: Int) -> Int = a\nentry f\n", None),
-    ("type P = { a: Int }\ntype S = V(P) | W\nfn f(a: Int) -> Int = a\nentry f\n", None),
-    ("type L = Nil | Cons(Int, L)\ntype M = Q(L) | N\nfn f(a: Int) -> Int = a\nentry f\n", None),
+    (
+        "type L = Nil | Cons(Int, L)\ntype Q = { b: L }\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
+    (
+        "type P = { a: Int }\ntype S = V(P) | W\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
+    (
+        "type L = Nil | Cons(Int, L)\ntype M = Q(L) | N\nfn f(a: Int) -> Int = a\nentry f\n",
+        None,
+    ),
 ];
 
 /// 既知の食い違い：信頼側が受理するが、設計の規則（§3.1 行 125：字段と直和型の中身は前に宣言した型に限る。
@@ -265,9 +373,9 @@ const KNOWN_GAPS: &[&str] = &[
     "type K = Z | S(Int, K)\ntype L = Nil | Cons(K, L)\nfn f(a: Int) -> Int = a\nentry f\n",
     // 相互再帰：後に宣言した型を項に持つ。両方とも再帰する直和型になり、kind_of が通す（recursive.rs:104-109）
     "type A = X(B) | Y\ntype B = Z(A)\nfn f(a: Int) -> Int = a\nentry f\n",
-    // 再帰する直和型の項に、後に宣言した再帰する直和型。展開が前方の参照を書き換えてから検査する（recursive.rs:157、api.rs:325）
+    // 再帰する直和型の項に、後に宣言した再帰する直和型。展開が前方の参照を書き換えてから検査する（recursive.rs:157、api.rs:331）
     "type M = Q(L, M) | N\ntype L = Nil | Cons(Int, L)\nfn f(a: Int) -> Int = a\nentry f\n",
-    // 再帰しない直和型の項に、後に宣言した再帰する直和型。同じ理由で前方の参照が見えない（recursive.rs:157、api.rs:325）
+    // 再帰しない直和型の項に、後に宣言した再帰する直和型。同じ理由で前方の参照が見えない（recursive.rs:157、api.rs:331）
     "type M = Q(L) | N\ntype L = Nil | Cons(Int, L)\nfn f(a: Int) -> Int = a\nentry f\n",
 ];
 
@@ -281,8 +389,14 @@ fn s2c_recursive_sum_items_agree_with_the_trusted_side() {
 #[test]
 fn s2c_known_gaps_trusted_accepts_what_the_rule_forbids() {
     for src in KNOWN_GAPS {
-        assert!(trusted(src).is_none(), "信頼側が拒否した（既知の食い違いが閉じた。表を直す）: {src}");
-        assert!(!verified_accepts(src), "検証済みが受理した（規則に反する）: {src}");
+        assert!(
+            trusted(src).is_none(),
+            "信頼側が拒否した（既知の食い違いが閉じた。表を直す）: {src}"
+        );
+        assert!(
+            !verified_accepts(src),
+            "検証済みが受理した（規則に反する）: {src}"
+        );
     }
 }
 
@@ -326,7 +440,10 @@ fn verified_run(src: &str, input: &str) -> String {
         .collect();
     let rec: Vec<bool> = typed.program.functions().map(|f| f.rec).collect();
     let p = StaticProfile::default();
-    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let (d, td) = (
+        p.expr_depth,
+        p.type_depth.saturating_mul(2).saturating_add(2),
+    );
     // 検証済みの parser は `rec` を知らないので、経路と同じく印を空白に置き換えた源を読ませる（api::without_rec_markers）。
     let sp = match parse_source(src.as_bytes(), &p) {
         Parsed::Program(sp) => sp,
@@ -338,7 +455,11 @@ fn verified_run(src: &str, input: &str) -> String {
         _ => panic!("検証済みが受理しない: {src}"),
     };
     // 入力は信頼側の復号（embed.rs の run_plain と同じ）で値の JSON に直してから、検証済みの復号器へ渡す。
-    let tv = match decode_plain_input(&typed.input_type, input.as_bytes(), &InputProfile::default()) {
+    let tv = match decode_plain_input(
+        &typed.input_type,
+        input.as_bytes(),
+        &InputProfile::default(),
+    ) {
         DecodeResult::Decoded(tv) => tv,
         _ => panic!("入力の復号が失敗: {src}"),
     };
@@ -382,7 +503,11 @@ fn v5_record_expressions_run_on_the_verified_path() {
             .run_json(input)
             .unwrap_or_else(|_| panic!("信頼側の実行が失敗: {src}"));
         assert_eq!(trusted, want, "信頼側の出力が違う: {src}");
-        assert_eq!(verified_run(src, input), want, "検証済みの出力が違う: {src}");
+        assert_eq!(
+            verified_run(src, input),
+            want,
+            "検証済みの出力が違う: {src}"
+        );
     }
 }
 
@@ -405,14 +530,29 @@ fn v6_tagged_records_are_checked_by_the_verified_core() {
     for &(src, ok) in V6 {
         let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
         // 印なし（対照）：構造だけを見るので、受理される。
-        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
+        let (funcs, entry) =
+            resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
         let n = funcs.len();
-        let untagged = EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry };
-        assert!(check_prog(&untagged), "印なしの型検査が通らない（対照）: {src}");
+        let untagged = EProg {
+            funcs,
+            rank: vec![0; n],
+            rec: vec![false; n],
+            entry,
+        };
+        assert!(
+            check_prog(&untagged),
+            "印なしの型検査が通らない（対照）: {src}"
+        );
         // 印つき：持ち主の印と値の印が違えば拒否される。
-        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let (funcs, entry) =
+            resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
         let n = funcs.len();
-        let tagged = EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry };
+        let tagged = EProg {
+            funcs,
+            rank: vec![0; n],
+            rec: vec![false; n],
+            entry,
+        };
         assert_eq!(check_prog(&tagged), ok, "印つきの型検査の判定が違う: {src}");
     }
 }
@@ -467,10 +607,20 @@ fn tagged_run(src: &str, input: &str) -> String {
         .collect();
     let rec: Vec<bool> = typed.program.functions().map(|f| f.rec).collect();
     let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
-    let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
-    let prog = EProg { funcs, rank, rec, entry };
+    let (funcs, entry) =
+        resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+    let prog = EProg {
+        funcs,
+        rank,
+        rec,
+        entry,
+    };
     assert!(check_prog(&prog), "印つきの型検査が通らない: {src}");
-    let tv = match decode_plain_input(&typed.input_type, input.as_bytes(), &InputProfile::default()) {
+    let tv = match decode_plain_input(
+        &typed.input_type,
+        input.as_bytes(),
+        &InputProfile::default(),
+    ) {
         DecodeResult::Decoded(tv) => tv,
         _ => panic!("入力の復号が失敗: {src}"),
     };
@@ -495,20 +645,44 @@ fn s3c_nested_named_fields_agree_with_trusted() {
     for src in S3C_ACCEPTED {
         assert!(trusted(src).is_none(), "信頼側が拒否した: {src}");
         let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
-        let (funcs, entry) = resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
+        let (funcs, entry) =
+            resolve_e(&sp).unwrap_or_else(|| panic!("印なしの解決が通らない: {src}"));
         let n = funcs.len();
-        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印なしの型検査が通らない（対照）: {src}");
-        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        assert!(
+            check_prog(&EProg {
+                funcs,
+                rank: vec![0; n],
+                rec: vec![false; n],
+                entry
+            }),
+            "印なしの型検査が通らない（対照）: {src}"
+        );
+        let (funcs, entry) =
+            resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
         let n = funcs.len();
-        assert!(check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }), "印つきの型検査が受理しない: {src}");
+        assert!(
+            check_prog(&EProg {
+                funcs,
+                rank: vec![0; n],
+                rec: vec![false; n],
+                entry
+            }),
+            "印つきの型検査が受理しない: {src}"
+        );
     }
     for src in S3C_REJECTED {
         assert!(trusted(src).is_some(), "信頼側が受理した: {src}");
         let sp = verified_parse(src).unwrap_or_else(|| panic!("検証済みの解析が通らない: {src}"));
-        let (funcs, entry) = resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
+        let (funcs, entry) =
+            resolve_tagged_e(&sp).unwrap_or_else(|| panic!("印つきの解決が通らない: {src}"));
         let n = funcs.len();
         assert!(
-            !check_prog(&EProg { funcs, rank: vec![0; n], rec: vec![false; n], entry }),
+            !check_prog(&EProg {
+                funcs,
+                rank: vec![0; n],
+                rec: vec![false; n],
+                entry
+            }),
             "印つきの型検査が受理した（信頼側は拒否する）: {src}"
         );
     }
@@ -518,8 +692,16 @@ fn s3c_nested_named_fields_agree_with_trusted() {
             .run_json(input)
             .unwrap_or_else(|_| panic!("信頼側の実行が失敗: {src}"));
         assert_eq!(trusted_out, want, "信頼側の出力が違う: {src}");
-        assert_eq!(verified_run(src, input), want, "印なしの検証済みの出力が違う: {src}");
-        assert_eq!(tagged_run(src, input), want, "印つきの検証済みの出力が違う: {src}");
+        assert_eq!(
+            verified_run(src, input),
+            want,
+            "印なしの検証済みの出力が違う: {src}"
+        );
+        assert_eq!(
+            tagged_run(src, input),
+            want,
+            "印つきの検証済みの出力が違う: {src}"
+        );
     }
 }
 
@@ -700,7 +882,11 @@ fn v8_joint_verdicts_match_head() {
     let mut n = 0;
     for line in ROUTE_CORPUS.lines().filter(|l| !l.is_empty()) {
         let mut parts = line.splitn(3, '\t');
-        let (origin, want, esc) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+        let (origin, want, esc) = (
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+            parts.next().unwrap(),
+        );
         let src = unescape_tsv(esc);
         n += 1;
         let got = verdict(&src);
@@ -723,7 +909,12 @@ fn cli_run(src: &str, input: &str) -> String {
         .output()
         .unwrap();
     std::fs::remove_file(&path).unwrap();
-    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
     String::from_utf8(o.stdout).unwrap().trim_end().to_string()
 }
 
@@ -735,7 +926,10 @@ fn same_prog(a: &EProg, b: &EProg) -> bool {
         && a.funcs.len() == b.funcs.len()
         && a.funcs.iter().zip(b.funcs.iter()).all(|(f, g)| {
             f.params.len() == g.params.len()
-                && f.params.iter().zip(g.params.iter()).all(|(p, q)| p.0 == q.0 && ty_eq(&p.1, &q.1))
+                && f.params
+                    .iter()
+                    .zip(g.params.iter())
+                    .all(|(p, q)| p.0 == q.0 && ty_eq(&p.1, &q.1))
                 && ty_eq(&f.ret, &g.ret)
                 && same_expr(&f.body, &g.body)
         })
@@ -758,7 +952,9 @@ fn same_expr(a: &EExpr, b: &EExpr) -> bool {
         (EExpr::Pair(x1, x2), EExpr::Pair(y1, y2)) => same_expr(x1, y1) && same_expr(x2, y2),
         (EExpr::Builtin(f, xs), EExpr::Builtin(g, ys)) => f == g && same_exprs(xs, ys),
         (EExpr::Call(f, xs), EExpr::Call(g, ys)) => f == g && same_exprs(xs, ys),
-        (EExpr::Let(x, a1, b1), EExpr::Let(y, a2, b2)) => x == y && same_expr(a1, a2) && same_expr(b1, b2),
+        (EExpr::Let(x, a1, b1), EExpr::Let(y, a2, b2)) => {
+            x == y && same_expr(a1, a2) && same_expr(b1, b2)
+        }
         (EExpr::If(c1, t1, e1), EExpr::If(c2, t2, e2)) => {
             same_expr(c1, c2) && same_expr(t1, t2) && same_expr(e1, e2)
         }
@@ -799,17 +995,29 @@ const V8_EXTRA: &[&str] = &[
 #[test]
 fn v8_in_route_programs_are_checked_from_their_source() {
     let p = StaticProfile::default();
-    let (d, td) = (p.expr_depth, p.type_depth.saturating_mul(2).saturating_add(2));
+    let (d, td) = (
+        p.expr_depth,
+        p.type_depth.saturating_mul(2).saturating_add(2),
+    );
     let mut all: Vec<(String, String)> = ROUTE_CORPUS
         .lines()
         .filter(|l| !l.is_empty())
         .map(|line| {
             let mut parts = line.splitn(3, '\t');
-            let (origin, _want, esc) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+            let (origin, _want, esc) = (
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+            );
             (origin.to_string(), unescape_tsv(esc))
         })
         .collect();
-    all.extend(V8_EXTRA.iter().enumerate().map(|(i, s)| (format!("V8_EXTRA[{i}]"), s.to_string())));
+    all.extend(
+        V8_EXTRA
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (format!("V8_EXTRA[{i}]"), s.to_string())),
+    );
     let mut checked = 0;
     for (origin, src) in &all {
         let origin = origin.as_str();
@@ -817,7 +1025,9 @@ fn v8_in_route_programs_are_checked_from_their_source() {
         if !in_verified_route(src.as_bytes(), &p) {
             continue;
         }
-        let SourceCompile::Result(CompileResult::Accepted { program, .. }) = compile(src.as_bytes(), &p) else {
+        let SourceCompile::Result(CompileResult::Accepted { program, .. }) =
+            compile(src.as_bytes(), &p)
+        else {
             continue;
         };
         let sp = match parse_source(src.as_bytes(), &p) {
@@ -832,7 +1042,10 @@ fn v8_in_route_programs_are_checked_from_their_source() {
         let rec: Vec<bool> = sp.functions().map(|f| f.rec).collect();
         let chars: Vec<char> = without_rec_markers(&src, &sp).chars().collect();
         assert!(
-            matches!(compile_source(&chars, d, td, rank.clone(), rec.clone(), true), Compiled::Accepted(_)),
+            matches!(
+                compile_source(&chars, d, td, rank.clone(), rec.clone(), true),
+                Compiled::Accepted(_)
+            ),
             "印つきの写しが受理しない: {origin}"
         );
         let untagged = match compile_source(&chars, d, td, rank, rec, false) {
@@ -843,10 +1056,16 @@ fn v8_in_route_programs_are_checked_from_their_source() {
             .verified
             .as_ref()
             .unwrap_or_else(|| panic!("添付の IR が無い: {origin}"));
-        assert!(same_prog(&attached.0, &untagged), "添付の IR が源の印なしの IR と違う: {origin}");
+        assert!(
+            same_prog(&attached.0, &untagged),
+            "添付の IR が源の印なしの IR と違う: {origin}"
+        );
         checked += 1;
     }
-    assert!(checked >= 20, "範囲内で受理するプログラムが少ない: {checked}");
+    assert!(
+        checked >= 20,
+        "範囲内で受理するプログラムが少ない: {checked}"
+    );
     println!("V8: 範囲内で受理し、源の二つの写しと IR を検査したプログラム {checked} 件");
 }
 
@@ -856,9 +1075,15 @@ fn v8_in_route_programs_are_checked_from_their_source() {
 fn v8_record_literal_with_trailing_comma_is_rejected_before_the_route() {
     let p = StaticProfile::default();
     let lit = "type P = { a: Int, b: Int }\nfn f(x: Int) -> Int = P { a: x, b: x, }.a\nentry f\n";
-    assert_eq!(rejected(lit), vec![row("parse", "E-PARSE-EXPECTED-IDENT", "identifier", "}")]);
+    assert_eq!(
+        rejected(lit),
+        vec![row("parse", "E-PARSE-EXPECTED-IDENT", "identifier", "}")]
+    );
     let decl = "type P = { a: Int, b: Int, }\nfn f(p: P) -> Int = p.a\nentry f\n";
-    assert!(in_verified_route(decl.as_bytes(), &p), "宣言の末尾の , は範囲の内のはず");
+    assert!(
+        in_verified_route(decl.as_bytes(), &p),
+        "宣言の末尾の , は範囲の内のはず"
+    );
 }
 
 /// V10（S5b）：記録と、総称・直和型・Dict・hof・再帰を混ぜたプログラム。範囲の外なので、HEAD と同じ経路で、
@@ -892,12 +1117,19 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
         ),
     ];
     for (src, input, want) in OK {
-        assert!(!in_verified_route(src.as_bytes(), &StaticProfile::default()), "範囲の外のはず: {src}");
+        assert!(
+            !in_verified_route(src.as_bytes(), &StaticProfile::default()),
+            "範囲の外のはず: {src}"
+        );
         assert_eq!(cli_run(src, input), *want, "出力が HEAD と違う: {src}");
     }
     // 再帰する型：HEAD は E-TYPE-RETURN で拒否する
-    let rec_src = "type P = { a: Int }\ntype L = Nil | Cons(Int, L)\nfn f(x: Int) -> P = x\nentry f\n";
-    assert!(!in_verified_route(rec_src.as_bytes(), &StaticProfile::default()), "範囲の外のはず");
+    let rec_src =
+        "type P = { a: Int }\ntype L = Nil | Cons(Int, L)\nfn f(x: Int) -> P = x\nentry f\n";
+    assert!(
+        !in_verified_route(rec_src.as_bytes(), &StaticProfile::default()),
+        "範囲の外のはず"
+    );
     let codes: Vec<String> = rejected(rec_src).into_iter().map(|r| r.1).collect();
     assert_eq!(codes, ["E-TYPE-RETURN"]);
 }
@@ -908,7 +1140,10 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
 fn v11_rec_functions_over_records_and_mutual_recursion_match_head() {
     let p = StaticProfile::default();
     let rec_src = "type P = { a: Int }\nrec fn g(p: P, n: Int) -> Int = if(le(n, 0), p.a, add(n, g(p, sub(n, 1))))\nfn f(x: Int) -> Int = g(P { a: x }, 3)\nentry f\n";
-    assert!(in_verified_route(rec_src.as_bytes(), &p), "rec fn と記録は範囲の内のはず");
+    assert!(
+        in_verified_route(rec_src.as_bytes(), &p),
+        "rec fn と記録は範囲の内のはず"
+    );
     assert_eq!(cli_run(rec_src, "5"), "11");
     assert_eq!(verified_run(rec_src, "5"), "11");
 
@@ -998,7 +1233,12 @@ fn mlex(src: &str) -> Vec<MTok<'_>> {
         } else {
             (MK::P, i + c.len_utf8())
         };
-        out.push(MTok { k, t: &src[i..end], s: i, e: end });
+        out.push(MTok {
+            k,
+            t: &src[i..end],
+            s: i,
+            e: end,
+        });
         i = end;
     }
     out
@@ -1080,7 +1320,11 @@ fn mrecord_only(src: &str) -> bool {
     let toks = mlex(src);
     let mut decls = 0;
     for i in 0..toks.len() {
-        if toks[i].k == MK::Id && toks[i].t == "type" && i + 1 < toks.len() && toks[i + 1].k == MK::Id {
+        if toks[i].k == MK::Id
+            && toks[i].t == "type"
+            && i + 1 < toks.len()
+            && toks[i + 1].k == MK::Id
+        {
             decls += 1;
             let mut j = i + 2;
             if j < toks.len() && toks[j].t == "<" {
@@ -1146,23 +1390,36 @@ fn record_mutants(src: &str) -> Vec<(&'static str, String)> {
             }
         }
     }
-    let lit_spans: Vec<(usize, usize)> = lits.iter().map(|&(ob, cb)| (toks[ob].s, toks[cb].e)).collect();
-    let inside = |pos: usize, spans: &[(usize, usize)]| spans.iter().any(|&(a, b)| a <= pos && pos < b);
+    let lit_spans: Vec<(usize, usize)> = lits
+        .iter()
+        .map(|&(ob, cb)| (toks[ob].s, toks[cb].e))
+        .collect();
+    let inside =
+        |pos: usize, spans: &[(usize, usize)]| spans.iter().any(|&(a, b)| a <= pos && pos < b);
     let mut out: Vec<(&'static str, String)> = Vec::new();
     for (i, t) in toks.iter().enumerate() {
-        if t.k == MK::Id && dnames.contains(t.t) && !(i > 0 && toks[i - 1].k == MK::Id && toks[i - 1].t == "type") {
+        if t.k == MK::Id
+            && dnames.contains(t.t)
+            && !(i > 0 && toks[i - 1].k == MK::Id && toks[i - 1].t == "type")
+        {
             out.push(("unknown-type", format!("{}ZQ{}", &src[..t.s], &src[t.e..])));
         }
     }
     for &(ti, _, cb, _) in &decls {
         let (a, b) = (toks[ti].s, toks[cb].e);
-        out.push(("dup-type", format!("{}\n{}{}", &src[..b], &src[a..b], &src[b..])));
+        out.push((
+            "dup-type",
+            format!("{}\n{}{}", &src[..b], &src[a..b], &src[b..]),
+        ));
     }
     for &(_, ob, cb, _) in &decls {
         for (a, b) in mentries(&toks, ob, cb) {
             if toks[a].k == MK::Id && a + 1 < b && toks[a + 1].t == ":" {
                 let (s, e) = (toks[a].s, toks[b - 1].e);
-                out.push(("dup-field", format!("{}, {}{}", &src[..e], &src[s..e], &src[e..])));
+                out.push((
+                    "dup-field",
+                    format!("{}, {}{}", &src[..e], &src[s..e], &src[e..]),
+                ));
             }
         }
     }
@@ -1192,7 +1449,10 @@ fn record_mutants(src: &str) -> Vec<(&'static str, String)> {
         if base.is_empty() {
             let close = toks[cb].s;
             let sep = if ents.is_empty() { " " } else { ", " };
-            out.push(("add-base", format!("{}{}..ZQ {}", src[..close].trim_end(), sep, &src[close..])));
+            out.push((
+                "add-base",
+                format!("{}{}..ZQ {}", src[..close].trim_end(), sep, &src[close..]),
+            ));
         } else {
             let (a, b) = base[0];
             let k = ents.iter().position(|&x| x == (a, b)).unwrap();
@@ -1253,7 +1513,11 @@ fn sweep_programs() -> (Vec<(String, String)>, Vec<String>) {
 fn v7_record_mutations_get_no_verified_mismatch() {
     let (progs, excluded) = sweep_programs();
     assert!(progs.len() >= 70, "プログラムが少ない: {}", progs.len());
-    assert_eq!(excluded, ["record_names.rs:383"], "除くのは末尾のコンマの記録の式だけ（構文で拒否する）");
+    assert_eq!(
+        excluded,
+        ["record_names.rs:383"],
+        "除くのは末尾のコンマの記録の式だけ（構文で拒否する）"
+    );
     let mut per_kind: BTreeMap<&str, usize> = BTreeMap::new();
     let (mut total, mut name_checked) = (0, 0);
     for (origin, src) in &progs {
@@ -1272,7 +1536,10 @@ fn v7_record_mutations_get_no_verified_mismatch() {
                             "{origin} の変異 {kind} で検証済みの食い違い（{actual}）: {text:?}"
                         );
                     }
-                    if errors.iter().any(|d| CHECKED_EXPANSION_CODES.contains(&d.code)) {
+                    if errors
+                        .iter()
+                        .any(|d| CHECKED_EXPANSION_CODES.contains(&d.code))
+                    {
                         name_checked += 1;
                     }
                 }
@@ -1281,8 +1548,15 @@ fn v7_record_mutations_get_no_verified_mismatch() {
             }
         }
     }
-    assert_eq!(per_kind.len(), MUTANT_KINDS.len(), "全部の種類が掃引に入る: {per_kind:?}");
-    assert!(name_checked >= 100, "名前の符号の変異が少ない（突き合わせが働かない）: {name_checked} / {total}");
+    assert_eq!(
+        per_kind.len(),
+        MUTANT_KINDS.len(),
+        "全部の種類が掃引に入る: {per_kind:?}"
+    );
+    assert!(
+        name_checked >= 100,
+        "名前の符号の変異が少ない（突き合わせが働かない）: {name_checked} / {total}"
+    );
 }
 
 /// S5c（V12）：宣言の数と書換えの大きさ。HEAD（9a96889 の CLI）の判定と同じ符号・値を返す。
@@ -1327,4 +1601,3 @@ fn v12_declaration_count_and_rewritten_size_decisions_match_head() {
         _ => panic!("HEAD は書換え後の大きさの上限で拒否する"),
     }
 }
-

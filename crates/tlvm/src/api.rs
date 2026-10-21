@@ -254,7 +254,13 @@ fn compile_expanded(
             let text = format_program(&glued);
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
-            route_expanded(source, p, tagged, cross_check_at(&text, r, profile, at), profile)
+            route_expanded(
+                source,
+                p,
+                tagged,
+                cross_check_at(&text, r, profile, at),
+                profile,
+            )
         }
     }
 }
@@ -841,7 +847,11 @@ fn refusal(c: &Compiled, tagged: bool) -> Option<&'static str> {
     }
 }
 
-fn reject_verified(why: &str, warnings: Vec<Diagnostic>, work: Option<WorkCounter>) -> CompileResult {
+fn reject_verified(
+    why: &str,
+    warnings: Vec<Diagnostic>,
+    work: Option<WorkCounter>,
+) -> CompileResult {
     CompileResult::Rejected {
         errors: vec![mismatch(why)],
         warnings,
