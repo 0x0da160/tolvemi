@@ -34,6 +34,14 @@ decode_input(T_in, json_bytes, input_profile)
 
 DecodeResult = Decoded(TypedValue(T_in)) | Invalid(DecodeDiagnostics)
 
+run_input(typed_program, input_bytes, input_mode, input_profile, execution_profile, host_policy)
+  -> InputOutcome（入力を一度だけ読む。input_mode は value_json か plain_json）
+
+InputOutcome =
+    Ran(RunResult)
+  | Invalid(DecodeDiagnostics)
+  | InputBoundaryFailure
+
 run(typed_program, decoded_input, execution_profile, host_policy)
   -> RunResult
 

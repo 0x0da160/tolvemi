@@ -3,22 +3,23 @@
 //! セッションは宣言（`fn`・`rec fn`・`type`）と `import` の列を持つ。入力が宣言なら、セッションに加えたプログラムを検査し、
 //! 受理されたときだけ加える（拒否なら元のセッションを残す）。同じ名前の宣言は置き換える。入力が式なら、
 //! `fn __repl_main(__repl_unit: Unit) -> T = <式>` と `entry __repl_main` をセッションの宣言の後に付けたプログラムを作り、
-//! 今までの `compile` と `run`（`tlvm run` と同じ静的・実行プロファイル）で検査・実行して `値 : 型` を出す（値は plain JSON）。
+//! 今までの `compile` と `run_input`（`tlvm run` と同じ静的・実行プロファイル）で検査・実行して `値 : 型` を出す（値は plain JSON）。
 //!
 //! 式の型 `T` は、まず `-> Unit` で検査し、`E-TYPE-RETURN` の actual（本体の型）を戻り型にして検査し直して決める。
 //! 本体がレコードの構築 `P { ... }` なら、先に `-> P` を試す（レコードの構築の型は構造の型 `Pair<...>` と表示されるため）。
 //!
 //! 出力はすべて標準出力に書く（診断は `--human` と同じ形）。標準入力が端末のときだけ prompt（`> `、続きの行は `. `）を出す。
 
-use crate::api::{compile, parse_source, run, CompileResult, Parsed, SourceCompile};
+use crate::api::{
+    compile, parse_source, run_input, CompileResult, InputOutcome, Parsed, SourceCompile,
+};
 use crate::checker::TypedProgram;
 use crate::diagnostics::{render_human, Diagnostic};
 use crate::evaluator::RunResult;
 use crate::imports;
 use crate::plain::encode_plain;
 use crate::profiles::{ExecutionProfile, HostPolicy, InputProfile, StaticProfile};
-use crate::syntax::{Decl, ExprKind, Program, Ty};
-use crate::values::{decode_input, DecodeResult, TypedValue};
+use crate::syntax::{Decl, ExprKind, Program};
 use std::io::{BufRead, Write};
 
 const MAIN: &str = "__repl_main";
@@ -442,17 +443,19 @@ impl Session {
             Typed::Ok(p) => p,
             Typed::Err(e) => return Err(e),
         };
-        let tv: TypedValue =
-            match decode_input(&Ty::unit(), br#"{"tag":"unit"}"#, &InputProfile::default()) {
-                DecodeResult::Decoded(tv) => tv,
-                _ => return Err(vec!["error: InternalFault unit-input".into()]),
-            };
-        match run(
+        let r = match run_input(
             &p,
-            &tv,
+            br#"{"tag":"unit"}"#,
+            false,
+            &InputProfile::default(),
             &ExecutionProfile::default(),
             &HostPolicy::default(),
         ) {
+            Ok(InputOutcome::Ran(r)) => Ok(r),
+            Ok(_) => return Err(vec!["error: InternalFault unit-input".into()]),
+            Err(e) => Err(e),
+        };
+        match r {
             Ok(RunResult::Completed { output, .. }) => {
                 match encode_plain(&p.output_type, &output) {
                     Ok(v) => Ok(format!("{v} : {}", p.output_type)),

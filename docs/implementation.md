@@ -61,8 +61,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
    誤るだけで、型と一意性の保証は残る。
 2. **decode**（`values::decode_input`）：診断付きの strict JSON parser と値復号器が入力を読み、検証済みの
    `decode_input_e`（`verus/src/input_exec.rs`）の結果と突き合わせる。
-3. **run**（`evaluator::run`）：検証済みの `run_input_json` が、`check_prog` で `wf` を確かめ、入力 JSON の文字列を
-   検証済みの復号器で読み直し、検証済み評価器で実行し、結果を検証済み encoder で正準 JSON にする。普通の JSON の入力（`run --plain` と埋め込み API）は読み直さず、検査で受理した検証済みの値を `evaluator::run_verified` が評価する（検証済みの復号器は一度だけ走る）。
+3. **run**（`api::run_input`、`evaluator::run_verified`、`evaluator::run`）：検証済みの評価器が、`check_prog` で `wf` を確かめ、結果を検証済み encoder で正準 JSON にする。入力の文字列（値 JSON と普通の JSON：`run`、`run --plain`、`tlvm test`、埋め込み API、repl）は `api::run_input` が一度だけ読み、検査で受理した検証済みの値を `evaluator::run_verified` が評価する（検証済みの復号器は一度だけ走る）。復号済みの `TypedValue` を受け取る `api::run` は、`evaluator::run` の中で入力の文字列を検証済みの復号器で読み直す（二度走る。テストと旧い呼出し用）。
 4. **fmt**：検証済みの `canonical_source` が整形する（v1.7：印 `rec` を外したもので照合し、印を付けて出す）。
 
 次が証明されています（`assume`・`admit` は使わず、`external_body` は `bigint.rs` の多倍長整数演算だけ）。
@@ -104,7 +103,7 @@ fold による安定な挿入整列）、検証済み部品は書き換え後の
 | `lines.rs` | v1.13 差分 §1b、§2a | `tlvm exec` の辞書の入力。標準入力の行（改行、行末の CR、長さ 0 の行、最初の TAB）を鍵と値にして普通の JSON の配列にし、行の形（鍵が空、値の TAB、Int の正規の表記）を検査する。診断の span をもとの行に直す。未検証の接着部分 |
 | `softnames.rs` | v1.1 差分 §2a | 文脈キーワードの一覧（49 語）と、`tlvm ast`・`encode_ast` が字句表の語を変数名に使ったプログラムを `E-AST-IDENTIFIER` で拒否する検査（検査・実行には使わない） |
 | `embed.rs` | — | ホストに組み込むための小さな API（下の「組み込み」の節） |
-| `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
+| `repl.rs` | v1.12 差分 §1 | `tlvm repl`。セッションの宣言と式から一つのプログラムを組み立て、`imports::compile_root` と `api::run_input` で検査・実行する（戻り型は `E-TYPE-RETURN` の actual で決める）。未検証の front-end |
 | `lsp.rs` | v1.12 差分 §2 | `tlvm lsp`。JSON-RPC の区切り（`Content-Length`）、`strict_json` での読み取り、診断の span から LSP の range（UTF-16 の列）への写像、開いている文書を先に読む import の loader、`tlvm fmt` と同じ整形（検査に誤りがあれば返さない）。未検証の front-end |
 | `main.rs` | — | `tlvm check|run|fmt|ast|test|exec`（v1.12：`repl`・`lsp`）、`--plain`、`--human`（v1.11：source のファイルは `compile_path` で import ごと検査、`ast` はまとめたプログラム） |
 
@@ -260,7 +259,7 @@ registry が決まったら差し替える前提です。
 設計書の入出力（§9.2 の値 JSON）と診断 JSON（§10.1）はそのままにして、使いやすくするための層を足しています。
 どれも検証されていない接着部分です（`trust-boundary.toml` の `glue`）。
 
-- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::run_plain_input`）：entry の入力型で普通の JSON を読み、
+- **普通の JSON での入出力**（`plain.rs`、`run --plain`、`api::run_plain_input`（`api::run_input` の普通の JSON の場合））：entry の入力型で普通の JSON を読み、
   値 JSON に変換してから従来どおり診断付きの復号器と検証済みの復号器で読みます。出力は検証済み encoder の値 JSON を
   出力型で普通の JSON に戻します。対応は型ごとに一対一です。
 

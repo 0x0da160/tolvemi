@@ -302,27 +302,15 @@ fn run_cmd(
     } else {
         ("<input>".to_string(), input.as_bytes().to_vec())
     };
-    // 普通の JSON は復号と評価を `run_plain_input` が一つのスレッドで行う（検証済みの復号器は一度だけ走る）
-    let outcome = if plain {
-        run_plain_input(
-            &p,
-            &data,
-            &InputProfile::default(),
-            &ExecutionProfile::default(),
-            &HostPolicy::default(),
-        )?
-    } else {
-        match decode(&p.input_type, &data, false) {
-            DecodeResult::Decoded(tv) => InputOutcome::Ran(run(
-                &p,
-                &tv,
-                &ExecutionProfile::default(),
-                &HostPolicy::default(),
-            )?),
-            DecodeResult::Invalid(d) => InputOutcome::Invalid(d),
-            DecodeResult::InputBoundaryFailure => InputOutcome::InputBoundaryFailure,
-        }
-    };
+    // 入力は復号と評価を `run_input` が一つのスレッドで行う（検証済みの復号器は一度だけ走る）
+    let outcome = run_input(
+        &p,
+        &data,
+        plain,
+        &InputProfile::default(),
+        &ExecutionProfile::default(),
+        &HostPolicy::default(),
+    )?;
     let result = match outcome {
         InputOutcome::Ran(r) => r,
         InputOutcome::Invalid(d) => {
@@ -476,23 +464,40 @@ fn run_case(
             "case には \"input\" と \"expected\" が必要です".into(),
         ));
     };
-    let mut values = vec![];
-    for (node, ty, what) in [
-        (input, &p.input_type, "input"),
-        (expected, &p.output_type, "expected"),
-    ] {
-        match decode(ty, &data[node.start..node.end], plain) {
-            DecodeResult::Decoded(tv) => values.push(tv),
-            DecodeResult::Invalid(d) => {
-                emit_in(&shifted(d, node.start), label, data);
-                return Ok(Outcome::Error(format!("{what} を型 {ty} として読めません")));
-            }
-            DecodeResult::InputBoundaryFailure => {
-                return Ok(Outcome::Error(format!("{what} が UTF-8 ではありません")))
-            }
+    // 入力は一度だけ読んで評価する（`run_input`）。期待値は評価の結果と比べるために読む
+    let outcome = match run_input(
+        p,
+        &data[input.start..input.end],
+        plain,
+        &InputProfile::default(),
+        &ExecutionProfile::default(),
+        &HostPolicy::default(),
+    )? {
+        InputOutcome::Ran(r) => r,
+        InputOutcome::Invalid(d) => {
+            emit_in(&shifted(d, input.start), label, data);
+            return Ok(Outcome::Error(format!(
+                "input を型 {} として読めません",
+                p.input_type
+            )));
         }
-    }
-    let want = encode_value(&values[1].value);
+        InputOutcome::InputBoundaryFailure => {
+            return Ok(Outcome::Error("input が UTF-8 ではありません".into()))
+        }
+    };
+    let want = match decode(&p.output_type, &data[expected.start..expected.end], plain) {
+        DecodeResult::Decoded(tv) => encode_value(&tv.value),
+        DecodeResult::Invalid(d) => {
+            emit_in(&shifted(d, expected.start), label, data);
+            return Ok(Outcome::Error(format!(
+                "expected を型 {} として読めません",
+                p.output_type
+            )));
+        }
+        DecodeResult::InputBoundaryFailure => {
+            return Ok(Outcome::Error("expected が UTF-8 ではありません".into()))
+        }
+    };
     let show = |canonical: &str| -> Result<String, String> {
         if plain {
             encode_plain(&p.output_type, canonical)
@@ -500,29 +505,22 @@ fn run_case(
             Ok(canonical.to_string())
         }
     };
-    Ok(
-        match run(
-            p,
-            &values[0],
-            &ExecutionProfile::default(),
-            &HostPolicy::default(),
-        )? {
-            RunResult::Completed { output, .. } if output == want => Outcome::Pass,
-            RunResult::Completed { output, .. } => Outcome::Fail {
-                expected: show(&want)?,
-                actual: show(&output)?,
-            },
-            RunResult::ResourceExhausted {
-                kind,
-                observed,
-                limit,
-            } => Outcome::Error(format!(
-                "ResourceExhausted {kind} (observed {observed}, limit {limit})"
-            )),
-            RunResult::HostAborted(r) => Outcome::Error(format!("HostAborted {r}")),
-            RunResult::InternalFault(r) => Outcome::Error(format!("InternalFault {r}")),
+    Ok(match outcome {
+        RunResult::Completed { output, .. } if output == want => Outcome::Pass,
+        RunResult::Completed { output, .. } => Outcome::Fail {
+            expected: show(&want)?,
+            actual: show(&output)?,
         },
-    )
+        RunResult::ResourceExhausted {
+            kind,
+            observed,
+            limit,
+        } => Outcome::Error(format!(
+            "ResourceExhausted {kind} (observed {observed}, limit {limit})"
+        )),
+        RunResult::HostAborted(r) => Outcome::Error(format!("HostAborted {r}")),
+        RunResult::InternalFault(r) => Outcome::Error(format!("InternalFault {r}")),
+    })
 }
 
 fn test_cmd(

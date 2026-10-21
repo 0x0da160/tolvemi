@@ -136,8 +136,8 @@ pub fn run(
     Ok(r)
 }
 
-/// `api::run_plain_input` の評価。検査（`api::decode_plain_keeping`）で検証済みの復号器が受理した値 `verified` を、
-/// 二回目の復号なしに検証済みの評価器へ渡す（辞書の入力と同じ経路）。判定の順序と envelope は `run` と同じ。
+/// `api::run_input` の評価（普通の JSON と値 JSON の両方）。検査（`api::decode_plain_keeping`、`values::decode_input_keeping`）で
+/// 検証済みの復号器が受理した値 `verified` を、二回目の復号なしに検証済みの評価器へ渡す（辞書の入力と同じ経路）。判定の順序と envelope は `run` と同じ。
 /// 入力の文字数の上限（検証済みの復号器の前提）は、検査の `cross_check` が確かめている。
 pub(crate) fn run_verified(
     prog: &TypedProgram,

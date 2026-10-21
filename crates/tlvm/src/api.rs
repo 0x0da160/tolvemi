@@ -699,6 +699,9 @@ pub(crate) fn decode_plain_keeping(
 }
 
 /// 深い再帰に備えて host-policy のスタック量を持つスレッドで評価する。
+///
+/// 入力を文字列（値 JSON か普通の JSON）で持つなら `run_input` を使う。ここは復号済みの値を評価するので、
+/// 検証済みの復号器は `decode_input` の中と評価の中で、入力ごとに二度走る。
 pub fn run(
     program: &TypedProgram,
     input: &TypedValue,
@@ -859,8 +862,8 @@ fn reject_verified(
     }
 }
 
-/// 普通の JSON の入力を読んで実行した結果（`run_plain_input`）。
-#[derive(Debug)]
+/// 入力を読んで実行した結果（`run_input`、`run_plain_input`）。
+#[derive(Debug, PartialEq, Eq)]
 pub enum InputOutcome {
     /// 実行した（`run` と同じ結果）
     Ran(RunResult),
@@ -870,13 +873,15 @@ pub enum InputOutcome {
     InputBoundaryFailure,
 }
 
-/// 普通の JSON の入力 `data` を読み、そのまま実行する（`run --plain` と埋め込み API の入力）。
+/// 入力 `data` を読んで実行する（`plain` なら普通の JSON、そうでなければ値 JSON。結果は `run` と同じ）。
 ///
 /// 復号と評価は同じスレッド（`host.stack_bytes`）で行う。検証済みの値は `Rc` なので、別のスレッドへは渡せない。
-/// 検証済みの復号器は一度だけ走る：検査（`decode_plain_keeping`）が受理した値を残し、評価がそれを使う。
-pub fn run_plain_input(
+/// 検証済みの復号器は一度だけ走る：検査（`decode_*_keeping`）が受理した値を残し、評価がそれを使う。
+/// 入力が文字列のときはこちらを使う（`decode_input` の値を `run` に渡すと、入力をもう一度読む）。
+pub fn run_input(
     program: &TypedProgram,
     data: &[u8],
+    plain: bool,
     input: &InputProfile,
     profile: &ExecutionProfile,
     host: &HostPolicy,
@@ -885,8 +890,11 @@ pub fn run_plain_input(
         let h = std::thread::Builder::new()
             .stack_size(host.stack_bytes)
             .spawn_scoped(s, || {
-                let (decoded, verified) =
-                    decode_plain_keeping(&program.input_type, data, input, true);
+                let (decoded, verified) = if plain {
+                    decode_plain_keeping(&program.input_type, data, input, true)
+                } else {
+                    values::decode_input_keeping(&program.input_type, data, input, true)
+                };
                 Ok(match decoded {
                     DecodeResult::Decoded(tv) => {
                         // 評価の panic は `run` と同じく InternalFault にする（復号の panic はそのまま伝える）
@@ -906,4 +914,15 @@ pub fn run_plain_input(
             Err(payload) => std::panic::resume_unwind(payload),
         }
     })
+}
+
+/// 普通の JSON の入力 `data` を読み、そのまま実行する（`run --plain` と埋め込み API の入力）。`run_input` の `plain` の場合。
+pub fn run_plain_input(
+    program: &TypedProgram,
+    data: &[u8],
+    input: &InputProfile,
+    profile: &ExecutionProfile,
+    host: &HostPolicy,
+) -> Result<InputOutcome, String> {
+    run_input(program, data, true, input, profile, host)
 }
