@@ -40,6 +40,8 @@ pub enum RExpr {
     Rec(Seq<nat>, Seq<(nat, RExpr)>, Option<Box<RExpr>>),
     /// e.f：持ち主の宣言の名前の列 decl と、参照する field の名前 f。
     Fld(Box<RExpr>, Seq<nat>, nat),
+    /// if c then a else b。c は真偽値でなければならない。
+    If(Box<RExpr>, Box<RExpr>, Box<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -150,6 +152,11 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             } else {
                 None
             },
+            _ => None,
+        },
+        RExpr::If(c, a, b) => match rmean(env, *c) {
+            Some(RVal::Bool(true)) => rmean(env, *a),
+            Some(RVal::Bool(false)) => rmean(env, *b),
             _ => None,
         },
     }

@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-22
+* **段階 2 の if の腕（2026-10-22）**：記録と名前の経路の源の意味に、if の式の一致を足した（`records_meaning.rs` の `RExpr::If`、`records_commute.rs` の `rsrc` の if の腕と `if_arm`）。`rsrc_push` と `absent_rx` に if の腕を足した（初回の検証で両方が失敗したため）。`tlvm-verified` は 1707 件・error 0（1706 件から）。let、fold、match、呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。
+
 ## 2026-10-21
 * **決定（DECISION-39、2026-10-21）**：loop の深さの境界は、オーナーが「nil を束縛して深さを揃える」を選んだ。loop の書換えで空のリストを `let nil = list<Int>()` で束縛し、段の fold の結果も `let r` で束縛して、段 1 の fold を評価の順を変える前と同じ深さに置いた（`crates/tlvm/src/hof.rs` の `loop_`）。init は max より先のまま（init を含む初期状態 `pair(0, ok(init))` を一番外側で束縛する。DECISION-36）。十段の入れ子の書換え後の深さは、本体の位置 262（前と同じ）、max の位置 265（前は 264）、init の位置 266（前は 272）。Steps は loop の評価 1 回あたり 4 多く、値と割当の数は同じ。テスト `loop_nesting_limit_in_the_max_and_init_positions` を加え、`doubling_lowered` と `reference_events_of_loop_are_fixed`（86 → 90 step）を直した。[状態とゲート](overview/status-and-gates.md) と v1.6 差分仕様 §2 の書換えの形も直した。
 * **決定（DECISION-40、2026-10-21）**：入力の辞書の重複鍵の検査の計算量は、オーナーが「整列の検査を証明する」を選んだ（推奨の「上限のまま、注意に書く」は採らない）。作業者の見積もりでは、既定の値ノード上限のもとで辞書の件数は最大約 15k〜29k、最悪の CLI 実行は約 4 秒で、そのうち鍵の検査が約 6 割を占めていた。鍵の相異なりの検査 `distinct_e`（`verus/src/input_exec.rs`）を、鍵の併合整列（`verus/src/keysort.rs` の `sort_keys_e`）と隣り合う二つの比較に変えた。比較は O(n log n) 回になり、件数で区切る必要はなくなった（資源の上限は既定のまま）。整列した並べ替えでの判定の正しさは `keysort::sorted_perm_distinct` が示し、`distinct_e` の事後条件は `r == distinct(vks(ks@))`。信頼の境界は `trust-boundary.toml` の `9.input-dict` と `[exec] verified` に書いた。計測（release、`exec`、20000 件、同じ機械で各 2 回）：f1a006d の形 2.39〜2.56 s、今の形 0.98〜1.04 s、出力は両方 59997。Verus は 1389 件・error 0（前は 1371 件）。`tlvm` のテストは debug で 374 件、release で 377 件が通り、失敗は 0 だった。

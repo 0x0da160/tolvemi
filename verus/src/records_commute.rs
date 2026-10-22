@@ -97,6 +97,10 @@ pub open spec fn rsrc(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>
             },
             None => None,
         },
+        Sx::If(c, a, b) => match (rsrc(tb, sc, *c), rsrc(tb, sc, *a), rsrc(tb, sc, *b)) {
+            (Some(x), Some(y), Some(z)) => Some(RExpr::If(Box::new(x), Box::new(y), Box::new(z))),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -271,6 +275,11 @@ proof fn rsrc_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>,
                 rsrc_ws_push(tb, sc, tb[k as int].2, fls, 0);
             }
         },
+        Sx::If(c, a, b) => {
+            rsrc_push(tb, sc, *c);
+            rsrc_push(tb, sc, *a);
+            rsrc_push(tb, sc, *b);
+        },
         _ => {},
     }
 }
@@ -443,6 +452,18 @@ proof fn absent_rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
             if idx(s2, Seq::empty(), 0) is None {
                 idx_props(s2, Seq::empty(), 0);
                 assert(s2[n as int] != Seq::<char>::empty());
+            }
+        },
+        Sx::If(q, a, b) => {
+            if let Some(cq) = rx(fs, tb, false, s2, *q) {
+                if let Some(ca) = rx(fs, tb, false, s2, *a) {
+                    if let Some(cb) = rx(fs, tb, false, s2, *b) {
+                        assert(rsrc(tb, s2, *q) is Some && rsrc(tb, s2, *a) is Some && rsrc(tb, s2, *b) is Some);
+                        absent_rx(fs, tb, sc, *q, cq);
+                        absent_rx(fs, tb, sc, *a, ca);
+                        absent_rx(fs, tb, sc, *b, cb);
+                    }
+                }
             }
         },
         _ => {},
@@ -996,6 +1017,7 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         },
         Sx::Pair(..) => pair_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Fld(..) => fld_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::If(..) => if_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         _ => {},
@@ -1035,6 +1057,59 @@ proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             resolve_sound(p, fs, tb, sc, *a, cenv, renv, x, ra, va);
             resolve_sound(p, fs, tb, sc, *b, cenv, renv, y, rb, vb);
             bs_pair(p, cenv, x, y, vof(va), vof(vb));
+        },
+        _ => {},
+    }
+}
+
+/// if の腕：条件の定理で真偽値を得て、選んだ枝の定理と bs_if。枝の選び方は rmean の if の腕と同じ。
+proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is If,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 2);
+    reveal_with_fuel(rsrc, 2);
+    reveal_with_fuel(rmean, 2);
+    reveal_with_fuel(vof, 2);
+    match e {
+        Sx::If(q, a, b) => {
+            assert(rx(fs, tb, false, sc, *q) is Some && rx(fs, tb, false, sc, *a) is Some && rx(fs, tb, false, sc, *b) is Some);
+            let x = rx(fs, tb, false, sc, *q)->Some_0;
+            let y = rx(fs, tb, false, sc, *a)->Some_0;
+            let z = rx(fs, tb, false, sc, *b)->Some_0;
+            assert(c == Expr::If(Box::new(x), Box::new(y), Box::new(z)));
+            assert(rsrc(tb, sc, *q) is Some && rsrc(tb, sc, *a) is Some && rsrc(tb, sc, *b) is Some);
+            let rq = rsrc(tb, sc, *q)->Some_0;
+            let ra = rsrc(tb, sc, *a)->Some_0;
+            let rb = rsrc(tb, sc, *b)->Some_0;
+            assert(r == RExpr::If(Box::new(rq), Box::new(ra), Box::new(rb)));
+            assert(rmean(renv, rq) is Some);
+            let vq = rmean(renv, rq)->Some_0;
+            resolve_sound(p, fs, tb, sc, *q, cenv, renv, x, rq, vq);
+            match vq {
+                RVal::Bool(true) => {
+                    assert(rmean(renv, ra) == Some(v));
+                    resolve_sound(p, fs, tb, sc, *a, cenv, renv, y, ra, v);
+                    assert(vof(vq) == Val::Bool(true));
+                    bs_if(p, cenv, x, y, z, true, vof(v));
+                },
+                RVal::Bool(false) => {
+                    assert(rmean(renv, rb) == Some(v));
+                    resolve_sound(p, fs, tb, sc, *b, cenv, renv, z, rb, v);
+                    assert(vof(vq) == Val::Bool(false));
+                    bs_if(p, cenv, x, y, z, false, vof(v));
+                },
+                _ => {
+                    assert(false);
+                },
+            }
         },
         _ => {},
     }
