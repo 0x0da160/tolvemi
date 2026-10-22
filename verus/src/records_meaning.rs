@@ -24,6 +24,8 @@ verus! {
 pub enum RVal {
     Int(int),
     Bool(bool),
+    /// 文字（Unicode のスカラー値の整数）。
+    Char(int),
     Unit,
     Pair(Box<RVal>, Box<RVal>),
     Rec(Seq<RVal>),
@@ -33,6 +35,7 @@ pub enum RVal {
 pub enum RExpr {
     Int(int),
     Bool(bool),
+    Char(int),
     Unit,
     Var(nat),
     Pair(Box<RExpr>, Box<RExpr>),
@@ -116,6 +119,7 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
     match e {
         RExpr::Int(i) => Some(RVal::Int(i)),
         RExpr::Bool(b) => Some(RVal::Bool(b)),
+        RExpr::Char(c) => Some(RVal::Char(c)),
         RExpr::Unit => Some(RVal::Unit),
         RExpr::Var(x) => if env.contains_key(x) {
             Some(env[x])

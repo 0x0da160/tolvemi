@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-22
+* **段階 2 の文字の腕（2026-10-22）**：記録と名前の経路の源の意味に、文字の式の一致を足した（`records_meaning.rs` の `RVal::Char`・`RExpr::Char`、`records_commute.rs` の `vof`・`rsrc`・`resolve_sound` の文字の腕）。核の `bs_leaf` が文字を扱うので、証明は一行の補題で済む。`tlvm-verified` は 1706 件・error 0（件数は変わらず）。
 * **段階 2 の let の腕（2026-10-22）**：記録と名前の経路の源の意味に、let の式の一致を足した（`records_meaning.rs` の `RExpr::Let`、`records_commute.rs` の `let_arm`・`absent_at`・`absent_at_let`・`envrel_ins`）。`rsrc` は `rx` と同じ scope で字段の式を写す。記録の基を深い scope で解決するかは、`rx` の基の解決から決める（`deep_rec`）ので、let の番号が `rx` と揃う。初回の検証で `absent_at` が rlimit を超えたので、let の腕を `absent_at_let` に分けた。`tlvm-verified` は 1706 件・error 0（if の腕の後の 1707 件から。置き換えた補題の分だけ減った）。fold、match、呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。
 * **段階 2 の if の腕（2026-10-22）**：記録と名前の経路の源の意味に、if の式の一致を足した（`records_meaning.rs` の `RExpr::If`、`records_commute.rs` の `rsrc` の if の腕と `if_arm`）。`rsrc_push` と `absent_rx` に if の腕を足した（初回の検証で両方が失敗したため）。`tlvm-verified` は 1707 件・error 0（1706 件から）。let、fold、match、呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。
 

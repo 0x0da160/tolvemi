@@ -34,6 +34,7 @@ pub open spec fn vof(v: RVal) -> Val
     match v {
         RVal::Int(i) => Val::Int(i),
         RVal::Bool(b) => Val::Bool(b),
+        RVal::Char(i) => Val::Char(i),
         RVal::Unit => Val::Unit,
         RVal::Pair(a, b) => Val::Pair(Box::new(vof(*a)), Box::new(vof(*b))),
         RVal::Rec(vs) => if vs.len() == 0 {
@@ -69,6 +70,7 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
     match e {
         Sx::Int(n) => Some(RExpr::Int(n)),
         Sx::Bool(b) => Some(RExpr::Bool(b)),
+        Sx::Chr(c) => Some(RExpr::Char(c as u32 as int)),
         Sx::Unit => Some(RExpr::Unit),
         Sx::Var(x) => if x.len() == 0 {
             None
@@ -1001,6 +1003,9 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         },
         Sx::Unit => {
             bs_leaf(p, cenv, Expr::Unit);
+        },
+        Sx::Chr(ch) => {
+            bs_leaf(p, cenv, Expr::Char(ch as u32 as int));
         },
         Sx::Var(x) => {
             assert(x.len() != 0);
