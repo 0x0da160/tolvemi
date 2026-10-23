@@ -1,8 +1,10 @@
 //! 源のレコードの意味（段階 2 の S4a）。展開（pair の入れ子への書き換え）を経由しない、印なしの源の意味。
 //!
 //! 値 `RVal` のレコードは field の値の列（宣言の順）で、pair とは別の値である。式 `RExpr` は記録の断片：
-//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）・fold。field は名前（番号）で書き、構築と参照は
+//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）・fold・組込み。field は名前（番号）で書き、構築と参照は
 //! 持ち主の宣言の名前の列（宣言の順）を添える。位置は宣言の列の中の位置で、名前の解決（resolve.rs）の仕事である。
+//!
+//! 組込みの意味は核の `apply` を、引数の値の写し（`vofs`）に当てたもの。組込みの定義は核と共有し、ここでは定義し直さない。
 //!
 //! 意味 `rmean` は部分関数。名前の規則に違反する形（未知の field、同じ field の重複、書いていない field があるのに
 //! base が無い）と、値を持たない形は None になる。base は書いていない field があるときだけ評価する。全部書いた
@@ -16,6 +18,8 @@
 //!
 //! 証明していないこと：展開（resolve.rs の rx）がこの意味と一致すること（S4b）、印つきの写し、型付け。
 
+use crate::records_proof::rval;
+use crate::spec::*;
 use vstd::prelude::*;
 
 verus! {
@@ -63,6 +67,8 @@ pub enum RExpr {
     List(Seq<RExpr>),
     /// fold(list, init, |acc, item| body)：リスト m、初期値 init、累積の名前 acc と要素の名前 item（核の番号）、本体 body。
     Fold(Box<RExpr>, Box<RExpr>, nat, nat, Box<RExpr>),
+    /// 組込み（引数の式の列）。意味は核の組込みの意味 apply を、引数の源の値の写しに当てたもの（rapply）。
+    Builtin(Builtin, Seq<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -209,6 +215,10 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             },
             _ => None,
         },
+        RExpr::Builtin(b, es) => match rmeans(env, es, 0) {
+            Some(vs) => rapply(b, vs),
+            None => None,
+        },
     }
 }
 
@@ -241,6 +251,87 @@ pub open spec fn rmeans(env: Map<nat, RVal>, es: Seq<RExpr>, i: nat) -> Option<S
             (Some(v), Some(vs)) => Some(seq![v] + vs),
             _ => None,
         }
+    }
+}
+
+/// 源の値を核の値へ写す。レコードは字段の値の列の展開（空の列は Unit。rval は空の列を取らない）。
+pub open spec fn vof(v: RVal) -> Val
+    decreases v, 0nat,
+{
+    match v {
+        RVal::Int(i) => Val::Int(i),
+        RVal::Bool(b) => Val::Bool(b),
+        RVal::Char(i) => Val::Char(i),
+        RVal::None => Val::None,
+        RVal::Some(a) => Val::Some(Box::new(vof(*a))),
+        RVal::List(vs) => Val::List(vofs(vs, 0)),
+        RVal::Unit => Val::Unit,
+        RVal::Pair(a, b) => Val::Pair(Box::new(vof(*a)), Box::new(vof(*b))),
+        RVal::Rec(vs) => if vs.len() == 0 {
+            Val::Unit
+        } else {
+            rval(vofs(vs, 0))
+        },
+    }
+}
+
+/// 値の列 vs の、i 番目から先の写し（字段の値の列とリストの要素の列の両方）。
+pub open spec fn vofs(vs: Seq<RVal>, i: nat) -> Seq<Val>
+    decreases vs, vs.len() - i,
+{
+    if i >= vs.len() {
+        Seq::empty()
+    } else {
+        seq![vof(vs[i as int])] + vofs(vs, i + 1)
+    }
+}
+
+/// 核の値を源の値へ写す（vof の逆）。Ok と err は源の値にない。
+pub open spec fn rof(v: Val) -> Option<RVal>
+    decreases v, 0nat,
+{
+    match v {
+        Val::Int(i) => Some(RVal::Int(i)),
+        Val::Bool(b) => Some(RVal::Bool(b)),
+        Val::Char(i) => Some(RVal::Char(i)),
+        Val::None => Some(RVal::None),
+        Val::Some(a) => match rof(*a) {
+            Some(w) => Some(RVal::Some(Box::new(w))),
+            None => None,
+        },
+        Val::Unit => Some(RVal::Unit),
+        Val::Pair(a, b) => match (rof(*a), rof(*b)) {
+            (Some(wa), Some(wb)) => Some(RVal::Pair(Box::new(wa), Box::new(wb))),
+            _ => None,
+        },
+        Val::List(vs) => match rofs(vs, 0) {
+            Some(ws) => Some(RVal::List(ws)),
+            None => None,
+        },
+        Val::Ok(_) => None,
+        Val::Err(_) => None,
+    }
+}
+
+/// 核の値の列の、i 番目から先の源の値への写し。
+pub open spec fn rofs(vs: Seq<Val>, i: nat) -> Option<Seq<RVal>>
+    decreases vs, vs.len() - i,
+{
+    if i >= vs.len() {
+        Some(Seq::empty())
+    } else {
+        match (rof(vs[i as int]), rofs(vs, i + 1)) {
+            (Some(w), Some(ws)) => Some(seq![w] + ws),
+            _ => None,
+        }
+    }
+}
+
+/// 組込みの源の意味：引数の源の値の写しに、核の組込みの意味 apply を当てる。結果を源の値に写せなければ None。
+pub open spec fn rapply(b: Builtin, vs: Seq<RVal>) -> Option<RVal> {
+    match apply(b, vofs(vs, 0)) {
+        Res::Done(w) => rof(w),
+        _ => None,
     }
 }
 

@@ -1,6 +1,6 @@
 //! 段階 2 の S4b：名前解決（rx、印なし）が源の意味（rmean、S4a）を保つこと（順方向の部分正しさ）。
 //!
-//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match、Fold）を、字段を位置で書いた RExpr に写す（rsrc）。
+//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match、Fold、Builtin）を、字段を位置で書いた RExpr に写す（rsrc）。
 //! 写しは rx と同じ scope で名前を解決する（記録の基の深い scope は rx と同じ判定 deep_rec で決める）。
 //! 宣言の字段の列は pdecl（0、1、…）。定理 `resolve_sound`：rx が核の式 c を返し、rsrc が源の式 r を返し、
 //! rmean(r) が値 v を持つなら、c は vof(v) に評価される。持ち主の型は見ない（部分正しさ）。
@@ -25,38 +25,6 @@ verus! {
 /// 字段の位置の列：宣言の n 個の字段を 0、1、…、n-1 とする（源の字段は宣言の中の位置で書く）。
 pub open spec fn pdecl(n: nat) -> Seq<nat> {
     Seq::new(n, |j: int| j as nat)
-}
-
-/// 源の値を核の値へ写す。レコードは字段の値の列の展開（空の列は Unit。rval は空の列を取らない）。
-pub open spec fn vof(v: RVal) -> Val
-    decreases v, 0nat,
-{
-    match v {
-        RVal::Int(i) => Val::Int(i),
-        RVal::Bool(b) => Val::Bool(b),
-        RVal::Char(i) => Val::Char(i),
-        RVal::None => Val::None,
-        RVal::Some(a) => Val::Some(Box::new(vof(*a))),
-        RVal::List(vs) => Val::List(vofs(vs, 0)),
-        RVal::Unit => Val::Unit,
-        RVal::Pair(a, b) => Val::Pair(Box::new(vof(*a)), Box::new(vof(*b))),
-        RVal::Rec(vs) => if vs.len() == 0 {
-            Val::Unit
-        } else {
-            rval(vofs(vs, 0))
-        },
-    }
-}
-
-/// 字段の値の列 vs の、i 番目から先の写し。
-pub open spec fn vofs(vs: Seq<RVal>, i: nat) -> Seq<Val>
-    decreases vs, vs.len() - i,
-{
-    if i >= vs.len() {
-        Seq::empty()
-    } else {
-        seq![vof(vs[i as int])] + vofs(vs, i + 1)
-    }
 }
 
 /// 核の環境と源の環境：源の環境にある名前ごとに、核の環境にあり、その値が源の値の写しである。
@@ -150,6 +118,10 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
                 (Some(rl), Some(ri), Some(rb)) => Some(RExpr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb))),
                 _ => None,
             }
+        },
+        Sx::Builtin(b, es) => match rsrcs(fs, tb, sc, es, 0) {
+            Some(rs) => Some(RExpr::Builtin(b, rs)),
+            None => None,
         },
         _ => None,
     }
@@ -467,6 +439,7 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
         Sx::List(..) => absent_at_list(fs, tb, t, n, e, c),
         Sx::Str(w) => absent_at_str(n, c, w),
         Sx::Fold(..) => absent_at_fold(fs, tb, t, n, e, c),
+        Sx::Builtin(..) => absent_at_builtin(fs, tb, t, n, e, c),
         Sx::If(q, a, b) => {
             if let Some(cq) = rx(fs, tb, false, t, *q) {
                 if let Some(ca) = rx(fs, tb, false, t, *a) {
@@ -1131,6 +1104,7 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::List(..) => list_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Str(..) => str_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Fold(..) => fold_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Builtin(..) => builtin_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         _ => {},
@@ -1677,6 +1651,87 @@ proof fn vofs_at(vs: Seq<RVal>, k: nat)
     vofs_index(vs, 0, k);
 }
 
+/// 写しの逆：rof が源の値 w を返すなら、w の写しは核の値 v に等しい。
+proof fn rof_vof(v: Val, w: RVal)
+    requires
+        rof(v) == Some(w),
+    ensures
+        vof(w) == v,
+    decreases v, 0nat,
+{
+    reveal_with_fuel(rof, 1);
+    reveal_with_fuel(vof, 1);
+    match v {
+        Val::Some(a) => {
+            assert(rof(*a) is Some);
+            let wa = rof(*a)->Some_0;
+            assert(w == RVal::Some(Box::new(wa)));
+            rof_vof(*a, wa);
+        },
+        Val::Pair(a, b) => {
+            assert(rof(*a) is Some && rof(*b) is Some);
+            let wa = rof(*a)->Some_0;
+            let wb = rof(*b)->Some_0;
+            assert(w == RVal::Pair(Box::new(wa), Box::new(wb)));
+            rof_vof(*a, wa);
+            rof_vof(*b, wb);
+        },
+        Val::List(vs) => {
+            assert(rofs(vs, 0) is Some);
+            let ws = rofs(vs, 0)->Some_0;
+            assert(w == RVal::List(ws));
+            rofs_elts(vs, 0, ws);
+            vofs_eq(ws, vs);
+        },
+        _ => {},
+    }
+}
+
+/// 核の値の列の写し：rofs が源の値の列 ws を返すなら、ws は残りの要素と同じ長さで、要素 k の写しは vs[i + k] に等しい。
+proof fn rofs_elts(vs: Seq<Val>, i: nat, ws: Seq<RVal>)
+    requires
+        i <= vs.len(),
+        rofs(vs, i) == Some(ws),
+    ensures
+        ws.len() as int == vs.len() as int - i as int,
+        forall|k: nat| k < ws.len() ==> vof(#[trigger] ws[k as int]) == vs[(i + k) as int],
+    decreases vs, vs.len() - i,
+{
+    reveal_with_fuel(rofs, 1);
+    if i >= vs.len() {
+        assert(ws == Seq::<RVal>::empty());
+    } else {
+        assert(rof(vs[i as int]) is Some && rofs(vs, i + 1) is Some);
+        let w = rof(vs[i as int])->Some_0;
+        let ws1 = rofs(vs, i + 1)->Some_0;
+        assert(ws == seq![w] + ws1);
+        rof_vof(vs[i as int], w);
+        rofs_elts(vs, i + 1, ws1);
+        assert forall|k: nat| k < ws.len() implies vof(#[trigger] ws[k as int]) == vs[(i + k) as int] by {
+            if k == 0 {
+                assert(ws[0] == w);
+            } else {
+                assert(ws[k as int] == ws1[(k - 1) as int]);
+            }
+        }
+    }
+}
+
+/// 写しの列：要素ごとに写しが一致する源の値の列は、vofs で核の値の列に戻る。
+proof fn vofs_eq(ws: Seq<RVal>, vs: Seq<Val>)
+    requires
+        ws.len() == vs.len(),
+        forall|k: nat| k < ws.len() ==> vof(#[trigger] ws[k as int]) == vs[k as int],
+    ensures
+        vofs(ws, 0) == vs,
+{
+    vofs_len(ws, 0);
+    assert forall|k: int| 0 <= k < vs.len() implies vofs(ws, 0)[k] == vs[k] by {
+        vofs_at(ws, k as nat);
+    }
+    assert(vofs(ws, 0) =~= vs);
+}
+
 /// raccs の性質：列の長さは残りの要素の数より一つ多く、初めは a。段 k の累積は、要素 j + k で本体を評価した値。
 proof fn raccs_props(env: Map<nat, RVal>, acc: nat, item: nat, body: RExpr, items: Seq<RVal>, j: nat, a: RVal, accs: Seq<RVal>)
     requires
@@ -1811,6 +1866,94 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             assert(vofs(accs, 0)[0] == vof(init));
             assert(vof(ml) == Val::List(vofs(items, 0)));
             bs_fold(p, cenv, cl, ci, sc.len(), sc.len() + 1, cb, vofs(items, 0), vof(init), vof(v));
+        },
+        _ => {},
+    }
+}
+
+/// 組込みの名前の位置：引数の式（rx の列）は位置 n を参照も束縛もしない（List の腕と同じ）。
+proof fn absent_at_builtin(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is Builtin,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases e, 0nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 1);
+    match e {
+        Sx::Builtin(b, es) => {
+            assert(rxs(fs, tb, false, t, es, 0) is Some);
+            let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
+            assert(c == Expr::Builtin(b, ces));
+            assert(rsrcs(fs, tb, t, es, 0) is Some);
+            let rs = rsrcs(fs, tb, t, es, 0)->Some_0;
+            rxs_at(fs, tb, t, es, 0, ces);
+            rsrcs_at(fs, tb, t, es, 0, rs);
+            assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, t, #[trigger] es[j as int]) is Some by {
+                assert(rsrc(fs, tb, t, es[(0 + j) as int]) == Some(rs[j as int]));
+            }
+            absent_at_elts(fs, tb, t, n, es, ces, 0);
+            absent_all(n, ces, 0);
+        },
+        _ => {},
+    }
+}
+
+/// 組込みの腕：引数の式の定理（list_elts と args_of）と bs_builtin。核の組込みの結果 w は rof で源の値 v に写り、その写しは w に等しい（rof_vof）。
+proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is Builtin,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    match e {
+        Sx::Builtin(b, es) => {
+            assert(rxs(fs, tb, false, sc, es, 0) is Some);
+            let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
+            assert(c == Expr::Builtin(b, ces));
+            assert(rsrcs(fs, tb, sc, es, 0) is Some);
+            let rs = rsrcs(fs, tb, sc, es, 0)->Some_0;
+            assert(r == RExpr::Builtin(b, rs));
+            assert(rmeans(renv, rs, 0) is Some);
+            let vs = rmeans(renv, rs, 0)->Some_0;
+            assert(rapply(b, vs) == Some(v));
+            assert(apply(b, vofs(vs, 0)) is Done);
+            let w = apply(b, vofs(vs, 0))->Done_0;
+            assert(rof(w) == Some(v));
+            rof_vof(w, v);
+            rxs_at(fs, tb, sc, es, 0, ces);
+            rsrcs_at(fs, tb, sc, es, 0, rs);
+            rmeans_at(renv, rs, 0, vs);
+            assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                assert(rsrc(fs, tb, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
+                assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
+            }
+            list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, 0);
+            args_of(p, cenv, ces, vs, 0);
+            bs_builtin(p, cenv, b, ces, vofs(vs, 0), w);
+            assert(vof(v) == w);
         },
         _ => {},
     }
