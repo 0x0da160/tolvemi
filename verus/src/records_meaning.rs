@@ -1,7 +1,7 @@
 //! 源のレコードの意味（段階 2 の S4a）。展開（pair の入れ子への書き換え）を経由しない、印なしの源の意味。
 //!
 //! 値 `RVal` のレコードは field の値の列（宣言の順）で、pair とは別の値である。式 `RExpr` は記録の断片：
-//! 整数・真偽・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let。field は名前（番号）で書き、構築と参照は
+//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match。field は名前（番号）で書き、構築と参照は
 //! 持ち主の宣言の名前の列（宣言の順）を添える。位置は宣言の列の中の位置で、名前の解決（resolve.rs）の仕事である。
 //!
 //! 意味 `rmean` は部分関数。名前の規則に違反する形（未知の field、同じ field の重複、書いていない field があるのに
@@ -55,6 +55,8 @@ pub enum RExpr {
     If(Box<RExpr>, Box<RExpr>, Box<RExpr>),
     /// let x = a in b：束縛する名前 x（核の番号、rx の sc.len()）、束縛する式 a、本体 b。
     Let(nat, Box<RExpr>, Box<RExpr>),
+    /// match m { none => nb、some x => sb }：走査する式 m、none の枝 nb、束縛する名前 x（核の番号）、some の枝 sb。
+    Match(Box<RExpr>, Box<RExpr>, nat, Box<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -181,6 +183,11 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
         RExpr::Let(x, a, b) => match rmean(env, *a) {
             Some(va) => rmean(env.insert(x, va), *b),
             None => None,
+        },
+        RExpr::Match(m, nb, x, sb) => match rmean(env, *m) {
+            Some(RVal::None) => rmean(env, *nb),
+            Some(RVal::Some(v)) => rmean(env.insert(x, *v), *sb),
+            _ => None,
         },
     }
 }

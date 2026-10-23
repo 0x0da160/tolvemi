@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-23
+* **段階 2 の match の腕（2026-10-23）**：記録と名前の経路の源の意味に、Option の match を足した（`records_meaning.rs` の `RExpr::Match`、`records_commute.rs` の `rsrc` の match の腕、`match_arm`、`absent_at_match`）。走査する式の定理と、none か some の枝の定理と `bs_match` で証明する。some の枝は名前を `sc.len()` の位置に束縛し、環境はその名前に値を足す（let の腕と同じ）。`tlvm-verified` は 1709 件・error 0（1707 件から）。初回の検証で `if_arm` と `match_arm` が rlimit を超えたので、`rx`・`rsrc`・`rmean`・`vof` の reveal を深さ 2 から 1 にした（`absent_at` と同じ）。fold、リストと文字列、組込み、呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。
+
 ## 2026-10-22
 * **段階 2 の none と some の腕（2026-10-22）**：記録と名前の経路の源の意味に、Option の none と some を足した（`records_meaning.rs` の `RVal::None`・`RVal::Some`・`RExpr::None`・`RExpr::Some`、`records_commute.rs` の `some_arm`、`absent_at` の some の腕）。none は核の `bs_leaf` で証明し、some は `bs_some` で証明する。型は値に現れないので、`RExpr::None` は型を持たない（`rsrc` は `to_ty` が通ることだけを見る）。`tlvm-verified` は 1707 件・error 0。
 * **段階 2 の文字の腕（2026-10-22）**：記録と名前の経路の源の意味に、文字の式の一致を足した（`records_meaning.rs` の `RVal::Char`・`RExpr::Char`、`records_commute.rs` の `vof`・`rsrc`・`resolve_sound` の文字の腕）。核の `bs_leaf` が文字を扱うので、証明は一行の補題で済む。`tlvm-verified` は 1706 件・error 0（件数は変わらず）。

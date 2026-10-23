@@ -1,6 +1,6 @@
 //! 段階 2 の S4b：名前解決（rx、印なし）が源の意味（rmean、S4a）を保つこと（順方向の部分正しさ）。
 //!
-//! 源の式 Sx の記録の腕（Int、Bool、Unit、Var、Pair、Fld、Rec、If、Let）を、字段を位置で書いた RExpr に写す（rsrc）。
+//! 源の式 Sx の腕（Int、Bool、Unit、Chr、None、Some、Var、Pair、Fld、Rec、If、Let、Match）を、字段を位置で書いた RExpr に写す（rsrc）。
 //! 写しは rx と同じ scope で名前を解決する（記録の基の深い scope は rx と同じ判定 deep_rec で決める）。
 //! 宣言の字段の列は pdecl（0、1、…）。定理 `resolve_sound`：rx が核の式 c を返し、rsrc が源の式 r を返し、
 //! rmean(r) が値 v を持つなら、c は vof(v) に評価される。持ち主の型は見ない（部分正しさ）。
@@ -126,6 +126,14 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
         } else {
             match (rsrc(fs, tb, sc, *a), rsrc(fs, tb, sc.push(x), *b)) {
                 (Some(ra), Some(rb)) => Some(RExpr::Let(sc.len(), Box::new(ra), Box::new(rb))),
+                _ => None,
+            }
+        },
+        Sx::Match(m, nb, x, sb) => if idx(sc, x, 0) is Some {
+            None
+        } else {
+            match (rsrc(fs, tb, sc, *m), rsrc(fs, tb, sc, *nb), rsrc(fs, tb, sc.push(x), *sb)) {
+                (Some(rm), Some(rn), Some(rb)) => Some(RExpr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb))),
                 _ => None,
             }
         },
@@ -422,6 +430,7 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
             }
         },
         Sx::Let(..) => absent_at_let(fs, tb, t, n, e, c),
+        Sx::Match(..) => absent_at_match(fs, tb, t, n, e, c),
         Sx::If(q, a, b) => {
             if let Some(cq) = rx(fs, tb, false, t, *q) {
                 if let Some(ca) = rx(fs, tb, false, t, *a) {
@@ -438,6 +447,43 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
             if idx(t, Seq::empty(), 0) is None {
                 idx_props(t, Seq::empty(), 0);
                 assert(t[n as int] != Seq::<char>::empty());
+            }
+        },
+        _ => {},
+    }
+}
+
+/// match の腕の名前の位置：走査する式と各枝は、位置 n を参照も束縛もしない。some の枝の scope は一つ長く、位置 n は同じ。
+/// 束縛の名前は sc.len() で、n とは違う（absent_at_let と同じ）。
+proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is Match,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases e, 0nat,
+{
+    reveal_with_fuel(rx, 2);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 2);
+    match e {
+        Sx::Match(m, nb, x, sb) => {
+            assert(idx(t, x, 0) is None);
+            if let Some(cm) = rx(fs, tb, false, t, *m) {
+                if let Some(cn) = rx(fs, tb, false, t, *nb) {
+                    if let Some(cb) = rx(fs, tb, false, t.push(x), *sb) {
+                        assert(rsrc(fs, tb, t, *m) is Some && rsrc(fs, tb, t, *nb) is Some && rsrc(fs, tb, t.push(x), *sb) is Some);
+                        absent_at(fs, tb, t, n, *m, cm);
+                        absent_at(fs, tb, t, n, *nb, cn);
+                        assert(t.push(x)[n as int] == t[n as int]);
+                        absent_at(fs, tb, t.push(x), n, *sb, cb);
+                        assert(c == Expr::Match(Box::new(cm), Box::new(cn), t.len(), Box::new(cb)));
+                        assert(t.len() != n);
+                    }
+                }
             }
         },
         _ => {},
@@ -1044,6 +1090,7 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::Fld(..) => fld_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::If(..) => if_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Let(..) => let_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Match(..) => match_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         _ => {},
@@ -1100,10 +1147,10 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
         evals_to(p, cenv, c, vof(v)),
     decreases e, 1nat,
 {
-    reveal_with_fuel(rx, 2);
-    reveal_with_fuel(rsrc, 2);
-    reveal_with_fuel(rmean, 2);
-    reveal_with_fuel(vof, 2);
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
     match e {
         Sx::If(q, a, b) => {
             assert(rx(fs, tb, false, sc, *q) is Some && rx(fs, tb, false, sc, *a) is Some && rx(fs, tb, false, sc, *b) is Some);
@@ -1175,6 +1222,61 @@ proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
             envrel_ins(cenv, renv, sc.len(), va);
             resolve_sound(p, fs, tb, sc.push(x), *b, cenv.insert(sc.len(), vof(va)), renv.insert(sc.len(), va), cb, rb, v);
             bs_let(p, cenv, sc.len(), ca, cb, vof(va), vof(v));
+        },
+        _ => {},
+    }
+}
+
+/// match の腕（Option の match）：走査する式の定理と、none か some の枝の定理と bs_match。
+/// some の枝は名前 x を sc.len() の位置に束縛し、環境はその名前に値を足す（let の腕と同じ）。
+proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is Match,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::Match(m, nb, x, sb) => {
+            assert(idx(sc, x, 0) is None);
+            assert(rx(fs, tb, false, sc, *m) is Some && rx(fs, tb, false, sc, *nb) is Some && rx(fs, tb, false, sc.push(x), *sb) is Some);
+            let cm = rx(fs, tb, false, sc, *m)->Some_0;
+            let cn = rx(fs, tb, false, sc, *nb)->Some_0;
+            let cb = rx(fs, tb, false, sc.push(x), *sb)->Some_0;
+            assert(c == Expr::Match(Box::new(cm), Box::new(cn), sc.len(), Box::new(cb)));
+            assert(rsrc(fs, tb, sc, *m) is Some && rsrc(fs, tb, sc, *nb) is Some && rsrc(fs, tb, sc.push(x), *sb) is Some);
+            let rm = rsrc(fs, tb, sc, *m)->Some_0;
+            let rn = rsrc(fs, tb, sc, *nb)->Some_0;
+            let rb = rsrc(fs, tb, sc.push(x), *sb)->Some_0;
+            assert(r == RExpr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb)));
+            assert(rmean(renv, rm) is Some);
+            let mv = rmean(renv, rm)->Some_0;
+            assert(rmean(renv, rm) == Some(mv));
+            resolve_sound(p, fs, tb, sc, *m, cenv, renv, cm, rm, mv);
+            match mv {
+                RVal::None => {
+                    assert(rmean(renv, rn) == Some(v));
+                    resolve_sound(p, fs, tb, sc, *nb, cenv, renv, cn, rn, v);
+                    bs_match(p, cenv, cm, cn, sc.len(), cb, vof(mv), vof(v));
+                },
+                RVal::Some(w) => {
+                    assert(rmean(renv.insert(sc.len(), *w), rb) == Some(v));
+                    envrel_ins(cenv, renv, sc.len(), *w);
+                    resolve_sound(p, fs, tb, sc.push(x), *sb, cenv.insert(sc.len(), vof(*w)), renv.insert(sc.len(), *w), cb, rb, v);
+                    bs_match(p, cenv, cm, cn, sc.len(), cb, vof(mv), vof(v));
+                },
+                _ => {
+                    assert(false);
+                },
+            }
         },
         _ => {},
     }
