@@ -1,7 +1,7 @@
 //! 源のレコードの意味（段階 2 の S4a）。展開（pair の入れ子への書き換え）を経由しない、印なしの源の意味。
 //!
 //! 値 `RVal` のレコードは field の値の列（宣言の順）で、pair とは別の値である。式 `RExpr` は記録の断片：
-//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）。field は名前（番号）で書き、構築と参照は
+//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）・fold。field は名前（番号）で書き、構築と参照は
 //! 持ち主の宣言の名前の列（宣言の順）を添える。位置は宣言の列の中の位置で、名前の解決（resolve.rs）の仕事である。
 //!
 //! 意味 `rmean` は部分関数。名前の規則に違反する形（未知の field、同じ field の重複、書いていない field があるのに
@@ -61,6 +61,8 @@ pub enum RExpr {
     Match(Box<RExpr>, Box<RExpr>, nat, Box<RExpr>),
     /// リスト（要素の式の列）。型は値に現れないので持たない。文字列は文字の式の列。
     List(Seq<RExpr>),
+    /// fold(list, init, |acc, item| body)：リスト m、初期値 init、累積の名前 acc と要素の名前 item（核の番号）、本体 body。
+    Fold(Box<RExpr>, Box<RExpr>, nat, nat, Box<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -197,6 +199,34 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             Some(vs) => Some(RVal::List(vs)),
             None => None,
         },
+        RExpr::Fold(l, i, acc, item, body) => match rmean(env, *l) {
+            Some(RVal::List(items)) => match rmean(env, *i) {
+                Some(a) => match raccs(env, acc, item, *body, items, 0, a) {
+                    Some(accs) => Some(accs[(accs.len() - 1) as int]),
+                    None => None,
+                },
+                None => None,
+            },
+            _ => None,
+        },
+    }
+}
+
+/// 畳み込みの累積の列（核の eval_fold と同じ段）：位置 j から先の要素を順に、累積と要素で本体を評価する。
+/// 結果は初めの累積 a から始まり、段ごとの累積が続く（最後が畳み込みの結果）。
+pub open spec fn raccs(env: Map<nat, RVal>, acc: nat, item: nat, body: RExpr, items: Seq<RVal>, j: nat, a: RVal) -> Option<Seq<RVal>>
+    decreases body, items.len() - j,
+{
+    if j >= items.len() {
+        Some(seq![a])
+    } else {
+        match rmean(env.insert(acc, a).insert(item, items[j as int]), body) {
+            Some(v) => match raccs(env, acc, item, body, items, j + 1, v) {
+                Some(rest) => Some(seq![a] + rest),
+                None => None,
+            },
+            None => None,
+        }
     }
 }
 

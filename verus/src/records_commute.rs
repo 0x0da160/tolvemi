@@ -1,6 +1,6 @@
 //! 段階 2 の S4b：名前解決（rx、印なし）が源の意味（rmean、S4a）を保つこと（順方向の部分正しさ）。
 //!
-//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match）を、字段を位置で書いた RExpr に写す（rsrc）。
+//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match、Fold）を、字段を位置で書いた RExpr に写す（rsrc）。
 //! 写しは rx と同じ scope で名前を解決する（記録の基の深い scope は rx と同じ判定 deep_rec で決める）。
 //! 宣言の字段の列は pdecl（0、1、…）。定理 `resolve_sound`：rx が核の式 c を返し、rsrc が源の式 r を返し、
 //! rmean(r) が値 v を持つなら、c は vof(v) に評価される。持ち主の型は見ない（部分正しさ）。
@@ -143,6 +143,14 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
             _ => None,
         },
         Sx::Str(w) => Some(RExpr::List(rstrs(w))),
+        Sx::Fold(l, i, a, x, b) => if a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some {
+            None
+        } else {
+            match (rsrc(fs, tb, sc, *l), rsrc(fs, tb, sc, *i), rsrc(fs, tb, sc.push(a).push(x), *b)) {
+                (Some(rl), Some(ri), Some(rb)) => Some(RExpr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb))),
+                _ => None,
+            }
+        },
         _ => None,
     }
 }
@@ -458,6 +466,7 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
         Sx::Match(..) => absent_at_match(fs, tb, t, n, e, c),
         Sx::List(..) => absent_at_list(fs, tb, t, n, e, c),
         Sx::Str(w) => absent_at_str(n, c, w),
+        Sx::Fold(..) => absent_at_fold(fs, tb, t, n, e, c),
         Sx::If(q, a, b) => {
             if let Some(cq) = rx(fs, tb, false, t, *q) {
                 if let Some(ca) = rx(fs, tb, false, t, *a) {
@@ -716,6 +725,7 @@ proof fn pos_contains(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
 
 /// 書いた字段の式は、その字段の値を写す（字段の解決の定理を、字段の式に使う）。
 /// 基を let で束縛する深い scope では、字段の式は基の名前（sc.len()）を参照も束縛もしない。
+#[verifier::rlimit(100)]
 proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, deep: bool, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, m: Map<nat, RVal>, q: int)
     requires
         envrel(cenv, renv),
@@ -1120,6 +1130,7 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::Match(..) => match_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::List(..) => list_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Str(..) => str_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Fold(..) => fold_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         _ => {},
@@ -1219,6 +1230,7 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 
 /// let の腕：束縛の式の定理と、本体の定理（名前は sc.len() の位置、環境はその名前に値を足す）。
 /// 本体は scope に名前 x を足して解決し、その位置は sc.len() なので、環境の名前 sc.len() に値を足して読む。
+#[verifier::rlimit(100)]
 proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
         envrel(cenv, renv),
@@ -1621,6 +1633,189 @@ proof fn str_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
     }
 }
 
+/// vofs の長さ：位置 i から先の要素の数。
+proof fn vofs_len(vs: Seq<RVal>, i: nat)
+    requires
+        i <= vs.len(),
+    ensures
+        vofs(vs, i).len() as int == vs.len() as int - i as int,
+    decreases vs.len() - i,
+{
+    reveal_with_fuel(vofs, 1);
+    if i < vs.len() {
+        vofs_len(vs, i + 1);
+    }
+}
+
+/// vofs の k 番目（位置 i から数えて k - i 番目）は、源の要素 k の写し。
+proof fn vofs_index(vs: Seq<RVal>, i: nat, k: nat)
+    requires
+        i <= k,
+        k < vs.len(),
+    ensures
+        vofs(vs, i)[(k - i) as int] == vof(vs[k as int]),
+    decreases vs.len() - i,
+{
+    reveal_with_fuel(vofs, 1);
+    assert(vofs(vs, i) == seq![vof(vs[i as int])] + vofs(vs, i + 1));
+    if i < k {
+        vofs_index(vs, i + 1, k);
+        vofs_len(vs, i + 1);
+        assert(vofs(vs, i)[(k - i) as int] == vofs(vs, i + 1)[(k - i - 1) as int]);
+    } else {
+        assert(vofs(vs, i)[0] == vof(vs[i as int]));
+    }
+}
+
+/// 位置 0 からの vofs の k 番目は、源の要素 k の写し。
+proof fn vofs_at(vs: Seq<RVal>, k: nat)
+    requires
+        k < vs.len(),
+    ensures
+        vofs(vs, 0)[k as int] == vof(vs[k as int]),
+{
+    vofs_index(vs, 0, k);
+}
+
+/// raccs の性質：列の長さは残りの要素の数より一つ多く、初めは a。段 k の累積は、要素 j + k で本体を評価した値。
+proof fn raccs_props(env: Map<nat, RVal>, acc: nat, item: nat, body: RExpr, items: Seq<RVal>, j: nat, a: RVal, accs: Seq<RVal>)
+    requires
+        j <= items.len(),
+        raccs(env, acc, item, body, items, j, a) == Some(accs),
+    ensures
+        accs.len() as int == items.len() as int - j as int + 1,
+        accs[0] == a,
+        forall|k: nat| (k as int) < (items.len() as int - j as int) ==> rmean(env.insert(acc, #[trigger] accs[k as int]).insert(item, items[(j + k) as int]), body) == Some(accs[(k + 1) as int]),
+    decreases body, items.len() - j,
+{
+    reveal_with_fuel(raccs, 1);
+    if j < items.len() {
+        let v = rmean(env.insert(acc, a).insert(item, items[j as int]), body)->Some_0;
+        assert(rmean(env.insert(acc, a).insert(item, items[j as int]), body) == Some(v));
+        let rest = raccs(env, acc, item, body, items, j + 1, v)->Some_0;
+        assert(accs == seq![a] + rest);
+        raccs_props(env, acc, item, body, items, j + 1, v, rest);
+        assert(rest[0] == v);
+        assert forall|k: nat| (k as int) < (items.len() as int - j as int) implies rmean(env.insert(acc, #[trigger] accs[k as int]).insert(item, items[(j + k) as int]), body) == Some(accs[(k + 1) as int]) by {
+            if k == 0 {
+                assert(accs[0] == a);
+                assert(accs[1] == rest[0]);
+            } else {
+                assert(accs[k as int] == rest[(k - 1) as int]);
+                assert(accs[(k + 1) as int] == rest[k as int]);
+                assert(rmean(env.insert(acc, rest[(k - 1) as int]).insert(item, items[((j + 1) + (k - 1)) as int]), body) == Some(rest[k as int]));
+            }
+        }
+    } else {
+        assert(accs == seq![a]);
+    }
+}
+
+/// Fold の腕の名前の位置：累積と要素の名前は sc.len() と sc.len() + 1（n と違う）。列、初期値、本体は n を参照も束縛もしない。
+proof fn absent_at_fold(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is Fold,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases e, 0nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 1);
+    match e {
+        Sx::Fold(l, i, a, x, b) => {
+            assert(a != x && idx(t, a, 0) is None && idx(t, x, 0) is None);
+            assert(rx(fs, tb, false, t, *l) is Some && rx(fs, tb, false, t, *i) is Some && rx(fs, tb, false, t.push(a).push(x), *b) is Some);
+            let cl = rx(fs, tb, false, t, *l)->Some_0;
+            let ci = rx(fs, tb, false, t, *i)->Some_0;
+            let cb = rx(fs, tb, false, t.push(a).push(x), *b)->Some_0;
+            assert(c == Expr::Fold(Box::new(cl), Box::new(ci), t.len(), t.len() + 1, Box::new(cb)));
+            assert(rsrc(fs, tb, t, *l) is Some && rsrc(fs, tb, t, *i) is Some && rsrc(fs, tb, t.push(a).push(x), *b) is Some);
+            assert(t.push(a)[n as int] == t[n as int]);
+            assert(t.push(a).push(x)[n as int] == t[n as int]);
+            absent_at(fs, tb, t, n, *l, cl);
+            absent_at(fs, tb, t, n, *i, ci);
+            absent_at(fs, tb, t.push(a).push(x), n, *b, cb);
+            assert(t.len() != n);
+            assert(t.len() + 1 != n);
+        },
+        _ => {},
+    }
+}
+
+/// fold の腕：列と初期値の定理（resolve_sound）、累積の列（raccs）の各段の本体の定理（resolve_sound を段に当てる）、
+/// fold_from_each と bs_fold。累積と要素の名前は sc.len() と sc.len() + 1（rx と同じ番号）。
+proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is Fold,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::Fold(l, i, a, x, b) => {
+            assert(a != x && idx(sc, a, 0) is None && idx(sc, x, 0) is None);
+            assert(rx(fs, tb, false, sc, *l) is Some && rx(fs, tb, false, sc, *i) is Some && rx(fs, tb, false, sc.push(a).push(x), *b) is Some);
+            let cl = rx(fs, tb, false, sc, *l)->Some_0;
+            let ci = rx(fs, tb, false, sc, *i)->Some_0;
+            let cb = rx(fs, tb, false, sc.push(a).push(x), *b)->Some_0;
+            assert(c == Expr::Fold(Box::new(cl), Box::new(ci), sc.len(), sc.len() + 1, Box::new(cb)));
+            assert(rsrc(fs, tb, sc, *l) is Some && rsrc(fs, tb, sc, *i) is Some && rsrc(fs, tb, sc.push(a).push(x), *b) is Some);
+            let rl = rsrc(fs, tb, sc, *l)->Some_0;
+            let ri = rsrc(fs, tb, sc, *i)->Some_0;
+            let rb = rsrc(fs, tb, sc.push(a).push(x), *b)->Some_0;
+            assert(r == RExpr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb)));
+            assert(rmean(renv, rl) is Some);
+            let ml = rmean(renv, rl)->Some_0;
+            assert(ml is List);
+            let items = ml->List_0;
+            assert(rmean(renv, ri) is Some);
+            let init = rmean(renv, ri)->Some_0;
+            assert(raccs(renv, sc.len(), sc.len() + 1, rb, items, 0, init) is Some);
+            let accs = raccs(renv, sc.len(), sc.len() + 1, rb, items, 0, init)->Some_0;
+            assert(v == accs[(accs.len() - 1) as int]);
+            resolve_sound(p, fs, tb, sc, *l, cenv, renv, cl, rl, ml);
+            resolve_sound(p, fs, tb, sc, *i, cenv, renv, ci, ri, init);
+            raccs_props(renv, sc.len(), sc.len() + 1, rb, items, 0, init, accs);
+            assert forall|k: nat| (k as int) < items.len() implies evals_to(p, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), cb, vof(accs[(k + 1) as int])) by {
+                envrel_ins(cenv, renv, sc.len(), accs[k as int]);
+                envrel_ins(cenv.insert(sc.len(), vof(accs[k as int])), renv.insert(sc.len(), accs[k as int]), sc.len() + 1, items[k as int]);
+                assert(rmean(renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), rb) == Some(accs[(k + 1) as int]));
+                resolve_sound(p, fs, tb, sc.push(a).push(x), *b, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), cb, rb, accs[(k + 1) as int]);
+            }
+            vofs_len(accs, 0);
+            vofs_len(items, 0);
+            assert(vofs(accs, 0).len() == items.len() + 1);
+            assert forall|k: int| 0 <= k < vofs(items, 0).len() implies evals_to(p, cenv.insert(sc.len(), vofs(accs, 0)[k]).insert(sc.len() + 1, vofs(items, 0)[k]), cb, vofs(accs, 0)[k + 1]) by {
+                vofs_at(accs, k as nat);
+                vofs_at(accs, (k + 1) as nat);
+                vofs_at(items, k as nat);
+                assert(evals_to(p, cenv.insert(sc.len(), vof(accs[k])).insert(sc.len() + 1, vof(items[k])), cb, vof(accs[k + 1])));
+            }
+            fold_from_each(p, cenv, sc.len(), sc.len() + 1, cb, vofs(items, 0), vofs(accs, 0), 0);
+            vofs_at(accs, 0);
+            vofs_at(accs, items.len());
+            assert(accs[items.len() as int] == v);
+            assert(vofs(accs, 0)[0] == vof(init));
+            assert(vof(ml) == Val::List(vofs(items, 0)));
+            bs_fold(p, cenv, cl, ci, sc.len(), sc.len() + 1, cb, vofs(items, 0), vof(init), vof(v));
+        },
+        _ => {},
+    }
+}
+
 /// some の腕：中の式の定理と bs_some。
 proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
@@ -1729,6 +1924,7 @@ proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
 
 /// 基ありの記録の腕：基を解決して形を取り出し、基の定理と字段の定理を使う（rec_some_arm）。
 /// 字段の写しは、基の解決の深さ（rx と同じ deep_rec）の scope で行う。
+#[verifier::rlimit(100)]
 proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
         envrel(cenv, renv),
