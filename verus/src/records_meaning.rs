@@ -1,7 +1,7 @@
 //! 源のレコードの意味（段階 2 の S4a）。展開（pair の入れ子への書き換え）を経由しない、印なしの源の意味。
 //!
 //! 値 `RVal` のレコードは field の値の列（宣言の順）で、pair とは別の値である。式 `RExpr` は記録の断片：
-//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match。field は名前（番号）で書き、構築と参照は
+//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）。field は名前（番号）で書き、構築と参照は
 //! 持ち主の宣言の名前の列（宣言の順）を添える。位置は宣言の列の中の位置で、名前の解決（resolve.rs）の仕事である。
 //!
 //! 意味 `rmean` は部分関数。名前の規則に違反する形（未知の field、同じ field の重複、書いていない field があるのに
@@ -33,6 +33,8 @@ pub enum RVal {
     Unit,
     Pair(Box<RVal>, Box<RVal>),
     Rec(Seq<RVal>),
+    /// リスト（要素の値の列）。文字列は文字の列。
+    List(Seq<RVal>),
 }
 
 /// 源の式（レコードの断片）。field は名前（番号）で書く。構築と参照は持ち主の宣言の名前の列 decl を添える。
@@ -57,6 +59,8 @@ pub enum RExpr {
     Let(nat, Box<RExpr>, Box<RExpr>),
     /// match m { none => nb、some x => sb }：走査する式 m、none の枝 nb、束縛する名前 x（核の番号）、some の枝 sb。
     Match(Box<RExpr>, Box<RExpr>, nat, Box<RExpr>),
+    /// リスト（要素の式の列）。型は値に現れないので持たない。文字列は文字の式の列。
+    List(Seq<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -189,6 +193,24 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             Some(RVal::Some(v)) => rmean(env.insert(x, *v), *sb),
             _ => None,
         },
+        RExpr::List(es) => match rmeans(env, es, 0) {
+            Some(vs) => Some(RVal::List(vs)),
+            None => None,
+        },
+    }
+}
+
+/// 式の列の意味（位置 i から先）：要素の意味を順に取り、どれか一つでも値を持たなければ None。rxs と同じ形。
+pub open spec fn rmeans(env: Map<nat, RVal>, es: Seq<RExpr>, i: nat) -> Option<Seq<RVal>>
+    decreases es, es.len() - i,
+{
+    if i >= es.len() {
+        Some(Seq::empty())
+    } else {
+        match (rmean(env, es[i as int]), rmeans(env, es, i + 1)) {
+            (Some(v), Some(vs)) => Some(seq![v] + vs),
+            _ => None,
+        }
     }
 }
 

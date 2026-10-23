@@ -1,6 +1,6 @@
 //! 段階 2 の S4b：名前解決（rx、印なし）が源の意味（rmean、S4a）を保つこと（順方向の部分正しさ）。
 //!
-//! 源の式 Sx の腕（Int、Bool、Unit、Chr、None、Some、Var、Pair、Fld、Rec、If、Let、Match）を、字段を位置で書いた RExpr に写す（rsrc）。
+//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match）を、字段を位置で書いた RExpr に写す（rsrc）。
 //! 写しは rx と同じ scope で名前を解決する（記録の基の深い scope は rx と同じ判定 deep_rec で決める）。
 //! 宣言の字段の列は pdecl（0、1、…）。定理 `resolve_sound`：rx が核の式 c を返し、rsrc が源の式 r を返し、
 //! rmean(r) が値 v を持つなら、c は vof(v) に評価される。持ち主の型は見ない（部分正しさ）。
@@ -37,6 +37,7 @@ pub open spec fn vof(v: RVal) -> Val
         RVal::Char(i) => Val::Char(i),
         RVal::None => Val::None,
         RVal::Some(a) => Val::Some(Box::new(vof(*a))),
+        RVal::List(vs) => Val::List(vofs(vs, 0)),
         RVal::Unit => Val::Unit,
         RVal::Pair(a, b) => Val::Pair(Box::new(vof(*a)), Box::new(vof(*b))),
         RVal::Rec(vs) => if vs.len() == 0 {
@@ -137,8 +138,32 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
                 _ => None,
             }
         },
+        Sx::List(ty, es) => match (to_ty(ty, tb, false), rsrcs(fs, tb, sc, es, 0)) {
+            (Some(_), Some(rs)) => Some(RExpr::List(rs)),
+            _ => None,
+        },
+        Sx::Str(w) => Some(RExpr::List(rstrs(w))),
         _ => None,
     }
+}
+
+/// 式の列の写し（位置 i から先）：rxs と同じ形で、要素ごとに rsrc を取る。
+pub open spec fn rsrcs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<RExpr>>
+    decreases es, es.len() - i,
+{
+    if i >= es.len() {
+        Some(Seq::empty())
+    } else {
+        match (rsrc(fs, tb, sc, es[i as int]), rsrcs(fs, tb, sc, es, i + 1)) {
+            (Some(r), Some(rs)) => Some(seq![r] + rs),
+            _ => None,
+        }
+    }
+}
+
+/// 文字列の写し：文字の式の列（rx の str_exprs と同じ形）。
+pub open spec fn rstrs(w: Seq<char>) -> Seq<RExpr> {
+    Seq::new(w.len(), |i: int| RExpr::Char(w[i] as u32 as int))
 }
 
 /// 字段の列の写し（i から先）：字段 f の位置 idx(decl, f) と、その式の写し。
@@ -431,6 +456,8 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
         },
         Sx::Let(..) => absent_at_let(fs, tb, t, n, e, c),
         Sx::Match(..) => absent_at_match(fs, tb, t, n, e, c),
+        Sx::List(..) => absent_at_list(fs, tb, t, n, e, c),
+        Sx::Str(w) => absent_at_str(n, c, w),
         Sx::If(q, a, b) => {
             if let Some(cq) = rx(fs, tb, false, t, *q) {
                 if let Some(ca) = rx(fs, tb, false, t, *a) {
@@ -1091,6 +1118,8 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::If(..) => if_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Let(..) => let_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Match(..) => match_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::List(..) => list_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Str(..) => str_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
         _ => {},
@@ -1277,6 +1306,316 @@ proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
                     assert(false);
                 },
             }
+        },
+        _ => {},
+    }
+}
+
+/// rxs の位置 i からの列：列の k 番目は、源の位置 i + k の式の写し（rx と同じ scope）。
+proof fn rxs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, ces: Seq<Expr>)
+    requires
+        i <= es.len(),
+        rxs(fs, tb, false, sc, es, i) == Some(ces),
+    ensures
+        ces.len() as int == es.len() as int - i as int,
+        forall|k: nat| k < ces.len() ==> rx(fs, tb, false, sc, #[trigger] es[(i + k) as int]) == Some(ces[k as int]),
+    decreases es.len() - i,
+{
+    reveal_with_fuel(rxs, 1);
+    if i < es.len() {
+        assert(rx(fs, tb, false, sc, es[i as int]) is Some && rxs(fs, tb, false, sc, es, i + 1) is Some);
+        let x = rx(fs, tb, false, sc, es[i as int])->Some_0;
+        let xs = rxs(fs, tb, false, sc, es, i + 1)->Some_0;
+        assert(ces == seq![x] + xs);
+        rxs_at(fs, tb, sc, es, i + 1, xs);
+        assert forall|k: nat| k < ces.len() implies rx(fs, tb, false, sc, #[trigger] es[(i + k) as int]) == Some(ces[k as int]) by {
+            if k == 0 {
+                assert(ces[0] == x);
+            } else {
+                assert(rx(fs, tb, false, sc, es[((i + 1) + (k - 1)) as int]) == Some(xs[(k - 1) as int]));
+                assert(ces[k as int] == xs[(k - 1) as int]);
+            }
+        }
+    } else {
+        assert(ces == Seq::<Expr>::empty());
+    }
+}
+
+/// rsrcs の位置 i からの列：列の k 番目は、源の位置 i + k の式の写し。
+proof fn rsrcs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, rs: Seq<RExpr>)
+    requires
+        i <= es.len(),
+        rsrcs(fs, tb, sc, es, i) == Some(rs),
+    ensures
+        rs.len() as int == es.len() as int - i as int,
+        forall|k: nat| k < rs.len() ==> rsrc(fs, tb, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]),
+    decreases es.len() - i,
+{
+    reveal_with_fuel(rsrcs, 1);
+    if i < es.len() {
+        assert(rsrc(fs, tb, sc, es[i as int]) is Some && rsrcs(fs, tb, sc, es, i + 1) is Some);
+        let r = rsrc(fs, tb, sc, es[i as int])->Some_0;
+        let rr = rsrcs(fs, tb, sc, es, i + 1)->Some_0;
+        assert(rs == seq![r] + rr);
+        rsrcs_at(fs, tb, sc, es, i + 1, rr);
+        assert forall|k: nat| k < rs.len() implies rsrc(fs, tb, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]) by {
+            if k == 0 {
+                assert(rs[0] == r);
+            } else {
+                assert(rsrc(fs, tb, sc, es[((i + 1) + (k - 1)) as int]) == Some(rr[(k - 1) as int]));
+                assert(rs[k as int] == rr[(k - 1) as int]);
+            }
+        }
+    } else {
+        assert(rs == Seq::<RExpr>::empty());
+    }
+}
+
+/// rmeans の位置 i からの列：列の k 番目は、位置 i + k の式の意味。
+proof fn rmeans_at(env: Map<nat, RVal>, rs: Seq<RExpr>, i: nat, vs: Seq<RVal>)
+    requires
+        i <= rs.len(),
+        rmeans(env, rs, i) == Some(vs),
+    ensures
+        vs.len() as int == rs.len() as int - i as int,
+        forall|k: nat| k < vs.len() ==> rmean(env, #[trigger] rs[(i + k) as int]) == Some(vs[k as int]),
+    decreases rs.len() - i,
+{
+    reveal_with_fuel(rmeans, 1);
+    if i < rs.len() {
+        assert(rmean(env, rs[i as int]) is Some && rmeans(env, rs, i + 1) is Some);
+        let v = rmean(env, rs[i as int])->Some_0;
+        let vv = rmeans(env, rs, i + 1)->Some_0;
+        assert(vs == seq![v] + vv);
+        rmeans_at(env, rs, i + 1, vv);
+        assert forall|k: nat| k < vs.len() implies rmean(env, #[trigger] rs[(i + k) as int]) == Some(vs[k as int]) by {
+            if k == 0 {
+                assert(vs[0] == v);
+            } else {
+                assert(rmean(env, rs[((i + 1) + (k - 1)) as int]) == Some(vv[(k - 1) as int]));
+                assert(vs[k as int] == vv[(k - 1) as int]);
+            }
+        }
+    } else {
+        assert(vs == Seq::<RVal>::empty());
+    }
+}
+
+/// 列の要素ごとの定理：k から先の要素 j は、核の式 ces[j] が vof(vs[j]) に評価される（resolve_sound を要素に当てる）。
+proof fn list_elts(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, ces: Seq<Expr>, rs: Seq<RExpr>, vs: Seq<RVal>, k: nat)
+    requires
+        envrel(cenv, renv),
+        ces.len() == es.len(),
+        rs.len() == es.len(),
+        vs.len() == es.len(),
+        forall|j: nat| j < es.len() ==> rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]),
+        forall|j: nat| j < es.len() ==> rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]),
+        forall|j: nat| j < es.len() ==> rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]),
+    ensures
+        forall|j: nat| k <= j < es.len() ==> evals_to(p, cenv, #[trigger] ces[j as int], vof(vs[j as int])),
+    decreases es, es.len() - k,
+{
+    if k < es.len() {
+        resolve_sound(p, fs, tb, sc, es[k as int], cenv, renv, ces[k as int], rs[k as int], vs[k as int]);
+        list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, k + 1);
+    }
+}
+
+/// 引数の列：要素 j（k から先）が vof(vs[j]) に評価されれば、位置 k からの引数の列は vofs(vs, k) に評価される。
+proof fn args_of(p: Prog, env: Map<nat, Val>, ces: Seq<Expr>, vs: Seq<RVal>, k: nat)
+    requires
+        ces.len() == vs.len(),
+        forall|j: nat| k <= j < ces.len() ==> evals_to(p, env, #[trigger] ces[j as int], vof(vs[j as int])),
+    ensures
+        args_to(p, env, ces, k, vofs(vs, k)),
+    decreases ces.len() - k,
+{
+    reveal_with_fuel(vofs, 1);
+    reveal_with_fuel(eval_args, 1);
+    if k >= ces.len() {
+        assert(eval_args(p, 1, env, ces, k) == ResSeq::Done(Seq::<Val>::empty()));
+        assert(vofs(vs, k) == Seq::<Val>::empty());
+    } else {
+        args_of(p, env, ces, vs, k + 1);
+        assert(evals_to(p, env, ces[k as int], vof(vs[k as int])));
+        assert(args_to(p, env, ces, k + 1, vofs(vs, k + 1)));
+        let n1 = choose|n: nat| #[trigger] eval(p, n, env, ces[k as int]) == Res::Done(vof(vs[k as int]));
+        let n2 = choose|n: nat| #[trigger] eval_args(p, n, env, ces, k + 1) == ResSeq::Done(vofs(vs, k + 1));
+        let n = max(n1, n2);
+        lift(p, n1, n, env, ces[k as int]);
+        mono_args(p, n2, n, env, ces, k + 1);
+        assert(eval_args(p, n + 1, env, ces, k) == ResSeq::Done(seq![vof(vs[k as int])] + vofs(vs, k + 1)));
+        assert(vofs(vs, k) == seq![vof(vs[k as int])] + vofs(vs, k + 1));
+    }
+}
+
+/// 要素ごとの名前の位置：k から先の要素 j は、位置 n を参照も束縛もしない（absent_at を要素に当てる）。
+proof fn absent_at_elts(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, es: Seq<Sx>, ces: Seq<Expr>, k: nat)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        ces.len() == es.len(),
+        forall|j: nat| j < es.len() ==> rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]),
+        forall|j: nat| j < es.len() ==> rsrc(fs, tb, t, #[trigger] es[j as int]) is Some,
+    ensures
+        forall|j: nat| k <= j < es.len() ==> absent(n, #[trigger] ces[j as int]),
+    decreases es, es.len() - k,
+{
+    if k < es.len() {
+        absent_at(fs, tb, t, n, es[k as int], ces[k as int]);
+        absent_at_elts(fs, tb, t, n, es, ces, k + 1);
+    }
+}
+
+/// 引数の列の名前の位置：要素ごとに absent なら、列の absent_args は真。
+proof fn absent_all(n: nat, ces: Seq<Expr>, k: nat)
+    requires
+        forall|j: nat| k <= j < ces.len() ==> absent(n, #[trigger] ces[j as int]),
+    ensures
+        absent_args(n, ces, k),
+    decreases ces.len() - k,
+{
+    reveal_with_fuel(absent_args, 1);
+    if k < ces.len() {
+        absent_all(n, ces, k + 1);
+    }
+}
+
+/// List の腕の名前の位置：要素の式（rx の列）は位置 n を参照も束縛もしない。
+proof fn absent_at_list(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is List,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases e, 0nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 1);
+    match e {
+        Sx::List(ty, es) => {
+            assert(to_ty(ty, tb, false) is Some && rxs(fs, tb, false, t, es, 0) is Some);
+            let u = to_ty(ty, tb, false)->Some_0;
+            let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
+            assert(c == Expr::List(u, ces));
+            assert(rsrcs(fs, tb, t, es, 0) is Some);
+            let rs = rsrcs(fs, tb, t, es, 0)->Some_0;
+            rxs_at(fs, tb, t, es, 0, ces);
+            rsrcs_at(fs, tb, t, es, 0, rs);
+            assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, t, #[trigger] es[j as int]) is Some by {
+                assert(rsrc(fs, tb, t, es[(0 + j) as int]) == Some(rs[j as int]));
+            }
+            absent_at_elts(fs, tb, t, n, es, ces, 0);
+            absent_all(n, ces, 0);
+        },
+        _ => {},
+    }
+}
+
+/// 文字列の名前の位置：文字の式は参照も束縛もしない。
+proof fn absent_at_str(n: nat, c: Expr, w: Seq<char>)
+    requires
+        c == Expr::List(Ty::Char, str_exprs(w)),
+    ensures
+        absent(n, c),
+{
+    reveal_with_fuel(absent, 1);
+    assert forall|j: nat| j < str_exprs(w).len() implies absent(n, #[trigger] str_exprs(w)[j as int]) by {
+        assert(str_exprs(w)[j as int] == Expr::Char(w[j as int] as u32 as int));
+    }
+    absent_all(n, str_exprs(w), 0);
+}
+
+/// list の腕：要素ごとの定理（list_elts）と引数の列（args_of）と bs_list。要素の写しは位置 0 からの列。
+proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is List,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::List(ty, es) => {
+            assert(to_ty(ty, tb, false) is Some && rxs(fs, tb, false, sc, es, 0) is Some);
+            let u = to_ty(ty, tb, false)->Some_0;
+            let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
+            assert(c == Expr::List(u, ces));
+            assert(rsrcs(fs, tb, sc, es, 0) is Some);
+            let rs = rsrcs(fs, tb, sc, es, 0)->Some_0;
+            assert(r == RExpr::List(rs));
+            assert(rmeans(renv, rs, 0) is Some);
+            let vs = rmeans(renv, rs, 0)->Some_0;
+            assert(v == RVal::List(vs));
+            rxs_at(fs, tb, sc, es, 0, ces);
+            rsrcs_at(fs, tb, sc, es, 0, rs);
+            rmeans_at(renv, rs, 0, vs);
+            assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                assert(rsrc(fs, tb, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
+                assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
+            }
+            list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, 0);
+            args_of(p, cenv, ces, vs, 0);
+            bs_list(p, cenv, u, ces, vofs(vs, 0));
+        },
+        _ => {},
+    }
+}
+
+/// str の腕：文字列は文字の式の列（str_exprs）に評価される。各文字は bs_leaf で値を持つ。
+proof fn str_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        envrel(cenv, renv),
+        e is Str,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::Str(w) => {
+            assert(c == Expr::List(Ty::Char, str_exprs(w)));
+            assert(r == RExpr::List(rstrs(w)));
+            assert(rmeans(renv, rstrs(w), 0) is Some);
+            let vs = rmeans(renv, rstrs(w), 0)->Some_0;
+            assert(v == RVal::List(vs));
+            rmeans_at(renv, rstrs(w), 0, vs);
+            assert(vs.len() == w.len());
+            assert forall|j: nat| j < vs.len() implies vs[j as int] == RVal::Char(w[j as int] as u32 as int) by {
+                assert(rstrs(w)[j as int] == RExpr::Char(w[j as int] as u32 as int));
+                assert(rmean(renv, rstrs(w)[(0 + j) as int]) == Some(vs[j as int]));
+            }
+            assert forall|j: nat| j < str_exprs(w).len() implies evals_to(p, cenv, #[trigger] str_exprs(w)[j as int], vof(vs[j as int])) by {
+                assert(str_exprs(w)[j as int] == Expr::Char(w[j as int] as u32 as int));
+                bs_leaf(p, cenv, Expr::Char(w[j as int] as u32 as int));
+            }
+            args_of(p, cenv, str_exprs(w), vs, 0);
+            bs_list(p, cenv, Ty::Char, str_exprs(w), vofs(vs, 0));
         },
         _ => {},
     }
