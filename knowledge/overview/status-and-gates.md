@@ -132,7 +132,9 @@ DECISION-40（入力の辞書の重複鍵の検査の計算量、2026-10-21）�
 
 DECISION-41（G2 の四項目、2026-10-26）：オーナーが「台帳に残す」を選んだ（推奨どおり）。completeness（整形式のプログラムを check_prog が受理する）、diagnostics（診断の内容と段階）、10.envelopes（Compile／Decode／Run の封筒への写し）、resource-limits（上限の判定）は証明せず、信頼の境界の [unproved] に残す。G2 は「証明または台帳化」を認めるので、凍結の主張はこの四項目の一致を含まない。
 
-DECISION-42（書換えの形（rewrite-shape）、2026-10-26）：オーナーが「出力を検証器で確かめる」を選んだ（推奨どおり）。Rust の書換え（hof、dict、records、sums、recursive、nominal、generics）は書き直さない。出力が形（sim_prog、homomorphic、hof_shapes）を満たすかを、検証済みの検査器で確かめ、満たさなければ拒否する。証明するのは、検査器の受理が形を導くことだけ。DECISION-23 の「書換えの実装そのものを Verus で証明」の形は、この決定で置き換える。DECISION-24 の範囲（全版）は変えない。
+DECISION-42（書換えの形（rewrite-shape）、2026-10-26。DECISION-43 で置き換えた）：オーナーが一度「出力を検証器で確かめる」を選んだ。Rust の書換え（hof、dict、records、sums、recursive、nominal、generics）は書き直さない。出力が形（sim_prog、homomorphic、hof_shapes）を満たすかを、検証済みの検査器で確かめ、満たさなければ拒否する。証明するのは、検査器の受理が形を導くことだけ。DECISION-23 の「書換えの実装そのものを Verus で証明」の形は、この決定で置き換える。DECISION-24 の範囲（全版）は変えない。
+
+DECISION-43（書換えの形（rewrite-shape）、2026-10-26）：オーナーが「Verus で書き直す」（A）を選んだ。DECISION-42 の検査器（B）は置き換える。Rust の書換え（hof、dict、records、sums、recursive、nominal、generics）は、検証済みの exec 実装で書き直し、Rust の hof.rs などはその呼出しに替える。範囲は全版（DECISION-24）のまま。進捗：hof の写し rw_tb（verus/src/hofrw.rs）を spec で定め、hof の形の仮定（homomorphic・hof_shapes）を証明した（[proved] の rewrite-spec-hof）。残りは exec 実装、Rust との接着、hof 以外の書換え（dict、records、sums、recursive、nominal、generics）。
 
 SH1、SH6、SH4 の逆向き（2026-10-21）：書換えの型と書換えの義務、書換えの逆向きを証明した。SH1 は `HofTypes` の写しが検証済みの型付け規則と一致することと、表の全域性（`verus/src/hof_types.rs`、`hof_agree.rs`、`loop_types.rs`、`dict_types.rs`、`hof_total.rs`）。SH6 は hof の意味と行き詰まりの義務を、書換えの形の仮定 `hof_shapes` から示した（`verus/src/sh6_obligations.rs`、`sh6_stuck.rs`、`sh6_safe.rs`）。`hof_shapes`・`homomorphic`・`sim_prog` は未検証の書換えの形で、証明していない（[信頼の境界](../../trust-boundary.toml) の `rewrite-shape`）。型の付かない `any`・`all`・`sort_by` では、源の行き詰まりと書換え後の行き詰まりの一致は成り立たない（具体例 `any_full_fails` など）ので、主張しない。型の付いたプログラムでは、源は行き詰まらず、結果は書換え後と同じ値になる（`sh6_typed_same`）。書換えの逆向き（書換え後の値から源の値）は、型の付いたプログラムについて証明した（`sh4_back_typed`、`verus/src/sh4_back.rs`）。型の付かないプログラムでは成り立たず（`any` の具体例）、行き詰まりの逆向きは主張しない。
 
