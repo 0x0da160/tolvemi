@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-26
+* **G2 の四項目と書換えの形の決定（2026-10-26、DECISION-41、DECISION-42）**：completeness、diagnostics、10.envelopes、resource-limits は証明せず台帳に残した。書換えの形（rewrite-shape）は、Rust の書換えを書き直さず、出力を検証済みの検査器で確かめる形に改めた。検査器はまだ作っていないので、rewrite-shape は未証明のままである。
 * **段階 2 の呼出しの腕（2026-10-26）**：源の意味に呼出し `RExpr::Call` を足した（呼出し先の本体を位置で書き、深さ `dep` まで埋め込む。引数の値は位置 0、1、… に束縛する。核の `bind` と同じ）。`records_commute.rs` に `rsrc` の呼出しの腕、`call_arm`（深さ `dep` の帰納で `resolve_sound` を呼出し先の本体に当て、`bs_call` でつなぐ）、`absent_at_call`、`envrel_bind`、`funcs_ok`、`funcs_at`・`rfuncs_at`（関数の表と核の `p.funcs` の対応）を足した。循環する呼出し（`rec` の関数）は埋め込みが止まらず、`rsrc` が None になるので定理は何も述べない。凍結の主張からは外した（オーナーが 2026-10-26 に決めた）。focus は 91 件・error 0、full crate は 1743 件・error 0 だった（同日）。
 
 ## 2026-10-23
