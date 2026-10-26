@@ -69,6 +69,9 @@ pub enum RExpr {
     Fold(Box<RExpr>, Box<RExpr>, nat, nat, Box<RExpr>),
     /// 組込み（引数の式の列）。意味は核の組込みの意味 apply を、引数の源の値の写しに当てたもの（rapply）。
     Builtin(Builtin, Seq<RExpr>),
+    /// 呼出し：呼出し先の源の本体（引数の位置で書いたもの）、引数の個数、引数の式の列。
+    /// 本体の意味は、引数の値を位置 0、1、… に束縛して評価する（核の bind と同じ）。本体は宣言から写して埋め込む（records_commute.rs の rsrc の深さ dep）。循環する呼出し（rec の関数）は埋め込みが止まらず、rsrc が None になる。
+    Call(Box<RExpr>, nat, Seq<RExpr>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -219,6 +222,14 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             Some(vs) => rapply(b, vs),
             None => None,
         },
+        RExpr::Call(body, n, es) => match rmeans(env, es, 0) {
+            Some(vs) => if vs.len() == n {
+                rmean(rbind(vs, n), *body)
+            } else {
+                None
+            },
+            None => None,
+        },
     }
 }
 
@@ -324,6 +335,17 @@ pub open spec fn rofs(vs: Seq<Val>, i: nat) -> Option<Seq<RVal>>
             (Some(w), Some(ws)) => Some(seq![w] + ws),
             _ => None,
         }
+    }
+}
+
+/// 呼出しの環境：引数の値を位置 0、1、… に束縛する（核の bind と同じ形）。
+pub open spec fn rbind(vs: Seq<RVal>, n: nat) -> Map<nat, RVal>
+    decreases n,
+{
+    if n == 0 || n > vs.len() {
+        Map::empty()
+    } else {
+        rbind(vs, (n - 1) as nat).insert((n - 1) as nat, vs[n - 1])
     }
 }
 

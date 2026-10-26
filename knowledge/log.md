@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-26
+* **段階 2 の呼出しの腕（2026-10-26）**：源の意味に呼出し `RExpr::Call` を足した（呼出し先の本体を位置で書き、深さ `dep` まで埋め込む。引数の値は位置 0、1、… に束縛する。核の `bind` と同じ）。`records_commute.rs` に `rsrc` の呼出しの腕、`call_arm`（深さ `dep` の帰納で `resolve_sound` を呼出し先の本体に当て、`bs_call` でつなぐ）、`absent_at_call`、`envrel_bind`、`funcs_ok`、`funcs_at`・`rfuncs_at`（関数の表と核の `p.funcs` の対応）を足した。循環する呼出し（`rec` の関数）は埋め込みが止まらず、`rsrc` が None になるので定理は何も述べない。凍結の主張からは外した（オーナーが 2026-10-26 に決めた）。focus は 91 件・error 0、full crate は 1743 件・error 0 だった（同日）。
+
 ## 2026-10-23
 * **段階 2 の組込みの腕（2026-10-23）**：源の意味に `RExpr::Builtin` と `rapply` を足した。組込みの意味は核の `apply` を、引数の源の値の写し（`vofs`）に当てたもの。`vof`・`vofs`・`rof`・`rofs`・`rapply` を `records_commute.rs` から `records_meaning.rs` へ移し、`rof` の逆の補題（`rof_vof`、`rofs_elts`、`vofs_eq`）を `records_commute.rs` に足した。`builtin_arm`（引数は `list_elts` と `args_of`、組込みは `bs_builtin`）と `absent_at_builtin`（引数の列の名前の位置）を足した。`tlvm-verified` は 1736 件・error 0（1729 件から）。呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。
 * **段階 2 の fold の腕（2026-10-23）**：源の意味に `RExpr::Fold` と、累積の列の意味 `raccs` を足した。`records_commute.rs` に `rsrc` の fold の腕（累積と要素の名前が重ならず、外側の名前を隠さない場合だけ写す。rx と同じ条件）、`absent_at_fold`、`vofs_len`・`vofs_index`・`vofs_at`（`vofs` の長さと位置の補題）、`raccs_props`（累積の列の性質）、`fold_arm`（列・初期値・各段の本体に `resolve_sound` を当て、`fold_from_each` と `bs_fold` で畳み込む）を足した。`fields_at`・`let_arm`・`rec_some_top` は rlimit を 100 にした。`tlvm-verified` は 1729 件・error 0（1722 件から）。組込みと呼出しは未了（[信頼の境界](../trust-boundary.toml) の `2.stage2-route` の (2)）。

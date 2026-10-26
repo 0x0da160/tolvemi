@@ -1,10 +1,11 @@
 //! 段階 2 の S4b：名前解決（rx、印なし）が源の意味（rmean、S4a）を保つこと（順方向の部分正しさ）。
 //!
-//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match、Fold、Builtin）を、字段を位置で書いた RExpr に写す（rsrc）。
+//! 源の式 Sx の腕（Int、Bool、Unit、Chr、Str、None、Some、List、Var、Pair、Fld、Rec、If、Let、Match、Fold、Builtin、Call）を、字段を位置で書いた RExpr に写す（rsrc）。
 //! 写しは rx と同じ scope で名前を解決する（記録の基の深い scope は rx と同じ判定 deep_rec で決める）。
 //! 宣言の字段の列は pdecl（0、1、…）。定理 `resolve_sound`：rx が核の式 c を返し、rsrc が源の式 r を返し、
 //! rmean(r) が値 v を持つなら、c は vof(v) に評価される。持ち主の型は見ない（部分正しさ）。
 //! 他の Sx の腕は rsrc が None なので、定理は何も述べない。印つき（tagged）は扱わない。
+//! 呼出しは呼出し先の本体を深さ dep まで埋め込む。循環する呼出し（rec の関数）は、どの深さでも None なので、定理は何も述べない。
 //!
 //! 証明：assume・admit・external_body なし。
 
@@ -15,7 +16,7 @@ use crate::records_meaning::*;
 use crate::records_proof::*;
 use crate::resolve::*;
 use crate::spec::*;
-use crate::syntax::Sx;
+use crate::syntax::{Sd, Sx};
 use vstd::prelude::*;
 
 verus! {
@@ -32,11 +33,104 @@ pub open spec fn envrel(cenv: Map<nat, Val>, renv: Map<nat, RVal>) -> bool {
     forall|k: nat| #[trigger] renv.contains_key(k) ==> cenv.contains_key(k) && cenv[k] == vof(renv[k])
 }
 
+/// 関数の表の対応：核の関数の列 p.funcs は、関数の宣言の列 fds を印なしで解決したものである（resolve_t の関数の表）。
+/// 名前の表は fds の名前で、呼出しの番号 g は fds[g] と p.funcs[g] を指す。
+pub open spec fn funcs_ok(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>) -> bool {
+    fs == names_of(fds) && rfuncs(fs, tb, false, fds, fds.len()) == Some(p.funcs)
+}
+
+/// rfuncs の列の長さは n。
+proof fn rfuncs_len(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, ds: Seq<Sd>, n: nat, funcs: Seq<Func>)
+    requires
+        n <= ds.len(),
+        rfuncs(fs, tb, false, ds, n) == Some(funcs),
+    ensures
+        funcs.len() == n,
+    decreases n,
+{
+    if n > 0 {
+        reveal_with_fuel(rfuncs, 1);
+        assert(rfuncs(fs, tb, false, ds, (n - 1) as nat) is Some && rfunc(fs, tb, false, ds[(n - 1) as int]) is Some);
+        let a = rfuncs(fs, tb, false, ds, (n - 1) as nat)->Some_0;
+        rfuncs_len(fs, tb, ds, (n - 1) as nat, a);
+    }
+}
+
+/// rfuncs の g 番目：それは宣言 ds[g] の関数の解決である。
+proof fn rfuncs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, ds: Seq<Sd>, n: nat, funcs: Seq<Func>, g: nat)
+    requires
+        n <= ds.len(),
+        rfuncs(fs, tb, false, ds, n) == Some(funcs),
+        g < n,
+    ensures
+        rfunc(fs, tb, false, ds[g as int]) == Some(funcs[g as int]),
+    decreases n,
+{
+    reveal_with_fuel(rfuncs, 1);
+    assert(rfuncs(fs, tb, false, ds, (n - 1) as nat) is Some && rfunc(fs, tb, false, ds[(n - 1) as int]) is Some);
+    let a = rfuncs(fs, tb, false, ds, (n - 1) as nat)->Some_0;
+    let f = rfunc(fs, tb, false, ds[(n - 1) as int])->Some_0;
+    assert(funcs == a.push(f));
+    rfuncs_len(fs, tb, ds, (n - 1) as nat, a);
+    if g + 1 == n {
+        assert(funcs[g as int] == f);
+    } else {
+        rfuncs_at(fs, tb, ds, (n - 1) as nat, a, g);
+        assert(funcs[g as int] == a[g as int]);
+    }
+}
+
+/// 関数の表の g 番目：fds[g] は関数の宣言で、その解決（字段の列と本体）は核の g 番目に等しい。
+proof fn funcs_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, g: nat)
+    requires
+        funcs_ok(p, fs, tb, fds),
+        g < fds.len(),
+    ensures
+        p.funcs.len() == fds.len(),
+        fds[g as int] is Fn,
+        match fds[g as int] {
+            Sd::Fn(_, ps, _, b) => p.funcs[g as int].params == rparams(ps, tb, false) && rx(fs, tb, false, pnames(ps), b) == Some(p.funcs[g as int].body),
+            _ => false,
+        },
+{
+    rfuncs_len(fs, tb, fds, fds.len(), p.funcs);
+    rfuncs_at(fs, tb, fds, fds.len(), p.funcs, g);
+    match fds[g as int] {
+        Sd::Fn(_, ps, _, b) => {
+            assert(rx(fs, tb, false, pnames(ps), b) is Some);
+            assert(p.funcs[g as int].params == rparams(ps, tb, false));
+            assert(rx(fs, tb, false, pnames(ps), b) == Some(p.funcs[g as int].body));
+        },
+        _ => {},
+    }
+}
+
+/// 呼出しの束縛：核の bind（引数の写し）と源の rbind（引数の値）は、位置 i < n で envrel の対応にある。
+proof fn envrel_bind(params: Seq<(nat, Ty)>, vs: Seq<RVal>, n: nat)
+    requires
+        n <= vs.len(),
+        n <= params.len(),
+        forall|i: nat| i < n ==> params[i as int].0 == i,
+    ensures
+        envrel(bind(params, vofs(vs, 0), n), rbind(vs, n)),
+    decreases n,
+{
+    vofs_len(vs, 0);
+    if n > 0 {
+        envrel_bind(params, vs, (n - 1) as nat);
+        vofs_at(vs, (n - 1) as nat);
+        envrel_ins(bind(params, vofs(vs, 0), (n - 1) as nat), rbind(vs, (n - 1) as nat), (n - 1) as nat, vs[(n - 1) as int]);
+        assert(bind(params, vofs(vs, 0), n) == bind(params, vofs(vs, 0), (n - 1) as nat).insert(params[(n - 1) as int].0, vofs(vs, 0)[(n - 1) as int]));
+        assert(rbind(vs, n) == rbind(vs, (n - 1) as nat).insert((n - 1) as nat, vs[(n - 1) as int]));
+    }
+}
+
 /// 源の式の写し（位置で書いた字段）。resolve.rs の rx の記録の腕と同じ名前の解決（空の名前は拒否）を
 /// 写す。rx が拒否する形（字段の重複、未知の字段、空の宣言）は、ここでは拒否しない（rx が None なら定理は空）。
 /// let の番号は rx と同じく sc.len()。記録の基は rx で解決して深さ（deep_rec）を決め、字段の式はその scope で写す。
-pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx) -> Option<RExpr>
-    decreases e, 0nat,
+/// 呼出しは、呼出し先の本体を深さ dep まで写す（dep が 0 の呼出しは None）。循環する呼出しは、どの深さでも None になる。
+pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx) -> Option<RExpr>
+    decreases dep, e, 0nat,
 {
     match e {
         Sx::Int(n) => Some(RExpr::Int(n)),
@@ -46,7 +140,7 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
             Some(_) => Some(RExpr::None),
             None => None,
         },
-        Sx::Some(a) => match rsrc(fs, tb, sc, *a) {
+        Sx::Some(a) => match rsrc(fs, tb, fds, dep, sc, *a) {
             Some(r) => Some(RExpr::Some(Box::new(r))),
             None => None,
         },
@@ -59,24 +153,24 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
                 None => None,
             }
         },
-        Sx::Pair(a, b) => match (rsrc(fs, tb, sc, *a), rsrc(fs, tb, sc, *b)) {
+        Sx::Pair(a, b) => match (rsrc(fs, tb, fds, dep, sc, *a), rsrc(fs, tb, fds, dep, sc, *b)) {
             (Some(u), Some(w)) => Some(RExpr::Pair(Box::new(u), Box::new(w))),
             _ => None,
         },
-        Sx::Fld(a, fls) => match rsrc(fs, tb, sc, *a) {
-            Some(r) => rsrc_chain(tb, r, fls, 0),
+        Sx::Fld(a, fls) => match rsrc(fs, tb, fds, dep, sc, *a) {
+            Some(r) => rsrc_chain(tb, fds, dep, r, fls, 0),
             None => None,
         },
         Sx::Rec(r, fls, base) => match idx(tnames(tb), r, 0) {
             Some(k) => match base {
-                None => match rsrc_ws(fs, tb, sc, tb[k as int].2, fls, 0) {
+                None => match rsrc_ws(fs, tb, fds, dep, sc, tb[k as int].2, fls, 0) {
                     Some(ws) => Some(RExpr::Rec(pdecl(tb[k as int].2.len()), ws, None)),
                     None => None,
                 },
-                Some(b) => match (rsrc(fs, tb, sc, *b), rx(fs, tb, false, sc, *b)) {
+                Some(b) => match (rsrc(fs, tb, fds, dep, sc, *b), rx(fs, tb, false, sc, *b)) {
                     (Some(br), Some(bx)) => {
                         let sc2 = scope2(sc, deep_rec(Some(bx), tb[k as int].2, fls));
-                        match rsrc_ws(fs, tb, sc2, tb[k as int].2, fls, 0) {
+                        match rsrc_ws(fs, tb, fds, dep, sc2, tb[k as int].2, fls, 0) {
                             Some(ws) => Some(RExpr::Rec(pdecl(tb[k as int].2.len()), ws, Some(Box::new(br)))),
                             None => None,
                         }
@@ -86,14 +180,14 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
             },
             None => None,
         },
-        Sx::If(c, a, b) => match (rsrc(fs, tb, sc, *c), rsrc(fs, tb, sc, *a), rsrc(fs, tb, sc, *b)) {
+        Sx::If(c, a, b) => match (rsrc(fs, tb, fds, dep, sc, *c), rsrc(fs, tb, fds, dep, sc, *a), rsrc(fs, tb, fds, dep, sc, *b)) {
             (Some(x), Some(y), Some(z)) => Some(RExpr::If(Box::new(x), Box::new(y), Box::new(z))),
             _ => None,
         },
         Sx::Let(x, a, b) => if idx(sc, x, 0) is Some {
             None
         } else {
-            match (rsrc(fs, tb, sc, *a), rsrc(fs, tb, sc.push(x), *b)) {
+            match (rsrc(fs, tb, fds, dep, sc, *a), rsrc(fs, tb, fds, dep, sc.push(x), *b)) {
                 (Some(ra), Some(rb)) => Some(RExpr::Let(sc.len(), Box::new(ra), Box::new(rb))),
                 _ => None,
             }
@@ -101,12 +195,12 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
         Sx::Match(m, nb, x, sb) => if idx(sc, x, 0) is Some {
             None
         } else {
-            match (rsrc(fs, tb, sc, *m), rsrc(fs, tb, sc, *nb), rsrc(fs, tb, sc.push(x), *sb)) {
+            match (rsrc(fs, tb, fds, dep, sc, *m), rsrc(fs, tb, fds, dep, sc, *nb), rsrc(fs, tb, fds, dep, sc.push(x), *sb)) {
                 (Some(rm), Some(rn), Some(rb)) => Some(RExpr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb))),
                 _ => None,
             }
         },
-        Sx::List(ty, es) => match (to_ty(ty, tb, false), rsrcs(fs, tb, sc, es, 0)) {
+        Sx::List(ty, es) => match (to_ty(ty, tb, false), rsrcs(fs, tb, fds, dep, sc, es, 0)) {
             (Some(_), Some(rs)) => Some(RExpr::List(rs)),
             _ => None,
         },
@@ -114,27 +208,45 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
         Sx::Fold(l, i, a, x, b) => if a == x || idx(sc, a, 0) is Some || idx(sc, x, 0) is Some {
             None
         } else {
-            match (rsrc(fs, tb, sc, *l), rsrc(fs, tb, sc, *i), rsrc(fs, tb, sc.push(a).push(x), *b)) {
+            match (rsrc(fs, tb, fds, dep, sc, *l), rsrc(fs, tb, fds, dep, sc, *i), rsrc(fs, tb, fds, dep, sc.push(a).push(x), *b)) {
                 (Some(rl), Some(ri), Some(rb)) => Some(RExpr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb))),
                 _ => None,
             }
         },
-        Sx::Builtin(b, es) => match rsrcs(fs, tb, sc, es, 0) {
+        Sx::Builtin(b, es) => match rsrcs(fs, tb, fds, dep, sc, es, 0) {
             Some(rs) => Some(RExpr::Builtin(b, rs)),
             None => None,
+        },
+        Sx::Call(f, es) => if dep == 0 {
+            None
+        } else {
+            match idx(fs, f, 0) {
+                Some(g) => if g < fds.len() {
+                    match fds[g as int] {
+                        Sd::Fn(_, ps, _, b) => match (rsrc(fs, tb, fds, (dep - 1) as nat, pnames(ps), b), rsrcs(fs, tb, fds, dep, sc, es, 0)) {
+                            (Some(rb), Some(rs)) => Some(RExpr::Call(Box::new(rb), ps.len(), rs)),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                } else {
+                    None
+                },
+                None => None,
+            }
         },
         _ => None,
     }
 }
 
 /// 式の列の写し（位置 i から先）：rxs と同じ形で、要素ごとに rsrc を取る。
-pub open spec fn rsrcs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<RExpr>>
-    decreases es, es.len() - i,
+pub open spec fn rsrcs(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat) -> Option<Seq<RExpr>>
+    decreases dep, es, es.len() - i,
 {
     if i >= es.len() {
         Some(Seq::empty())
     } else {
-        match (rsrc(fs, tb, sc, es[i as int]), rsrcs(fs, tb, sc, es, i + 1)) {
+        match (rsrc(fs, tb, fds, dep, sc, es[i as int]), rsrcs(fs, tb, fds, dep, sc, es, i + 1)) {
             (Some(r), Some(rs)) => Some(seq![r] + rs),
             _ => None,
         }
@@ -147,14 +259,14 @@ pub open spec fn rstrs(w: Seq<char>) -> Seq<RExpr> {
 }
 
 /// 字段の列の写し（i から先）：字段 f の位置 idx(decl, f) と、その式の写し。
-pub open spec fn rsrc_ws(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat) -> Option<Seq<(nat, RExpr)>>
-    decreases fls, fls.len() - i,
+pub open spec fn rsrc_ws(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat) -> Option<Seq<(nat, RExpr)>>
+    decreases dep, fls, fls.len() - i,
 {
     if i >= fls.len() {
         Some(Seq::empty())
     } else {
-        match (idx(decl, fls[i as int].0, 0), rsrc(fs, tb, sc, fls[i as int].1)) {
-            (Some(j), Some(r)) => match rsrc_ws(fs, tb, sc, decl, fls, i + 1) {
+        match (idx(decl, fls[i as int].0, 0), rsrc(fs, tb, fds, dep, sc, fls[i as int].1)) {
+            (Some(j), Some(r)) => match rsrc_ws(fs, tb, fds, dep, sc, decl, fls, i + 1) {
                 Some(ws) => Some(seq![(j, r)] + ws),
                 None => None,
             },
@@ -164,14 +276,14 @@ pub open spec fn rsrc_ws(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 }
 
 /// 参照の鎖 e.f1…fk の写し（resolve.rs の fld_chain と同じ持ち主の引き方）。
-pub open spec fn rsrc_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, r: RExpr, fls: Seq<Seq<char>>, i: nat) -> Option<RExpr>
-    decreases fls.len() - i,
+pub open spec fn rsrc_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, r: RExpr, fls: Seq<Seq<char>>, i: nat) -> Option<RExpr>
+    decreases dep, fls.len() - i,
 {
     if i >= fls.len() {
         Some(r)
     } else {
         match owner_pos(tb, fls[i as int], 0) {
-            Some((p, n)) => rsrc_chain(tb, RExpr::Fld(Box::new(r), pdecl(n), p), fls, i + 1),
+            Some((p, n)) => rsrc_chain(tb, fds, dep, RExpr::Fld(Box::new(r), pdecl(n), p), fls, i + 1),
             None => None,
         }
     }
@@ -369,19 +481,19 @@ proof fn absent_rfield(x: nat, e: Expr, i: nat, n: nat)
 }
 
 /// 参照の鎖（fld_chain）も、変数 x が現れない式から始めれば、その結果に x は現れない。
-proof fn absent_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, x: nat, e: Expr, fls: Seq<Seq<char>>, i: nat, c: Expr)
+proof fn absent_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, x: nat, e: Expr, fls: Seq<Seq<char>>, i: nat, c: Expr)
     requires
         absent(x, e),
         fld_chain(tb, e, fls, i) == Some(c),
     ensures
         absent(x, c),
-    decreases fls.len() - i,
+    decreases dep, fls.len() - i,
 {
     reveal_with_fuel(fld_chain, 2);
     if i < fls.len() {
         if let Some((pp, n)) = owner_pos(tb, fls[i as int], 0) {
             absent_rfield(x, e, pp, n);
-            absent_chain(tb, x, rfield(e, pp, n), fls, i + 1, c);
+            absent_chain(tb, fds, dep, x, rfield(e, pp, n), fls, i + 1, c);
         }
     }
 }
@@ -389,15 +501,15 @@ proof fn absent_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>
 /// 名前 n の位置が空の名前である scope（t[n] は空）で解決した式は、その位置を参照も束縛もしない。
 /// 深い scope の空の名前の位置が、字段の式に現れないことを示す。記録の構築（rx の Rec の腕）は、空の名前が
 /// ある scope では拒否されるので、ここには現れない。let は、束縛の名前（sc.len()）が n と違うので、その位置を覆わない。
-proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 1);
@@ -415,39 +527,40 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
         Sx::Pair(a, b) => {
             if let Some(ca) = rx(fs, tb, false, t, *a) {
                 if let Some(cb) = rx(fs, tb, false, t, *b) {
-                    assert(rsrc(fs, tb, t, *a) is Some && rsrc(fs, tb, t, *b) is Some);
-                    absent_at(fs, tb, t, n, *a, ca);
-                    absent_at(fs, tb, t, n, *b, cb);
+                    assert(rsrc(fs, tb, fds, dep, t, *a) is Some && rsrc(fs, tb, fds, dep, t, *b) is Some);
+                    absent_at(fs, tb, fds, dep, t, n, *a, ca);
+                    absent_at(fs, tb, fds, dep, t, n, *b, cb);
                 }
             }
         },
         Sx::Fld(a, fls) => {
             if let Some(ca) = rx(fs, tb, false, t, *a) {
-                assert(rsrc(fs, tb, t, *a) is Some);
-                absent_at(fs, tb, t, n, *a, ca);
-                absent_chain(tb, n, ca, fls, 0, c);
+                assert(rsrc(fs, tb, fds, dep, t, *a) is Some);
+                absent_at(fs, tb, fds, dep, t, n, *a, ca);
+                absent_chain(tb, fds, dep, n, ca, fls, 0, c);
             }
         },
         Sx::Some(a) => {
             if let Some(ca) = rx(fs, tb, false, t, *a) {
-                assert(rsrc(fs, tb, t, *a) is Some);
-                absent_at(fs, tb, t, n, *a, ca);
+                assert(rsrc(fs, tb, fds, dep, t, *a) is Some);
+                absent_at(fs, tb, fds, dep, t, n, *a, ca);
             }
         },
-        Sx::Let(..) => absent_at_let(fs, tb, t, n, e, c),
-        Sx::Match(..) => absent_at_match(fs, tb, t, n, e, c),
-        Sx::List(..) => absent_at_list(fs, tb, t, n, e, c),
+        Sx::Let(..) => absent_at_let(fs, tb, fds, dep, t, n, e, c),
+        Sx::Match(..) => absent_at_match(fs, tb, fds, dep, t, n, e, c),
+        Sx::List(..) => absent_at_list(fs, tb, fds, dep, t, n, e, c),
         Sx::Str(w) => absent_at_str(n, c, w),
-        Sx::Fold(..) => absent_at_fold(fs, tb, t, n, e, c),
-        Sx::Builtin(..) => absent_at_builtin(fs, tb, t, n, e, c),
+        Sx::Fold(..) => absent_at_fold(fs, tb, fds, dep, t, n, e, c),
+        Sx::Builtin(..) => absent_at_builtin(fs, tb, fds, dep, t, n, e, c),
+        Sx::Call(..) => absent_at_call(fs, tb, fds, dep, t, n, e, c),
         Sx::If(q, a, b) => {
             if let Some(cq) = rx(fs, tb, false, t, *q) {
                 if let Some(ca) = rx(fs, tb, false, t, *a) {
                     if let Some(cb) = rx(fs, tb, false, t, *b) {
-                        assert(rsrc(fs, tb, t, *q) is Some && rsrc(fs, tb, t, *a) is Some && rsrc(fs, tb, t, *b) is Some);
-                        absent_at(fs, tb, t, n, *q, cq);
-                        absent_at(fs, tb, t, n, *a, ca);
-                        absent_at(fs, tb, t, n, *b, cb);
+                        assert(rsrc(fs, tb, fds, dep, t, *q) is Some && rsrc(fs, tb, fds, dep, t, *a) is Some && rsrc(fs, tb, fds, dep, t, *b) is Some);
+                        absent_at(fs, tb, fds, dep, t, n, *q, cq);
+                        absent_at(fs, tb, fds, dep, t, n, *a, ca);
+                        absent_at(fs, tb, fds, dep, t, n, *b, cb);
                     }
                 }
             }
@@ -464,16 +577,16 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
 
 /// match の腕の名前の位置：走査する式と各枝は、位置 n を参照も束縛もしない。some の枝の scope は一つ長く、位置 n は同じ。
 /// 束縛の名前は sc.len() で、n とは違う（absent_at_let と同じ）。
-proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         e is Match,
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 1);
@@ -484,11 +597,11 @@ proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
             if let Some(cm) = rx(fs, tb, false, t, *m) {
                 if let Some(cn) = rx(fs, tb, false, t, *nb) {
                     if let Some(cb) = rx(fs, tb, false, t.push(x), *sb) {
-                        assert(rsrc(fs, tb, t, *m) is Some && rsrc(fs, tb, t, *nb) is Some && rsrc(fs, tb, t.push(x), *sb) is Some);
-                        absent_at(fs, tb, t, n, *m, cm);
-                        absent_at(fs, tb, t, n, *nb, cn);
+                        assert(rsrc(fs, tb, fds, dep, t, *m) is Some && rsrc(fs, tb, fds, dep, t, *nb) is Some && rsrc(fs, tb, fds, dep, t.push(x), *sb) is Some);
+                        absent_at(fs, tb, fds, dep, t, n, *m, cm);
+                        absent_at(fs, tb, fds, dep, t, n, *nb, cn);
                         assert(t.push(x)[n as int] == t[n as int]);
-                        absent_at(fs, tb, t.push(x), n, *sb, cb);
+                        absent_at(fs, tb, fds, dep, t.push(x), n, *sb, cb);
                         assert(c == Expr::Match(Box::new(cm), Box::new(cn), t.len(), Box::new(cb)));
                         assert(t.len() != n);
                     }
@@ -501,16 +614,16 @@ proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 
 /// let の腕の名前の位置：束縛の式と本体は、位置 n を参照も束縛もしない。本体は scope に名前 x を足して解決するが、
 /// その位置 n は変わらず、束縛の名前は sc.len() で n と違う。absent_at の let の腕を、単独の補題に分ける。
-proof fn absent_at_let(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at_let(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         e is Let,
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 1);
@@ -520,10 +633,10 @@ proof fn absent_at_let(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
             assert(idx(t, x, 0) is None);
             if let Some(ca) = rx(fs, tb, false, t, *a) {
                 if let Some(cb) = rx(fs, tb, false, t.push(x), *b) {
-                    assert(rsrc(fs, tb, t, *a) is Some && rsrc(fs, tb, t.push(x), *b) is Some);
-                    absent_at(fs, tb, t, n, *a, ca);
+                    assert(rsrc(fs, tb, fds, dep, t, *a) is Some && rsrc(fs, tb, fds, dep, t.push(x), *b) is Some);
+                    absent_at(fs, tb, fds, dep, t, n, *a, ca);
                     assert(t.push(x)[n as int] == t[n as int]);
-                    absent_at(fs, tb, t.push(x), n, *b, cb);
+                    absent_at(fs, tb, fds, dep, t.push(x), n, *b, cb);
                     assert(c == Expr::Let(t.len(), Box::new(ca), Box::new(cb)));
                     assert(t.len() != n);
                 }
@@ -549,16 +662,16 @@ pub open spec fn deep_rec(bx: Option<Expr>, decl: Seq<Seq<char>>, fls: Seq<(Seq<
 }
 
 /// 持ち主の位置は、持ち主の字段の数より小さい。
-proof fn owner_pos_lt(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, f: Seq<char>, k: nat)
+proof fn owner_pos_lt(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, f: Seq<char>, k: nat)
     ensures
         owner_pos(tb, f, k) matches Some((p, n)) ==> p < n,
-    decreases tb.len() - k,
+    decreases dep, tb.len() - k,
 {
     reveal_with_fuel(owner_pos, 2);
     if k < tb.len() {
         idx_props(tb[k as int].2, f, 0);
         if idx(tb[k as int].2, f, 0) is None {
-            owner_pos_lt(tb, f, k + 1);
+            owner_pos_lt(tb, fds, dep, f, k + 1);
         }
     }
 }
@@ -577,7 +690,7 @@ proof fn eval_transfer(p: Prog, cenv: Map<nat, Val>, x: nat, w: Val, e: Expr, v:
 }
 
 /// rec_upd の成功の性質（字段 i から先）。u は書く前の列、uf は書いた後の列（字段の位置は宣言の中の位置）。
-proof fn upd_spec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, uf: Seq<Option<Expr>>)
+proof fn upd_spec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, uf: Seq<Option<Expr>>)
     requires
         u.len() == decl.len(),
         rec_upd(fs, tb, false, sc, decl, fls, i, u) == Some(uf),
@@ -586,7 +699,7 @@ proof fn upd_spec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<ch
         forall|q: int| 0 <= q < u.len() && (#[trigger] u[q]) is Some ==> uf[q] == u[q],
         forall|k: int| i <= k < fls.len() ==> exists|j: nat| #[trigger] idx(decl, fls[k].0, 0) == Some(j) && (j as int) < uf.len() && rx(fs, tb, false, sc, fls[k].1) is Some && uf[j as int] == rx(fs, tb, false, sc, fls[k].1),
         forall|q: int| 0 <= q < uf.len() && (#[trigger] uf[q]) is Some ==> (q < u.len() && u[q] is Some) || exists|k: int| i <= k < fls.len() && idx(decl, fls[k].0, 0) == Some(q as nat),
-    decreases fls, fls.len() - i,
+    decreases dep, fls, fls.len() - i,
 {
     reveal_with_fuel(rec_upd, 2);
     if i < fls.len() {
@@ -598,7 +711,7 @@ proof fn upd_spec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<ch
                         Some(x) => {
                             let u2 = u.update(j as int, Some(x));
                             assert(u2.len() == u.len());
-                            upd_spec(fs, tb, sc, decl, fls, i + 1, u2, uf);
+                            upd_spec(fs, tb, fds, dep, sc, decl, fls, i + 1, u2, uf);
                             assert(u2[j as int] == Some(x));
                             assert forall|q: int| 0 <= q < u.len() && (#[trigger] u[q]) is Some implies uf[q] == u[q] by {
                                 assert(q != j as int);
@@ -631,24 +744,24 @@ proof fn upd_spec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<ch
 }
 
 /// 字段の列の写し（i から先）は、字段と同じ数で、各字段の位置と式の写しを持つ。
-proof fn rsrc_ws_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, ws: Seq<(nat, RExpr)>)
+proof fn rsrc_ws_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, ws: Seq<(nat, RExpr)>)
     requires
         i <= fls.len(),
-        rsrc_ws(fs, tb, sc, decl, fls, i) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, sc, decl, fls, i) == Some(ws),
     ensures
         ws.len() == fls.len() - i,
-        forall|k: int| i <= k < fls.len() ==> idx(decl, #[trigger] fls[k].0, 0) == Some(ws[k - i as int].0) && rsrc(fs, tb, sc, fls[k].1) == Some(ws[k - i as int].1),
-    decreases fls.len() - i,
+        forall|k: int| i <= k < fls.len() ==> idx(decl, #[trigger] fls[k].0, 0) == Some(ws[k - i as int].0) && rsrc(fs, tb, fds, dep, sc, fls[k].1) == Some(ws[k - i as int].1),
+    decreases dep, fls.len() - i,
 {
     reveal_with_fuel(rsrc_ws, 2);
     if i < fls.len() {
         match idx(decl, fls[i as int].0, 0) {
-            Some(j) => match rsrc(fs, tb, sc, fls[i as int].1) {
-                Some(r) => match rsrc_ws(fs, tb, sc, decl, fls, i + 1) {
+            Some(j) => match rsrc(fs, tb, fds, dep, sc, fls[i as int].1) {
+                Some(r) => match rsrc_ws(fs, tb, fds, dep, sc, decl, fls, i + 1) {
                     Some(ws2) => {
-                        rsrc_ws_at(fs, tb, sc, decl, fls, i + 1, ws2);
+                        rsrc_ws_at(fs, tb, fds, dep, sc, decl, fls, i + 1, ws2);
                         assert(ws == seq![(j, r)] + ws2);
-                        assert forall|k: int| i <= k < fls.len() implies idx(decl, #[trigger] fls[k].0, 0) == Some(ws[k - i as int].0) && rsrc(fs, tb, sc, fls[k].1) == Some(ws[k - i as int].1) by {
+                        assert forall|k: int| i <= k < fls.len() implies idx(decl, #[trigger] fls[k].0, 0) == Some(ws[k - i as int].0) && rsrc(fs, tb, fds, dep, sc, fls[k].1) == Some(ws[k - i as int].1) by {
                             if k == i as int {
                                 assert(ws[0] == (j, r));
                             } else {
@@ -667,18 +780,18 @@ proof fn rsrc_ws_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
 }
 
 /// 書いた字段の位置は、写しの地図にある名前と一致する（字段 q が書いてある ⟺ 地図に名前 q がある）。
-proof fn pos_contains(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, deep: bool, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, renv: Map<nat, RVal>, m: Map<nat, RVal>, q: int)
+proof fn pos_contains(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, deep: bool, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, renv: Map<nat, RVal>, m: Map<nat, RVal>, q: int)
     requires
         rec_upd(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(decl.len())) == Some(uf),
-        rsrc_ws(fs, tb, scope2(sc, deep), decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0) == Some(ws),
         wmap(renv, ws, 0) == Some(m),
         0 <= q < decl.len(),
     ensures
         uf.len() == decl.len(),
         (0 <= q < uf.len() && (#[trigger] uf[q]) is Some) <==> m.contains_key(q as nat),
 {
-    upd_spec(fs, tb, scope2(sc, deep), decl, fls, 0, none_upd(decl.len()), uf);
-    rsrc_ws_at(fs, tb, scope2(sc, deep), decl, fls, 0, ws);
+    upd_spec(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, none_upd(decl.len()), uf);
+    rsrc_ws_at(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, ws);
     assert(none_upd(decl.len())[q] is None);
     if uf[q] is Some {
         assert(exists|k: int| 0 <= k < fls.len() && idx(decl, fls[k].0, 0) == Some(q as nat));
@@ -699,11 +812,12 @@ proof fn pos_contains(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
 /// 書いた字段の式は、その字段の値を写す（字段の解決の定理を、字段の式に使う）。
 /// 基を let で束縛する深い scope では、字段の式は基の名前（sc.len()）を参照も束縛もしない。
 #[verifier::rlimit(100)]
-proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, deep: bool, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, m: Map<nat, RVal>, q: int)
+proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, deep: bool, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, m: Map<nat, RVal>, q: int)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         rec_upd(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(decl.len())) == Some(uf),
-        rsrc_ws(fs, tb, scope2(sc, deep), decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0) == Some(ws),
         wmap(renv, ws, 0) == Some(m),
         uf.len() == decl.len(),
         0 <= q < uf.len(),
@@ -711,10 +825,10 @@ proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     ensures
         evals_to(p, cenv, uf[q]->Some_0, vof(m[q as nat])),
         deep ==> absent(sc.len(), uf[q]->Some_0),
-    decreases fls, 0nat,
+    decreases dep, fls, 0nat,
 {
-    upd_spec(fs, tb, scope2(sc, deep), decl, fls, 0, none_upd(decl.len()), uf);
-    rsrc_ws_at(fs, tb, scope2(sc, deep), decl, fls, 0, ws);
+    upd_spec(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, none_upd(decl.len()), uf);
+    rsrc_ws_at(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, ws);
     assert(exists|k: int| 0 <= k < fls.len() && idx(decl, fls[k].0, 0) == Some(q as nat));
     let k = choose|k: int| 0 <= k < fls.len() && idx(decl, fls[k].0, 0) == Some(q as nat);
     assert(exists|j: nat| #[trigger] idx(decl, fls[k].0, 0) == Some(j) && (j as int) < uf.len() && rx(fs, tb, false, scope2(sc, deep), fls[k].1) is Some && uf[j as int] == rx(fs, tb, false, scope2(sc, deep), fls[k].1));
@@ -722,15 +836,15 @@ proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     assert(rx(fs, tb, false, scope2(sc, deep), fls[k].1) == Some(x));
     let rk = ws[k].1;
     assert(ws[k].0 == q as nat);
-    assert(rsrc(fs, tb, scope2(sc, deep), fls[k].1) == Some(rk));
+    assert(rsrc(fs, tb, fds, dep, scope2(sc, deep), fls[k].1) == Some(rk));
     wmap_get(renv, ws, 0, m, k);
     let vk = rmean(renv, rk)->Some_0;
     assert(m[q as nat] == vk);
-    resolve_sound(p, fs, tb, scope2(sc, deep), fls[k].1, cenv, renv, x, rk, vk);
+    resolve_sound(p, fs, tb, fds, dep, scope2(sc, deep), fls[k].1, cenv, renv, x, rk, vk);
     if deep {
         assert(scope2(sc, deep) == sc.push(Seq::<char>::empty()));
         assert(scope2(sc, deep)[sc.len() as int] == Seq::<char>::empty());
-        absent_at(fs, tb, scope2(sc, deep), sc.len(), fls[k].1, x);
+        absent_at(fs, tb, fds, dep, scope2(sc, deep), sc.len(), fls[k].1, x);
     }
 }
 
@@ -784,19 +898,19 @@ proof fn vof_rec(vs: Seq<RVal>)
 // ------------------------------------------------------------------ 参照の鎖（e.f1…fk）
 
 /// 鎖の下端：鎖の結果が値を持つなら、下端も値を持つ。
-proof fn chain_inner(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, renv: Map<nat, RVal>, r: RExpr, fls: Seq<Seq<char>>, i: nat, rr: RExpr)
+proof fn chain_inner(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, renv: Map<nat, RVal>, r: RExpr, fls: Seq<Seq<char>>, i: nat, rr: RExpr)
     requires
-        rsrc_chain(tb, r, fls, i) == Some(rr),
+        rsrc_chain(tb, fds, dep, r, fls, i) == Some(rr),
         rmean(renv, rr) is Some,
     ensures
         rmean(renv, r) is Some,
-    decreases fls.len() - i,
+    decreases dep, fls.len() - i,
 {
     reveal_with_fuel(rsrc_chain, 2);
     reveal_with_fuel(rmean, 2);
     if i < fls.len() {
         if let Some((pp, n)) = owner_pos(tb, fls[i as int], 0) {
-            chain_inner(tb, renv, RExpr::Fld(Box::new(r), pdecl(n), pp), fls, i + 1, rr);
+            chain_inner(tb, fds, dep, renv, RExpr::Fld(Box::new(r), pdecl(n), pp), fls, i + 1, rr);
         }
     }
 }
@@ -828,30 +942,30 @@ proof fn fld_step(p: Prog, cenv: Map<nat, Val>, renv: Map<nat, RVal>, r: RExpr, 
 }
 
 /// 鎖の意味：下端の値を持ち、鎖の結果が値 v を持つなら、鎖の展開 c は vof(v) に評価される。
-proof fn chain_sound(p: Prog, cenv: Map<nat, Val>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, renv: Map<nat, RVal>, r: RExpr, x: Expr, rv: RVal, fls: Seq<Seq<char>>, i: nat, rr: RExpr, c: Expr, v: RVal)
+proof fn chain_sound(p: Prog, cenv: Map<nat, Val>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, renv: Map<nat, RVal>, r: RExpr, x: Expr, rv: RVal, fls: Seq<Seq<char>>, i: nat, rr: RExpr, c: Expr, v: RVal)
     requires
         rmean(renv, r) == Some(rv),
         evals_to(p, cenv, x, vof(rv)),
-        rsrc_chain(tb, r, fls, i) == Some(rr),
+        rsrc_chain(tb, fds, dep, r, fls, i) == Some(rr),
         fld_chain(tb, x, fls, i) == Some(c),
         rmean(renv, rr) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases fls.len() - i,
+    decreases dep, fls.len() - i,
 {
     reveal_with_fuel(rsrc_chain, 2);
     reveal_with_fuel(fld_chain, 2);
     if i < fls.len() {
         if let Some((pp, n)) = owner_pos(tb, fls[i as int], 0) {
-            owner_pos_lt(tb, fls[i as int], 0);
+            owner_pos_lt(tb, fds, dep, fls[i as int], 0);
             let r1 = RExpr::Fld(Box::new(r), pdecl(n), pp);
             let x1 = rfield(x, pp, n);
-            chain_inner(tb, renv, r1, fls, i + 1, rr);
+            chain_inner(tb, fds, dep, renv, r1, fls, i + 1, rr);
             let v1 = rmean(renv, r1)->Some_0;
             assert(rmean(renv, r1) == Some(v1));
             fld_step(p, cenv, renv, r, x, rv, n, pp);
             assert(evals_to(p, cenv, x1, vof(v1)));
-            chain_sound(p, cenv, tb, renv, r1, x1, v1, fls, i + 1, rr, c, v);
+            chain_sound(p, cenv, tb, fds, dep, renv, r1, x1, v1, fls, i + 1, rr, c, v);
         }
     }
 }
@@ -859,21 +973,22 @@ proof fn chain_sound(p: Prog, cenv: Map<nat, Val>, tb: Seq<(Seq<char>, Option<Ty
 // ------------------------------------------------------------------ 記録の腕
 
 /// 基のない記録（全部書いた構築）：字段の値を写す。
-proof fn rec_none_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, v: RVal)
+proof fn rec_none_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         decl.len() >= 1,
         rec_upd(fs, tb, false, sc, decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rrecord(uf, None, sc.len()) == Ok(c),
-        rsrc_ws(fs, tb, sc, decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0) == Some(ws),
         rmean(renv, RExpr::Rec(pdecl(decl.len()), ws, None)) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases fls, 1nat,
+    decreases dep, fls, 1nat,
 {
     reveal_with_fuel(rmean, 2);
     let n = decl.len();
-    upd_spec(fs, tb, sc, decl, fls, 0, none_upd(n), uf);
+    upd_spec(fs, tb, fds, dep, sc, decl, fls, 0, none_upd(n), uf);
     nmissing_none(n);
     rec_upd_count(fs, tb, false, sc, decl, fls, 0, none_upd(n));
     assert(nmissing(uf) == 0);
@@ -889,8 +1004,8 @@ proof fn rec_none_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
         assert(nmissing(uf) == 0);
     }
     assert forall|q: int| 0 <= q < uf.len() && (#[trigger] uf[q]) is Some implies evals_to(p, cenv, uf[q]->Some_0, vof(vs[q])) by {
-        pos_contains(fs, tb, sc, decl, fls, false, uf, ws, renv, m, q);
-        fields_at(p, fs, tb, sc, decl, fls, cenv, renv, false, uf, ws, m, q);
+        pos_contains(fs, tb, fds, dep, sc, decl, fls, false, uf, ws, renv, m, q);
+        fields_at(p, fs, tb, fds, dep, sc, decl, fls, cenv, renv, false, uf, ws, m, q);
         assert(vs[q] == m[q as nat]);
     }
     fill_sound(p, cenv, uf, Expr::Unit, vs, vs);
@@ -900,12 +1015,12 @@ proof fn rec_none_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
 }
 
 /// 基のある記録：欠けた字段があるので、源の構築は基の字段を見る（その形を取り出す）。
-proof fn base_split(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Expr, c: Expr, renv: Map<nat, RVal>, ws: Seq<(nat, RExpr)>, br: RExpr, uf: Seq<Option<Expr>>, v: RVal)
+proof fn base_split(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Expr, c: Expr, renv: Map<nat, RVal>, ws: Seq<(nat, RExpr)>, br: RExpr, uf: Seq<Option<Expr>>, v: RVal)
     requires
         decl.len() >= 1,
         rec_upd(fs, tb, false, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rrecord(uf, Some(bx), sc.len()) == Ok(c),
-        rsrc_ws(fs, tb, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
         rmean(renv, RExpr::Rec(pdecl(decl.len()), ws, Some(Box::new(br)))) == Some(v),
     ensures
         exists|bs: Seq<RVal>| rmean(renv, br) == Some(RVal::Rec(bs)) && bs.len() == decl.len(),
@@ -913,7 +1028,7 @@ proof fn base_split(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
     reveal_with_fuel(rmean, 2);
     let n = decl.len();
     let deep = deep_rec(Some(bx), decl, fls);
-    upd_spec(fs, tb, scope2(sc, deep), decl, fls, 0, none_upd(n), uf);
+    upd_spec(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, none_upd(n), uf);
     nmissing_none(n);
     rec_upd_count(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(n));
     assert(nmissing(uf) != 0);
@@ -929,7 +1044,7 @@ proof fn base_split(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
     assert(wmap(renv, ws, 0) is Some);
     let m = wmap(renv, ws, 0)->Some_0;
     assert(wmap(renv, ws, 0) == Some(m));
-    pos_contains(fs, tb, sc, decl, fls, deep, uf, ws, renv, m, q0);
+    pos_contains(fs, tb, fds, dep, sc, decl, fls, deep, uf, ws, renv, m, q0);
     assert(!m.contains_key(q0 as nat));
     assert(pdecl(n)[q0] == q0 as nat);
     assert(rmean(renv, br) is Some);
@@ -942,26 +1057,27 @@ proof fn base_split(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
 }
 
 /// 基のある記録の展開：欠けた字段は基の字段で埋まる（rupdate の二つの形、深い scope の有無）。
-proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, bx: Expr, br: RExpr, bs: Seq<RVal>, c: Expr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, v: RVal)
+proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, bx: Expr, br: RExpr, bs: Seq<RVal>, c: Expr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         decl.len() >= 1,
         bs.len() == decl.len(),
         rec_upd(fs, tb, false, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rrecord(uf, Some(bx), sc.len()) == Ok(c),
-        rsrc_ws(fs, tb, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
         rmean(renv, RExpr::Rec(pdecl(decl.len()), ws, Some(Box::new(br)))) == Some(v),
         rmean(renv, br) == Some(RVal::Rec(bs)),
         evals_to(p, cenv, bx, vof(RVal::Rec(bs))),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases fls, 1nat,
+    decreases dep, fls, 1nat,
 {
     reveal_with_fuel(rmean, 2);
     reveal_with_fuel(vof, 2);
     let n = decl.len();
     let deep = deep_rec(Some(bx), decl, fls);
-    upd_spec(fs, tb, scope2(sc, deep), decl, fls, 0, none_upd(n), uf);
+    upd_spec(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0, none_upd(n), uf);
     nmissing_none(n);
     rec_upd_count(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(n));
     assert(nmissing(uf) != 0);
@@ -977,7 +1093,7 @@ proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     assert(wmap(renv, ws, 0) is Some);
     let m = wmap(renv, ws, 0)->Some_0;
     assert(wmap(renv, ws, 0) == Some(m));
-    pos_contains(fs, tb, sc, decl, fls, deep, uf, ws, renv, m, q0);
+    pos_contains(fs, tb, fds, dep, sc, decl, fls, deep, uf, ws, renv, m, q0);
     assert(!m.contains_key(q0 as nat));
     assert(pdecl(n)[q0] == q0 as nat);
     let vs = place(pdecl(n), m, bs);
@@ -991,12 +1107,12 @@ proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     vof_rec(bs);
     assert(w0 == rval(vofs(bs, 0)));
     assert forall|q: int| 0 <= q < uf.len() && (#[trigger] uf[q]) is Some implies evals_to(p, cenv, uf[q]->Some_0, vof(vs[q])) && (deep ==> absent(sc.len(), uf[q]->Some_0)) by {
-        pos_contains(fs, tb, sc, decl, fls, deep, uf, ws, renv, m, q);
-        fields_at(p, fs, tb, sc, decl, fls, cenv, renv, deep, uf, ws, m, q);
+        pos_contains(fs, tb, fds, dep, sc, decl, fls, deep, uf, ws, renv, m, q);
+        fields_at(p, fs, tb, fds, dep, sc, decl, fls, cenv, renv, deep, uf, ws, m, q);
         assert(vs[q] == m[q as nat]);
     }
     assert forall|q: int| 0 <= q < uf.len() && (#[trigger] uf[q]) is None implies vs[q] == bs[q] by {
-        pos_contains(fs, tb, sc, decl, fls, deep, uf, ws, renv, m, q);
+        pos_contains(fs, tb, fds, dep, sc, decl, fls, deep, uf, ws, renv, m, q);
         assert(!m.contains_key(q as nat));
         assert(vs[q] == bs[q]);
     }
@@ -1008,8 +1124,8 @@ proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
         let cenv2 = cenv.insert(k0, w0);
         assert(c == Expr::Let(k0, Box::new(bx), Box::new(rbuild(fill(uf, Expr::Var(k0))))));
         assert forall|q: int| 0 <= q < uf.len() && (#[trigger] uf[q]) is Some implies evals_to(p, cenv2, uf[q]->Some_0, vof(vs[q])) by {
-            pos_contains(fs, tb, sc, decl, fls, deep, uf, ws, renv, m, q);
-            fields_at(p, fs, tb, sc, decl, fls, cenv, renv, deep, uf, ws, m, q);
+            pos_contains(fs, tb, fds, dep, sc, decl, fls, deep, uf, ws, renv, m, q);
+            fields_at(p, fs, tb, fds, dep, sc, decl, fls, cenv, renv, deep, uf, ws, m, q);
             assert(vs[q] == m[q as nat]);
             eval_transfer(p, cenv, k0, w0, uf[q]->Some_0, vof(vs[q]));
         }
@@ -1052,15 +1168,16 @@ proof fn envrel_ins(cenv: Map<nat, Val>, renv: Map<nat, RVal>, k: nat, va: RVal)
 
 /// 名前解決の定理の変数の腕と、書いた式の腕の振り分け。
 /// 定理：rx が c を返し、rsrc が r を返し、rmean(r) が v なら、c は vof(v) に評価される（部分正しさ、印なし）。
-pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 2nat,
+    decreases dep, e, 2nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -1085,7 +1202,7 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
             assert(v == RVal::None);
             bs_leaf(p, cenv, c);
         },
-        Sx::Some(..) => some_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Some(..) => some_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Var(x) => {
             assert(x.len() != 0);
             assert(idx(sc, x, 0) is Some);
@@ -1096,32 +1213,34 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
             assert(cenv.contains_key(k) && cenv[k] == vof(renv[k]));
             bs_var(p, cenv, k);
         },
-        Sx::Pair(..) => pair_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Fld(..) => fld_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::If(..) => if_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Let(..) => let_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Match(..) => match_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::List(..) => list_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Str(..) => str_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Fold(..) => fold_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Builtin(..) => builtin_arm(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
-        Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, sc, e, cenv, renv, c, r, v),
+        Sx::Pair(..) => pair_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Fld(..) => fld_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::If(..) => if_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Let(..) => let_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Match(..) => match_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::List(..) => list_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Str(..) => str_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Fold(..) => fold_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Builtin(..) => builtin_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Call(..) => call_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         _ => {},
     }
 }
 
 /// 対の腕：成分の定理と bs_pair。
-proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Pair,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -1133,16 +1252,16 @@ proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             let x = rx(fs, tb, false, sc, *a)->Some_0;
             let y = rx(fs, tb, false, sc, *b)->Some_0;
             assert(c == Expr::Pair(Box::new(x), Box::new(y)));
-            assert(rsrc(fs, tb, sc, *a) is Some && rsrc(fs, tb, sc, *b) is Some);
-            let ra = rsrc(fs, tb, sc, *a)->Some_0;
-            let rb = rsrc(fs, tb, sc, *b)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *a) is Some && rsrc(fs, tb, fds, dep, sc, *b) is Some);
+            let ra = rsrc(fs, tb, fds, dep, sc, *a)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc, *b)->Some_0;
             assert(r == RExpr::Pair(Box::new(ra), Box::new(rb)));
             assert(rmean(renv, ra) is Some && rmean(renv, rb) is Some);
             let va = rmean(renv, ra)->Some_0;
             let vb = rmean(renv, rb)->Some_0;
             assert(v == RVal::Pair(Box::new(va), Box::new(vb)));
-            resolve_sound(p, fs, tb, sc, *a, cenv, renv, x, ra, va);
-            resolve_sound(p, fs, tb, sc, *b, cenv, renv, y, rb, vb);
+            resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, x, ra, va);
+            resolve_sound(p, fs, tb, fds, dep, sc, *b, cenv, renv, y, rb, vb);
             bs_pair(p, cenv, x, y, vof(va), vof(vb));
         },
         _ => {},
@@ -1150,16 +1269,17 @@ proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
 }
 
 /// if の腕：条件の定理で真偽値を得て、選んだ枝の定理と bs_if。枝の選び方は rmean の if の腕と同じ。
-proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is If,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1172,24 +1292,24 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
             let y = rx(fs, tb, false, sc, *a)->Some_0;
             let z = rx(fs, tb, false, sc, *b)->Some_0;
             assert(c == Expr::If(Box::new(x), Box::new(y), Box::new(z)));
-            assert(rsrc(fs, tb, sc, *q) is Some && rsrc(fs, tb, sc, *a) is Some && rsrc(fs, tb, sc, *b) is Some);
-            let rq = rsrc(fs, tb, sc, *q)->Some_0;
-            let ra = rsrc(fs, tb, sc, *a)->Some_0;
-            let rb = rsrc(fs, tb, sc, *b)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *q) is Some && rsrc(fs, tb, fds, dep, sc, *a) is Some && rsrc(fs, tb, fds, dep, sc, *b) is Some);
+            let rq = rsrc(fs, tb, fds, dep, sc, *q)->Some_0;
+            let ra = rsrc(fs, tb, fds, dep, sc, *a)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc, *b)->Some_0;
             assert(r == RExpr::If(Box::new(rq), Box::new(ra), Box::new(rb)));
             assert(rmean(renv, rq) is Some);
             let vq = rmean(renv, rq)->Some_0;
-            resolve_sound(p, fs, tb, sc, *q, cenv, renv, x, rq, vq);
+            resolve_sound(p, fs, tb, fds, dep, sc, *q, cenv, renv, x, rq, vq);
             match vq {
                 RVal::Bool(true) => {
                     assert(rmean(renv, ra) == Some(v));
-                    resolve_sound(p, fs, tb, sc, *a, cenv, renv, y, ra, v);
+                    resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, y, ra, v);
                     assert(vof(vq) == Val::Bool(true));
                     bs_if(p, cenv, x, y, z, true, vof(v));
                 },
                 RVal::Bool(false) => {
                     assert(rmean(renv, rb) == Some(v));
-                    resolve_sound(p, fs, tb, sc, *b, cenv, renv, z, rb, v);
+                    resolve_sound(p, fs, tb, fds, dep, sc, *b, cenv, renv, z, rb, v);
                     assert(vof(vq) == Val::Bool(false));
                     bs_if(p, cenv, x, y, z, false, vof(v));
                 },
@@ -1205,16 +1325,17 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 /// let の腕：束縛の式の定理と、本体の定理（名前は sc.len() の位置、環境はその名前に値を足す）。
 /// 本体は scope に名前 x を足して解決し、その位置は sc.len() なので、環境の名前 sc.len() に値を足して読む。
 #[verifier::rlimit(100)]
-proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Let,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -1226,16 +1347,16 @@ proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
             let ca = rx(fs, tb, false, sc, *a)->Some_0;
             let cb = rx(fs, tb, false, sc.push(x), *b)->Some_0;
             assert(c == Expr::Let(sc.len(), Box::new(ca), Box::new(cb)));
-            assert(rsrc(fs, tb, sc, *a) is Some && rsrc(fs, tb, sc.push(x), *b) is Some);
-            let ra = rsrc(fs, tb, sc, *a)->Some_0;
-            let rb = rsrc(fs, tb, sc.push(x), *b)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *a) is Some && rsrc(fs, tb, fds, dep, sc.push(x), *b) is Some);
+            let ra = rsrc(fs, tb, fds, dep, sc, *a)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc.push(x), *b)->Some_0;
             assert(r == RExpr::Let(sc.len(), Box::new(ra), Box::new(rb)));
             assert(rmean(renv, ra) is Some);
             let va = rmean(renv, ra)->Some_0;
             assert(rmean(renv.insert(sc.len(), va), rb) == Some(v));
-            resolve_sound(p, fs, tb, sc, *a, cenv, renv, ca, ra, va);
+            resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, ca, ra, va);
             envrel_ins(cenv, renv, sc.len(), va);
-            resolve_sound(p, fs, tb, sc.push(x), *b, cenv.insert(sc.len(), vof(va)), renv.insert(sc.len(), va), cb, rb, v);
+            resolve_sound(p, fs, tb, fds, dep, sc.push(x), *b, cenv.insert(sc.len(), vof(va)), renv.insert(sc.len(), va), cb, rb, v);
             bs_let(p, cenv, sc.len(), ca, cb, vof(va), vof(v));
         },
         _ => {},
@@ -1244,16 +1365,17 @@ proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 
 /// match の腕（Option の match）：走査する式の定理と、none か some の枝の定理と bs_match。
 /// some の枝は名前 x を sc.len() の位置に束縛し、環境はその名前に値を足す（let の腕と同じ）。
-proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Match,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1267,25 +1389,25 @@ proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
             let cn = rx(fs, tb, false, sc, *nb)->Some_0;
             let cb = rx(fs, tb, false, sc.push(x), *sb)->Some_0;
             assert(c == Expr::Match(Box::new(cm), Box::new(cn), sc.len(), Box::new(cb)));
-            assert(rsrc(fs, tb, sc, *m) is Some && rsrc(fs, tb, sc, *nb) is Some && rsrc(fs, tb, sc.push(x), *sb) is Some);
-            let rm = rsrc(fs, tb, sc, *m)->Some_0;
-            let rn = rsrc(fs, tb, sc, *nb)->Some_0;
-            let rb = rsrc(fs, tb, sc.push(x), *sb)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *m) is Some && rsrc(fs, tb, fds, dep, sc, *nb) is Some && rsrc(fs, tb, fds, dep, sc.push(x), *sb) is Some);
+            let rm = rsrc(fs, tb, fds, dep, sc, *m)->Some_0;
+            let rn = rsrc(fs, tb, fds, dep, sc, *nb)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc.push(x), *sb)->Some_0;
             assert(r == RExpr::Match(Box::new(rm), Box::new(rn), sc.len(), Box::new(rb)));
             assert(rmean(renv, rm) is Some);
             let mv = rmean(renv, rm)->Some_0;
             assert(rmean(renv, rm) == Some(mv));
-            resolve_sound(p, fs, tb, sc, *m, cenv, renv, cm, rm, mv);
+            resolve_sound(p, fs, tb, fds, dep, sc, *m, cenv, renv, cm, rm, mv);
             match mv {
                 RVal::None => {
                     assert(rmean(renv, rn) == Some(v));
-                    resolve_sound(p, fs, tb, sc, *nb, cenv, renv, cn, rn, v);
+                    resolve_sound(p, fs, tb, fds, dep, sc, *nb, cenv, renv, cn, rn, v);
                     bs_match(p, cenv, cm, cn, sc.len(), cb, vof(mv), vof(v));
                 },
                 RVal::Some(w) => {
                     assert(rmean(renv.insert(sc.len(), *w), rb) == Some(v));
                     envrel_ins(cenv, renv, sc.len(), *w);
-                    resolve_sound(p, fs, tb, sc.push(x), *sb, cenv.insert(sc.len(), vof(*w)), renv.insert(sc.len(), *w), cb, rb, v);
+                    resolve_sound(p, fs, tb, fds, dep, sc.push(x), *sb, cenv.insert(sc.len(), vof(*w)), renv.insert(sc.len(), *w), cb, rb, v);
                     bs_match(p, cenv, cm, cn, sc.len(), cb, vof(mv), vof(v));
                 },
                 _ => {
@@ -1298,14 +1420,14 @@ proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
 }
 
 /// rxs の位置 i からの列：列の k 番目は、源の位置 i + k の式の写し（rx と同じ scope）。
-proof fn rxs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, ces: Seq<Expr>)
+proof fn rxs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, ces: Seq<Expr>)
     requires
         i <= es.len(),
         rxs(fs, tb, false, sc, es, i) == Some(ces),
     ensures
         ces.len() as int == es.len() as int - i as int,
         forall|k: nat| k < ces.len() ==> rx(fs, tb, false, sc, #[trigger] es[(i + k) as int]) == Some(ces[k as int]),
-    decreases es.len() - i,
+    decreases dep, es.len() - i,
 {
     reveal_with_fuel(rxs, 1);
     if i < es.len() {
@@ -1313,7 +1435,7 @@ proof fn rxs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char
         let x = rx(fs, tb, false, sc, es[i as int])->Some_0;
         let xs = rxs(fs, tb, false, sc, es, i + 1)->Some_0;
         assert(ces == seq![x] + xs);
-        rxs_at(fs, tb, sc, es, i + 1, xs);
+        rxs_at(fs, tb, fds, dep, sc, es, i + 1, xs);
         assert forall|k: nat| k < ces.len() implies rx(fs, tb, false, sc, #[trigger] es[(i + k) as int]) == Some(ces[k as int]) by {
             if k == 0 {
                 assert(ces[0] == x);
@@ -1328,27 +1450,27 @@ proof fn rxs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char
 }
 
 /// rsrcs の位置 i からの列：列の k 番目は、源の位置 i + k の式の写し。
-proof fn rsrcs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, rs: Seq<RExpr>)
+proof fn rsrcs_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, es: Seq<Sx>, i: nat, rs: Seq<RExpr>)
     requires
         i <= es.len(),
-        rsrcs(fs, tb, sc, es, i) == Some(rs),
+        rsrcs(fs, tb, fds, dep, sc, es, i) == Some(rs),
     ensures
         rs.len() as int == es.len() as int - i as int,
-        forall|k: nat| k < rs.len() ==> rsrc(fs, tb, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]),
-    decreases es.len() - i,
+        forall|k: nat| k < rs.len() ==> rsrc(fs, tb, fds, dep, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]),
+    decreases dep, es.len() - i,
 {
     reveal_with_fuel(rsrcs, 1);
     if i < es.len() {
-        assert(rsrc(fs, tb, sc, es[i as int]) is Some && rsrcs(fs, tb, sc, es, i + 1) is Some);
-        let r = rsrc(fs, tb, sc, es[i as int])->Some_0;
-        let rr = rsrcs(fs, tb, sc, es, i + 1)->Some_0;
+        assert(rsrc(fs, tb, fds, dep, sc, es[i as int]) is Some && rsrcs(fs, tb, fds, dep, sc, es, i + 1) is Some);
+        let r = rsrc(fs, tb, fds, dep, sc, es[i as int])->Some_0;
+        let rr = rsrcs(fs, tb, fds, dep, sc, es, i + 1)->Some_0;
         assert(rs == seq![r] + rr);
-        rsrcs_at(fs, tb, sc, es, i + 1, rr);
-        assert forall|k: nat| k < rs.len() implies rsrc(fs, tb, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]) by {
+        rsrcs_at(fs, tb, fds, dep, sc, es, i + 1, rr);
+        assert forall|k: nat| k < rs.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] es[(i + k) as int]) == Some(rs[k as int]) by {
             if k == 0 {
                 assert(rs[0] == r);
             } else {
-                assert(rsrc(fs, tb, sc, es[((i + 1) + (k - 1)) as int]) == Some(rr[(k - 1) as int]));
+                assert(rsrc(fs, tb, fds, dep, sc, es[((i + 1) + (k - 1)) as int]) == Some(rr[(k - 1) as int]));
                 assert(rs[k as int] == rr[(k - 1) as int]);
             }
         }
@@ -1388,22 +1510,23 @@ proof fn rmeans_at(env: Map<nat, RVal>, rs: Seq<RExpr>, i: nat, vs: Seq<RVal>)
 }
 
 /// 列の要素ごとの定理：k から先の要素 j は、核の式 ces[j] が vof(vs[j]) に評価される（resolve_sound を要素に当てる）。
-proof fn list_elts(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, es: Seq<Sx>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, ces: Seq<Expr>, rs: Seq<RExpr>, vs: Seq<RVal>, k: nat)
+proof fn list_elts(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, es: Seq<Sx>, cenv: Map<nat, Val>, renv: Map<nat, RVal>, ces: Seq<Expr>, rs: Seq<RExpr>, vs: Seq<RVal>, k: nat)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         ces.len() == es.len(),
         rs.len() == es.len(),
         vs.len() == es.len(),
         forall|j: nat| j < es.len() ==> rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]),
-        forall|j: nat| j < es.len() ==> rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]),
+        forall|j: nat| j < es.len() ==> rsrc(fs, tb, fds, dep, sc, #[trigger] es[j as int]) == Some(rs[j as int]),
         forall|j: nat| j < es.len() ==> rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]),
     ensures
         forall|j: nat| k <= j < es.len() ==> evals_to(p, cenv, #[trigger] ces[j as int], vof(vs[j as int])),
-    decreases es, es.len() - k,
+    decreases dep, es, es.len() - k,
 {
     if k < es.len() {
-        resolve_sound(p, fs, tb, sc, es[k as int], cenv, renv, ces[k as int], rs[k as int], vs[k as int]);
-        list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, k + 1);
+        resolve_sound(p, fs, tb, fds, dep, sc, es[k as int], cenv, renv, ces[k as int], rs[k as int], vs[k as int]);
+        list_elts(p, fs, tb, fds, dep, sc, es, cenv, renv, ces, rs, vs, k + 1);
     }
 }
 
@@ -1436,20 +1559,20 @@ proof fn args_of(p: Prog, env: Map<nat, Val>, ces: Seq<Expr>, vs: Seq<RVal>, k: 
 }
 
 /// 要素ごとの名前の位置：k から先の要素 j は、位置 n を参照も束縛もしない（absent_at を要素に当てる）。
-proof fn absent_at_elts(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, es: Seq<Sx>, ces: Seq<Expr>, k: nat)
+proof fn absent_at_elts(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, es: Seq<Sx>, ces: Seq<Expr>, k: nat)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         ces.len() == es.len(),
         forall|j: nat| j < es.len() ==> rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]),
-        forall|j: nat| j < es.len() ==> rsrc(fs, tb, t, #[trigger] es[j as int]) is Some,
+        forall|j: nat| j < es.len() ==> rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some,
     ensures
         forall|j: nat| k <= j < es.len() ==> absent(n, #[trigger] ces[j as int]),
-    decreases es, es.len() - k,
+    decreases dep, es, es.len() - k,
 {
     if k < es.len() {
-        absent_at(fs, tb, t, n, es[k as int], ces[k as int]);
-        absent_at_elts(fs, tb, t, n, es, ces, k + 1);
+        absent_at(fs, tb, fds, dep, t, n, es[k as int], ces[k as int]);
+        absent_at_elts(fs, tb, fds, dep, t, n, es, ces, k + 1);
     }
 }
 
@@ -1468,16 +1591,16 @@ proof fn absent_all(n: nat, ces: Seq<Expr>, k: nat)
 }
 
 /// List の腕の名前の位置：要素の式（rx の列）は位置 n を参照も束縛もしない。
-proof fn absent_at_list(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at_list(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         e is List,
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1488,17 +1611,17 @@ proof fn absent_at_list(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
             let u = to_ty(ty, tb, false)->Some_0;
             let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
             assert(c == Expr::List(u, ces));
-            assert(rsrcs(fs, tb, t, es, 0) is Some);
-            let rs = rsrcs(fs, tb, t, es, 0)->Some_0;
-            rxs_at(fs, tb, t, es, 0, ces);
-            rsrcs_at(fs, tb, t, es, 0, rs);
+            assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some);
+            let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
+            rxs_at(fs, tb, fds, dep, t, es, 0, ces);
+            rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
             assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
                 assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
             }
-            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, t, #[trigger] es[j as int]) is Some by {
-                assert(rsrc(fs, tb, t, es[(0 + j) as int]) == Some(rs[j as int]));
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
+                assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
             }
-            absent_at_elts(fs, tb, t, n, es, ces, 0);
+            absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
             absent_all(n, ces, 0);
         },
         _ => {},
@@ -1520,16 +1643,17 @@ proof fn absent_at_str(n: nat, c: Expr, w: Seq<char>)
 }
 
 /// list の腕：要素ごとの定理（list_elts）と引数の列（args_of）と bs_list。要素の写しは位置 0 からの列。
-proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is List,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1541,25 +1665,25 @@ proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             let u = to_ty(ty, tb, false)->Some_0;
             let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
             assert(c == Expr::List(u, ces));
-            assert(rsrcs(fs, tb, sc, es, 0) is Some);
-            let rs = rsrcs(fs, tb, sc, es, 0)->Some_0;
+            assert(rsrcs(fs, tb, fds, dep, sc, es, 0) is Some);
+            let rs = rsrcs(fs, tb, fds, dep, sc, es, 0)->Some_0;
             assert(r == RExpr::List(rs));
             assert(rmeans(renv, rs, 0) is Some);
             let vs = rmeans(renv, rs, 0)->Some_0;
             assert(v == RVal::List(vs));
-            rxs_at(fs, tb, sc, es, 0, ces);
-            rsrcs_at(fs, tb, sc, es, 0, rs);
+            rxs_at(fs, tb, fds, dep, sc, es, 0, ces);
+            rsrcs_at(fs, tb, fds, dep, sc, es, 0, rs);
             rmeans_at(renv, rs, 0, vs);
             assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
                 assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
             }
-            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
-                assert(rsrc(fs, tb, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                assert(rsrc(fs, tb, fds, dep, sc, es[(0 + j) as int]) == Some(rs[j as int]));
             }
             assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
                 assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
             }
-            list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, 0);
+            list_elts(p, fs, tb, fds, dep, sc, es, cenv, renv, ces, rs, vs, 0);
             args_of(p, cenv, ces, vs, 0);
             bs_list(p, cenv, u, ces, vofs(vs, 0));
         },
@@ -1568,16 +1692,17 @@ proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
 }
 
 /// str の腕：文字列は文字の式の列（str_exprs）に評価される。各文字は bs_leaf で値を持つ。
-proof fn str_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn str_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Str,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1767,16 +1892,16 @@ proof fn raccs_props(env: Map<nat, RVal>, acc: nat, item: nat, body: RExpr, item
 }
 
 /// Fold の腕の名前の位置：累積と要素の名前は sc.len() と sc.len() + 1（n と違う）。列、初期値、本体は n を参照も束縛もしない。
-proof fn absent_at_fold(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at_fold(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         e is Fold,
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1789,12 +1914,12 @@ proof fn absent_at_fold(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
             let ci = rx(fs, tb, false, t, *i)->Some_0;
             let cb = rx(fs, tb, false, t.push(a).push(x), *b)->Some_0;
             assert(c == Expr::Fold(Box::new(cl), Box::new(ci), t.len(), t.len() + 1, Box::new(cb)));
-            assert(rsrc(fs, tb, t, *l) is Some && rsrc(fs, tb, t, *i) is Some && rsrc(fs, tb, t.push(a).push(x), *b) is Some);
+            assert(rsrc(fs, tb, fds, dep, t, *l) is Some && rsrc(fs, tb, fds, dep, t, *i) is Some && rsrc(fs, tb, fds, dep, t.push(a).push(x), *b) is Some);
             assert(t.push(a)[n as int] == t[n as int]);
             assert(t.push(a).push(x)[n as int] == t[n as int]);
-            absent_at(fs, tb, t, n, *l, cl);
-            absent_at(fs, tb, t, n, *i, ci);
-            absent_at(fs, tb, t.push(a).push(x), n, *b, cb);
+            absent_at(fs, tb, fds, dep, t, n, *l, cl);
+            absent_at(fs, tb, fds, dep, t, n, *i, ci);
+            absent_at(fs, tb, fds, dep, t.push(a).push(x), n, *b, cb);
             assert(t.len() != n);
             assert(t.len() + 1 != n);
         },
@@ -1804,16 +1929,17 @@ proof fn absent_at_fold(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
 
 /// fold の腕：列と初期値の定理（resolve_sound）、累積の列（raccs）の各段の本体の定理（resolve_sound を段に当てる）、
 /// fold_from_each と bs_fold。累積と要素の名前は sc.len() と sc.len() + 1（rx と同じ番号）。
-proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Fold,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1827,10 +1953,10 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             let ci = rx(fs, tb, false, sc, *i)->Some_0;
             let cb = rx(fs, tb, false, sc.push(a).push(x), *b)->Some_0;
             assert(c == Expr::Fold(Box::new(cl), Box::new(ci), sc.len(), sc.len() + 1, Box::new(cb)));
-            assert(rsrc(fs, tb, sc, *l) is Some && rsrc(fs, tb, sc, *i) is Some && rsrc(fs, tb, sc.push(a).push(x), *b) is Some);
-            let rl = rsrc(fs, tb, sc, *l)->Some_0;
-            let ri = rsrc(fs, tb, sc, *i)->Some_0;
-            let rb = rsrc(fs, tb, sc.push(a).push(x), *b)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *l) is Some && rsrc(fs, tb, fds, dep, sc, *i) is Some && rsrc(fs, tb, fds, dep, sc.push(a).push(x), *b) is Some);
+            let rl = rsrc(fs, tb, fds, dep, sc, *l)->Some_0;
+            let ri = rsrc(fs, tb, fds, dep, sc, *i)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc.push(a).push(x), *b)->Some_0;
             assert(r == RExpr::Fold(Box::new(rl), Box::new(ri), sc.len(), sc.len() + 1, Box::new(rb)));
             assert(rmean(renv, rl) is Some);
             let ml = rmean(renv, rl)->Some_0;
@@ -1841,14 +1967,14 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             assert(raccs(renv, sc.len(), sc.len() + 1, rb, items, 0, init) is Some);
             let accs = raccs(renv, sc.len(), sc.len() + 1, rb, items, 0, init)->Some_0;
             assert(v == accs[(accs.len() - 1) as int]);
-            resolve_sound(p, fs, tb, sc, *l, cenv, renv, cl, rl, ml);
-            resolve_sound(p, fs, tb, sc, *i, cenv, renv, ci, ri, init);
+            resolve_sound(p, fs, tb, fds, dep, sc, *l, cenv, renv, cl, rl, ml);
+            resolve_sound(p, fs, tb, fds, dep, sc, *i, cenv, renv, ci, ri, init);
             raccs_props(renv, sc.len(), sc.len() + 1, rb, items, 0, init, accs);
             assert forall|k: nat| (k as int) < items.len() implies evals_to(p, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), cb, vof(accs[(k + 1) as int])) by {
                 envrel_ins(cenv, renv, sc.len(), accs[k as int]);
                 envrel_ins(cenv.insert(sc.len(), vof(accs[k as int])), renv.insert(sc.len(), accs[k as int]), sc.len() + 1, items[k as int]);
                 assert(rmean(renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), rb) == Some(accs[(k + 1) as int]));
-                resolve_sound(p, fs, tb, sc.push(a).push(x), *b, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), cb, rb, accs[(k + 1) as int]);
+                resolve_sound(p, fs, tb, fds, dep, sc.push(a).push(x), *b, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), cb, rb, accs[(k + 1) as int]);
             }
             vofs_len(accs, 0);
             vofs_len(items, 0);
@@ -1872,16 +1998,16 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
 }
 
 /// 組込みの名前の位置：引数の式（rx の列）は位置 n を参照も束縛もしない（List の腕と同じ）。
-proof fn absent_at_builtin(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+proof fn absent_at_builtin(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
         t[n as int] == Seq::<char>::empty(),
         e is Builtin,
         rx(fs, tb, false, t, e) == Some(c),
-        rsrc(fs, tb, t, e) is Some,
+        rsrc(fs, tb, fds, dep, t, e) is Some,
     ensures
         absent(n, c),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1891,17 +2017,17 @@ proof fn absent_at_builtin(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             assert(rxs(fs, tb, false, t, es, 0) is Some);
             let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
             assert(c == Expr::Builtin(b, ces));
-            assert(rsrcs(fs, tb, t, es, 0) is Some);
-            let rs = rsrcs(fs, tb, t, es, 0)->Some_0;
-            rxs_at(fs, tb, t, es, 0, ces);
-            rsrcs_at(fs, tb, t, es, 0, rs);
+            assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some);
+            let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
+            rxs_at(fs, tb, fds, dep, t, es, 0, ces);
+            rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
             assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
                 assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
             }
-            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, t, #[trigger] es[j as int]) is Some by {
-                assert(rsrc(fs, tb, t, es[(0 + j) as int]) == Some(rs[j as int]));
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
+                assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
             }
-            absent_at_elts(fs, tb, t, n, es, ces, 0);
+            absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
             absent_all(n, ces, 0);
         },
         _ => {},
@@ -1909,16 +2035,17 @@ proof fn absent_at_builtin(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
 }
 
 /// 組込みの腕：引数の式の定理（list_elts と args_of）と bs_builtin。核の組込みの結果 w は rof で源の値 v に写り、その写しは w に等しい（rof_vof）。
-proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Builtin,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 1);
     reveal_with_fuel(rsrc, 1);
@@ -1928,8 +2055,8 @@ proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>
             assert(rxs(fs, tb, false, sc, es, 0) is Some);
             let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
             assert(c == Expr::Builtin(b, ces));
-            assert(rsrcs(fs, tb, sc, es, 0) is Some);
-            let rs = rsrcs(fs, tb, sc, es, 0)->Some_0;
+            assert(rsrcs(fs, tb, fds, dep, sc, es, 0) is Some);
+            let rs = rsrcs(fs, tb, fds, dep, sc, es, 0)->Some_0;
             assert(r == RExpr::Builtin(b, rs));
             assert(rmeans(renv, rs, 0) is Some);
             let vs = rmeans(renv, rs, 0)->Some_0;
@@ -1938,19 +2065,19 @@ proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>
             let w = apply(b, vofs(vs, 0))->Done_0;
             assert(rof(w) == Some(v));
             rof_vof(w, v);
-            rxs_at(fs, tb, sc, es, 0, ces);
-            rsrcs_at(fs, tb, sc, es, 0, rs);
+            rxs_at(fs, tb, fds, dep, sc, es, 0, ces);
+            rsrcs_at(fs, tb, fds, dep, sc, es, 0, rs);
             rmeans_at(renv, rs, 0, vs);
             assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
                 assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
             }
-            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
-                assert(rsrc(fs, tb, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                assert(rsrc(fs, tb, fds, dep, sc, es[(0 + j) as int]) == Some(rs[j as int]));
             }
             assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
                 assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
             }
-            list_elts(p, fs, tb, sc, es, cenv, renv, ces, rs, vs, 0);
+            list_elts(p, fs, tb, fds, dep, sc, es, cenv, renv, ces, rs, vs, 0);
             args_of(p, cenv, ces, vs, 0);
             bs_builtin(p, cenv, b, ces, vofs(vs, 0), w);
             assert(vof(v) == w);
@@ -1959,17 +2086,132 @@ proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>
     }
 }
 
-/// some の腕：中の式の定理と bs_some。
-proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+/// 呼出しの腕：引数は list_elts と args_of で評価し、呼出し先の本体は深さを一つ減らした resolve_sound で、bs_call でつなぐ。
+proof fn call_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
-        e is Some,
+        e is Call,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    match e {
+        Sx::Call(f, es) => {
+            assert(idx(fs, f, 0) is Some && rxs(fs, tb, false, sc, es, 0) is Some);
+            let g = idx(fs, f, 0)->Some_0;
+            let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
+            assert(c == Expr::Call(g, ces));
+            assert(dep != 0 && g < fds.len());
+            assert(fds[g as int] is Fn);
+            match fds[g as int] {
+                Sd::Fn(_, ps, _, b) => {
+                    assert(rsrc(fs, tb, fds, (dep - 1) as nat, pnames(ps), b) is Some && rsrcs(fs, tb, fds, dep, sc, es, 0) is Some);
+                    let rb = rsrc(fs, tb, fds, (dep - 1) as nat, pnames(ps), b)->Some_0;
+                    let rs = rsrcs(fs, tb, fds, dep, sc, es, 0)->Some_0;
+                    assert(r == RExpr::Call(Box::new(rb), ps.len(), rs));
+                    assert(rmeans(renv, rs, 0) is Some);
+                    let vs = rmeans(renv, rs, 0)->Some_0;
+                    assert(vs.len() == ps.len());
+                    assert(rmean(rbind(vs, ps.len()), rb) == Some(v));
+                    funcs_at(p, fs, tb, fds, g);
+                    assert(g < p.funcs.len());
+                    assert(p.funcs[g as int].params == rparams(ps, tb, false));
+                    assert(rx(fs, tb, false, pnames(ps), b) == Some(p.funcs[g as int].body));
+                    assert(p.funcs[g as int].params.len() == ps.len());
+                    rxs_at(fs, tb, fds, dep, sc, es, 0, ces);
+                    rsrcs_at(fs, tb, fds, dep, sc, es, 0, rs);
+                    rmeans_at(renv, rs, 0, vs);
+                    assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                        assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
+                    }
+                    assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                        assert(rsrc(fs, tb, fds, dep, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+                    }
+                    assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
+                        assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
+                    }
+                    list_elts(p, fs, tb, fds, dep, sc, es, cenv, renv, ces, rs, vs, 0);
+                    args_of(p, cenv, ces, vs, 0);
+                    assert forall|i: nat| i < ps.len() implies p.funcs[g as int].params[i as int].0 == i by {
+                        assert(p.funcs[g as int].params == rparams(ps, tb, false));
+                    }
+                    vofs_len(vs, 0);
+                    assert(vofs(vs, 0).len() == ps.len());
+                    envrel_bind(p.funcs[g as int].params, vs, ps.len());
+                    resolve_sound(p, fs, tb, fds, (dep - 1) as nat, pnames(ps), b, bind(p.funcs[g as int].params, vofs(vs, 0), ps.len()), rbind(vs, ps.len()), p.funcs[g as int].body, rb, v);
+                    bs_call(p, cenv, g, ces, vofs(vs, 0), vof(v));
+                },
+                _ => {},
+            }
+        },
+        _ => {},
+    }
+}
+
+/// 呼出しの腕の名前の位置：引数の式は位置 n を参照も束縛もしない（核の呼出しの本体は引数だけを見る）。
+proof fn absent_at_call(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is Call,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, fds, dep, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases dep, e, 0nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 1);
+    match e {
+        Sx::Call(f, es) => {
+            assert(idx(fs, f, 0) is Some && rxs(fs, tb, false, t, es, 0) is Some);
+            let g = idx(fs, f, 0)->Some_0;
+            let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
+            assert(c == Expr::Call(g, ces));
+            assert(dep != 0 && g < fds.len());
+            assert(fds[g as int] is Fn);
+            match fds[g as int] {
+                Sd::Fn(_, ps, _, b) => {
+                    assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some);
+                    let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
+                    rxs_at(fs, tb, fds, dep, t, es, 0, ces);
+                    rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
+                    assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                        assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+                    }
+                    assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
+                        assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
+                    }
+                    absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
+                    absent_all(n, ces, 0);
+                },
+                _ => {},
+            }
+        },
+        _ => {},
+    }
+}
+
+/// some の腕：中の式の定理と bs_some。
+proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        funcs_ok(p, fs, tb, fds),
+        envrel(cenv, renv),
+        e is Some,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -1980,13 +2222,13 @@ proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             assert(rx(fs, tb, false, sc, *a) is Some);
             let x = rx(fs, tb, false, sc, *a)->Some_0;
             assert(c == Expr::Some(Box::new(x)));
-            assert(rsrc(fs, tb, sc, *a) is Some);
-            let ra = rsrc(fs, tb, sc, *a)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *a) is Some);
+            let ra = rsrc(fs, tb, fds, dep, sc, *a)->Some_0;
             assert(r == RExpr::Some(Box::new(ra)));
             assert(rmean(renv, ra) is Some);
             let va = rmean(renv, ra)->Some_0;
             assert(v == RVal::Some(Box::new(va)));
-            resolve_sound(p, fs, tb, sc, *a, cenv, renv, x, ra, va);
+            resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, x, ra, va);
             bs_some(p, cenv, x, vof(va));
         },
         _ => {},
@@ -1994,16 +2236,17 @@ proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
 }
 
 /// 参照の腕：下端（基）の定理と鎖の定理。
-proof fn fld_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn fld_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Fld,
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -2013,29 +2256,30 @@ proof fn fld_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
         Sx::Fld(a, fls) => {
             assert(rx(fs, tb, false, sc, *a) is Some);
             let x = rx(fs, tb, false, sc, *a)->Some_0;
-            assert(rsrc(fs, tb, sc, *a) is Some);
-            let ra = rsrc(fs, tb, sc, *a)->Some_0;
-            chain_inner(tb, renv, ra, fls, 0, r);
+            assert(rsrc(fs, tb, fds, dep, sc, *a) is Some);
+            let ra = rsrc(fs, tb, fds, dep, sc, *a)->Some_0;
+            chain_inner(tb, fds, dep, renv, ra, fls, 0, r);
             let rv = rmean(renv, ra)->Some_0;
             assert(rmean(renv, ra) == Some(rv));
-            resolve_sound(p, fs, tb, sc, *a, cenv, renv, x, ra, rv);
-            chain_sound(p, cenv, tb, renv, ra, x, rv, fls, 0, r, c, v);
+            resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, x, ra, rv);
+            chain_sound(p, cenv, tb, fds, dep, renv, ra, x, rv, fls, 0, r, c, v);
         },
         _ => {},
     }
 }
 
 /// 基なしの記録の腕（全部書いた構築）：字段の列の解決と、字段の定理（rec_none_arm）。
-proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e matches Sx::Rec(_, _, None),
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -2052,14 +2296,14 @@ proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
             assert(idx(sc, Seq::empty(), 0) is None);
             let decl = tb[k as int].2;
             let n = decl.len();
-            assert(rsrc_ws(fs, tb, sc, decl, fls, 0) is Some);
-            let ws = rsrc_ws(fs, tb, sc, decl, fls, 0)->Some_0;
+            assert(rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0) is Some);
+            let ws = rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0)->Some_0;
             assert(rec_expr(fs, tb, false, sc, decl, fls, None) == Some(c));
             assert(rec_upd(fs, tb, false, sc, decl, fls, 0, none_upd(n)) is Some);
             let uf = rec_upd(fs, tb, false, sc, decl, fls, 0, none_upd(n))->Some_0;
             assert(rrecord(uf, None, sc.len()) == Ok(c));
             assert(r == RExpr::Rec(pdecl(n), ws, None));
-            rec_none_arm(p, fs, tb, sc, decl, fls, cenv, renv, c, uf, ws, v);
+            rec_none_arm(p, fs, tb, fds, dep, sc, decl, fls, cenv, renv, c, uf, ws, v);
         },
         _ => {},
     }
@@ -2068,16 +2312,17 @@ proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
 /// 基ありの記録の腕：基を解決して形を取り出し、基の定理と字段の定理を使う（rec_some_arm）。
 /// 字段の写しは、基の解決の深さ（rx と同じ deep_rec）の scope で行う。
 #[verifier::rlimit(100)]
-proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e matches Sx::Rec(_, _, Some(_)),
         rx(fs, tb, false, sc, e) == Some(c),
-        rsrc(fs, tb, sc, e) == Some(r),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 1nat,
+    decreases dep, e, 1nat,
 {
     reveal_with_fuel(rx, 2);
     reveal_with_fuel(rsrc, 2);
@@ -2093,49 +2338,50 @@ proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
             let n = decl.len();
             assert(rx(fs, tb, false, sc, *b) is Some);
             let bx = rx(fs, tb, false, sc, *b)->Some_0;
-            assert(rsrc(fs, tb, sc, *b) is Some);
-            let br = rsrc(fs, tb, sc, *b)->Some_0;
+            assert(rsrc(fs, tb, fds, dep, sc, *b) is Some);
+            let br = rsrc(fs, tb, fds, dep, sc, *b)->Some_0;
             let deep = deep_rec(Some(bx), decl, fls);
-            assert(rsrc_ws(fs, tb, scope2(sc, deep), decl, fls, 0) is Some);
-            let ws = rsrc_ws(fs, tb, scope2(sc, deep), decl, fls, 0)->Some_0;
+            assert(rsrc_ws(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0) is Some);
+            let ws = rsrc_ws(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0)->Some_0;
             assert(rec_expr(fs, tb, false, sc, decl, fls, Some(bx)) == Some(c));
             assert(rec_upd(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(n)) is Some);
             let uf = rec_upd(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(n))->Some_0;
             assert(rrecord(uf, Some(bx), sc.len()) == Ok(c));
             assert(r == RExpr::Rec(pdecl(n), ws, Some(Box::new(br))));
             assert(e == Sx::Rec(rn, fls, Some(Box::new(*b))));
-            rec_some_tail(p, fs, tb, sc, e, rn, fls, *b, cenv, renv, c, r, v, decl, bx, br, uf, ws);
+            rec_some_tail(p, fs, tb, fds, dep, sc, e, rn, fls, *b, cenv, renv, c, r, v, decl, bx, br, uf, ws);
         },
         _ => {},
     }
 }
 
 /// 基ありの記録の腕の後半：基の形を取り出し、基の定理（resolve_sound）と字段の定理（rec_some_arm）を使う。
-proof fn rec_some_tail(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, sc: Seq<Seq<char>>, e: Sx, rn: Seq<char>, fls: Seq<(Seq<char>, Sx)>, bsx: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal, decl: Seq<Seq<char>>, bx: Expr, br: RExpr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>)
+proof fn rec_some_tail(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, rn: Seq<char>, fls: Seq<(Seq<char>, Sx)>, bsx: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal, decl: Seq<Seq<char>>, bx: Expr, br: RExpr, uf: Seq<Option<Expr>>, ws: Seq<(nat, RExpr)>)
     requires
+        funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e == Sx::Rec(rn, fls, Some(Box::new(bsx))),
         rx(fs, tb, false, sc, bsx) == Some(bx),
-        rsrc(fs, tb, sc, bsx) == Some(br),
+        rsrc(fs, tb, fds, dep, sc, bsx) == Some(br),
         decl.len() >= 1,
         rec_upd(fs, tb, false, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rrecord(uf, Some(bx), sc.len()) == Ok(c),
-        rsrc_ws(fs, tb, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
+        rsrc_ws(fs, tb, fds, dep, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0) == Some(ws),
         r == RExpr::Rec(pdecl(decl.len()), ws, Some(Box::new(br))),
         rmean(renv, r) == Some(v),
     ensures
         evals_to(p, cenv, c, vof(v)),
-    decreases e, 0nat,
+    decreases dep, e, 0nat,
 {
     match e {
         Sx::Rec(_, fls2, Some(b)) => {
             assert(*b == bsx);
             assert(fls2 == fls);
             let n = decl.len();
-            base_split(fs, tb, sc, decl, fls, bx, c, renv, ws, br, uf, v);
+            base_split(fs, tb, fds, dep, sc, decl, fls, bx, c, renv, ws, br, uf, v);
             let bs = choose|bs: Seq<RVal>| rmean(renv, br) == Some(RVal::Rec(bs)) && bs.len() == n;
-            resolve_sound(p, fs, tb, sc, *b, cenv, renv, bx, br, RVal::Rec(bs));
-            rec_some_arm(p, fs, tb, sc, decl, fls2, cenv, renv, bx, br, bs, c, uf, ws, v);
+            resolve_sound(p, fs, tb, fds, dep, sc, *b, cenv, renv, bx, br, RVal::Rec(bs));
+            rec_some_arm(p, fs, tb, fds, dep, sc, decl, fls2, cenv, renv, bx, br, bs, c, uf, ws, v);
         },
         _ => {},
     }
