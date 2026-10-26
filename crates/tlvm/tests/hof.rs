@@ -3,9 +3,10 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 use tlvm::api::*;
-use tlvm::checker::check_program;
+use tlvm::checker::{check_program, HofTypes};
 use tlvm::formatter::format_program;
 use tlvm::profiles::*;
+use tlvm::syntax::Program;
 
 fn tlvm(args: &[&str]) -> (i32, String, String) {
     let o = Command::new(env!("CARGO_BIN_EXE_tlvm"))
@@ -56,8 +57,8 @@ fn accepted(src: &str) -> tlvm::checker::TypedProgram {
     }
 }
 
-/// 検証済み部品へ渡す、書き換え後のソース。
-fn lowered(src: &str) -> String {
+/// 検証済み部品へ渡す、書き換え後のソース。`rewrite` が hof を書き換える。
+fn lowered_with(src: &str, rewrite: fn(&Program, &HofTypes) -> Program) -> String {
     let p = match parse_source(src.as_bytes(), &StaticProfile::default()) {
         Parsed::Program(p) => p,
         _ => panic!("parse"),
@@ -65,7 +66,19 @@ fn lowered(src: &str) -> String {
     let px = expand(&p).unwrap();
     let o = check_program(&px, src.len(), &StaticProfile::default());
     assert!(o.typed.is_some(), "{:?}", o.diagnostics);
-    format_program(&lower(&tlvm::hof::lower(&px, &o.hof)))
+    format_program(&lower(&rewrite(&px, &o.hof)))
+}
+
+/// 従来の書き換え（`hof::lower`）の、検証済み部品へ渡すソース。
+fn lowered(src: &str) -> String {
+    lowered_with(src, tlvm::hof::lower)
+}
+
+/// 検証済みの書き換え（`hof_verified::lower`）の、検証済み部品へ渡すソース。写せなければ失敗する。
+fn lowered_verified(src: &str) -> String {
+    lowered_with(src, |p, t| {
+        tlvm::hof_verified::lower(p, t).expect("the verified rewrite applies")
+    })
 }
 
 // ---------------------------------------------------------------- 型と評価
@@ -261,6 +274,24 @@ entry f
         codes("type T = A | B fn f(xs: List<Int>) -> List<Int> = map(xs, |A| A) entry f"),
         ["E-SUM-NAME-CONFLICT"]
     );
+}
+
+#[test]
+fn verified_lowering_keeps_string_literals() {
+    let src = r#"fn f(xs: List<String>) -> List<String> = map(filter(xs, |s| lt(0, length(s))), |s| concat(s, "!")) entry f"#;
+    let text = lowered_verified(src);
+    for w in ["map(", "filter("] {
+        assert!(!text.contains(w), "{w} in {text}");
+    }
+    assert!(text.contains(r#""!""#), "{text}");
+    assert_eq!(
+        canonical(&text, &StaticProfile::default()).as_deref(),
+        Some(text.as_str())
+    );
+    assert_eq!(run(src, r#"["ab", "", "c"]"#), r#"["ab!","c!"]"#);
+    // 書換えが作る畳み込みの累積と、文字列の値が同じ列で重なっても、文字列は変わらない
+    let shout = r#"fn f(s: String) -> String = concat(map(s, |c| c), "!") entry f"#;
+    assert_eq!(run(shout, r#""ab""#), r#""ab!""#);
 }
 
 #[test]

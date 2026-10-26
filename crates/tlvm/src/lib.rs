@@ -15,6 +15,7 @@ pub mod evaluator;
 pub mod formatter;
 pub mod generics;
 pub mod hof;
+pub mod hof_verified;
 pub mod imports;
 mod intern;
 pub mod lexer;

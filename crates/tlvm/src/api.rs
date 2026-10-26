@@ -246,8 +246,8 @@ fn compile_expanded(
             // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
             let (o, pm) = generics::check(&px, source.len(), profile);
             // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
-            // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
-            let mut glued = hof::lower(&pm, &o.hof);
+            // v1.9：hof と辞書の操作を書き換える（hof は hof_verified、写せなければ hof::lower）。最後に型の Dict<K, V> を List<Pair<K, V>> にする
+            let mut glued = crate::hof_verified::lower_hof(&pm, &o.hof);
             lower_in_place(&mut glued);
             dict::erase_in_place(&mut glued);
             glued.unmark();
@@ -311,7 +311,7 @@ pub fn needs_glue(p: &Program) -> bool {
 }
 
 /// 型引数、直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
-/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。総称の関数も残る（型検査の後で
+/// map などはそのまま残る（型検査の後で `hof_verified::lower_hof` が書き換える）。総称の関数も残る（型検査の後で
 /// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
     expand_with(p, false)
@@ -624,7 +624,7 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
             // v1.9：辞書も同じく書き換え、型の Dict<K, V> を List<Pair<K, V>> にする
             let text = if hof::has_hof(&p) || dict::has_dict(&p) {
-                let mut glued = hof::lower(&p, &o.hof);
+                let mut glued = crate::hof_verified::lower_hof(&p, &o.hof);
                 dict::erase_in_place(&mut glued);
                 glued.unmark();
                 format_program(&glued)

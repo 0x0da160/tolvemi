@@ -102,7 +102,7 @@ pub fn deepest_loop_nest(p: &Program) -> Option<(usize, crate::diagnostics::Span
 }
 
 /// プログラム中の名前（関数名、引数、変数、束縛、呼び出し先）。
-fn collect(e: &Expr, out: &mut HashSet<String>) {
+pub(crate) fn collect(e: &Expr, out: &mut HashSet<String>) {
     match &e.kind {
         ExprKind::Var(n) | ExprKind::Let { name: n, .. } | ExprKind::Call { callee: n, .. } => {
             out.insert(n.clone());
