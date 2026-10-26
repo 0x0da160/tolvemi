@@ -1,7 +1,7 @@
 //! 書換えの exec 実装（段階 1b、DECISION-43）：hofrw.rs の写し rw_tb を、検証済みの exec の木の上で計算する。
 //!
 //! 源の exec の式 `EX` は `XExpr` の写しで、hof の形（map・filter・any・all・find・sort_by）を含む。
-//! 書換え `rw_ex` は、表 `tb`（束縛名と要素の型の組の列。先頭から最初に一致する項を読む）を引いて、核の exec の式
+//! 書換え `rw_ex` は、表 `tb`（束縛名、要素の型、本体の型の三つ組の列。先頭から最初に一致する項を読む）を引いて、核の exec の式
 //! `EExpr`（ir.rs）を作る。結果の写し（view_expr）は、spec の `rw_tb(view_tb(tb), view_ex(e))` に等しい。
 //!
 //! 導入する名前は hof_base（hofrw.rs）で、加算は検査つき。桁あふれは None を返す（書換えの拒否）。
@@ -106,34 +106,36 @@ pub open spec fn view_exs(es: Vec<EX>) -> Seq<XExpr>
 }
 
 /// 表の写し（束縛名を nat に、順序はそのまま）。
-pub open spec fn view_tb(tb: Vec<(usize, Ty)>) -> Seq<(nat, Ty)> {
-    Seq::new(tb@.len(), |i: int| (tb@[i].0 as nat, tb@[i].1))
+pub open spec fn view_tb(tb: Vec<(usize, Ty, Ty)>) -> Seq<(nat, Ty, Ty)> {
+    Seq::new(tb@.len(), |i: int| (tb@[i].0 as nat, tb@[i].1, tb@[i].2))
 }
 
 // ------------------------------------------------------------------ 表の引き
 
-/// hof の束縛名 x の要素の型を表から読む（先頭から最初に一致する項。無ければ Int）。hof_ann の exec 版。
-pub fn ann_e(tb: &Vec<(usize, Ty)>, x: usize) -> (r: Ty)
+/// hof の束縛名 x の（要素の型、本体の型）を表から読む（先頭から最初に一致する項。無ければ（Int、Int））。
+/// hof_ann と hof_body の exec 版。
+pub fn ent_e(tb: &Vec<(usize, Ty, Ty)>, x: usize) -> (r: (Ty, Ty))
     ensures
-        r == hof_ann(view_tb(*tb), x as nat),
+        r.0 == hof_ann(view_tb(*tb), x as nat),
+        r.1 == hof_body(view_tb(*tb), x as nat),
 {
     let mut i: usize = 0;
     while i < tb.len()
         invariant
             i <= tb.len(),
             forall|j: int| 0 <= j < i ==> tb@[j].0 != x,
-            hof_ann_at(view_tb(*tb), i as nat, x as nat) == hof_ann(view_tb(*tb), x as nat),
+            hof_ent_at(view_tb(*tb), i as nat, x as nat) == hof_ent_at(view_tb(*tb), 0, x as nat),
         decreases tb.len() - i,
     {
         if tb[i].0 == x {
             proof {
-                assert(view_tb(*tb)[i as int] == (tb@[i as int].0 as nat, tb@[i as int].1));
+                assert(view_tb(*tb)[i as int] == (tb@[i as int].0 as nat, tb@[i as int].1, tb@[i as int].2));
             }
-            return ty_clone(&tb[i].1);
+            return (ty_clone(&tb[i].1), ty_clone(&tb[i].2));
         }
         i = i + 1;
     }
-    Ty::Int
+    (Ty::Int, Ty::Int)
 }
 
 // ------------------------------------------------------------------ 名前の上限（top の検査つき版）
@@ -615,7 +617,7 @@ pub fn sort_collect_x(xs: EExpr, t: Ty, acc: usize, e: usize, st: usize, y: usiz
 // ------------------------------------------------------------------ 書換え（rw_tb の exec 版）
 
 /// 列の写しの閉じた形：要素ごとに一致する並びは、rw_tb_args に等しい。
-proof fn args_close(tb: Seq<(nat, Ty)>, es: Seq<XExpr>, outv: Seq<Expr>)
+proof fn args_close(tb: Seq<(nat, Ty, Ty)>, es: Seq<XExpr>, outv: Seq<Expr>)
     requires
         outv.len() == es.len(),
         forall|j: int| 0 <= j < es.len() ==> outv[j] == rw_tb(tb, es[j]),
@@ -640,7 +642,7 @@ fn hof_base_x(x: usize, g: &EExpr) -> (r: Option<usize>)
 }
 
 /// 列の写し（rw_tb_args の exec 版）。
-fn rw_args_e(tb: &Vec<(usize, Ty)>, es: &Vec<EX>) -> (r: Option<Vec<EExpr>>)
+fn rw_args_e(tb: &Vec<(usize, Ty, Ty)>, es: &Vec<EX>) -> (r: Option<Vec<EExpr>>)
     ensures
         match r {
             Some(v) => view_exprs(v) =~= rw_tb_args(view_tb(*tb), view_exs(*es), 0),
@@ -676,7 +678,7 @@ fn rw_args_e(tb: &Vec<(usize, Ty)>, es: &Vec<EX>) -> (r: Option<Vec<EExpr>>)
 }
 
 /// 源の exec の式の写し（rw_tb の exec 版）。桁あふれのときだけ None。
-pub fn rw_ex(tb: &Vec<(usize, Ty)>, e: &EX) -> (r: Option<EExpr>)
+pub fn rw_ex(tb: &Vec<(usize, Ty, Ty)>, e: &EX) -> (r: Option<EExpr>)
     ensures
         match r {
             Some(v) => view_expr(v) == rw_tb(view_tb(*tb), view_ex(*e)),
@@ -825,7 +827,7 @@ pub fn rw_ex(tb: &Vec<(usize, Ty)>, e: &EX) -> (r: Option<EExpr>)
                 Some(v) => v,
                 None => return None,
             };
-            let t = erase_x(ann_e(tb, *x));
+            let t = erase_x(ent_e(tb, *x).1);
             Some(map_x(vxs, t, b, *x, g))
         },
         EX::Filter(xs, x, c) => {
@@ -841,7 +843,7 @@ pub fn rw_ex(tb: &Vec<(usize, Ty)>, e: &EX) -> (r: Option<EExpr>)
                 Some(v) => v,
                 None => return None,
             };
-            let t = erase_x(ann_e(tb, *x));
+            let t = erase_x(ent_e(tb, *x).0);
             Some(filter_x(vxs, t, b, *x, g))
         },
         EX::Any(xs, x, c) => {
@@ -891,7 +893,7 @@ pub fn rw_ex(tb: &Vec<(usize, Ty)>, e: &EX) -> (r: Option<EExpr>)
                 Some(v) => v,
                 None => return None,
             };
-            let t = erase_x(ann_e(tb, *x));
+            let t = erase_x(ent_e(tb, *x).0);
             Some(find_x(vxs, t, b, *x, g, b1))
         },
         EX::SortBy(xs, x, c) => {
@@ -931,7 +933,7 @@ pub fn rw_ex(tb: &Vec<(usize, Ty)>, e: &EX) -> (r: Option<EExpr>)
                 Some(v) => v,
                 None => return None,
             };
-            let t = erase_x(ann_e(tb, *x));
+            let t = erase_x(ent_e(tb, *x).0);
             Some(sort_collect_x(vxs, t, b, b1, b2, b3, b4, b5, b6, *x, g))
         },
     }

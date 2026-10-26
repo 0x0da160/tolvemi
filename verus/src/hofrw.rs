@@ -1,7 +1,8 @@
 //! 書換えの写しの spec（段階 1b・書換えの形の仮定の、hof の部分の証明、DECISION-23「書換えを Verus で書く」）。
 //!
-//! 源の式 `XExpr` から核の式 `Expr` への写し `rw_tb(tb, e)` を spec で定める。`tb` は hof の束縛名 x から
-//! 要素の型への表（先頭から最初に一致する項を読む）（checker が hof の node に付けた型の写し。`hof.rs` の `HofTypes` に当たる）。構成子の写しは
+//! 源の式 `XExpr` から核の式 `Expr` への写し `rw_tb(tb, e)` を spec で定める。`tb` は hof の束縛名 x ごとの
+//! 三つ組（x、要素の型 A、本体の型 B）の列で、先頭から最初に一致する項を読む（checker が hof の node に付けた
+//! `HofTypes` の写し。`hof.rs` の `lower` は、map の空の列の注釈に B を、他の形に A を使う）。構成子の写しは
 //! 構造どおりで、型の注釈は erase_ty で消す。hof の形は hof.rs の lower と同じ形（fold_meaning.rs の map_collect・
 //! filter_collect・any_fold・all_fold・find_fold と、sortmeaning.rs の sort_collect）。導入する名前は、束縛名 x と
 //! 本体の写しの名前のどれよりも大きく取る（`hof_base`）。
@@ -23,22 +24,27 @@ use vstd::prelude::*;
 
 verus! {
 
-/// 表の i 番目以降で、束縛名 x の最初の項の型（無ければ Int）。
-pub open spec fn hof_ann_at(tb: Seq<(nat, Ty)>, i: nat, x: nat) -> Ty
+/// 表の i 番目以降で、束縛名 x の最初の項の（要素の型、本体の型）。無ければ（Int、Int）。
+pub open spec fn hof_ent_at(tb: Seq<(nat, Ty, Ty)>, i: nat, x: nat) -> (Ty, Ty)
     decreases tb.len() - i,
 {
     if i >= tb.len() {
-        Ty::Int
+        (Ty::Int, Ty::Int)
     } else if tb[i as int].0 == x {
-        tb[i as int].1
+        (tb[i as int].1, tb[i as int].2)
     } else {
-        hof_ann_at(tb, i + 1, x)
+        hof_ent_at(tb, i + 1, x)
     }
 }
 
 /// hof の束縛名 x の要素の型（表の先頭から最初に一致する項。無ければ Int。表が正しい源では起きない）。
-pub open spec fn hof_ann(tb: Seq<(nat, Ty)>, x: nat) -> Ty {
-    hof_ann_at(tb, 0, x)
+pub open spec fn hof_ann(tb: Seq<(nat, Ty, Ty)>, x: nat) -> Ty {
+    hof_ent_at(tb, 0, x).0
+}
+
+/// hof の束縛名 x の本体の型（表の先頭から最初に一致する項。無ければ Int）。map の空の列の注釈に使う。
+pub open spec fn hof_body(tb: Seq<(nat, Ty, Ty)>, x: nat) -> Ty {
+    hof_ent_at(tb, 0, x).1
 }
 
 /// 写しの導入する名前の基準：束縛名 x より大きく、写した本体 g のどの名前より大きい。
@@ -49,7 +55,7 @@ pub open spec fn hof_base(x: nat, g: Expr) -> nat {
 // ------------------------------------------------------------------ 写し
 
 /// 源の式の列の写し（i から先）。
-pub open spec fn rw_tb_args(tb: Seq<(nat, Ty)>, es: Seq<XExpr>, i: nat) -> Seq<Expr>
+pub open spec fn rw_tb_args(tb: Seq<(nat, Ty, Ty)>, es: Seq<XExpr>, i: nat) -> Seq<Expr>
     decreases es, es.len() - i,
 {
     if i >= es.len() {
@@ -60,7 +66,7 @@ pub open spec fn rw_tb_args(tb: Seq<(nat, Ty)>, es: Seq<XExpr>, i: nat) -> Seq<E
 }
 
 /// 源の式の写し。hof の形は、写した本体 g に対して `hof_base(x, g)` から名前を取る。
-pub open spec fn rw_tb(tb: Seq<(nat, Ty)>, e: XExpr) -> Expr
+pub open spec fn rw_tb(tb: Seq<(nat, Ty, Ty)>, e: XExpr) -> Expr
     decreases e, 0nat,
 {
     match e {
@@ -100,7 +106,7 @@ pub open spec fn rw_tb(tb: Seq<(nat, Ty)>, e: XExpr) -> Expr
         ),
         XExpr::Map(xs, x, c) => {
             let g = rw_tb(tb, *c);
-            map_collect(rw_tb(tb, *xs), erase_ty(hof_ann(tb, x)), hof_base(x, g), x, g)
+            map_collect(rw_tb(tb, *xs), erase_ty(hof_body(tb, x)), hof_base(x, g), x, g)
         },
         XExpr::Filter(xs, x, c) => {
             let g = rw_tb(tb, *c);
@@ -170,7 +176,7 @@ pub proof fn tb_base_fresh(x: nat, g: Expr)
 // ------------------------------------------------------------------ 列の写し
 
 /// 列の写しは、要素ごとの写しの並びに等しい（simulation.rs の rw_args の形）。
-pub proof fn tb_args_eq(tb: Seq<(nat, Ty)>, es: Seq<XExpr>, i: nat)
+pub proof fn tb_args_eq(tb: Seq<(nat, Ty, Ty)>, es: Seq<XExpr>, i: nat)
     requires
         i <= es.len(),
     ensures
@@ -188,7 +194,7 @@ pub proof fn tb_args_eq(tb: Seq<(nat, Ty)>, es: Seq<XExpr>, i: nat)
 }
 
 /// 写しの列（simulation.rs の rw_args）は、rw_tb_args に等しい。rw は rw_tb と一致する関数。
-pub proof fn tb_args_rw(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, es: Seq<XExpr>)
+pub proof fn tb_args_rw(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, es: Seq<XExpr>)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -201,7 +207,7 @@ pub proof fn tb_args_rw(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, es: Seq<
 // ------------------------------------------------------------------ 形の仮定の証明
 
 /// 写しは `homomorphic` を満たす（核の形は構造どおり、呼出しと列は要素ごとの写し）。
-pub proof fn tb_homomorphic(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr)
+pub proof fn tb_homomorphic(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -269,7 +275,7 @@ pub proof fn tb_homomorphic(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr)
 /// 写しは `hof_shapes` を満たす 形ごとの証明。導入する名前は hof_base（束縛名と本体の名前より大きい）、列の注釈は erase_ty。
 
 /// Map の写しは map_form を満たす。
-pub proof fn tb_map_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
+pub proof fn tb_map_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -279,11 +285,11 @@ pub proof fn tb_map_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XE
     let g = rw_tb(tb, c);
     let b = hof_base(x, g);
     tb_base_fresh(x, g);
-    assert(rw(XExpr::Map(Box::new(xs), x, Box::new(c))) == map_collect(rw(xs), erase_ty(hof_ann(tb, x)), hof_base(x, g), x, g));
+    assert(rw(XExpr::Map(Box::new(xs), x, Box::new(c))) == map_collect(rw(xs), erase_ty(hof_body(tb, x)), hof_base(x, g), x, g));
 }
 
 /// Filter の写しは filter_form を満たす。
-pub proof fn tb_filter_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
+pub proof fn tb_filter_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -297,7 +303,7 @@ pub proof fn tb_filter_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs:
 }
 
 /// Any の写しは any_form を満たす。
-pub proof fn tb_any_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
+pub proof fn tb_any_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -311,7 +317,7 @@ pub proof fn tb_any_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XE
 }
 
 /// All の写しは all_form を満たす。
-pub proof fn tb_all_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
+pub proof fn tb_all_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -325,7 +331,7 @@ pub proof fn tb_all_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XE
 }
 
 /// Find の写しは find_form を満たす。
-pub proof fn tb_find_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
+pub proof fn tb_find_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, c: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -339,7 +345,7 @@ pub proof fn tb_find_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: X
 }
 
 /// 写しは `hof_shapes` を満たす。
-pub proof fn tb_sort_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, k: XExpr)
+pub proof fn tb_sort_shape(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: XExpr, x: nat, k: XExpr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
@@ -365,7 +371,7 @@ pub proof fn tb_sort_shape(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr, xs: X
 }
 
 /// 写しは `hof_shapes` を満たす（六つの形それぞれについて）。
-pub proof fn tb_hof_shapes(tb: Seq<(nat, Ty)>, rw: spec_fn(XExpr) -> Expr)
+pub proof fn tb_hof_shapes(tb: Seq<(nat, Ty, Ty)>, rw: spec_fn(XExpr) -> Expr)
     requires
         forall|e: XExpr| #[trigger] rw(e) == rw_tb(tb, e),
     ensures
