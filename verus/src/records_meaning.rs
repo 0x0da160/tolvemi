@@ -18,7 +18,7 @@
 //!
 //! 証明していないこと：展開（resolve.rs の rx）がこの意味と一致すること（S4b）、印つきの写し、型付け。
 
-use crate::records_proof::rval;
+use crate::records_proof::*;
 use crate::spec::*;
 use vstd::prelude::*;
 
