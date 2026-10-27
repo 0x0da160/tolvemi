@@ -84,7 +84,7 @@ fn hlook_e(sc: &Vec<(Vec<char>, usize)>, x: &Vec<char>) -> (r: Option<usize>)
 }
 
 /// 表面の型から、空の表による核の型へ（to_ty の空の表の版）。
-fn to_ty0_e(t: &STy) -> (r: Option<Ty>)
+pub fn to_ty0_e(t: &STy) -> (r: Option<Ty>)
     ensures
         match r {
             Some(u) => to_ty(vty(*t), Seq::empty(), false) == Some(u),

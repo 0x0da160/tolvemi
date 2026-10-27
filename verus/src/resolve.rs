@@ -1788,7 +1788,7 @@ pub fn idx_e(s: &Vec<Vec<char>>, x: &Vec<char>) -> (r: Option<usize>)
     None
 }
 
-fn distinct_e(s: &Vec<Vec<char>>) -> (r: bool)
+pub fn distinct_e(s: &Vec<Vec<char>>) -> (r: bool)
     ensures
         r == distinct(vnames(s@)),
 {
@@ -1823,7 +1823,7 @@ fn distinct_e(s: &Vec<Vec<char>>) -> (r: bool)
     true
 }
 
-proof fn vnames_push(a: Seq<Vec<char>>, x: Vec<char>)
+pub proof fn vnames_push(a: Seq<Vec<char>>, x: Vec<char>)
     ensures
         vnames(a.push(x)) == vnames(a).push(x@),
 {

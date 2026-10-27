@@ -58,3 +58,4 @@ pub mod dictex;
 pub mod loopex;
 pub mod hofres;
 pub mod hofresex;
+pub mod hofprog;
