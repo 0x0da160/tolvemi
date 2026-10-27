@@ -11,6 +11,10 @@
 //!
 //! 信頼の境界：この接着（写し、番号の付け方、表の作り方、戻し）は検証していない（trust-boundary.toml の
 //! `rewrite-shape` の (1)・(2)）。検証しているのは `rw_ex` の事後条件（hofex.rs の `rewrite-exec-hof`）だけ。
+//!
+//! 検証済みの経路（`route_table`、`verified_hofs`）は、束縛の番号と形の並びを、検証済みの解決（hofprog.rs）の並びと
+//! 実行時に比べる。一致しなければ経路は拒否する（api.rs の `verified_from_source_hof`）。この比べが、表の番号の
+//! 信頼を実行時の検査に替える。
 
 use crate::checker::HofTypes;
 use crate::hof::{collect, has_hof};

@@ -100,3 +100,38 @@ entry solve
     assert_eq!(verified_output_type(src), "List<Int>");
     assert_eq!(run(src, "[1, 2]"), "[3,5]");
 }
+
+#[test]
+fn let_binder_before_a_hof_keeps_the_numbering() {
+    let src = "fn solve(xs: List<Int>) -> List<Int> = let k = 2 in map(xs, |x| mul(x, k))
+entry solve
+";
+    assert_eq!(verified_output_type(src), "List<Int>");
+    assert_eq!(run(src, "[1, 2]"), "[2,4]");
+}
+
+#[test]
+fn hof_and_let_inside_a_fold_body() {
+    // 各 x について、xs の各 z に x を足した列の和を、累積に足す。[1, 2] なら (1+1)+(2+1) と (1+2)+(2+2) の和。
+    let src = "fn solve(xs: List<Int>) -> Int = fold(xs, 0, |a, x| let k = fold(map(xs, |z| add(z, x)), 0, |p, q| add(p, q)) in add(a, k))
+entry solve
+";
+    assert_eq!(verified_output_type(src), "Int");
+    assert_eq!(run(src, "[1, 2]"), "12");
+}
+
+#[test]
+fn result_match_with_a_hof_in_the_success_branch() {
+    let src = "fn solve(r: Result<List<Int>, Bool>) -> List<Int> = match r { ok(v) => map(v, |x| add(x, 1)), err(e) => list<Int>() }
+entry solve
+";
+    assert_eq!(verified_output_type(src), "List<Int>");
+}
+
+#[test]
+fn option_match_with_a_hof_in_the_some_branch() {
+    let src = "fn solve(x: Option<List<Int>>) -> List<Int> = match_option(x, list<Int>(), |ys| map(ys, |y| mul(y, 3)))
+entry solve
+";
+    assert_eq!(verified_output_type(src), "List<Int>");
+}
