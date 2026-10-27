@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-27
+* **反復の書換えの exec 実装（2026-10-27、DECISION-43 の続き）**：反復 `loop_rw`（verus/src/loop_types.rs）の exec 版 `loop_rw_x`（verus/src/loopex.rs）を書いた。反復 loop(init, max, |s| e) の被演算子と注釈の型 S の消去から、核の exec の式を組み立てる。導入する名前（44 個）は束縛 s・max・本体の名前の上限の次から取るので、loop_names は `loop_names_fresh` が示す。段の幅の 16 の冪は `Int::from_u64`（[bigint]）で作る。`loop_rw_x` の事後条件は、Some のとき写し `view_expr` が spec の `loop_rw` に等しいこと（[信頼の境界](../trust-boundary.toml) の `rewrite-exec-loop`）。`loop_rw_fresh_agrees` は、被演算子が項目の型を持つとき、その書換えが形の型 Option<S> の消去を持つことを示す（loop_rw_agrees の適用）。dictex.rs の `fresh_absent` を公開した（挙動は変えない）。focus は loopex の 14 件・error 0。full crate は 1834 verified, 0 errors（1820 から）。plain build も通る。hof.rs の反復の書換えを exec 版の呼出しに替える接着と、反復の意味（xsem に反復の形がない）は未了。
 * **辞書の書換えの exec 実装（2026-10-27、DECISION-43 の続き）**：辞書の操作の書換え `dict_rw`（verus/src/dict_types.rs）の exec 版 `dict_rw_x`（verus/src/dictex.rs）を書いた。被演算子 a0・a1・a2 と注釈の型 k・v から、核の exec の式 `EExpr` を組み立てる。導入する名前は被演算子の名前の上限の次から取るので、名前の条件（dict_fresh）は `dict_fresh_ns` が示す。`dict_rw_x` の事後条件は、Some のとき写し `view_expr` が spec の `dict_rw` に等しいこと（[信頼の境界](../trust-boundary.toml) の `rewrite-exec-dict`）。`dict_rw_fresh_agrees` は、被演算子が項目の型を持つとき、その書換えが形の型の消去を持つことを示す（dict_rw_agrees の適用）。hofex.rs の `max_o` を公開した（検査つきの最大。挙動は変えない）。focus は dictex の 10 件・error 0。full crate は 1820 verified, 0 errors（1810 から）。plain build も通る。Rust の dict.rs の書換えを `dict_rw_x` の呼出しに替える接着と、辞書の操作の意味（xsem に辞書の形がない）は未了。
 
 ## 2026-10-26

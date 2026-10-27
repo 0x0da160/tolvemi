@@ -59,7 +59,7 @@ pub fn entry_x(kk: usize, vv: usize) -> (r: EExpr)
 // ------------------------------------------------------------------ 名前と被演算子の性質
 
 /// 名前 x が b+1 以上なら、top(e) ≤ b の式 e に現れない。
-proof fn fresh_absent(b: nat, x: nat, e: Expr)
+pub proof fn fresh_absent(b: nat, x: nat, e: Expr)
     requires
         top(e) <= b,
         b + 1 <= x,

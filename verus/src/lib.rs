@@ -55,3 +55,4 @@ pub mod sh4_back;
 pub mod hofrw;
 pub mod hofex;
 pub mod dictex;
+pub mod loopex;
