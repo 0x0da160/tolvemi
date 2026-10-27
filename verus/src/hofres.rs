@@ -4,6 +4,7 @@
 //! 計数器 c から、割り当てた順に一つずつ取る。よって、一つの解決の中で束縛の番号は重ならず、連続した範囲
 //! c, c+1, … になる（`hx_consec`）。hof の要素の型と本体の型は、表（信頼する checker の HofTypes の写し、
 //! DECISION-38）から取り、表は束縛の番号で引く（hofrw.rs の rw_tb）。
+//! 番号を取るたびに、次の計数器が usize に収まるかを確かめ（room）、収まらなければ None（拒否）。
 //!
 //! 名前解決の rx（resolve.rs）との違い：rx は束縛の番号に並びの位置（深さ）を使うので、兄弟の hof の束縛は
 //! 同じ番号になりうる。hx は計数器を使うので、番号は一意になり、表を番号で引ける。
@@ -52,6 +53,11 @@ pub open spec fn hof_x(h: Hf, xs: XExpr, x: nat, body: XExpr) -> XExpr {
         Hf::Find => XExpr::Find(Box::new(xs), x, Box::new(body)),
         Hf::SortBy => XExpr::SortBy(Box::new(xs), x, Box::new(body)),
     }
+}
+
+/// 番号を k 個取る余地があるか（番号は usize に収まる）。収まらなければ解決は拒否する。
+pub open spec fn room(c: nat, k: nat) -> bool {
+    c + k <= usize::MAX as nat
 }
 
 /// 源の式の解決。c は次の束縛の番号、sc は可視の束縛、fs は関数名の列。結果は（式、次の番号）。
@@ -107,9 +113,13 @@ pub open spec fn hx(fs: Seq<Seq<char>>, c: nat, sc: Seq<(Seq<char>, nat)>, e: Sx
             None
         } else {
             match hx(fs, c, sc, *a) {
-                Some((ra, c1)) => match hx(fs, c1 + 1, sc.push((x, c1)), *b) {
-                    Some((rb, c2)) => Some((XExpr::Let(c1, Box::new(ra), Box::new(rb)), c2)),
-                    None => None,
+                Some((ra, c1)) => if !room(c1, 1) {
+                    None
+                } else {
+                    match hx(fs, c1 + 1, sc.push((x, c1)), *b) {
+                        Some((rb, c2)) => Some((XExpr::Let(c1, Box::new(ra), Box::new(rb)), c2)),
+                        None => None,
+                    }
                 },
                 None => None,
             }
@@ -129,9 +139,13 @@ pub open spec fn hx(fs: Seq<Seq<char>>, c: nat, sc: Seq<(Seq<char>, nat)>, e: Sx
         } else {
             match hx(fs, c, sc, *l) {
                 Some((rl, c1)) => match hx(fs, c1, sc, *i) {
-                    Some((ri, c2)) => match hx(fs, c2 + 2, sc.push((a, c2)).push((x, c2 + 1)), *b) {
-                        Some((rb, c3)) => Some((XExpr::Fold(Box::new(rl), Box::new(ri), c2, c2 + 1, Box::new(rb)), c3)),
-                        None => None,
+                    Some((ri, c2)) => if !room(c2, 2) {
+                        None
+                    } else {
+                        match hx(fs, c2 + 2, sc.push((a, c2)).push((x, c2 + 1)), *b) {
+                            Some((rb, c3)) => Some((XExpr::Fold(Box::new(rl), Box::new(ri), c2, c2 + 1, Box::new(rb)), c3)),
+                            None => None,
+                        }
                     },
                     None => None,
                 },
@@ -143,9 +157,13 @@ pub open spec fn hx(fs: Seq<Seq<char>>, c: nat, sc: Seq<(Seq<char>, nat)>, e: Sx
         } else {
             match hx(fs, c, sc, *m) {
                 Some((rm, c1)) => match hx(fs, c1, sc, *n) {
-                    Some((rn, c2)) => match hx(fs, c2 + 1, sc.push((x, c2)), *b) {
-                        Some((rb, c3)) => Some((XExpr::Match(Box::new(rm), Box::new(rn), c2, Box::new(rb)), c3)),
-                        None => None,
+                    Some((rn, c2)) => if !room(c2, 1) {
+                        None
+                    } else {
+                        match hx(fs, c2 + 1, sc.push((x, c2)), *b) {
+                            Some((rb, c3)) => Some((XExpr::Match(Box::new(rm), Box::new(rn), c2, Box::new(rb)), c3)),
+                            None => None,
+                        }
                     },
                     None => None,
                 },
@@ -160,12 +178,20 @@ pub open spec fn hx(fs: Seq<Seq<char>>, c: nat, sc: Seq<(Seq<char>, nat)>, e: Sx
             None
         } else {
             match hx(fs, c, sc, *m) {
-                Some((rm, c1)) => match hx(fs, c1 + 1, sc.push((x, c1)), *a) {
-                    Some((ra, c2)) => match hx(fs, c2 + 1, sc.push((y, c2)), *b) {
-                        Some((rb, c3)) => Some((XExpr::MatchR(Box::new(rm), c1, Box::new(ra), c2, Box::new(rb)), c3)),
+                Some((rm, c1)) => if !room(c1, 1) {
+                    None
+                } else {
+                    match hx(fs, c1 + 1, sc.push((x, c1)), *a) {
+                        Some((ra, c2)) => if !room(c2, 1) {
+                            None
+                        } else {
+                            match hx(fs, c2 + 1, sc.push((y, c2)), *b) {
+                                Some((rb, c3)) => Some((XExpr::MatchR(Box::new(rm), c1, Box::new(ra), c2, Box::new(rb)), c3)),
+                                None => None,
+                            }
+                        },
                         None => None,
-                    },
-                    None => None,
+                    }
                 },
                 None => None,
             }
@@ -175,9 +201,13 @@ pub open spec fn hx(fs: Seq<Seq<char>>, c: nat, sc: Seq<(Seq<char>, nat)>, e: Sx
             None
         } else {
             match hx(fs, c, sc, *l) {
-                Some((rl, c1)) => match hx(fs, c1 + 1, sc.push((x, c1)), *b) {
-                    Some((rb, c2)) => Some((hof_x(h, rl, c1, rb), c2)),
-                    None => None,
+                Some((rl, c1)) => if !room(c1, 1) {
+                    None
+                } else {
+                    match hx(fs, c1 + 1, sc.push((x, c1)), *b) {
+                        Some((rb, c2)) => Some((hof_x(h, rl, c1, rb), c2)),
+                        None => None,
+                    }
                 },
                 None => None,
             }
