@@ -1761,7 +1761,7 @@ pub open spec fn vtb(tb: Seq<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)
     Seq::new(tb.len(), |i: int| (tb[i].0@, tb[i].1, vnames(tb[i].2@), tb[i].3))
 }
 
-fn idx_e(s: &Vec<Vec<char>>, x: &Vec<char>) -> (r: Option<usize>)
+pub fn idx_e(s: &Vec<Vec<char>>, x: &Vec<char>) -> (r: Option<usize>)
     ensures
         match r {
             Some(k) => idx(vnames(s@), x@, 0) == Some(k as nat) && k < s@.len(),
@@ -1899,7 +1899,7 @@ fn tag_ty_e(k: usize) -> (r: Ty)
 }
 
 /// 表面の型から核の型へ（to_ty の exec 版）。
-fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
+pub fn to_ty_e(t: &STy, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
     ensures
         match r {
             Some(u) => to_ty(vty(*t), vtb(tb@), tagged) == Some(u),
