@@ -20,6 +20,7 @@ use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tlvm_verified::hofroute::{hof_compile, hof_resolve_source, HofCompiled};
 use tlvm_verified::pipeline::{canonical_source, compile_source, Compiled};
 use tlvm_verified::resolve::resolve_e;
 use tlvm_verified::surface::parse_e;
@@ -253,6 +254,9 @@ fn compile_expanded(
             glued.unmark();
             let text = format_program(&glued);
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
+            // hof を含み範囲内のプログラムは、検証済みの経路の表を作る（番号は型検査器の節点の pm に付く）
+            let hof_route = (hof::has_hof(p) && route_scope_hof(p))
+                .then(|| crate::hof_verified::route_table(&pm, &o.hof));
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
             route_expanded(
                 source,
@@ -260,6 +264,7 @@ fn compile_expanded(
                 tagged,
                 cross_check_at(&text, r, profile, at),
                 profile,
+                hof_route,
             )
         }
     }
@@ -764,7 +769,9 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
 /// 検査し、印なしの IR を実行に使う。`fold` は核の形で、hof ではない（hof.rs の冒頭）。
 pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
     match parse_source(source, profile) {
-        Parsed::Program(p) => needs_glue(&p) && route_scope(&p),
+        Parsed::Program(p) => {
+            needs_glue(&p) && (route_scope(&p) || (hof::has_hof(&p) && route_scope_hof(&p)))
+        }
         Parsed::Failed(_) => false,
     }
 }
@@ -777,6 +784,17 @@ fn route_scope(p: &Program) -> bool {
         || dict::has_dict(p))
 }
 
+/// hof を含むプログラムの経路の範囲（DECISION-43）。hof の解決と書換えは検証済みの部品を通るので、記録、直和型、
+/// 再帰、総称、辞書、loop は含まない（展開や型の表が要るので、この経路の外）。
+fn route_scope_hof(p: &Program) -> bool {
+    !(sums::has_sums(p)
+        || recursive::has_recursive(p)
+        || generics::has_generics(p)
+        || dict::has_dict(p)
+        || records::has_records(p)
+        || hof::has_loop(p))
+}
+
 /// S5b：展開のゲート（印なし）が受理した、範囲内のプログラムを源の文字列で検証済みの経路に通す。
 /// ゲートの拒否と範囲の外は、そのまま返す（`tagged` は印つきの写しで、判定は印なしの写しの検査にまとめる）。
 fn route_expanded(
@@ -785,11 +803,75 @@ fn route_expanded(
     tagged: bool,
     r: CompileResult,
     profile: &StaticProfile,
+    hof_route: Option<Option<crate::hof_verified::RouteTable>>,
 ) -> CompileResult {
-    if tagged || !route_scope(p) {
+    if tagged {
+        return r;
+    }
+    // hof を含み範囲内のプログラムは、hof の経路の表（作れなければ None）で源を検証する
+    if let Some(table) = hof_route {
+        return verified_from_source_hof(source, p, r, table, profile);
+    }
+    if !route_scope(p) {
         return r;
     }
     verified_from_source(source, p, r, profile)
+}
+
+/// hof を含むプログラムの、源の文字列の検証済みの経路（DECISION-43）。源を検証済みの構文器と解決器（hof を含む）で読み、
+/// 解決した関数の本体を表で書き換え（検証済みの rw_ex）、核のプログラムを検証済みの型検査器に通す。表の束縛の並びが
+/// 検証済みの解決の並びと一致しなければ、また、どの段でも拒否なら、拒否する（経路は第二の判定を兼ねる）。
+fn verified_from_source_hof(
+    source: &[u8],
+    p: &Program,
+    r: CompileResult,
+    table: Option<crate::hof_verified::RouteTable>,
+    profile: &StaticProfile,
+) -> CompileResult {
+    let CompileResult::Accepted {
+        mut program,
+        warnings,
+        work,
+    } = r
+    else {
+        return r;
+    };
+    let Some(table) = table else {
+        return reject_verified("verified-hof-table-rejected", warnings, work);
+    };
+    let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), p);
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= VERIFIED_MAX_CHARS {
+        return reject_verified("source-too-long-for-verified-parser", warnings, work);
+    }
+    let rank: Vec<usize> = p
+        .functions()
+        .map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+        .collect();
+    let rec: Vec<bool> = p.functions().map(|f| f.rec).collect();
+    let (d, td) = depth_bounds(profile);
+    let Some((fs, g, _)) = hof_resolve_source(&chars, d, td) else {
+        return reject_verified("verified-hof-resolver-rejected", warnings, work);
+    };
+    if table.hofs != crate::hof_verified::verified_hofs(&fs) {
+        return reject_verified("verified-hof-binders-mismatch", warnings, work);
+    }
+    match hof_compile(&fs, g, &table.table, rank, rec) {
+        HofCompiled::Accepted(e) => {
+            program.verified = Some(Arc::new(VerifiedProgram(e)));
+            CompileResult::Accepted {
+                program,
+                warnings,
+                work,
+            }
+        }
+        HofCompiled::RewriteRejected => {
+            reject_verified("verified-rewrite-rejected", warnings, work)
+        }
+        HofCompiled::NotWellFormed => {
+            reject_verified("verified-typechecker-rejected", warnings, work)
+        }
+    }
 }
 
 /// S5b：源の文字列の検証済みの検査。印つきの写しが受理し、印なしの写しが受理したとき、印なしの IR を付ける。

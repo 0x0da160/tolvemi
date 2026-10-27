@@ -19,6 +19,7 @@ use crate::values::verified_ty;
 use std::collections::{HashMap, HashSet};
 use tlvm_verified::bigint::Int;
 use tlvm_verified::hofex::{rw_ex, EX};
+use tlvm_verified::hofprog::EXFunc;
 use tlvm_verified::ir::EExpr;
 use tlvm_verified::spec::{Builtin, Ty as VTy};
 
@@ -58,6 +59,7 @@ pub fn lower(p: &Program, types: &HofTypes) -> Option<Program> {
         scope: Vec::new(),
         next: 0,
         table: Vec::new(),
+        hofs: Vec::new(),
         strs: Vec::new(),
     };
     let mut bodies: Vec<(Vec<usize>, EX)> = Vec::new();
@@ -127,6 +129,8 @@ struct Conv<'a> {
     scope: Vec<(String, usize)>,
     next: usize,
     table: Vec<(usize, VTy, VTy)>,
+    /// hof の束縛の並び（束縛の番号と形、allocation の順）。検証済みの解決の並びと比べる（`route_table`）
+    hofs: Vec<(usize, u8)>,
     /// 文字列の値。引数のない呼出し（番号は `fns` の後ろ）で写し、戻すとき元の文字列にする。文字のリストに写すと
     /// 文面が変わり、変数や束縛の番号で写すと、書換えが作る束縛の番号と衝突しうる（呼出しは束縛しない）。
     strs: Vec<String>,
@@ -273,6 +277,7 @@ impl Conv<'_> {
                 let xs = self.ex(list)?;
                 let mark = self.scope.len();
                 let x = self.bind(binder);
+                self.hofs.push((x, op_tag(op)));
                 let c = self.ex(body)?;
                 self.scope.truncate(mark);
                 self.table.push((x, ta, tb));
@@ -451,6 +456,127 @@ impl Back<'_> {
             }
         };
         Some(Expr { kind, meta: m })
+    }
+}
+
+/// 検証済みの経路の表（Rust の接着）。`table` は束縛ごとの（要素の型、本体の型）、`hofs` は hof の束縛の（番号、形）を
+/// 番号の順（allocation の順）に並べたもの。`hofs` は検証済みの解決の並び（`verified_hofs`）と一致するかを呼出し側が
+/// 検査する。一致すれば、表の番号は検証済みの解決の番号と同じで、表の型は源の hof の型である（DECISION-38 の信頼）。
+pub struct RouteTable {
+    pub table: Vec<(usize, VTy, VTy)>,
+    pub hofs: Vec<(usize, u8)>,
+}
+
+/// 検証済みの経路の表を作る。束縛の番号は `conv` と同じ（引数が先、本体が続く。関数の順に計数器を受け継ぐ）。
+/// 写せない式（ループ、辞書など）や、表に無い hof があれば None。
+pub fn route_table(p: &Program, types: &HofTypes) -> Option<RouteTable> {
+    let names: Vec<String> = p.functions().map(|f| f.name.clone()).collect();
+    let funcs: HashMap<String, usize> = names
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(i, n)| (n, i))
+        .collect();
+    let mut conv = Conv {
+        types,
+        funcs: &funcs,
+        fns: names.len(),
+        scope: Vec::new(),
+        next: 0,
+        table: Vec::new(),
+        hofs: Vec::new(),
+        strs: Vec::new(),
+    };
+    for f in p.functions() {
+        conv.scope.clear();
+        for q in &f.params {
+            conv.bind(&q.name);
+        }
+        conv.ex(&f.body)?;
+    }
+    Some(RouteTable {
+        table: conv.table,
+        hofs: conv.hofs,
+    })
+}
+
+/// 検証済みの解決の hof の並び（束縛の番号と形、allocation の順）。関数の順に、引数の番号の後の本体から。
+pub fn verified_hofs(fs: &[EXFunc]) -> Vec<(usize, u8)> {
+    let mut out = Vec::new();
+    for f in fs {
+        hof_seq(&f.body, &mut out);
+    }
+    out
+}
+
+/// hof の形の番号（`verified_hofs` と `Conv` の並びで同じ番号を使う）。
+fn op_tag(op: &HofOp) -> u8 {
+    match op {
+        HofOp::Map => 0,
+        HofOp::Filter => 1,
+        HofOp::Any => 2,
+        HofOp::All => 3,
+        HofOp::Find => 4,
+        HofOp::SortBy => 5,
+    }
+}
+
+/// 検証済みの式の hof の並び。`Conv::ex` と同じ順（hof は、リストを先に、束縛を次に、本体を最後に訪ねる）。
+fn hof_seq(e: &EX, out: &mut Vec<(usize, u8)>) {
+    match e {
+        EX::Int(_) | EX::Bool(_) | EX::Unit | EX::Char(_) | EX::Var(_) | EX::None(_) => {}
+        EX::List(_, es) | EX::Builtin(_, es) | EX::Call(_, es) => {
+            for a in es {
+                hof_seq(a, out);
+            }
+        }
+        EX::Some(a) | EX::Inj(_, _, _, a) => hof_seq(a, out),
+        EX::Pair(a, b) | EX::Let(_, a, b) => {
+            hof_seq(a, out);
+            hof_seq(b, out);
+        }
+        EX::If(c, a, b) => {
+            hof_seq(c, out);
+            hof_seq(a, out);
+            hof_seq(b, out);
+        }
+        EX::Fold(xs, init, _, _, body) => {
+            hof_seq(xs, out);
+            hof_seq(init, out);
+            hof_seq(body, out);
+        }
+        EX::Match(s, nb, _, sm) => {
+            hof_seq(s, out);
+            hof_seq(nb, out);
+            hof_seq(sm, out);
+        }
+        EX::MatchR(s, _, a, _, b) => {
+            hof_seq(s, out);
+            hof_seq(a, out);
+            hof_seq(b, out);
+        }
+        EX::Map(xs, x, c)
+        | EX::Filter(xs, x, c)
+        | EX::Any(xs, x, c)
+        | EX::All(xs, x, c)
+        | EX::Find(xs, x, c)
+        | EX::SortBy(xs, x, c) => {
+            hof_seq(xs, out);
+            out.push((*x, hof_tag_ex(e)));
+            hof_seq(c, out);
+        }
+    }
+}
+
+/// 検証済みの hof の形の番号（`op_tag` と同じ）。
+fn hof_tag_ex(e: &EX) -> u8 {
+    match e {
+        EX::Map(..) => 0,
+        EX::Filter(..) => 1,
+        EX::Any(..) => 2,
+        EX::All(..) => 3,
+        EX::Find(..) => 4,
+        _ => 5,
     }
 }
 

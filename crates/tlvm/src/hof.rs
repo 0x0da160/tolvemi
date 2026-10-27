@@ -77,6 +77,14 @@ pub fn has_hof(p: &Program) -> bool {
     p.functions().any(|f| ex(&f.body))
 }
 
+/// `loop` を一つでも含むか（検証済みの hof の経路は loop を含まない。`has_hof` は loop も数える）。
+pub fn has_loop(p: &Program) -> bool {
+    fn ex(e: &Expr) -> bool {
+        matches!(e.kind, ExprKind::Loop { .. }) || e.children().into_iter().any(ex)
+    }
+    p.functions().any(|f| ex(&f.body))
+}
+
 /// 入れ子の loop の最も深い連鎖の段数と、その連鎖で一番外側の loop の span（loop を含まないプログラムは None）。
 /// 書き換えの前の構文木で数える（式の深さの上限を超えた診断の位置に使う）。
 pub fn deepest_loop_nest(p: &Program) -> Option<(usize, crate::diagnostics::Span)> {

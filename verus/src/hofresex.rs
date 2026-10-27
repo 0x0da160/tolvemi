@@ -13,7 +13,7 @@ use crate::hofex::*;
 use crate::hofres::*;
 use crate::resolve::*;
 use crate::spec::*;
-use crate::surface::{clone_chars, eq_chars, vty, vx, vxs, SExpr, STy};
+use crate::surface::*;
 use crate::syntax::*;
 use crate::xsem::*;
 use vstd::prelude::*;
@@ -141,8 +141,8 @@ pub fn hx_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, e: 
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 1nat,
 {
@@ -228,8 +228,8 @@ fn hx_let_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, e: 
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -274,8 +274,8 @@ fn hx_fold_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, e:
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -328,8 +328,8 @@ fn hx_match_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, e
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -377,8 +377,8 @@ fn hx_matchr_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, 
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -441,8 +441,8 @@ fn hx_hof_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, e: 
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((x, c2)) => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
-            None => hx(vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
+            Some((x, c2)) => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) == Some((view_ex(x), c2 as nat)),
+            None => hx(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vx(*e)) is None,
         },
     decreases e, 0nat,
 {
@@ -486,12 +486,12 @@ pub fn hxs_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, es
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some((xs, c2)) => hxs(vnames(fs@), c as nat, vhs(old(sc)@), vxs(*es), 0) == Some((view_exs(xs), c2 as nat)),
-            None => hxs(vnames(fs@), c as nat, vhs(old(sc)@), vxs(*es), 0) is None,
+            Some((xs, c2)) => hxs(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vxs(*es), 0) == Some((view_exs(xs), c2 as nat)),
+            None => hxs(crate::resolve::vnames(fs@), c as nat, vhs(old(sc)@), vxs(*es), 0) is None,
         },
     decreases es, 0nat,
 {
-    let ghost f = vnames(fs@);
+    let ghost f = crate::resolve::vnames(fs@);
     let ghost s0 = sc@;
     let ghost v = vxs(*es);
     let mut out: Vec<EX> = Vec::new();
@@ -506,7 +506,7 @@ pub fn hxs_e(fs: &Vec<Vec<char>>, c: usize, sc: &mut Vec<(Vec<char>, usize)>, es
     }
     while i < es.len()
         invariant
-            f == vnames(fs@),
+            f == crate::resolve::vnames(fs@),
             sc@ == s0,
             s0 == old(sc)@,
             v == vxs(*es),

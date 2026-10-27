@@ -13,7 +13,7 @@ use crate::hofres::*;
 use crate::hofresex::*;
 use crate::resolve::*;
 use crate::spec::*;
-use crate::surface::{clone_chars, vd, vds, vps, SDecl};
+use crate::surface::*;
 use crate::syntax::*;
 use crate::xsem::*;
 use vstd::prelude::*;
@@ -124,8 +124,8 @@ pub open spec fn cat_xfuncs(u: Seq<XFunc>, o: Option<(Seq<XFunc>, nat)>) -> Opti
 fn hfunc_e(fs: &Vec<Vec<char>>, c: usize, d: &SDecl) -> (r: Option<(EXFunc, usize)>)
     ensures
         match r {
-            Some((f, c2)) => hfunc(vnames(fs@), c as nat, vd(*d)) == Some((view_xfunc(f), c2 as nat)),
-            None => hfunc(vnames(fs@), c as nat, vd(*d)) is None,
+            Some((f, c2)) => hfunc(crate::resolve::vnames(fs@), c as nat, vd(*d)) == Some((view_xfunc(f), c2 as nat)),
+            None => hfunc(crate::resolve::vnames(fs@), c as nat, vd(*d)) is None,
         },
 {
     match d {
@@ -177,20 +177,20 @@ fn hfunc_e(fs: &Vec<Vec<char>>, c: usize, d: &SDecl) -> (r: Option<(EXFunc, usiz
                 proof {
                     assert(to_ty(vps(ps@)[k as int].1, Seq::empty(), false) is None);
                     assert(!params_ok(vps(ps@), Seq::empty(), false));
-                    assert(hfunc(vnames(fs@), c as nat, vd(*d)) is None);
+                    assert(hfunc(crate::resolve::vnames(fs@), c as nat, vd(*d)) is None);
                 }
                 return None;
             }
             if !distinct_e(&names) {
                 proof {
-                    assert(vnames(names@) =~= pnames(pv));
+                    assert(crate::resolve::vnames(names@) =~= pnames(pv));
                     assert(!distinct(pnames(pv)));
-                    assert(hfunc(vnames(fs@), c as nat, vd(*d)) is None);
+                    assert(hfunc(crate::resolve::vnames(fs@), c as nat, vd(*d)) is None);
                 }
                 return None;
             }
             proof {
-                assert(vnames(names@) =~= pnames(pv));
+                assert(crate::resolve::vnames(names@) =~= pnames(pv));
                 assert(vhs(sc@) =~= hparams(pv, c as nat));
                 assert(params_ok(pv, Seq::empty(), false));
                 assert(Seq::new(params@.len(), |j: int| (params@[j].0 as nat, params@[j].1)) =~= hrparams(pv, c as nat));
@@ -220,13 +220,13 @@ pub fn hresolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EXFunc>, usize, usize)>)
     let mut ents: Vec<usize> = Vec::new();
     let mut i: usize = 0;
     proof {
-        assert(vnames(names@) =~= names_of(fns_upto(v, 0)));
+        assert(crate::resolve::vnames(names@) =~= names_of(fns_upto(v, 0)));
     }
     while i < p.len()
         invariant
             v == vds(p@),
             i <= p@.len(),
-            vnames(names@) == names_of(fns_upto(v, i as nat)),
+            crate::resolve::vnames(names@) == names_of(fns_upto(v, i as nat)),
             fns_upto(v, i as nat) == Seq::new(fidx@.len(), |m: int| v[fidx@[m] as int]),
             forall|k: int| 0 <= k < fidx@.len() ==> #[trigger] fidx@[k] < p@.len(),
             ents_upto(v, i as nat) == Seq::new(ents@.len(), |m: int| v[ents@[m] as int]->Entry_0),
@@ -294,7 +294,7 @@ pub fn hresolve_e(p: &Vec<SDecl>) -> (r: Option<(Vec<EXFunc>, usize, usize)>)
             v == vds(p@),
             ds == fns_upto(v, v.len()),
             fsv == names_of(ds),
-            vnames(names@) == fsv,
+            crate::resolve::vnames(names@) == fsv,
             ds == Seq::new(fidx@.len(), |m: int| v[fidx@[m] as int]),
             forall|m: int| 0 <= m < fidx@.len() ==> #[trigger] fidx@[m] < p@.len(),
             k <= fidx@.len(),

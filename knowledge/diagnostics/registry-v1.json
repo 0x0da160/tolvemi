@@ -369,7 +369,7 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/api.rs:156",
+        "crates/tlvm/src/api.rs:157",
         "crates/tlvm/src/imports.rs:586"
       ]
     },
@@ -416,7 +416,7 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/api.rs:208"
+        "crates/tlvm/src/api.rs:209"
       ]
     },
     {
@@ -564,11 +564,11 @@
       "message_template": "検証済み部品と診断用の検査器の判定が食い違いました（処理系の不具合）",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/api.rs:391",
+        "crates/tlvm/src/api.rs:396",
         "crates/tlvm/src/values.rs:273"
       ],
-      "note": "検証済み部品の判定の食い違いを報告する関数（api.rs:391、values.rs:273）で作る",
-      "unreached": "fixture なし：検証済み部品と診断用の検査器の判定が食い違うのは処理系の不具合のときだけ（api.rs:391、values.rs:273）"
+      "note": "検証済み部品の判定の食い違いを報告する関数（api.rs:396、values.rs:273）で作る",
+      "unreached": "fixture なし：検証済み部品と診断用の検査器の判定が食い違うのは処理系の不具合のときだけ（api.rs:396、values.rs:273）"
     },
     {
       "code": "E-LEX-CONTROL-CHAR-IN-LITERAL",
@@ -768,11 +768,11 @@
         {
           "kind": "replace_expression",
           "constraint": "the nested loop is too deep to lower: fold over a List, or move an inner loop into a named rec fn and call it",
-          "source": "crates/tlvm/src/api.rs:506"
+          "source": "crates/tlvm/src/api.rs:511"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/api.rs:499",
+        "crates/tlvm/src/api.rs:504",
         "crates/tlvm/src/parser.rs:49"
       ],
       "note": "発生箇所の表の行は Parser::admit の上限表（parser.rs:40）が返す（crates/tlvm/src/parser.rs:49）"
@@ -847,9 +847,9 @@
       "message_template": "書換え後のプログラムの bytes が上限を超えました",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/api.rs:404"
+        "crates/tlvm/src/api.rs:409"
       ],
-      "implementation_note": "書換えの有無によらず、型検査を通ったプログラムを検査する（オーナーの決定 2026-10-19 23:38）。検査の場所は、書換えのない source の経路 api.rs:230、書換えを行う経路 api.rs:256、AST の経路 api.rs:637。既定の source_bytes（1,048,576）は rewritten_bytes（4,194,304）より小さい（profiles.rs:27,39）。そのため既定の profile では、書換えのない source の大きさは source の上限が先に働き、この検査は発火しない。設計 spec/lptl-v1/LPTL_design_v1.md:1179 は型検査を通ったプログラム全体を対象とする"
+      "implementation_note": "書換えの有無によらず、型検査を通ったプログラムを検査する（オーナーの決定 2026-10-19 23:38）。検査の場所は、書換えのない source の経路 api.rs:231、書換えを行う経路 api.rs:260、AST の経路 api.rs:642。既定の source_bytes（1,048,576）は rewritten_bytes（4,194,304）より小さい（profiles.rs:27,39）。そのため既定の profile では、書換えのない source の大きさは source の上限が先に働き、この検査は発火しない。設計 spec/lptl-v1/LPTL_design_v1.md:1179 は型検査を通ったプログラム全体を対象とする"
     },
     {
       "code": "E-LIMIT-STATIC-SEMANTIC-TYPE-DEPTH",
@@ -881,10 +881,10 @@
       "message_template": "source bytes が上限を超えました",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/api.rs:106",
+        "crates/tlvm/src/api.rs:107",
         "crates/tlvm/src/imports.rs:597"
       ],
-      "note": "発生箇所は二つ：api.rs:106 は source の大きさ（phase source-boundary）、imports.rs:597 は import したファイルの合計（phase import、v1.11）"
+      "note": "発生箇所は二つ：api.rs:107 は source の大きさ（phase source-boundary）、imports.rs:597 は import したファイルの合計（phase import、v1.11）"
     },
     {
       "code": "E-LIMIT-STATIC-TOKENS",
