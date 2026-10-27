@@ -37,7 +37,7 @@ version = "0.2026.10.06.6b6b296"
 rust_toolchain = "1.98.1-x86_64-unknown-linux-gnu"
 smt = "z3 4.16.0"
 command = "cd verus && cargo verus verify -- --triggers-mode silent --multiple-errors 6"
-result = "1810 verified, 0 errors（full crate、2026-10-26、hofex の exec の書換え rw_ex と、（束縛名、要素の型、本体の型）の三つ組の表を取る hofrw の写し rw_tb を含む（map の空の列の注釈は本体の型）。76eba18 も 1810 だった。b0d29e0 は 1757 verified で、hofrw の写し rw_tb と hof の形の仮定（14 件）を含んだ。その前は 1743 verified。SH1、SH6、SH4 の逆向き、レコードの文字、none と some、if、let、match、文字列とリスト、fold、組込み、呼出しの腕を含む sources。1736 verified, 0 errors は 2026-10-23（組込みの腕まで）。cargo clean -p tlvm-verified の後に cargo-verus verify -- --triggers-mode silent --multiple-errors 6、rlimit は既定。SH1 と SH6 を加えた後は 1567 verified, 0 errors。keysort を加えた後は 1389 verified, 0 errors。verus 0.2026.10.07.89f8d65、Z3 4.16.0。上の version（0.2026.10.06）の pin では再確認していない）"
+result = "1856 verified, 0 errors（full crate、2026-10-27、hofres.rs の hx の番号づけ（22 件）を含む。1834 は loopex、1820 は dictex を加えた後の結果。1810 は 2026-10-26 の結果）。2026-10-26、hofex の exec の書換え rw_ex と、（束縛名、要素の型、本体の型）の三つ組の表を取る hofrw の写し rw_tb を含む（map の空の列の注釈は本体の型）。76eba18 も 1810 だった。b0d29e0 は 1757 verified で、hofrw の写し rw_tb と hof の形の仮定（14 件）を含んだ。その前は 1743 verified。SH1、SH6、SH4 の逆向き、レコードの文字、none と some、if、let、match、文字列とリスト、fold、組込み、呼出しの腕を含む sources。1736 verified, 0 errors は 2026-10-23（組込みの腕まで）。cargo clean -p tlvm-verified の後に cargo-verus verify -- --triggers-mode silent --multiple-errors 6、rlimit は既定。SH1 と SH6 を加えた後は 1567 verified, 0 errors。keysort を加えた後は 1389 verified, 0 errors。verus 0.2026.10.07.89f8d65、Z3 4.16.0。上の version（0.2026.10.06）の pin では再確認していない）"
 assume = []
 admit = []
 # external_body は信頼する多倍長整数の演算だけ（下の [bigint]）
