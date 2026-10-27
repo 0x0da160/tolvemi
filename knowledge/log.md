@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-27
+* **hof の核の意味と源の意味の一致（2026-10-27、DECISION-43）**：`verus/src/hofmean.rs` に `hof_route_meaning` を置いた。hof_compile が受理した核のプログラム（解決した関数の列を表で写したもの、整形式）の意味は、源の意味（xeval）に等しい。源は行き詰まらず、核は OutOfFuel でないどの燃料の結果も源の結果に等しい。仮定は三つ：入力が入口の引数の型を持つこと、署名に Dict が無いこと（Rust の経路の範囲が確かめる）、燃料の源の結果が OutOfFuel でないこと。focused 4 件・error 0。full crate は 1887 verified, 0 errors（1883 から）。台帳の項目は hof-meaning（[proved]）。名前の解決（hresolve）が源の文字列の意味を保つことは未証明。
 * **hof の検証済みの経路（2026-10-27、DECISION-43、オーナーの「hof を resolve に入れる」）**：hof を含むプログラムを、源の文字列の検証済みの構文器と解決器（hof を含む）で読み、表で書き換え（rw_ex）、核のプログラムを検証済みの型検査器に通す経路を入れた（`verus/src/hofroute.rs`、`crates/tlvm/src/api.rs` の `verified_from_source_hof`）。範囲は記録・直和型・再帰・総称・Dict・loop を含まないもの。表（`crates/tlvm/src/hof_verified.rs` の `route_table`）の番号と形の並びは、検証済みの解決の並び（`verified_hofs`）と実行時に比べ、一致しなければ拒否する。拒否は検証済みの経路の判定として残す。検証は focused（hofresex 16、hofprog 6、hofroute 5、error 0）。full crate は 1883 verified, 0 errors（1856 から）。`cargo test -p tlvm` は 399 件通過、失敗 0（`crates/tlvm/tests/hof_route.rs` の 8 件を含む）。台帳の項目は hx-exec、hof-resolve、hof-route を [proved] に、rewrite-shape を [unproved] に残す。
 * **プログラム単位の名前解決（2026-10-27、DECISION-43）**：`verus/src/hofprog.rs` に `hresolve` と exec の `hresolve_e` を置いた。関数の番号は一つの計数器から、関数の順に引数の番号の後に本体の番号を取る。型の宣言（記録・直和型）を含むプログラムは None。focused 6 件、error 0（commit ed542ab）。
 * **hx の exec の版（2026-10-27、DECISION-43）**：`verus/src/hofresex.rs` に hx の exec の版 `hx_e` を置いた。成功したとき、結果と次の計数器は hx に等しく、番号を取るたびに usize に収まるかを確かめる。focused 16 件、error 0（commit 5d3a592）。

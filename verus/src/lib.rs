@@ -60,3 +60,4 @@ pub mod hofres;
 pub mod hofresex;
 pub mod hofprog;
 pub mod hofroute;
+pub mod hofmean;
