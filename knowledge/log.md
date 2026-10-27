@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-27
+* **辞書の書換えの exec 実装（2026-10-27、DECISION-43 の続き）**：辞書の操作の書換え `dict_rw`（verus/src/dict_types.rs）の exec 版 `dict_rw_x`（verus/src/dictex.rs）を書いた。被演算子 a0・a1・a2 と注釈の型 k・v から、核の exec の式 `EExpr` を組み立てる。導入する名前は被演算子の名前の上限の次から取るので、名前の条件（dict_fresh）は `dict_fresh_ns` が示す。`dict_rw_x` の事後条件は、Some のとき写し `view_expr` が spec の `dict_rw` に等しいこと（[信頼の境界](../trust-boundary.toml) の `rewrite-exec-dict`）。`dict_rw_fresh_agrees` は、被演算子が項目の型を持つとき、その書換えが形の型の消去を持つことを示す（dict_rw_agrees の適用）。hofex.rs の `max_o` を公開した（検査つきの最大。挙動は変えない）。focus は dictex の 10 件・error 0。full crate は 1820 verified, 0 errors（1810 から）。plain build も通る。Rust の dict.rs の書換えを `dict_rw_x` の呼出しに替える接着と、辞書の操作の意味（xsem に辞書の形がない）は未了。
+
 ## 2026-10-26
 * **書換えの Rust 側の接着（2026-10-26、DECISION-43 の続き）**：hof を含むプログラムの書換えを、検証済みの `rw_ex` の経路に替えた。`crates/tlvm/src/hof_verified.rs`（`lower_hof`）が、型検査の表から Rust の AST を `EX` に写し、`rw_ex` で書き換え、`EExpr` を Rust の AST に戻す。束縛はすべて hof の番号の新しい名前にする。文字列は引数のない呼出しで写し、戻すとき元の文字列にする（文字のリストに写すと文面が変わり、束縛の番号と衝突する。試験で、map の累積と文字列 `"!"` が重なり `"!A!"` になった）。写せないもの（ループ、辞書の操作、表に型のない hof）は従来の `hof::lower` に回す。api.rs の二つの経路（compile、compile_ast）が使う。試験：tlvm の全テスト（EXIT=0）、examples の三つ、eval の check と unittest（82 件）。接着と束縛ごとの表は未検証（`rewrite-shape` の (1)・(2)）。hof を検証済みの経路（route_scope）に入れるのは、まだ。また、`verus/src/records_meaning.rs` の `rval` の import を glob に替え、平文のビルドの E0432 を直した（20565e8、2e1854c から）。
 * **map の注釈の訂正（2026-10-26、DECISION-43 の続き）**：rw_tb の map の空の列の注釈を、要素の型 A から本体の型 B に直した。Rust の hof.rs の lower は `list<B>()` を使い（hof_agree.rs の hof_note も B）、spec は A を使っていた。形の仮定の証明は注釈の型に依らないので、前の検査では見つからなかった。表の項は（束縛名、要素の型、本体の型）の三つ組にし、rw_tb と rw_ex を合わせた。focus は 67 件・error 0。full crate は 1810 verified, 0 errors。

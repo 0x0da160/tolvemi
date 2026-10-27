@@ -156,7 +156,7 @@ fn succ_e(y: usize) -> (r: Option<usize>)
 }
 
 /// 二つの上限の大きい方（どちらかが None なら None）。
-fn max_o(a: Option<usize>, b: Option<usize>) -> (r: Option<usize>)
+pub fn max_o(a: Option<usize>, b: Option<usize>) -> (r: Option<usize>)
     ensures
         match r {
             Some(v) => match (a, b) {

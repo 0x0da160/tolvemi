@@ -54,3 +54,4 @@ pub mod sh6_safe;
 pub mod sh4_back;
 pub mod hofrw;
 pub mod hofex;
+pub mod dictex;
