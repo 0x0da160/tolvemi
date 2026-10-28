@@ -134,8 +134,65 @@ pub open spec fn rec_from(fs: Seq<(Seq<char>, SType)>, i: nat, tb: Seq<(Seq<char
     }
 }
 
+/// 直和型の一つの構築子の中身（項の並び）の展開。項がなければ Unit、一つならその型、複数なら右に入れ子にした Pair
+/// （sums.rs の payload_type と同じ形）。
+pub open spec fn pay_ty(ts: Seq<SType>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty> {
+    if ts.len() == 0 {
+        Some(Ty::Unit)
+    } else {
+        pay_from(ts, 0, tb, tagged)
+    }
+}
+
+/// 項 i から末尾までの展開（rec_from と同じ形。末尾の項の型はそのまま）。
+pub open spec fn pay_from(ts: Seq<SType>, i: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty>
+    decreases ts.len() - i,
+{
+    if i >= ts.len() {
+        None
+    } else if i + 1 == ts.len() {
+        to_ty(ts[i as int], tb, tagged)
+    } else {
+        match (to_ty(ts[i as int], tb, tagged), pay_from(ts, i + 1, tb, tagged)) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        }
+    }
+}
+
+/// 直和型の中身の展開：構築子 k から末尾までの入れ子の Result（sums.rs の chain と同じ形。構築子が一つなら中身の型）。
+pub open spec fn sum_from(vs: Seq<(Seq<char>, Seq<SType>)>, k: nat, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty>
+    decreases vs.len() - k,
+{
+    if k >= vs.len() {
+        None
+    } else if k + 1 == vs.len() {
+        pay_ty(vs[k as int].1, tb, tagged)
+    } else {
+        match (pay_ty(vs[k as int].1, tb, tagged), sum_from(vs, k + 1, tb, tagged)) {
+            (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
+            _ => None,
+        }
+    }
+}
+
+/// 直和型が再帰する（中身の型のどれかが名前 r を書く）。
+pub open spec fn sum_rec(vs: Seq<(Seq<char>, Seq<SType>)>, r: Seq<char>) -> bool {
+    !(forall|i: int, a: int| 0 <= i < vs.len() && 0 <= a < vs[i].1.len() ==> !sty_mentions(#[trigger] vs[i].1[a], r))
+}
+
+/// 直和型の名前表の展開。再帰する直和型は None（符号化は recursive.rs が受け持つ）。
+pub open spec fn sum_exp(vs: Seq<(Seq<char>, Seq<SType>)>, r: Seq<char>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool) -> Option<Ty> {
+    if sum_rec(vs, r) {
+        None
+    } else {
+        sum_from(vs, 0, tb, tagged)
+    }
+}
+
 /// 宣言を名前表の末尾に足す。記録は、型名が新しく、字段の列が規則 1・4 を満たすときに足す。
-/// 直和型は、型名が新しく、中身の型が前の項目と自分だけを引くときに足す（規則 1・3）。関数と entry は表に入らない。
+/// 直和型は、型名が新しく、中身の型が前の項目と自分だけを引くときに足す（規則 1・3）。再帰しない直和型は展開も入れる。
+/// 関数と entry は表に入らない。
 #[verifier::opaque]
 pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, d: Sd) -> Option<Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>> {
     match d {
@@ -149,7 +206,7 @@ pub open spec fn tb_push(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<
         Sd::Sum(r, vs) => if idx(tnames(tb), r, 0) is Some || !vars_ok(vs, tb.push((r, None, Seq::empty(), None))) || !rec_items(vs, r) {
             None
         } else {
-            Some(tb.push((r, None, Seq::empty(), None)))
+            Some(tb.push((r, sum_exp(vs, r, tb, false), Seq::empty(), sum_exp(vs, r, tb, true))))
         },
     }
 }
@@ -190,7 +247,7 @@ proof fn tb_push_sum_some(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option
         vars_ok(vs, tb.push((r, None, Seq::empty(), None))),
         rec_items(vs, r),
     ensures
-        tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, None, Seq::empty(), None))),
+        tb_push(tb, Sd::Sum(r, vs)) == Some(tb.push((r, sum_exp(vs, r, tb, false), Seq::empty(), sum_exp(vs, r, tb, true)))),
 {
     reveal(tb_push);
 }
@@ -2275,6 +2332,74 @@ fn rec_items_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>) -> (res: bool)
     plain || each
 }
 
+/// 中身の項の並びの展開の exec 版（pay_ty）。項がなければ Unit。
+fn pay_e(ts: &Vec<STy>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
+    ensures
+        r == pay_ty(vtys(ts@), vtb(tb@), tagged),
+{
+    let n = ts.len();
+    if n == 0 {
+        return Some(Ty::Unit);
+    }
+    let mut i: usize = n - 1;
+    let mut acc: Option<Ty> = to_ty_e(&ts[i], tb, tagged);
+    while i > 0
+        invariant
+            n == ts@.len(),
+            i < n,
+            acc == pay_from(vtys(ts@), i as nat, vtb(tb@), tagged),
+        decreases i,
+    {
+        i -= 1;
+        let u = to_ty_e(&ts[i], tb, tagged);
+        acc = match (u, acc) {
+            (Some(u), Some(v)) => Some(Ty::Pair(Box::new(u), Box::new(v))),
+            _ => None,
+        };
+    }
+    acc
+}
+
+/// 直和型の中身の展開の exec 版（sum_from の k = 0）。構築子の中身を後ろから入れ子の Result にする。
+fn sum_from_e(vs: &Vec<(Vec<char>, Vec<STy>)>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (r: Option<Ty>)
+    ensures
+        r == sum_from(vvars(vs@), 0, vtb(tb@), tagged),
+{
+    let n = vs.len();
+    if n == 0 {
+        return None;
+    }
+    let mut i: usize = n - 1;
+    let mut acc: Option<Ty> = pay_e(&vs[i].1, tb, tagged);
+    while i > 0
+        invariant
+            n == vs@.len(),
+            i < n,
+            acc == sum_from(vvars(vs@), i as nat, vtb(tb@), tagged),
+        decreases i,
+    {
+        i -= 1;
+        let u = pay_e(&vs[i].1, tb, tagged);
+        acc = match (u, acc) {
+            (Some(u), Some(v)) => Some(Ty::Result(Box::new(u), Box::new(v))),
+            _ => None,
+        };
+    }
+    acc
+}
+
+/// 直和型の名前表の展開の exec 版（sum_exp）。再帰する直和型は None。
+fn sum_exp_e(vs: &Vec<(Vec<char>, Vec<STy>)>, r: &Vec<char>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool) -> (res: Option<Ty>)
+    ensures
+        res == sum_exp(vvars(vs@), r@, vtb(tb@), tagged),
+{
+    if plain_items_e(vs, r) {
+        sum_from_e(vs, tb, tagged)
+    } else {
+        None
+    }
+}
+
 /// 宣言を名前表の末尾に足す（tb_push の exec 版）。足せないときは None。
 /// 字段と直和型の中身は、移す前の名前表 tb だけを引いて調べ（ループは補助関数に置く）、通ったあとで tb を移して足す。
 fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, d: &SDecl) -> (r: Option<Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>>)
@@ -2372,6 +2497,17 @@ fn tb_push_e(tb: Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, d: &S
             proof {
                 tb_push_sum_some(vtb(tb@), r@, vvars(vs@));
                 assert(tb_push(vtb(tb@), vd(*d)) == tb_push(vtb(tb@), Sd::Sum(r@, vvars(vs@))));
+            }
+            // 展開は、自分を足す前の表で作る（自分を足したものは調べるための表で、中身は自分を引かない）。
+            let _ = out.pop();
+            proof {
+                assert(vtb(out@) =~= vtb(tb@));
+            }
+            let exp = sum_exp_e(vs, r, &out, false);
+            let exp_t = sum_exp_e(vs, r, &out, true);
+            out.push((clone_chars(r), exp, Vec::new(), exp_t));
+            proof {
+                assert(vtb(out@) =~= vtb(tb@).push((r@, sum_exp(vvars(vs@), r@, vtb(tb@), false), Seq::empty(), sum_exp(vvars(vs@), r@, vtb(tb@), true))));
             }
             Some(out)
         },

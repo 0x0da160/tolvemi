@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-28
+* **直和型の名前表の展開を検証済みの resolve に入れた（DECISION-43、段階 3 の第一歩）**：`verus/src/resolve.rs` の `pay_ty`・`sum_from`・`sum_exp` と、`tb_push` の直和型の枝で、再帰しない直和型の展開を名前表に入れた。exec 版（`pay_e`・`sum_from_e`・`sum_exp_e`）が同じ表を作ることを ensures で示す。`cargo verus focus -- --verify-only-module resolve` は 161 件 verified、error 0。信頼の境界に `sum-table-expansion`（[proved]）を追加した。構築子、match、直和型の意味は未了（sum-route）。Rust の sums.rs は変えていない。
 * **名義の印の型と印の値を検証済みの exec 版に替えた（2026-10-28、DECISION-43）**：`verus/src/resolve.rs` の `tag_ty_e`・`tag_expr_e` を公開し、`crates/tlvm/src/nominal.rs` の `tag_ty`・`tag_val` がそれを呼んで Unit と Pair の木に写すようにした。仕様との一致（`tag_ty_e(k) == tag_ty(k)`、`view_expr(tag_expr_e(k)) == tag_expr(k)`）は検証済みの ensures で、写す接着と印の番号（`Tags::of`）、`named_ty`、`wrap_fn` は Rust のまま。`nominal::tests` が、旧い Rust の構成と 0 から 11 段までの一致を確かめる。信頼の境界に `nominal-tag-exec`（[proved]）を追加し、`rewrite-shape` の (3) を更新した。
 * **dict と loop の書換えを検証済みの exec 版に替えた（2026-10-28、DECISION-43、オーナーの「dict と loop の接着」）**：`crates/tlvm/src/dictloop_verified.rs` を置いた。被演算子を仮の変数で `dict_rw_x`・`loop_rw_x` に渡し、返した式の仮の変数を、書換え済みの被演算子の式（Rust の式のまま。節点の位置とメタも保つ）で置き換える。導入する名前は検証済みの版の番号の順に `Lower::fresh` で付けるので、従来の書換え（`dict_op_rust`・`loop_rust`）と同じ式を作る。型は `verified_ty` で写して `erase_x` で消去する。写せないものは従来の書換えを使う。単体テスト 3 件と tlvm の全テスト 402 件（失敗 0。exact 文面は変えず）。1069 件の corpus では、書換え後の文面が旧と同じで、検証済みの版を通ったのは dict 90 件と loop 11642 件（従来への回帰 0）。接着は未証明（rewrite-shape の (3)）。
 
