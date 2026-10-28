@@ -24,6 +24,7 @@ pub mod parse_proof;
 pub mod pipeline;
 pub mod proof;
 pub mod records_exec;
+pub mod records_plan;
 pub mod records_proof;
 pub mod resolve;
 pub mod sortmeaning;

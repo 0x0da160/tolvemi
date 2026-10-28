@@ -5,14 +5,17 @@
 //! 並びに書き換える。型の等価性は宣言で決まる（v1.15 の名義の型。宣言ごとの印は `nominal.rs`）。展開後の構造が
 //! 同じでも宣言が違えば別の型で、レコード名は診断の文面と表示と plain JSON に使う。
 //!
-//! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は
-//! 書き換え後のプログラム（`lower` の結果を整形したソース）を検査・実行する。
+//! 書換えの判断は検証済み（`tlvm_verified::records_plan`）：字段の位置（`place_e`）、字段の参照の fst／snd の
+//! 並び（`field_steps_e`）、構築の拒否と base の束縛（`record_mode_e`）。木の走査、型の展開、字段の名前の番号づけは
+//! 検証されていない接着部分（`trust-boundary.toml` の `glue`）。検証済み部品は書き換え後のプログラム（`lower` の
+//! 結果を整形したソース）を検査・実行する。
 
 use crate::diagnostics::{closest, Diagnostic};
 use crate::nominal::{self, Tags};
 use crate::syntax::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tlvm_verified::records_plan::{field_steps_e, place_e, record_mode_e, RecMode};
 
 /// レコードの構文（型宣言、型名、構築、field の参照）を一つでも含むか。
 pub fn has_records(p: &Program) -> bool {
@@ -50,6 +53,8 @@ struct Rec {
     params: Vec<String>,
     /// v1.15：印を付ける補助関数の名前（印つきの写しだけ）
     wrap: Option<String>,
+    /// 字段の名前の番号（宣言の順）。`place_e` が位置を決める
+    ids: Vec<usize>,
 }
 
 struct Env {
@@ -63,6 +68,8 @@ struct Env {
     /// v1.15：名義の型の番号（印つきの写しだけ）と、印を付ける・外す補助関数の宣言
     tags: Option<Tags>,
     helpers: Vec<FnDecl>,
+    /// 字段の名前の番号（同じ名前は同じ番号）
+    names_id: HashMap<String, usize>,
 }
 
 /// レコード型・直和型の名前（展開前）を含むか。
@@ -176,6 +183,18 @@ impl Env {
     /// v1.15：補助関数の名前（プログラム中の名前と重ならないもの）。
     fn name_of(&mut self, base: &str) -> String {
         crate::generics::fresh(&mut self.idents, base)
+    }
+
+    /// 字段の名前の番号。同じ名前は同じ番号を返す。
+    fn intern(&mut self, name: &str) -> usize {
+        let n = self.names_id.len();
+        *self.names_id.entry(name.to_string()).or_insert(n)
+    }
+
+    /// レコード `rec` の字段 `field` の位置（宣言の順）。`place_e` が決める。
+    fn position(&self, rec: &str, field: &str) -> Option<usize> {
+        let f = *self.names_id.get(field)?;
+        place_e(&self.types[rec].ids, f)
     }
 
     fn fresh_name(&mut self) -> String {
@@ -311,12 +330,7 @@ impl Env {
                 let inner = self.expr(expr);
                 match self.owner.get(field).cloned() {
                     Some(rec) => {
-                        let i = self.types[&rec]
-                            .info
-                            .fields
-                            .iter()
-                            .position(|f| f == field)
-                            .unwrap();
+                        let i = self.position(&rec, field).unwrap();
                         return self.field_access(inner, &rec, i, m, *field_span);
                     }
                     None => {
@@ -428,7 +442,7 @@ impl Env {
         let mut given: Vec<Option<Expr>> = vec![None; names.len()];
         for f in fields {
             let v = self.expr(&f.value);
-            match names.iter().position(|n| *n == f.name) {
+            match self.position(name, &f.name) {
                 Some(i) if given[i].is_some() => {
                     let d = self.err("E-RECORD-DUPLICATE-FIELD", f.name_span.t(), m.index);
                     *d = d.clone().act(&f.name);
@@ -444,13 +458,17 @@ impl Env {
                 }
             }
         }
-        // `..base` は書かれていない field を base から取る。base が変数でなければ let で一度だけ評価する
+        // `..base` は書かれていない field を base から取る。base が変数でなく書かれていない field が二つ以上なら、
+        // let で一度だけ評価する。拒否と、let の有無は検証済みの `record_mode_e` が決める
+        let flags: Vec<bool> = given.iter().map(Option::is_some).collect();
+        let base_var = base
+            .as_ref()
+            .is_some_and(|b| matches!(b.kind, ExprKind::Var(_)));
+        let mode = record_mode_e(&flags, base.is_some(), base_var);
         let mut wrap: Option<(String, Sp, Expr)> = None;
         let base_expr = base.as_ref().map(|b| {
             let bx = self.expr(b);
-            if matches!(bx.kind, ExprKind::Var(_))
-                || given.iter().filter(|g| g.is_none()).count() <= 1
-            {
+            if mode != RecMode::Bind {
                 bx
             } else {
                 let v = self.fresh_name();
@@ -468,7 +486,7 @@ impl Env {
             .filter(|(_, g)| g.is_none())
             .map(|(n, _)| n.as_str())
             .collect();
-        if base_expr.is_none() && !missing.is_empty() {
+        if mode == RecMode::Missing {
             let list = missing.join(", ");
             let d = self.err("E-RECORD-MISSING-FIELD", name_span.t(), m.index);
             *d = d.clone().exp(&list).fix(
@@ -482,7 +500,7 @@ impl Env {
             return unit;
         }
         // 書かれていない field がなければ、`..base` が写す先はない。base は検査せずに捨てていたので、この形は拒否する
-        if let Some(b) = base.as_ref().filter(|_| missing.is_empty()) {
+        if let Some(b) = base.as_ref().filter(|_| mode == RecMode::BaseRedundant) {
             let d = self.err("E-RECORD-BASE-REDUNDANT", b.meta.span(), m.index);
             *d = d.clone().fix(
                 "replace_expression",
@@ -593,6 +611,7 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
         fresh: 0,
         tags: tags.cloned(),
         helpers: vec![],
+        names_id: HashMap::new(),
     };
     collect_idents(p, &mut env.idents);
     for d in &p.declarations {
@@ -624,6 +643,7 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
             }
             names.push(f.name.clone());
         }
+        let ids: Vec<usize> = names.iter().map(|n| env.intern(n)).collect();
         for n in &names {
             env.owner.entry(n.clone()).or_insert_with(|| t.name.clone());
         }
@@ -676,6 +696,7 @@ pub fn expand(p: &Program, tags: Option<&Tags>) -> Result<Program, Vec<Diagnosti
                 ty,
                 params,
                 wrap,
+                ids,
             },
         );
     }
@@ -760,15 +781,10 @@ fn lower_expr(e: &mut Expr) {
         };
         let mut x = (**expr).clone();
         lower_expr(&mut x);
-        // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）
-        if tagged {
-            x = call("snd", x);
-        }
-        for _ in 0..i {
-            x = call("snd", x);
-        }
-        if i + 1 < n {
-            x = call("fst", x);
+        // v1.15：印つきの型の値は、印の後ろの構造から中身を取り出す（印は型検査器が検査済み）。
+        // fst／snd の並びは検証済みの `field_steps_e` が決める（先頭の snd は印つきのときだけ）
+        for s in field_steps_e(tagged, i, n) {
+            x = call(if s { "snd" } else { "fst" }, x);
         }
         *e = x;
         return;

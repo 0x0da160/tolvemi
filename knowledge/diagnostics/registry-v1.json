@@ -1456,11 +1456,11 @@
         {
           "kind": "replace_expression",
           "constraint": "{name} { ... } with every field ({}), without `..base`",
-          "source": "crates/tlvm/src/records.rs:491"
+          "source": "crates/tlvm/src/records.rs:509"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:486"
+        "crates/tlvm/src/records.rs:504"
       ]
     },
     {
@@ -1470,8 +1470,8 @@
       "message_template": "同じ field が二度書かれています",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/records.rs:433",
-        "crates/tlvm/src/records.rs:612"
+        "crates/tlvm/src/records.rs:447",
+        "crates/tlvm/src/records.rs:631"
       ]
     },
     {
@@ -1481,7 +1481,7 @@
       "message_template": "同じ名前のレコード型が二度宣言されています",
       "repair": null,
       "emitted_by": [
-        "crates/tlvm/src/records.rs:602",
+        "crates/tlvm/src/records.rs:621",
         "crates/tlvm/src/recursive.rs:512",
         "crates/tlvm/src/sums.rs:863"
       ]
@@ -1495,11 +1495,11 @@
         {
           "kind": "replace_identifier",
           "constraint": "field name not used by another record type ('{}' is a field of {other})",
-          "source": "crates/tlvm/src/records.rs:620"
+          "source": "crates/tlvm/src/records.rs:639"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:615"
+        "crates/tlvm/src/records.rs:634"
       ]
     },
     {
@@ -1511,11 +1511,11 @@
         {
           "kind": "replace_expression",
           "constraint": "{name} { ... } with every field ({}), or `..base` to copy the rest",
-          "source": "crates/tlvm/src/records.rs:478"
+          "source": "crates/tlvm/src/records.rs:496"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:473"
+        "crates/tlvm/src/records.rs:491"
       ]
     },
     {
@@ -1527,22 +1527,22 @@
         {
           "kind": "replace_identifier",
           "constraint": "a field of a declared record type",
-          "source": "crates/tlvm/src/records.rs:325"
+          "source": "crates/tlvm/src/records.rs:339"
         },
         {
           "kind": "replace_identifier",
           "constraint": "declared field, e.g. {}",
-          "source": "crates/tlvm/src/records.rs:327"
+          "source": "crates/tlvm/src/records.rs:341"
         },
         {
           "kind": "replace_identifier",
           "constraint": "field of {name}: {}",
-          "source": "crates/tlvm/src/records.rs:438"
+          "source": "crates/tlvm/src/records.rs:452"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:329",
-        "crates/tlvm/src/records.rs:439"
+        "crates/tlvm/src/records.rs:343",
+        "crates/tlvm/src/records.rs:453"
       ]
     },
     {
@@ -1554,22 +1554,22 @@
         {
           "kind": "replace_type",
           "constraint": "a type declared above with `type Name = { field: Type, ... }`",
-          "source": "crates/tlvm/src/records.rs:137"
+          "source": "crates/tlvm/src/records.rs:144"
         },
         {
           "kind": "replace_type",
           "constraint": "record type declared above, e.g. {}",
-          "source": "crates/tlvm/src/records.rs:139"
+          "source": "crates/tlvm/src/records.rs:146"
         },
         {
           "kind": "replace_identifier",
           "constraint": "a type declared above with `type Name = { field: Type, ... }`",
-          "source": "crates/tlvm/src/records.rs:415"
+          "source": "crates/tlvm/src/records.rs:429"
         },
         {
           "kind": "replace_identifier",
           "constraint": "record type declared above, e.g. {}",
-          "source": "crates/tlvm/src/records.rs:417"
+          "source": "crates/tlvm/src/records.rs:431"
         },
         {
           "kind": "replace_type",
@@ -1588,8 +1588,8 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/records.rs:142",
-        "crates/tlvm/src/records.rs:419",
+        "crates/tlvm/src/records.rs:149",
+        "crates/tlvm/src/records.rs:433",
         "crates/tlvm/src/sums.rs:223",
         "crates/tlvm/src/sums.rs:228"
       ],
