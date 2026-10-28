@@ -830,7 +830,7 @@ pub open spec fn arm_binds(p: Spat) -> Option<Seq<Seq<char>>> {
     }
 }
 
-/// 項目 es[j]（直和型の構築子の項目）に当たる最初の枝の位置を、枝 k 以降で探す。構築子の名前が項目と一致する枝に当たる。
+/// 項目 es[j]（直和型の構築子の項目）に当たる最初の構築子の枝の位置を、枝 k 以降で探す。構築子の名前が項目と一致する枝に当たる。
 pub open spec fn arm_find(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>, k: nat) -> Option<nat>
     decreases arms.len() - k,
 {
@@ -847,13 +847,69 @@ pub open spec fn arm_find(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>, k: 
     }
 }
 
-/// 項目 j に当たる最初の枝の位置。枝の並びは宣言の順でなくてよい。
+/// 項目 j に当たる最初の構築子の枝の位置。枝の並びは宣言の順でなくてよい。
 pub open spec fn arm_at(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>) -> Option<nat> {
     arm_find(es, j, arms, 0)
 }
 
-/// 項目 j 以降の全てに、名前と字段の数が一致する枝があり、その枝の束縛は arm_ok を満たす。
-pub open spec fn arms_cover(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -> bool
+/// 枝の並びの最後の位置（枝が無ければ 0）。
+pub open spec fn last_idx(arms: Seq<(Spat, Sx)>) -> nat {
+    if arms.len() > 0 {
+        (arms.len() - 1) as nat
+    } else {
+        0
+    }
+}
+
+/// 枝の並びの末尾が `_` か。`_` は末尾の一つだけで、構築子の枝の後ろに付く。
+pub open spec fn has_wild(arms: Seq<(Spat, Sx)>) -> bool {
+    if arms.len() == 0 {
+        false
+    } else {
+        match arms[last_idx(arms) as int].0 {
+            Spat::Wild => true,
+            _ => false,
+        }
+    }
+}
+
+/// 項目 j の枝の位置：構築子の枝があればその位置、なければ末尾の `_` の位置（`_` があれば）。
+pub open spec fn layer_idx(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>) -> Option<nat> {
+    match arm_at(es, j, arms) {
+        Some(k) => Some(k),
+        None => if has_wild(arms) {
+            Some(last_idx(arms))
+        } else {
+            None
+        },
+    }
+}
+
+/// 項目の枝の束縛。構築子の枝は字段の名前、`_` は束縛を持たない（空）。
+pub open spec fn arm_binds_or_empty(p: Spat) -> Option<Seq<Seq<char>>> {
+    match p {
+        Spat::Ctor(_, bs) => Some(bs),
+        Spat::Wild => Some(Seq::empty()),
+        _ => None,
+    }
+}
+
+/// 項目 j 以降で、構築子の枝がある項目の数。
+pub open spec fn arm_layers(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -> nat
+    decreases es.len() - j,
+{
+    if j >= es.len() {
+        0
+    } else {
+        match arm_at(es, j, arms) {
+            Some(_) => 1 + arm_layers(es, arms, j + 1),
+            None => arm_layers(es, arms, j + 1),
+        }
+    }
+}
+
+/// 項目 j 以降の全てに、枝がある。構築子の枝は、名前と字段の数が一致し、束縛が arm_ok を満たす。枝が無い項目は、`_`（w）が受ける。
+pub open spec fn arms_cover(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, w: bool) -> bool
     decreases es.len() - j,
 {
     if j >= es.len() {
@@ -864,24 +920,31 @@ pub open spec fn arms_cover(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -
                 false
             } else {
                 match arms[k as int].0 {
-                    Spat::Ctor(c, bs) => vent_arity(es[j as int], c) == Some(bs.len()) && arm_ok(bs) && arms_cover(es, arms, j + 1),
+                    Spat::Ctor(c, bs) => vent_arity(es[j as int], c) == Some(bs.len()) && arm_ok(bs) && arms_cover(es, arms, j + 1, w),
                     _ => false,
                 }
             },
-            None => false,
+            None => w && arms_cover(es, arms, j + 1, w),
         }
     }
 }
 
-/// 枝の並びが、一つの直和型の構築子を一つずつ並べたもの（順は問わない）なら、その型の名前表の番号。
-/// 項目は相異なり、枝の数は項目と同じで、どの項目にも枝が一つ当たる（枝と項目は一対一）。
+/// 枝の並びが直和型の項目 es に合う：項目は相異なり、構築子の枝（末尾の `_` を除く）の数は、枝が当たる項目の数と同じで、
+/// `_` があれば項目を全て覆わない（到達できる）、なければ全ての項目に枝が当たる。
+pub open spec fn arms_fit(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>) -> bool {
+    let w = has_wild(arms);
+    let m: int = if w { arms.len() as int - 1 } else { arms.len() as int };
+    distinct(es) && arm_layers(es, arms, 0) as int == m && arms_cover(es, arms, 0, w) && (if w { m < es.len() as int } else { m == es.len() as int })
+}
+
+/// 枝の並びが一つの直和型の構築子を並べたもの（順は問わない。末尾に `_` が一つあってもよい）なら、その型の名前表の番号。
 pub open spec fn arms_sum(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, arms: Seq<(Spat, Sx)>) -> Option<nat> {
     if arms.len() == 0 {
         None
     } else {
         match arms[0].0 {
             Spat::Ctor(c, _) => match vlook(tb, c) {
-                Some((i, _, _)) => if tb[i as int].2.len() == arms.len() && distinct(tb[i as int].2) && arms_cover(tb[i as int].2, arms, 0) {
+                Some((i, _, _)) => if arms_fit(tb[i as int].2, arms) {
                     Some(i)
                 } else {
                     None
@@ -893,9 +956,10 @@ pub open spec fn arms_sum(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option
     }
 }
 
-/// 直和型の枝の鎖（層 j から）。層 j は名前表の項目 ents[j] の構築子で、その枝は arm_at が探す（枝の並びは宣言の順でなくてよい）。
+/// 直和型の枝の鎖（層 j から）。層 j は名前表の項目 ents[j] の構築子で、その枝は layer_idx が探す（枝の並びは宣言の順でなくてよい）。
 /// 被験式 s は scope sc で整合する（sc.len() は層 j の中身の位置）。
 /// 構築子 j の枝は、中身の束縛（arm_scope）で本体を解決する。字段が二つ以上なら、本体は字段を射影で束縛する（arm_wrap）。
+/// 末尾の `_` は、枝の無い項目の本体になる（束縛は無い）。
 /// 最後の構築子以外は、Err の側（同じ位置）で次の層を続け、その被験式は Err の束縛。最後の構築子は、残りの値そのものが中身なので let で束縛する。
 pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, s: Expr) -> Option<Expr>
     decreases arms, ents.len() - j,
@@ -903,11 +967,11 @@ pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>,
     if j >= ents.len() {
         None
     } else {
-        match arm_at(ents, j, arms) {
+        match layer_idx(ents, j, arms) {
             Some(k) => if k >= arms.len() {
                 None
             } else {
-                match arm_binds(arms[k as int].0) {
+                match arm_binds_or_empty(arms[k as int].0) {
                     Some(bs) => if !arm_ok(bs) || !binds_fresh(sc, bs) {
                         None
                     } else {
@@ -2278,9 +2342,9 @@ proof fn smatch_from_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     reveal_with_fuel(scoped, 2);
     reveal_with_fuel(smatch_from, 2);
     if j < ents.len() {
-        if let Some(k) = arm_at(ents, j, arms) {
+        if let Some(k) = layer_idx(ents, j, arms) {
             if k < arms.len() {
-                if let Some(bs) = arm_binds(arms[k as int].0) {
+                if let Some(bs) = arm_binds_or_empty(arms[k as int].0) {
                     if arm_ok(bs) && binds_fresh(sc, bs) {
                         arm_scope_dsc(sc, bs);
                         rx_scoped(fs, tb, tagged, arm_scope(sc, bs), arms[k as int].1);
@@ -3777,7 +3841,7 @@ fn push_arm_e(sc: &mut Vec<Vec<char>>, bs: &Vec<Vec<char>>)
     }
 }
 
-/// 項目 ents[j] に当たる最初の枝の位置を、枝 k 以降で探す（arm_find の exec 版）。
+/// 項目 ents[j] に当たる最初の構築子の枝の位置を、枝 k 以降で探す（arm_find の exec 版）。
 fn arm_find_e(ents: &Vec<Vec<char>>, j: usize, ps: &Vec<SPat>, es: &Vec<SExpr>, k: usize) -> (r: Option<usize>)
     requires
         ps.len() == es.len(),
@@ -3808,12 +3872,72 @@ fn arm_find_e(ents: &Vec<Vec<char>>, j: usize, ps: &Vec<SPat>, es: &Vec<SExpr>, 
     }
 }
 
-/// 項目 j 以降の全てに、名前と字段の数が一致する枝がある（arms_cover の exec 版）。
-fn arms_cover_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize) -> (r: bool)
+/// 末尾の枝が `_` か（has_wild の exec 版）。
+fn has_wild_e(ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: bool)
     requires
         ps.len() == es.len(),
     ensures
-        r == arms_cover(vnames(ents@), varms(ps@, es@), j as nat),
+        r == has_wild(varms(ps@, es@)),
+        r ==> ps.len() > 0,
+{
+    if ps.len() == 0 {
+        return false;
+    }
+    match &ps[ps.len() - 1] {
+        SPat::Wild => true,
+        _ => false,
+    }
+}
+
+/// 項目 ents[j] の枝の位置（layer_idx の exec 版）：構築子の枝があればその位置、なければ末尾の `_`（あれば）。
+fn layer_idx_e(ents: &Vec<Vec<char>>, j: usize, ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: Option<usize>)
+    requires
+        ps.len() == es.len(),
+        j < ents.len(),
+    ensures
+        match r {
+            Some(k) => k < ps.len() && layer_idx(vnames(ents@), j as nat, varms(ps@, es@)) == Some(k as nat),
+            None => layer_idx(vnames(ents@), j as nat, varms(ps@, es@)) is None,
+        },
+{
+    match arm_find_e(ents, j, ps, es, 0) {
+        Some(m) => Some(m),
+        None => {
+            if has_wild_e(ps, es) {
+                Some(ps.len() - 1)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// 項目 j 以降で、構築子の枝がある項目の数（arm_layers の exec 版）。
+fn arm_layers_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize) -> (r: usize)
+    requires
+        ps.len() == es.len(),
+        j <= ents.len(),
+    ensures
+        r as nat == arm_layers(vnames(ents@), varms(ps@, es@), j as nat),
+        r as int <= ents.len() as int - j as int,
+    decreases ents.len() - j,
+{
+    if j >= ents.len() {
+        return 0;
+    }
+    let rest = arm_layers_e(ents, ps, es, j + 1);
+    match arm_find_e(ents, j, ps, es, 0) {
+        Some(_) => rest + 1,
+        None => rest,
+    }
+}
+
+/// 項目 j 以降の全てに、枝がある（arms_cover の exec 版）。構築子の枝は、名前と字段の数が一致し、束縛が arm_ok を満たす。
+fn arms_cover_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize, w: bool) -> (r: bool)
+    requires
+        ps.len() == es.len(),
+    ensures
+        r == arms_cover(vnames(ents@), varms(ps@, es@), j as nat, w),
     decreases ents.len() - j,
 {
     if j >= ents.len() {
@@ -3822,22 +3946,47 @@ fn arms_cover_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize
     match arm_find_e(ents, j, ps, es, 0) {
         Some(m) => match &ps[m] {
             SPat::Ctor(c, bs) => match vent_arity_e(&ents[j], c) {
-                Some(a) => a == bs.len() && arm_ok_e(bs) && arms_cover_e(ents, ps, es, j + 1),
+                Some(a) => a == bs.len() && arm_ok_e(bs) && arms_cover_e(ents, ps, es, j + 1, w),
                 None => false,
             },
             _ => false,
         },
-        None => false,
+        None => w && arms_cover_e(ents, ps, es, j + 1, w),
     }
 }
 
-/// 枝の並びが、一つの直和型の構築子を一つずつ並べたもの（順は問わない）なら、その型の番号（arms_sum の exec 版）。
+/// 枝の並びが直和型の項目 ents に合う（arms_fit の exec 版）。
+fn arms_fit_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: bool)
+    requires
+        ps.len() == es.len(),
+    ensures
+        r == arms_fit(vnames(ents@), varms(ps@, es@)),
+{
+    let w = has_wild_e(ps, es);
+    let m: usize = if w { ps.len() - 1 } else { ps.len() };
+    if !distinct_e(ents) {
+        return false;
+    }
+    if arm_layers_e(ents, ps, es, 0) != m {
+        return false;
+    }
+    if !arms_cover_e(ents, ps, es, 0, w) {
+        return false;
+    }
+    if w {
+        m < ents.len()
+    } else {
+        m == ents.len()
+    }
+}
+
+/// 枝の並びが一つの直和型の構築子を並べたもの（順は問わない。末尾に `_` が一つあってもよい）なら、その型の番号（arms_sum の exec 版）。
 fn arms_sum_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: Option<usize>)
     requires
         ps.len() == es.len(),
     ensures
         match r {
-            Some(i) => i < tb.len() && tb@[i as int].2.len() == ps@.len() && arms_sum(vtb(tb@), varms(ps@, es@)) == Some(i as nat),
+            Some(i) => i < tb.len() && arms_sum(vtb(tb@), varms(ps@, es@)) == Some(i as nat),
             None => arms_sum(vtb(tb@), varms(ps@, es@)) is None,
         },
 {
@@ -3846,7 +3995,7 @@ fn arms_sum_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, ps:
     }
     match &ps[0] {
         SPat::Ctor(c, _) => match vlook_e(tb, c) {
-            Some((i, _, _)) => if tb[i].2.len() == ps.len() && distinct_e(&tb[i].2) && arms_cover_e(&tb[i].2, ps, es, 0) {
+            Some((i, _, _)) => if arms_fit_e(&tb[i].2, ps, es) {
                 Some(i)
             } else {
                 None
@@ -3874,12 +4023,14 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     if j >= n {
         return None;
     }
-    let m = match arm_find_e(ents, j, ps, es, 0) {
+    let m = match layer_idx_e(ents, j, ps, es) {
         Some(m) => m,
         None => return None,
     };
+    let empty: Vec<Vec<char>> = Vec::new();
     let bs: &Vec<Vec<char>> = match &ps[m] {
         SPat::Ctor(_, bs) => bs,
+        SPat::Wild => &empty,
         _ => return None,
     };
     if !arm_ok_e(bs) || !binds_fresh_e(sc, bs) {
