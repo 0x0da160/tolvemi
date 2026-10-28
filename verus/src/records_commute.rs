@@ -16,7 +16,8 @@ use crate::records_meaning::*;
 use crate::records_proof::*;
 use crate::resolve::*;
 use crate::spec::*;
-use crate::syntax::{Sd, Sx};
+use crate::sums_commute::*;
+use crate::syntax::{Sd, Spat, Sx};
 use vstd::prelude::*;
 
 verus! {
@@ -31,6 +32,20 @@ pub open spec fn pdecl(n: nat) -> Seq<nat> {
 /// 核の環境と源の環境：源の環境にある名前ごとに、核の環境にあり、その値が源の値の写しである。
 pub open spec fn envrel(cenv: Map<nat, Val>, renv: Map<nat, RVal>) -> bool {
     forall|k: nat| #[trigger] renv.contains_key(k) ==> cenv.contains_key(k) && cenv[k] == vof(renv[k])
+}
+
+/// 源の環境の名前は、すべて scope の長さより下にある（let・呼出し・枝で足す名前の位置は scope の長さ）。
+/// 直和型の枝の鎖は、位置 sc.len() 以上に束縛を足すので、源の環境の名前と混ざらないためにこれを使う。
+pub open spec fn renv_below(renv: Map<nat, RVal>, sc: Seq<Seq<char>>) -> bool {
+    forall|k: nat| #[trigger] renv.contains_key(k) ==> k < sc.len()
+}
+
+/// `_` だけの直和型の match（any_arms）の式。
+pub open spec fn any_sm(e: Sx) -> bool {
+    match e {
+        Sx::SumMatch(_, arms) => any_arms(arms),
+        _ => false,
+    }
 }
 
 /// 関数の表の対応：核の関数の列 p.funcs は、関数の宣言の列 fds を印なしで解決したものである（resolve_t の関数の表）。
@@ -150,7 +165,8 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
         } else {
             match idx(sc, x, 0) {
                 Some(k) => Some(RExpr::Var(k)),
-                None => None,
+                // 局所の名前でないもの：字段のない構築子。
+                None => rsrc_ctor(tb, x, Seq::empty()),
             }
         },
         Sx::Pair(a, b) => match (rsrc(fs, tb, fds, dep, sc, *a), rsrc(fs, tb, fds, dep, sc, *b)) {
@@ -217,25 +233,97 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
             Some(rs) => Some(RExpr::Builtin(b, rs)),
             None => None,
         },
-        Sx::Call(f, es) => if dep == 0 {
-            None
-        } else {
-            match idx(fs, f, 0) {
-                Some(g) => if g < fds.len() {
-                    match fds[g as int] {
-                        Sd::Fn(_, ps, _, b) => match (rsrc(fs, tb, fds, (dep - 1) as nat, pnames(ps), b), rsrcs(fs, tb, fds, dep, sc, es, 0)) {
-                            (Some(rb), Some(rs)) => Some(RExpr::Call(Box::new(rb), ps.len(), rs)),
-                            _ => None,
-                        },
+        Sx::Call(f, es) => match idx(fs, f, 0) {
+            Some(g) => if dep == 0 {
+                None
+            } else if g < fds.len() {
+                match fds[g as int] {
+                    Sd::Fn(_, ps, _, b) => match (rsrc(fs, tb, fds, (dep - 1) as nat, pnames(ps), b), rsrcs(fs, tb, fds, dep, sc, es, 0)) {
+                        (Some(rb), Some(rs)) => Some(RExpr::Call(Box::new(rb), ps.len(), rs)),
                         _ => None,
-                    }
-                } else {
-                    None
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            },
+            // 関数でない名前への呼出しは構築子（字段が一つ以上）。
+            None => if es.len() == 0 {
+                None
+            } else {
+                match rsrcs(fs, tb, fds, dep, sc, es, 0) {
+                    Some(rs) => rsrc_ctor(tb, f, rs),
+                    None => None,
+                }
+            },
+        },
+        // 直和型の match：`_` だけの枝は let（被験式を位置 sc.len() に束縛）、それ以外は層ごとの枝（rsrc_layers）。
+        Sx::SumMatch(m, arms) => if any_arms(arms) {
+            match (rsrc(fs, tb, fds, dep, sc, *m), rsrc(fs, tb, fds, dep, sc.push(Seq::empty()), arms[0].1)) {
+                (Some(rm), Some(rb)) => Some(RExpr::Let(sc.len(), Box::new(rm), Box::new(rb))),
+                _ => None,
+            }
+        } else {
+            match arms_sum(tb, arms) {
+                Some(i) => match (rsrc(fs, tb, fds, dep, sc, *m), rsrc_layers(fs, tb, fds, dep, sc, tb[i as int].2, arms, 0)) {
+                    (Some(rm), Some(es)) => Some(RExpr::SMatch(Box::new(rm), es)),
+                    _ => None,
                 },
                 None => None,
             }
         },
         _ => None,
+    }
+}
+
+/// 構築子 c の値の写し（字段の式の列 rs）：構築子の項目を名前表で引き、字段の数が合えば、構築子の番号と直和型の構築子の数。
+pub open spec fn rsrc_ctor(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, c: Seq<char>, rs: Seq<RExpr>) -> Option<RExpr> {
+    match vlook(tb, c) {
+        Some((i, k, m)) => if m != rs.len() || k >= tb[i as int].2.len() {
+            None
+        } else {
+            Some(RExpr::Ctor(k, tb[i as int].2.len(), rs))
+        },
+        None => None,
+    }
+}
+
+/// 直和型の枝の源の写し（層 j）：層 j の枝は smatch_from と同じ選び方（layer_idx）で、名前の位置（arm_ids）と本体の写しを返す。
+/// 本体は pushn(sc0, j) の scope で写す（核の層 j の rx と同じ）。
+pub open spec fn rsrc_layer(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc0: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -> Option<(Seq<nat>, RExpr)>
+    decreases dep, arms, 0nat,
+{
+    match layer_idx(ents, j, arms) {
+        Some(ka) => if ka >= arms.len() {
+            None
+        } else {
+            match arm_binds_or_empty(arms[ka as int].0) {
+                Some(bs) => if !arm_ok(bs) || !binds_fresh(pushn(sc0, j), bs) {
+                    None
+                } else {
+                    match rsrc(fs, tb, fds, dep, arm_scope(pushn(sc0, j), bs), arms[ka as int].1) {
+                        Some(body) => Some((arm_ids(sc0.len() + j, bs), body)),
+                        None => None,
+                    }
+                },
+                None => None,
+            }
+        },
+        None => None,
+    }
+}
+
+/// 直和型の枝の源の写し（層 j から先）：層の順の rsrc_layer の並び。どれか一つでも写せなければ None（核の smatch_from と同じ）。
+pub open spec fn rsrc_layers(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc0: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -> Option<Seq<(Seq<nat>, RExpr)>>
+    decreases dep, arms, ents.len() - j,
+{
+    if j >= ents.len() {
+        Some(Seq::empty())
+    } else {
+        match (rsrc_layer(fs, tb, fds, dep, sc0, ents, arms, j), rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j + 1)) {
+            (Some(ent), Some(rest)) => Some(seq![ent] + rest),
+            _ => None,
+        }
     }
 }
 
@@ -383,63 +471,6 @@ proof fn nmissing_iff(u: Seq<Option<Expr>>)
 }
 
 // ------------------------------------------------------------------ 字段の参照と束縛の新しさ
-
-/// pair の値を持つ式の成分（records_proof の un_eval と同じ証明）。
-proof fn fst_snd(p: Prog, env: Map<nat, Val>, e: Expr, v: Val)
-    requires
-        evals_to(p, env, e, v),
-        v is Pair,
-    ensures
-        evals_to(p, env, Expr::Builtin(Builtin::Fst, seq![e]), *v->Pair_0),
-        evals_to(p, env, Expr::Builtin(Builtin::Snd, seq![e]), *v->Pair_1),
-{
-    let n = choose|n: nat| #[trigger] eval(p, n, env, e) == Res::Done(v);
-    assert(n > 0);
-    let es = seq![e];
-    assert(es[0] == e);
-    assert(eval_args(p, n, env, es, 1) == ResSeq::Done(Seq::<Val>::empty()));
-    assert(seq![v] + Seq::<Val>::empty() =~= seq![v]);
-    assert(eval_args(p, n + 1, env, es, 0) == ResSeq::Done(seq![v]));
-    assert(eval(p, n + 2, env, Expr::Builtin(Builtin::Fst, es)) == Res::Done(*v->Pair_0));
-    assert(eval(p, n + 2, env, Expr::Builtin(Builtin::Snd, es)) == Res::Done(*v->Pair_1));
-}
-
-/// 字段の参照の評価（型に依らない）：e が字段の値の列の展開 rval(vs) を持てば、rfield(e, i, n) は
-/// i 番目の字段の値を持つ。
-pub proof fn rfield_eval(p: Prog, env: Map<nat, Val>, e: Expr, vs: Seq<Val>, i: nat)
-    requires
-        vs.len() >= 1,
-        i < vs.len(),
-        evals_to(p, env, e, rval(vs)),
-    ensures
-        evals_to(p, env, rfield(e, i, vs.len()), vs[i as int]),
-    decreases i,
-{
-    reveal_with_fuel(snds, 2);
-    reveal_with_fuel(rval, 2);
-    let n = vs.len();
-    if n == 1 {
-        assert(rval(vs) == vs[0]);
-        assert(snds(e, 0) == e);
-    } else {
-        let us = vs.drop_first();
-        assert(us.len() == n - 1);
-        assert(rval(vs) == Val::Pair(Box::new(vs[0]), Box::new(rval(us))));
-        assert(rval(vs) is Pair);
-        assert(*rval(vs)->Pair_0 == vs[0]);
-        assert(*rval(vs)->Pair_1 == rval(us));
-        fst_snd(p, env, e, rval(vs));
-        if i == 0 {
-            assert(rfield(e, 0, n) == Expr::Builtin(Builtin::Fst, seq![e]));
-        } else {
-            let e1 = Expr::Builtin(Builtin::Snd, seq![e]);
-            assert(snds(e, i) == snds(e1, (i - 1) as nat));
-            assert(rfield(e, i, n) == rfield(e1, (i - 1) as nat, us.len()));
-            rfield_eval(p, env, e1, us, (i - 1) as nat);
-            assert(us[(i - 1) as int] == vs[i as int]);
-        }
-    }
-}
 
 /// snds は、変数 x が現れない式に対して x を参照しない。
 proof fn absent_snds(x: nat, e: Expr, i: nat)
@@ -798,12 +829,16 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
     match e {
         Sx::Var(x) => {
             assert(x.len() != 0);
-            assert(idx(t, x, 0) is Some);
-            idx_props(t, x, 0);
-            let k = idx(t, x, 0)->Some_0;
-            assert(t[k as int] == x);
-            assert(k != n);
-            assert(c == Expr::Var(k));
+            if idx(t, x, 0) is Some {
+                idx_props(t, x, 0);
+                let k = idx(t, x, 0)->Some_0;
+                assert(t[k as int] == x);
+                assert(k != n);
+                assert(c == Expr::Var(k));
+            } else {
+                assert(rctor(tb, false, x, Seq::empty()) == Some(c));
+                absent_ctor(tb, n, x, Seq::empty(), c);
+            }
         },
         Sx::Pair(a, b) => {
             if let Some(ca) = rx(fs, tb, false, t, *a) {
@@ -847,16 +882,14 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
             }
         },
         Sx::Rec(..) => absent_rec(fs, tb, fds, dep, t, n, e, c),
-        // 直和型の枝は rsrc が写さない（None）。要求の rsrc is Some に反する。
-        Sx::SumMatch(..) => {
-            assert(rsrc(fs, tb, fds, dep, t, e) is None);
-        },
+        Sx::SumMatch(..) => absent_at_sum(fs, tb, fds, dep, t, n, e, c),
         _ => {},
     }
 }
 
 /// match の腕の名前の位置：走査する式と各枝は、位置 n を参照も束縛もしない。some の枝の scope は一つ長く、位置 n は同じ。
 /// 束縛の名前は sc.len() で、n とは違う（absent_at_let と同じ）。
+#[verifier::rlimit(50)]
 proof fn absent_at_match(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
@@ -920,6 +953,232 @@ proof fn absent_at_let(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
                     assert(c == Expr::Let(t.len(), Box::new(ca), Box::new(cb)));
                     assert(t.len() != n);
                 }
+            }
+        },
+        _ => {},
+    }
+}
+
+/// 式の列の要素（位置 i から先）は、位置 n を参照も束縛もしない（absent_args の要素ごとの形）。
+proof fn absent_args_elts(n: nat, es: Seq<Expr>, i: nat)
+    requires
+        absent_args(n, es, i),
+    ensures
+        forall|j: int| (i as int) <= j < es.len() ==> absent(n, #[trigger] es[j]),
+    decreases es.len() - i,
+{
+    reveal_with_fuel(absent_args, 1);
+    if i < es.len() {
+        absent_args_elts(n, es, i + 1);
+    }
+}
+
+/// 字段の式の列の pay_nested（字段が無ければ Unit、あれば rbuild）は、位置 n を参照も束縛もしないなら、そうである。
+proof fn absent_pay_nested(n: nat, xs: Seq<Expr>)
+    requires
+        absent_args(n, xs, 0),
+    ensures
+        absent(n, pay_nested(xs)),
+{
+    reveal_with_fuel(absent, 1);
+    if xs.len() > 0 {
+        absent_args_elts(n, xs, 0);
+        absent_rbuild(n, xs);
+    }
+}
+
+/// 構築子の式（rctor）は、字段の式が位置 n を参照も束縛もしないなら、位置 n を参照も束縛もしない。
+proof fn absent_ctor(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, n: nat, cn: Seq<char>, xs: Seq<Expr>, c: Expr)
+    requires
+        rctor(tb, false, cn, xs) == Some(c),
+        absent_args(n, xs, 0),
+    ensures
+        absent(n, c),
+{
+    absent_pay_nested(n, xs);
+    assert(vlook(tb, cn) is Some) by {
+        if vlook(tb, cn) is None {
+            assert(rctor(tb, false, cn, xs) is None);
+        }
+    }
+    let vl = vlook(tb, cn)->Some_0;
+    let i = vl.0;
+    let k = vl.1;
+    assert(tb[i as int].1 is Some) by {
+        if tb[i as int].1 is None {
+            assert(rctor(tb, false, cn, xs) is None);
+        }
+    }
+    let t = tb[i as int].1->Some_0;
+    assert(inj_from(t, tb[i as int].2.len(), k, 0, pay_nested(xs)) == Some(c));
+    absent_inj(n, t, tb[i as int].2.len(), k, 0, pay_nested(xs), c);
+}
+
+/// binds_lets（字段の束縛の列）は、位置 n より上の位置 p に字段を束縛し、その本体が n を参照も束縛もしないなら、そうである。
+proof fn absent_binds_lets(n: nat, p: nat, m: nat, j: nat, body: Expr)
+    requires
+        n < p,
+        absent(n, body),
+    ensures
+        absent(n, binds_lets(p, m, j, body)),
+    decreases m - j,
+{
+    reveal_with_fuel(binds_lets, 2);
+    reveal_with_fuel(absent, 2);
+    if j < m {
+        absent_binds_lets(n, p, m, j + 1, body);
+        absent_rfield(n, Expr::Var(p), j, m);
+    }
+}
+
+/// 枝の本体の式（arm_wrap）は、位置 p が n より上で、本体が n を参照も束縛もしないなら、そうである。
+proof fn absent_arm_wrap(n: nat, p: nat, bs: Seq<Seq<char>>, body: Expr)
+    requires
+        n < p,
+        absent(n, body),
+    ensures
+        absent(n, arm_wrap(p, bs, body)),
+{
+    reveal_with_fuel(arm_wrap, 1);
+    if bs.len() >= 2 {
+        absent_binds_lets(n, p, bs.len(), 0, body);
+    }
+}
+
+/// 直和型の鎖（層 j から）は、被験式 s と各層の枝の本体が位置 n を参照も束縛もしないなら、結果も参照も束縛もしない。
+/// 層 j の枝の本体（rsrc の写し）は、枝の scope で absent_at に当てる。層 j の束縛の位置 sc.len() は n と違う。
+proof fn absent_layers(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, s: Expr, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        j < ents.len(),
+        absent(n, s),
+        rsrc_layers(fs, tb, fds, dep, t, ents, arms, j) is Some,
+        smatch_from(fs, tb, false, pushn(t, j), ents, arms, j, s) == Some(c),
+    ensures
+        absent(n, c),
+    decreases dep, arms, ents.len() - j,
+{
+    reveal_with_fuel(smatch_from, 2);
+    reveal_with_fuel(absent, 2);
+    reveal_with_fuel(pushn, 1);
+    reveal_with_fuel(rsrc_layers, 1);
+    reveal_with_fuel(rsrc_layer, 1);
+    pushn_len(t, j);
+    pushn_index(t, j, n);
+    let sc = pushn(t, j);
+    assert(layer_idx(ents, j, arms) is Some) by {
+        if layer_idx(ents, j, arms) is None {
+            assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+        }
+    }
+    let ka = layer_idx(ents, j, arms)->Some_0;
+    assert(ka < arms.len()) by {
+        if ka >= arms.len() {
+            assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+        }
+    }
+    assert(arm_binds_or_empty(arms[ka as int].0) is Some) by {
+        if arm_binds_or_empty(arms[ka as int].0) is None {
+            assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+        }
+    }
+    let bs = arm_binds_or_empty(arms[ka as int].0)->Some_0;
+    assert(arm_ok(bs) && binds_fresh(sc, bs)) by {
+        if !(arm_ok(bs) && binds_fresh(sc, bs)) {
+            assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+        }
+    }
+    assert(rx(fs, tb, false, arm_scope(sc, bs), arms[ka as int].1) is Some) by {
+        if rx(fs, tb, false, arm_scope(sc, bs), arms[ka as int].1) is None {
+            assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+        }
+    }
+    let bo = rx(fs, tb, false, arm_scope(sc, bs), arms[ka as int].1)->Some_0;
+    // 層 j の枝の写し（rsrc_layer）と、その次の層の写し（rsrc_layers）
+    assert(rsrc_layer(fs, tb, fds, dep, t, ents, arms, j) is Some && rsrc_layers(fs, tb, fds, dep, t, ents, arms, j + 1) is Some);
+    assert(rsrc(fs, tb, fds, dep, arm_scope(sc, bs), arms[ka as int].1) is Some);
+    // 枝の scope の位置 n は、外側の scope の位置 n（空の名前）と同じ
+    arm_scope_props(sc, bs);
+    pushn_index(t, j, n);
+    assert(arm_scope(sc, bs)[n as int] == sc[n as int]);
+    assert(sc[n as int] == t[n as int]);
+    absent_at(fs, tb, fds, dep, arm_scope(sc, bs), n, arms[ka as int].1, bo);
+    absent_arm_wrap(n, sc.len(), bs, bo);
+    let aw = arm_wrap(sc.len(), bs, bo);
+    assert(sc.len() != n);
+    if j + 1 == ents.len() {
+        assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) == Some(Expr::Let(sc.len(), Box::new(s), Box::new(aw))));
+    } else {
+        let rest = smatch_from(fs, tb, false, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len()))->Some_0;
+        assert(smatch_from(fs, tb, false, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len())) is Some) by {
+            if smatch_from(fs, tb, false, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len())) is None {
+                assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) is None);
+            }
+        }
+        pushn_succ(t, j);
+        assert(pushn(t, j + 1) == sc.push(Seq::empty()));
+        assert(rsrc_layers(fs, tb, fds, dep, t, ents, arms, j + 1) is Some);
+        absent_layers(fs, tb, fds, dep, t, n, ents, arms, j + 1, Expr::Var(sc.len()), rest);
+        assert(smatch_from(fs, tb, false, sc, ents, arms, j, s) == Some(Expr::MatchR(Box::new(s), sc.len(), Box::new(aw), sc.len(), Box::new(rest))));
+    }
+}
+
+/// 直和型の match の腕の名前の位置：`_` だけの枝は let（被験式と本体）、それ以外は層の鎖（absent_layers）。位置 n を参照も束縛もしない。
+#[verifier::rlimit(50)]
+proof fn absent_at_sum(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is SumMatch,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, fds, dep, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases dep, e, 0nat,
+{
+    reveal_with_fuel(rx, 2);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(absent, 2);
+    match e {
+        Sx::SumMatch(m, arms) => {
+            if any_arms(arms) {
+                assert(rx(fs, tb, false, t, *m) is Some);
+                let cm = rx(fs, tb, false, t, *m)->Some_0;
+                assert(rx(fs, tb, false, t.push(Seq::empty()), arms[0].1) is Some);
+                let cb = rx(fs, tb, false, t.push(Seq::empty()), arms[0].1)->Some_0;
+                assert(c == Expr::Let(t.len(), Box::new(cm), Box::new(cb)));
+                assert(rsrc(fs, tb, fds, dep, t, *m) is Some && rsrc(fs, tb, fds, dep, t.push(Seq::empty()), arms[0].1) is Some);
+                absent_at(fs, tb, fds, dep, t, n, *m, cm);
+                assert(t.push(Seq::empty())[n as int] == t[n as int]);
+                absent_at(fs, tb, fds, dep, t.push(Seq::empty()), n, arms[0].1, cb);
+                assert(t.len() != n);
+            } else {
+                assert(arms_sum(tb, arms) is Some) by {
+                    if arms_sum(tb, arms) is None {
+                        assert(rx(fs, tb, false, t, e) is None);
+                    }
+                }
+                let i = arms_sum(tb, arms)->Some_0;
+                assert(rx(fs, tb, false, t, *m) is Some) by {
+                    if rx(fs, tb, false, t, *m) is None {
+                        assert(rx(fs, tb, false, t, e) is None);
+                    }
+                }
+                let cm = rx(fs, tb, false, t, *m)->Some_0;
+                assert(rsrc(fs, tb, fds, dep, t, *m) is Some) by {
+                    if rsrc(fs, tb, fds, dep, t, *m) is None {
+                        assert(rsrc(fs, tb, fds, dep, t, e) is None);
+                    }
+                }
+                assert(rsrc_layers(fs, tb, fds, dep, t, tb[i as int].2, arms, 0) is Some) by {
+                    if rsrc_layers(fs, tb, fds, dep, t, tb[i as int].2, arms, 0) is None {
+                        assert(rsrc(fs, tb, fds, dep, t, e) is None);
+                    }
+                }
+                absent_at(fs, tb, fds, dep, t, n, *m, cm);
+                assert(smatch_from(fs, tb, false, t, tb[i as int].2, arms, 0, cm) == Some(c));
+                absent_layers(fs, tb, fds, dep, t, n, tb[i as int].2, arms, 0, cm, c);
             }
         },
         _ => {},
@@ -1096,6 +1355,7 @@ proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         rec_upd(fs, tb, false, scope2(sc, deep), decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rsrc_ws(fs, tb, fds, dep, scope2(sc, deep), decl, fls, 0) == Some(ws),
         wmap(renv, ws, 0) == Some(m),
@@ -1120,6 +1380,7 @@ proof fn fields_at(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     wmap_get(renv, ws, 0, m, k);
     let vk = rmean(renv, rk)->Some_0;
     assert(m[q as nat] == vk);
+    below_scope2(renv, sc, deep);
     resolve_sound(p, fs, tb, fds, dep, scope2(sc, deep), fls[k].1, cenv, renv, x, rk, vk);
     if deep {
         assert(scope2(sc, deep) == sc.push(Seq::<char>::empty()));
@@ -1257,6 +1518,7 @@ proof fn rec_none_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         decl.len() >= 1,
         rec_upd(fs, tb, false, sc, decl, fls, 0, none_upd(decl.len())) == Some(uf),
         rrecord(uf, None, sc.len()) == Ok(c),
@@ -1341,6 +1603,7 @@ proof fn rec_some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         decl.len() >= 1,
         bs.len() == decl.len(),
         rec_upd(fs, tb, false, scope2(sc, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) == Some(uf),
@@ -1446,12 +1709,257 @@ proof fn envrel_ins(cenv: Map<nat, Val>, renv: Map<nat, RVal>, k: nat, va: RVal)
     }
 }
 
+/// 鎖の環境（位置 p0 から上に束縛を足す）は、位置 p0 より下の名前だけを持つ源の環境と、なお対応する。
+proof fn envrel_chain(cenv: Map<nat, Val>, renv: Map<nat, RVal>, p0: nat, j: nat, k: nat, n: nat, pv: Val)
+    requires
+        envrel(cenv, renv),
+        forall|q: nat| #[trigger] renv.contains_key(q) ==> q < p0,
+    ensures
+        envrel(chain_env(cenv, p0, j, k, n, pv), renv),
+{
+    assert forall|q: nat| #[trigger] renv.contains_key(q) implies chain_env(cenv, p0, j, k, n, pv).contains_key(q) && chain_env(cenv, p0, j, k, n, pv)[q] == vof(renv[q]) by {
+        chain_env_keep(cenv, p0, j, k, n, pv, q);
+        assert(cenv.contains_key(q) && cenv[q] == vof(renv[q]));
+    }
+}
+
+/// 一つの名前（位置 pos、値 va）を源の環境に足す。核の環境の位置 pos に、その値 vof(va) が既にあるなら、対応は保たれる。
+proof fn envrel_one(cenv: Map<nat, Val>, renv: Map<nat, RVal>, pos: nat, va: RVal)
+    requires
+        envrel(cenv, renv),
+        cenv.contains_key(pos),
+        cenv[pos] == vof(va),
+    ensures
+        envrel(cenv, renv.insert(pos, va)),
+{
+    assert forall|q: nat| #[trigger] renv.insert(pos, va).contains_key(q) implies cenv.contains_key(q) && cenv[q] == vof(renv.insert(pos, va)[q]) by {
+        if q != pos {
+            assert(renv.contains_key(q));
+        }
+    }
+}
+
+/// 枝の字段の束縛（sbind）と核の字段の束縛（fenv）は、同じ位置（pos + 1 + i）に同じ値を足すので、対応は保たれる。
+proof fn envrel_fenv(cenv: Map<nat, Val>, renv: Map<nat, RVal>, pos: nat, vs: Seq<RVal>, ids: Seq<nat>, i: nat)
+    requires
+        envrel(cenv, renv),
+        ids.len() == vs.len(),
+        forall|q: int| 0 <= q < ids.len() ==> ids[q] == pos + 1 + q,
+    ensures
+        envrel(fenv(cenv, pos, vofs(vs, 0), i), sbind(renv, ids, vs, i)),
+    decreases vs.len() - i,
+{
+    reveal_with_fuel(fenv, 1);
+    reveal_with_fuel(sbind, 1);
+    vofs_len(vs, 0);
+    if i < vs.len() {
+        vofs_at0(vs, i as int);
+        envrel_ins(cenv, renv, ids[i as int], vs[i as int]);
+        assert(cenv.insert(ids[i as int], vof(vs[i as int])) =~= cenv.insert(pos + 1 + i, vofs(vs, 0)[i as int]));
+        envrel_fenv(cenv.insert(ids[i as int], vof(vs[i as int])), renv.insert(ids[i as int], vs[i as int]), pos, vs, ids, i + 1);
+    }
+}
+
+/// 源の環境の名前は、scope の長さより下にある（scope を足しても、長さが増えるだけなので保たれる）。
+proof fn below_mono(renv: Map<nat, RVal>, sc: Seq<Seq<char>>, sc2: Seq<Seq<char>>)
+    requires
+        renv_below(renv, sc),
+        sc.len() <= sc2.len(),
+    ensures
+        renv_below(renv, sc2),
+{
+}
+
+/// 名前 k（scope の長さ）に値を足し、scope に名前を一つ足す（let・match の some の枝・fold の累積）。
+proof fn below_push(renv: Map<nat, RVal>, sc: Seq<Seq<char>>, x: Seq<char>, k: nat, va: RVal)
+    requires
+        renv_below(renv, sc),
+        k == sc.len(),
+    ensures
+        renv_below(renv.insert(k, va), sc.push(x)),
+{
+    assert forall|q: nat| #[trigger] renv.insert(k, va).contains_key(q) implies q < sc.push(x).len() by {
+        if q != k {
+            assert(renv.contains_key(q));
+        }
+    }
+}
+
+/// 字段の束縛（sbind）は、名前の位置が scope の内側なら、源の環境の名前を scope の内側に保つ。
+proof fn below_sbind(renv: Map<nat, RVal>, sc: Seq<Seq<char>>, ids: Seq<nat>, vs: Seq<RVal>, i: nat)
+    requires
+        renv_below(renv, sc),
+        forall|q: int| 0 <= q < ids.len() ==> ids[q] < sc.len(),
+    ensures
+        renv_below(sbind(renv, ids, vs, i), sc),
+    decreases ids.len() - i,
+{
+    reveal_with_fuel(sbind, 1);
+    if i < ids.len() && i < vs.len() {
+        assert(renv_below(renv.insert(ids[i as int], vs[i as int]), sc)) by {
+            assert forall|q: nat| #[trigger] renv.insert(ids[i as int], vs[i as int]).contains_key(q) implies q < sc.len() by {
+                if q != ids[i as int] {
+                    assert(renv.contains_key(q));
+                }
+            }
+        }
+        below_sbind(renv.insert(ids[i as int], vs[i as int]), sc, ids, vs, i + 1);
+    }
+}
+
+/// 呼出しの環境（rbind）の名前は、引数の数 m より下にある。
+proof fn rbind_below(vs: Seq<RVal>, m: nat)
+    ensures
+        forall|q: nat| #[trigger] rbind(vs, m).contains_key(q) ==> q < m,
+    decreases m,
+{
+    reveal_with_fuel(rbind, 1);
+    if m > 0 && m <= vs.len() {
+        rbind_below(vs, (m - 1) as nat);
+        assert forall|q: nat| #[trigger] rbind(vs, m).contains_key(q) implies q < m by {
+            if q != (m - 1) as nat {
+                assert(rbind(vs, (m - 1) as nat).contains_key(q));
+                assert(q < (m - 1) as nat);
+            }
+        }
+    }
+}
+
+/// 源の環境の名前は、scope2（基を let で束縛する深い scope）で足されても、scope の長さより下にある。
+proof fn below_scope2(renv: Map<nat, RVal>, sc: Seq<Seq<char>>, deep: bool)
+    requires
+        renv_below(renv, sc),
+    ensures
+        renv_below(renv, scope2(sc, deep)),
+{
+}
+
+/// 直和型の値の写し（vof）は、字段の写しの列（pay_val）に対する構築子の鎖の値と同じ。
+proof fn vof_sum(k: nat, n: nat, vs: Seq<RVal>)
+    ensures
+        vof(RVal::Sum(k, n, vs)) == vsum_from(k, n, 0, pay_val(vofs(vs, 0))),
+{
+    reveal_with_fuel(vof, 1);
+    vofs_len(vs, 0);
+    if vs.len() == 0 {
+        reveal_with_fuel(vofs, 1);
+    }
+}
+
+/// 直和型の枝の写し（層 j から）の長さは、層の数（ents.len() - j）と同じ。
+proof fn rsrc_layers_len(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc0: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, es: Seq<(Seq<nat>, RExpr)>)
+    requires
+        j <= ents.len(),
+        rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j) == Some(es),
+    ensures
+        es.len() == ents.len() - j,
+    decreases ents.len() - j,
+{
+    reveal_with_fuel(rsrc_layers, 1);
+    if j < ents.len() {
+        assert(rsrc_layer(fs, tb, fds, dep, sc0, ents, arms, j) is Some && rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j + 1) is Some);
+        let rest = rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j + 1)->Some_0;
+        rsrc_layers_len(fs, tb, fds, dep, sc0, ents, arms, j + 1, rest);
+    }
+}
+
+/// 直和型の枝の写し（層 j から）の層 k（j <= k < ents.len()）は、その層の rsrc_layer が返す枝の組である。
+proof fn rsrc_layers_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc0: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, es: Seq<(Seq<nat>, RExpr)>, k: nat)
+    requires
+        j <= k < ents.len(),
+        rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j) == Some(es),
+    ensures
+        rsrc_layer(fs, tb, fds, dep, sc0, ents, arms, k) == Some(es[(k - j) as int]),
+    decreases ents.len() - j,
+{
+    reveal_with_fuel(rsrc_layers, 1);
+    rsrc_layers_len(fs, tb, fds, dep, sc0, ents, arms, j, es);
+    assert(rsrc_layer(fs, tb, fds, dep, sc0, ents, arms, j) is Some && rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j + 1) is Some);
+    let ent = rsrc_layer(fs, tb, fds, dep, sc0, ents, arms, j)->Some_0;
+    let rest = rsrc_layers(fs, tb, fds, dep, sc0, ents, arms, j + 1)->Some_0;
+    assert(es == seq![ent] + rest);
+    if j == k {
+        assert(es[0] == ent);
+    } else {
+        rsrc_layers_at(fs, tb, fds, dep, sc0, ents, arms, j + 1, rest, k);
+        vstd::seq::lemma_seq_add_index2(seq![ent], rest, (k - j) as int);
+    }
+}
+
+/// 枝の本体の scope：外側の名前は変わらず、字段が二つ以上なら字段の数だけ長い（字段が一つ以下なら一つ長い）。
+proof fn arm_scope_props(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>)
+    ensures
+        arm_scope(sc, bs).len() >= sc.len() + 1,
+        bs.len() >= 2 ==> arm_scope(sc, bs).len() == sc.len() + 1 + bs.len(),
+        forall|q: int| 0 <= q < sc.len() ==> arm_scope(sc, bs)[q] == sc[q],
+{
+    assert forall|q: int| 0 <= q < sc.len() implies arm_scope(sc, bs)[q] == sc[q] by {
+        if bs.len() >= 2 {
+            vstd::seq::lemma_seq_add_index1(sc.push(Seq::empty()), bs, q);
+        }
+    }
+}
+
+/// 字段の式の列：要素ごとに vof(vs[j]) に評価されれば、写した値の列 vofs(vs, 0) の字段の式の列（fields_to）である。
+proof fn fields_of(p: Prog, cenv: Map<nat, Val>, ces: Seq<Expr>, vs: Seq<RVal>)
+    requires
+        ces.len() == vs.len(),
+        forall|j: nat| j < ces.len() ==> evals_to(p, cenv, #[trigger] ces[j as int], vof(vs[j as int])),
+    ensures
+        fields_to(p, cenv, ces, vofs(vs, 0)),
+{
+    vofs_len(vs, 0);
+    assert forall|k: int| 0 <= k < ces.len() implies evals_to(p, cenv, #[trigger] ces[k], vofs(vs, 0)[k]) by {
+        vofs_at0(vs, k);
+        let j = k as nat;
+        assert(j < ces.len());
+        assert(evals_to(p, cenv, ces[j as int], vof(vs[j as int])));
+    }
+}
+
+/// 名前表の項目の番号（vlook_from の結果の最初の成分）は、名前表の長さより小さい。
+proof fn vlook_lt(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, c: Seq<char>, i: nat)
+    ensures
+        vlook_from(tb, c, i) matches Some((j, _, _)) ==> j < tb.len(),
+    decreases tb.len() - i,
+{
+    reveal_with_fuel(vlook_from, 1);
+    if i < tb.len() {
+        if vidx(tb[i as int].2, c, 0) is None {
+            vlook_lt(tb, c, i + 1);
+        }
+    }
+}
+
+/// rsrc_ctor が Some なら、構築子は名前表の項目 i の k 番目で、字段の数 m は字段の式の列の長さ、写しは Ctor(k, n, rs)。
+proof fn rsrc_ctor_inv(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, c: Seq<char>, rs: Seq<RExpr>, r: RExpr) -> (ikm: (nat, nat, nat))
+    requires
+        rsrc_ctor(tb, c, rs) == Some(r),
+    ensures
+        vlook(tb, c) == Some(ikm),
+        ikm.0 < tb.len(),
+        ikm.2 == rs.len(),
+        ikm.1 < tb[ikm.0 as int].2.len(),
+        r == RExpr::Ctor(ikm.1, tb[ikm.0 as int].2.len(), rs),
+{
+    assert(vlook(tb, c) is Some) by {
+        if vlook(tb, c) is None {
+            assert(rsrc_ctor(tb, c, rs) is None);
+        }
+    }
+    let ikm = vlook(tb, c)->Some_0;
+    assert(vlook(tb, c) == Some(ikm));
+    vlook_lt(tb, c, 0);
+    ikm
+}
+
 /// 名前解決の定理の変数の腕と、書いた式の腕の振り分け。
 /// 定理：rx が c を返し、rsrc が r を返し、rmean(r) が v なら、c は vof(v) に評価される（部分正しさ、印なし）。
 pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -1485,13 +1993,16 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::Some(..) => some_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Var(x) => {
             assert(x.len() != 0);
-            assert(idx(sc, x, 0) is Some);
-            let k = idx(sc, x, 0)->Some_0;
-            assert(c == Expr::Var(k));
-            assert(r == RExpr::Var(k));
-            assert(renv.contains_key(k));
-            assert(cenv.contains_key(k) && cenv[k] == vof(renv[k]));
-            bs_var(p, cenv, k);
+            if idx(sc, x, 0) is Some {
+                let k = idx(sc, x, 0)->Some_0;
+                assert(c == Expr::Var(k));
+                assert(r == RExpr::Var(k));
+                assert(renv.contains_key(k));
+                assert(cenv.contains_key(k) && cenv[k] == vof(renv[k]));
+                bs_var(p, cenv, k);
+            } else {
+                ctor_var_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v);
+            }
         },
         Sx::Pair(..) => pair_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Fld(..) => fld_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
@@ -1502,9 +2013,22 @@ pub proof fn resolve_sound(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Opti
         Sx::Str(..) => str_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Fold(..) => fold_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Builtin(..) => builtin_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
-        Sx::Call(..) => call_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::Call(f, _) => {
+            if idx(fs, f, 0) is Some {
+                call_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v);
+            } else {
+                ctor_call_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v);
+            }
+        },
         Sx::Rec(_, _, None) => rec_none_top(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
         Sx::Rec(_, _, Some(_)) => rec_some_top(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v),
+        Sx::SumMatch(..) => {
+            if any_sm(e) {
+                sum_any_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v);
+            } else {
+                sum_layer_arm(p, fs, tb, fds, dep, sc, e, cenv, renv, c, r, v);
+            }
+        },
         _ => {},
     }
 }
@@ -1515,6 +2039,7 @@ proof fn pair_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Pair,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -1554,6 +2079,7 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is If,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -1605,11 +2131,13 @@ proof fn if_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq
 /// let の腕：束縛の式の定理と、本体の定理（名前は sc.len() の位置、環境はその名前に値を足す）。
 /// 本体は scope に名前 x を足して解決し、その位置は sc.len() なので、環境の名前 sc.len() に値を足して読む。
 #[verifier::rlimit(100)]
+#[verifier::rlimit(50)]
 proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Let,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -1617,10 +2145,10 @@ proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
         evals_to(p, cenv, c, vof(v)),
     decreases dep, e, 1nat,
 {
-    reveal_with_fuel(rx, 2);
-    reveal_with_fuel(rsrc, 2);
-    reveal_with_fuel(rmean, 2);
-    reveal_with_fuel(vof, 2);
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
     match e {
         Sx::Let(x, a, b) => {
             assert(rx(fs, tb, false, sc, *a) is Some && rx(fs, tb, false, sc.push(x), *b) is Some);
@@ -1636,6 +2164,7 @@ proof fn let_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
             assert(rmean(renv.insert(sc.len(), va), rb) == Some(v));
             resolve_sound(p, fs, tb, fds, dep, sc, *a, cenv, renv, ca, ra, va);
             envrel_ins(cenv, renv, sc.len(), va);
+            below_push(renv, sc, x, sc.len(), va);
             resolve_sound(p, fs, tb, fds, dep, sc.push(x), *b, cenv.insert(sc.len(), vof(va)), renv.insert(sc.len(), va), cb, rb, v);
             bs_let(p, cenv, sc.len(), ca, cb, vof(va), vof(v));
         },
@@ -1650,6 +2179,7 @@ proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Match,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -1687,6 +2217,7 @@ proof fn match_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
                 RVal::Some(w) => {
                     assert(rmean(renv.insert(sc.len(), *w), rb) == Some(v));
                     envrel_ins(cenv, renv, sc.len(), *w);
+                    below_push(renv, sc, x, sc.len(), *w);
                     resolve_sound(p, fs, tb, fds, dep, sc.push(x), *sb, cenv.insert(sc.len(), vof(*w)), renv.insert(sc.len(), *w), cb, rb, v);
                     bs_match(p, cenv, cm, cn, sc.len(), cb, vof(mv), vof(v));
                 },
@@ -1794,6 +2325,7 @@ proof fn list_elts(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         ces.len() == es.len(),
         rs.len() == es.len(),
         vs.len() == es.len(),
@@ -1928,6 +2460,7 @@ proof fn list_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is List,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2214,6 +2747,7 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Fold,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2253,6 +2787,8 @@ proof fn fold_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
             assert forall|k: nat| (k as int) < items.len() implies evals_to(p, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), cb, vof(accs[(k + 1) as int])) by {
                 envrel_ins(cenv, renv, sc.len(), accs[k as int]);
                 envrel_ins(cenv.insert(sc.len(), vof(accs[k as int])), renv.insert(sc.len(), accs[k as int]), sc.len() + 1, items[k as int]);
+                below_push(renv, sc, a, sc.len(), accs[k as int]);
+                below_push(renv.insert(sc.len(), accs[k as int]), sc.push(a), x, sc.len() + 1, items[k as int]);
                 assert(rmean(renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), rb) == Some(accs[(k + 1) as int]));
                 resolve_sound(p, fs, tb, fds, dep, sc.push(a).push(x), *b, cenv.insert(sc.len(), vof(accs[k as int])).insert(sc.len() + 1, vof(items[k as int])), renv.insert(sc.len(), accs[k as int]).insert(sc.len() + 1, items[k as int]), cb, rb, accs[(k + 1) as int]);
             }
@@ -2320,6 +2856,7 @@ proof fn builtin_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Builtin,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2372,6 +2909,8 @@ proof fn call_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Call,
+        idx(fs, e->Call_0, 0) is Some,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2400,6 +2939,10 @@ proof fn call_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
                     let vs = rmeans(renv, rs, 0)->Some_0;
                     assert(vs.len() == ps.len());
                     assert(rmean(rbind(vs, ps.len()), rb) == Some(v));
+                    assert(pnames(ps).len() == ps.len());
+                    assert(renv_below(rbind(vs, ps.len()), pnames(ps))) by {
+                        rbind_below(vs, ps.len());
+                    }
                     funcs_at(p, fs, tb, fds, g);
                     assert(g < p.funcs.len());
                     assert(p.funcs[g as int].params == rparams(ps, tb, false));
@@ -2452,28 +2995,52 @@ proof fn absent_at_call(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<
     reveal_with_fuel(absent, 1);
     match e {
         Sx::Call(f, es) => {
-            assert(idx(fs, f, 0) is Some && rxs(fs, tb, false, t, es, 0) is Some);
-            let g = idx(fs, f, 0)->Some_0;
-            let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
-            assert(c == Expr::Call(g, ces));
-            assert(dep != 0 && g < fds.len());
-            assert(fds[g as int] is Fn);
-            match fds[g as int] {
-                Sd::Fn(_, ps, _, b) => {
-                    assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some);
-                    let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
-                    rxs_at(fs, tb, fds, dep, t, es, 0, ces);
-                    rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
-                    assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
-                        assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+            if idx(fs, f, 0) is None {
+                // 関数でない名前への呼出しは構築子（字段の式は位置 n を参照も束縛もしない）。
+                assert(rxs(fs, tb, false, t, es, 0) is Some);
+                let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
+                assert(rctor(tb, false, f, ces) == Some(c));
+                assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some) by {
+                    if rsrcs(fs, tb, fds, dep, t, es, 0) is None {
+                        assert(rsrc(fs, tb, fds, dep, t, e) is None);
                     }
-                    assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
-                        assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
-                    }
-                    absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
-                    absent_all(n, ces, 0);
-                },
-                _ => {},
+                }
+                let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
+                rxs_at(fs, tb, fds, dep, t, es, 0, ces);
+                rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
+                assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                    assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+                }
+                assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
+                    assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
+                }
+                absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
+                absent_all(n, ces, 0);
+                absent_ctor(tb, n, f, ces, c);
+            } else {
+                assert(rxs(fs, tb, false, t, es, 0) is Some);
+                let g = idx(fs, f, 0)->Some_0;
+                let ces = rxs(fs, tb, false, t, es, 0)->Some_0;
+                assert(c == Expr::Call(g, ces));
+                assert(dep != 0 && g < fds.len());
+                assert(fds[g as int] is Fn);
+                match fds[g as int] {
+                    Sd::Fn(_, ps, _, b) => {
+                        assert(rsrcs(fs, tb, fds, dep, t, es, 0) is Some);
+                        let rs = rsrcs(fs, tb, fds, dep, t, es, 0)->Some_0;
+                        rxs_at(fs, tb, fds, dep, t, es, 0, ces);
+                        rsrcs_at(fs, tb, fds, dep, t, es, 0, rs);
+                        assert forall|j: nat| j < es.len() implies rx(fs, tb, false, t, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                            assert(rx(fs, tb, false, t, es[(0 + j) as int]) == Some(ces[j as int]));
+                        }
+                        assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, t, #[trigger] es[j as int]) is Some by {
+                            assert(rsrc(fs, tb, fds, dep, t, es[(0 + j) as int]) == Some(rs[j as int]));
+                        }
+                        absent_at_elts(fs, tb, fds, dep, t, n, es, ces, 0);
+                        absent_all(n, ces, 0);
+                    },
+                    _ => {},
+                }
             }
         },
         _ => {},
@@ -2486,6 +3053,7 @@ proof fn some_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Some,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2521,6 +3089,7 @@ proof fn fld_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
         e is Fld,
+        renv_below(renv, sc),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
         rmean(renv, r) == Some(v),
@@ -2553,6 +3122,7 @@ proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         e matches Sx::Rec(_, _, None),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
@@ -2595,6 +3165,7 @@ proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         e matches Sx::Rec(_, _, Some(_)),
         rx(fs, tb, false, sc, e) == Some(c),
         rsrc(fs, tb, fds, dep, sc, e) == Some(r),
@@ -2638,6 +3209,7 @@ proof fn rec_some_tail(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<T
     requires
         funcs_ok(p, fs, tb, fds),
         envrel(cenv, renv),
+        renv_below(renv, sc),
         e == Sx::Rec(rn, fls, Some(Box::new(bsx))),
         rx(fs, tb, false, sc, bsx) == Some(bx),
         rsrc(fs, tb, fds, dep, sc, bsx) == Some(br),
@@ -2660,6 +3232,310 @@ proof fn rec_some_tail(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<T
             let bs = choose|bs: Seq<RVal>| rmean(renv, br) == Some(RVal::Rec(bs)) && bs.len() == n;
             resolve_sound(p, fs, tb, fds, dep, sc, *b, cenv, renv, bx, br, RVal::Rec(bs));
             rec_some_arm(p, fs, tb, fds, dep, sc, decl, fls2, cenv, renv, bx, br, bs, c, uf, ws, v);
+        },
+        _ => {},
+    }
+}
+
+/// 字段のない構築子の名前（局所の名前でない変数）の腕：rctor は字段のない構築子の値を作り、ctor_sound でその値に評価される。
+/// 変数の腕（局所の名前）と振り分けるため、名前は局所の scope に無いことを仮定する。
+proof fn ctor_var_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        e is Var,
+        idx(sc, e->Var_0, 0) is None,
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(rmeans, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::Var(x) => {
+            assert(rctor(tb, false, x, Seq::empty()) == Some(c));
+            assert(rsrc_ctor(tb, x, Seq::empty()) == Some(r));
+            let ikm = rsrc_ctor_inv(tb, x, Seq::empty(), r);
+            assert(vlook(tb, x) == Some((ikm.0, ikm.1, Seq::<Expr>::empty().len())));
+            assert(r == RExpr::Ctor(ikm.1, tb[ikm.0 as int].2.len(), Seq::<RExpr>::empty()));
+            assert(rmeans(renv, Seq::<RExpr>::empty(), 0) == Some(Seq::<RVal>::empty()));
+            assert(rmean(renv, r) == Some(RVal::Sum(ikm.1, tb[ikm.0 as int].2.len(), Seq::<RVal>::empty())));
+            assert(v == RVal::Sum(ikm.1, tb[ikm.0 as int].2.len(), Seq::<RVal>::empty()));
+            assert(fields_to(p, cenv, Seq::<Expr>::empty(), Seq::<Val>::empty()));
+            ctor_sound(p, cenv, tb, x, Seq::empty(), Seq::empty(), ikm.0, ikm.1, c);
+            assert(vof(v) == vsum_from(ikm.1, tb[ikm.0 as int].2.len(), 0, Val::Unit));
+        },
+        _ => {},
+    }
+}
+
+/// 字段のある構築子への呼出しの腕：字段の式は list_elts で値に評価し、構築子の値は ctor_sound でその値に評価される。
+#[verifier::rlimit(50)]
+proof fn ctor_call_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        funcs_ok(p, fs, tb, fds),
+        envrel(cenv, renv),
+        e is Call,
+        idx(fs, e->Call_0, 0) is None,
+        renv_below(renv, sc),
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases dep, e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::Call(f, es) => {
+            assert(idx(fs, f, 0) is None);
+            assert(rxs(fs, tb, false, sc, es, 0) is Some);
+            let ces = rxs(fs, tb, false, sc, es, 0)->Some_0;
+            assert(rctor(tb, false, f, ces) == Some(c));
+            assert(rsrcs(fs, tb, fds, dep, sc, es, 0) is Some);
+            let rs = rsrcs(fs, tb, fds, dep, sc, es, 0)->Some_0;
+            assert(rsrc_ctor(tb, f, rs) == Some(r));
+            let ikm = rsrc_ctor_inv(tb, f, rs, r);
+            assert(rmeans(renv, rs, 0) is Some);
+            let vs = rmeans(renv, rs, 0)->Some_0;
+            assert(v == RVal::Sum(ikm.1, tb[ikm.0 as int].2.len(), vs));
+            rxs_at(fs, tb, fds, dep, sc, es, 0, ces);
+            rsrcs_at(fs, tb, fds, dep, sc, es, 0, rs);
+            rmeans_at(renv, rs, 0, vs);
+            assert(ces.len() == es.len() && rs.len() == es.len() && vs.len() == es.len());
+            assert(ces.len() == ikm.2);
+            assert forall|j: nat| j < es.len() implies rx(fs, tb, false, sc, #[trigger] es[j as int]) == Some(ces[j as int]) by {
+                assert(rx(fs, tb, false, sc, es[(0 + j) as int]) == Some(ces[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] es[j as int]) == Some(rs[j as int]) by {
+                assert(rsrc(fs, tb, fds, dep, sc, es[(0 + j) as int]) == Some(rs[j as int]));
+            }
+            assert forall|j: nat| j < es.len() implies rmean(renv, #[trigger] rs[j as int]) == Some(vs[j as int]) by {
+                assert(rmean(renv, rs[(0 + j) as int]) == Some(vs[j as int]));
+            }
+            list_elts(p, fs, tb, fds, dep, sc, es, cenv, renv, ces, rs, vs, 0);
+            fields_of(p, cenv, ces, vs);
+            assert(vlook(tb, f) == Some((ikm.0, ikm.1, ces.len())));
+            ctor_sound(p, cenv, tb, f, ces, vofs(vs, 0), ikm.0, ikm.1, c);
+            vof_sum(ikm.1, tb[ikm.0 as int].2.len(), vs);
+        },
+        _ => {},
+    }
+}
+
+/// `_` だけの match の本体（any_top）が c を返すなら、枝の本体は解決でき、c はその let の形である。
+proof fn any_top_let(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, rm: Expr, c: Expr)
+    requires
+        any_top(fs, tb, tagged, sc, arms, rm) == Some(c),
+    ensures
+        arms.len() == 1,
+        rx(fs, tb, tagged, sc.push(Seq::empty()), arms[0].1) is Some,
+        c == Expr::Let(sc.len(), Box::new(rm), Box::new(rx(fs, tb, tagged, sc.push(Seq::empty()), arms[0].1)->Some_0)),
+{
+    reveal_with_fuel(any_top, 1);
+}
+
+/// `_` だけの直和型の match の腕：被験式を let で位置 sc.len() に束縛し、`_` の枝の本体を空の名前を足した scope で解決する（let の腕と同じ）。
+#[verifier::rlimit(50)]
+proof fn sum_any_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        funcs_ok(p, fs, tb, fds),
+        envrel(cenv, renv),
+        any_sm(e),
+        renv_below(renv, sc),
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases dep, e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(any_top, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    match e {
+        Sx::SumMatch(m, arms) => {
+            assert(any_arms(arms));
+            assert(rx(fs, tb, false, sc, *m) is Some);
+            let cm = rx(fs, tb, false, sc, *m)->Some_0;
+            assert(any_top(fs, tb, false, sc, arms, cm) == Some(c));
+            any_top_let(fs, tb, false, sc, arms, cm, c);
+            let cb = rx(fs, tb, false, sc.push(Seq::empty()), arms[0].1)->Some_0;
+            assert(c == Expr::Let(sc.len(), Box::new(cm), Box::new(cb)));
+            assert(rsrc(fs, tb, fds, dep, sc, *m) is Some && rsrc(fs, tb, fds, dep, sc.push(Seq::empty()), arms[0].1) is Some);
+            let rm = rsrc(fs, tb, fds, dep, sc, *m)->Some_0;
+            let rb = rsrc(fs, tb, fds, dep, sc.push(Seq::empty()), arms[0].1)->Some_0;
+            assert(r == RExpr::Let(sc.len(), Box::new(rm), Box::new(rb)));
+            assert(rmean(renv, rm) is Some);
+            let mv = rmean(renv, rm)->Some_0;
+            assert(rmean(renv.insert(sc.len(), mv), rb) == Some(v));
+            resolve_sound(p, fs, tb, fds, dep, sc, *m, cenv, renv, cm, rm, mv);
+            envrel_ins(cenv, renv, sc.len(), mv);
+            below_push(renv, sc, Seq::empty(), sc.len(), mv);
+            resolve_sound(p, fs, tb, fds, dep, sc.push(Seq::empty()), arms[0].1, cenv.insert(sc.len(), vof(mv)), renv.insert(sc.len(), mv), cb, rb, v);
+            bs_let(p, cenv, sc.len(), cm, cb, vof(mv), vof(v));
+        },
+        _ => {},
+    }
+}
+
+/// 直和型の match の腕（`_` だけでない）：被験式の定理で構築子の値 Sum(k, n, vs) を得て、層 k の枝の本体を解決し、
+/// arm_wrap_sound で枝の式を示し、smatch_chain で核の鎖（層 0 から層 k まで降りる）に評価されることを示す。
+#[verifier::rlimit(300)]
+proof fn sum_layer_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, e: Sx, cenv: Map<nat, Val>, renv: Map<nat, RVal>, c: Expr, r: RExpr, v: RVal)
+    requires
+        funcs_ok(p, fs, tb, fds),
+        envrel(cenv, renv),
+        e is SumMatch,
+        !any_sm(e),
+        renv_below(renv, sc),
+        rx(fs, tb, false, sc, e) == Some(c),
+        rsrc(fs, tb, fds, dep, sc, e) == Some(r),
+        rmean(renv, r) == Some(v),
+    ensures
+        evals_to(p, cenv, c, vof(v)),
+    decreases dep, e, 1nat,
+{
+    reveal_with_fuel(rx, 1);
+    reveal_with_fuel(rsrc, 1);
+    reveal_with_fuel(rmean, 1);
+    reveal_with_fuel(vof, 1);
+    reveal_with_fuel(pushn, 1);
+    reveal_with_fuel(smatch_top, 1);
+    match e {
+        Sx::SumMatch(m, arms) => {
+            assert(!any_arms(arms));
+            assert(arms_sum(tb, arms) is Some) by {
+                if arms_sum(tb, arms) is None {
+                    assert(rx(fs, tb, false, sc, e) is None);
+                }
+            }
+            let i = arms_sum(tb, arms)->Some_0;
+            let ents = tb[i as int].2;
+            assert(rx(fs, tb, false, sc, *m) is Some) by {
+                if rx(fs, tb, false, sc, *m) is None {
+                    assert(rx(fs, tb, false, sc, e) is None);
+                }
+            }
+            let cm = rx(fs, tb, false, sc, *m)->Some_0;
+            assert(smatch_top(fs, tb, false, sc, arms, i, cm) == Some(c));
+            assert(smatch_from(fs, tb, false, sc, ents, arms, 0, cm) == Some(c));
+            assert(rsrc(fs, tb, fds, dep, sc, *m) is Some) by {
+                if rsrc(fs, tb, fds, dep, sc, *m) is None {
+                    assert(rsrc(fs, tb, fds, dep, sc, e) is None);
+                }
+            }
+            let rm = rsrc(fs, tb, fds, dep, sc, *m)->Some_0;
+            assert(rsrc_layers(fs, tb, fds, dep, sc, ents, arms, 0) is Some) by {
+                if rsrc_layers(fs, tb, fds, dep, sc, ents, arms, 0) is None {
+                    assert(rsrc(fs, tb, fds, dep, sc, e) is None);
+                }
+            }
+            let es = rsrc_layers(fs, tb, fds, dep, sc, ents, arms, 0)->Some_0;
+            assert(r == RExpr::SMatch(Box::new(rm), es));
+            assert(rmean(renv, rm) is Some);
+            let mv = rmean(renv, rm)->Some_0;
+            assert(mv is Sum) by {
+                if !(mv is Sum) {
+                    assert(rmean(renv, r) is None);
+                }
+            }
+            let k = mv->Sum_0;
+            let n = mv->Sum_1;
+            let vs = mv->Sum_2;
+            rsrc_layers_len(fs, tb, fds, dep, sc, ents, arms, 0, es);
+            assert(n == es.len() && k < n);
+            assert(n == ents.len());
+            assert(smatch_arm(renv, es, k, vs) == Some(v));
+            assert(k < es.len());
+            let ent = es[k as int];
+            let ids = ent.0;
+            let body = ent.1;
+            assert(ids.len() == 0 || ids.len() == vs.len());
+            assert(rmean(sbind(renv, ids, vs, 0), body) == Some(v));
+            rsrc_layers_at(fs, tb, fds, dep, sc, ents, arms, 0, es, k);
+            assert(rsrc_layer(fs, tb, fds, dep, sc, ents, arms, k) == Some(ent));
+            // 被験式の定理：構築子の値は、層 0 から k までの鎖の値に評価される。
+            resolve_sound(p, fs, tb, fds, dep, sc, *m, cenv, renv, cm, rm, mv);
+            vof_sum(k, n, vs);
+            let pv = pay_val(vofs(vs, 0));
+            assert(vof(mv) == vsum_from(k, ents.len(), 0, pv));
+            // 層 k の枝の式（核）と源の本体
+            lay_body_some(fs, tb, sc, ents, arms, 0, cm, c, k);
+            assert(layer_idx(ents, k, arms) is Some) by {
+                if layer_idx(ents, k, arms) is None {
+                    assert(lay_sel(ents, arms, k) is None);
+                }
+            }
+            let ka = layer_idx(ents, k, arms)->Some_0;
+            assert(ka < arms.len());
+            assert(arm_binds_or_empty(arms[ka as int].0) is Some);
+            let bs = arm_binds_or_empty(arms[ka as int].0)->Some_0;
+            assert(lay_sel(ents, arms, k) == Some((bs, arms[ka as int].1)));
+            assert(arm_ok(bs) && binds_fresh(pushn(sc, k), bs));
+            assert(rx(fs, tb, false, arm_scope(pushn(sc, k), bs), arms[ka as int].1) is Some);
+            let bo = rx(fs, tb, false, arm_scope(pushn(sc, k), bs), arms[ka as int].1)->Some_0;
+            assert(lay_body(fs, tb, sc, ents, arms, k) == Some(bo));
+            assert(lay_wrap(fs, tb, sc, ents, arms, k) == Some(arm_wrap(sc.len() + k, bs, bo)));
+            assert(ids == arm_ids(sc.len() + k, bs));
+            assert(rsrc(fs, tb, fds, dep, arm_scope(pushn(sc, k), bs), arms[ka as int].1) == Some(body));
+            // 位置と環境
+            pushn_len(sc, k);
+            arm_scope_props(pushn(sc, k), bs);
+            let pos = sc.len() + k;
+            let sc1 = arm_scope(pushn(sc, k), bs);
+            assert(sc1.len() >= pos + 1);
+            envrel_chain(cenv, renv, sc.len(), 0, k, ents.len(), pv);
+            chain_env_at(cenv, sc.len(), 0, k, ents.len(), pv);
+            let cch = chain_env(cenv, sc.len(), 0, k, ents.len(), pv);
+            assert(cch.contains_key(pos) && cch[pos] == pv);
+            vofs_len(vs, 0);
+            below_mono(renv, sc, sc1);
+            if bs.len() >= 2 {
+                assert(ids == Seq::new(bs.len(), |i: int| (pos + 1 + i) as nat));
+                assert(ids.len() == bs.len());
+                assert(ids.len() == vs.len());
+                assert forall|q: int| 0 <= q < ids.len() implies ids[q] == pos + 1 + q by {
+                    assert(ids[q] == (pos + 1 + q) as nat);
+                }
+                assert forall|q: int| 0 <= q < ids.len() implies ids[q] < sc1.len() by {
+                    assert(ids[q] == pos + 1 + q);
+                }
+                assert(pv == rval(vofs(vs, 0)));
+                envrel_fenv(cch, renv, pos, vs, ids, 0);
+                below_sbind(renv, sc1, ids, vs, 0);
+                resolve_sound(p, fs, tb, fds, dep, sc1, arms[ka as int].1, fenv(cch, pos, vofs(vs, 0), 0), sbind(renv, ids, vs, 0), bo, body, v);
+                arm_wrap_sound(p, cch, pos, bs, bo, vofs(vs, 0), vof(v));
+                smatch_chain(p, fs, tb, sc, ents, arms, 0, cm, c, cenv, k, pv, vof(v));
+            } else if bs.len() == 1 {
+                assert(ids == seq![pos]);
+                assert(vs.len() == 1);
+                vofs_at0(vs, 0);
+                reveal_with_fuel(rval, 1);
+                assert(pv == vof(vs[0]));
+                envrel_one(cch, renv, pos, vs[0]);
+                reveal_with_fuel(sbind, 2);
+                assert(sbind(renv, ids, vs, 0) == renv.insert(pos, vs[0]));
+                below_sbind(renv, sc1, ids, vs, 0);
+                resolve_sound(p, fs, tb, fds, dep, sc1, arms[ka as int].1, cch, sbind(renv, ids, vs, 0), bo, body, v);
+                arm_wrap_sound(p, cch, pos, bs, bo, vofs(vs, 0), vof(v));
+                smatch_chain(p, fs, tb, sc, ents, arms, 0, cm, c, cenv, k, pv, vof(v));
+            } else {
+                assert(ids.len() == 0);
+                reveal_with_fuel(sbind, 1);
+                assert(sbind(renv, ids, vs, 0) == renv);
+                resolve_sound(p, fs, tb, fds, dep, sc1, arms[ka as int].1, cch, renv, bo, body, v);
+                arm_wrap_sound(p, cch, pos, bs, bo, vofs(vs, 0), vof(v));
+                smatch_chain(p, fs, tb, sc, ents, arms, 0, cm, c, cenv, k, pv, vof(v));
+            }
         },
         _ => {},
     }

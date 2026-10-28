@@ -123,9 +123,9 @@ pattern   ::= CTOR | CTOR "(" bind ("," bind)* ")" | "ok" "(" bind ")" | "err" "
 bind      ::= IDENT | "_"
 ```
 
-- `Result`、`ok`／`err`、`match_result` は検証済み部品の構文にある。直和型と `match` は検証されていない接着部分
-  （`crates/tlvm/src/sums.rs`）が `ok`／`err` の入れ子と `match_result`／`match_option`、`fst`／`snd` の `let` に
-  書き換えてから検証済み部品に渡す。
+- `Result`、`ok`／`err`、`match_result` は検証済み部品の構文にある。直和型と `match` は、範囲の内なら検証済みの構文器と解決器が
+  源の文字列を読む（段階 3、2026-10-28。`crates/tlvm/src/api.rs` の `verified_from_source`）。範囲の外と、書換えの接着
+  （`crates/tlvm/src/sums.rs`。`ok`／`err` の入れ子と `match_result`／`match_option`、`fst`／`snd` の `let`）は、信頼側の判定と診断に使う。
 - `match` の対象の位置では `Name {` をレコードの構築として読まない（`match p { ... }` の `{` は枝の始まり）。
 - 詳細は [v1.4 差分仕様](../../spec/lptl-v1.4/LPTL_v1.4_delta.md)。
 

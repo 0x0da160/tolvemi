@@ -28,6 +28,7 @@ pub mod records_proof;
 pub mod resolve;
 pub mod sortmeaning;
 pub mod sortspec;
+pub mod sums_commute;
 pub mod spec;
 pub mod surface;
 pub mod syntax;

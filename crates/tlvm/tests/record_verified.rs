@@ -23,7 +23,8 @@
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 //!
 //! S5b：V8（範囲内の受理は源の文字列の二つの写しで検査し、添付の IR は源の印なしの IR と一致する。判定は HEAD と同じ）、
-//! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）。
+//! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）、
+//! V13（枝の並びの後ろの `,` は範囲の外で、注釈の中の `,` は範囲の内）。
 //! V9 は tests/nominal.rs の hand_made_tag_shape_is_rejected_when_run にある。
 //!
 //! S5c：V7 の広い版（記録だけのプログラムの変異を本番の検査で判定し、検証済みの食い違いが出ないことを確かめる。
@@ -1132,6 +1133,31 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
     );
     let codes: Vec<String> = rejected(rec_src).into_iter().map(|r| r.1).collect();
     assert_eq!(codes, ["E-TYPE-RETURN"]);
+}
+
+/// V13（S5b）：枝の並びの後ろの `,` は範囲の外（検証済みの構文器が読まない）。同じ match を `,` なしで書けば範囲の内で、
+/// 注釈（`//`）の中の `,` は末尾の `,` ではない。
+#[test]
+fn v13_trailing_comma_after_the_last_arm_is_outside_the_route() {
+    let p = StaticProfile::default();
+    let head = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\nfn mid(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => add(w, h), Empty => 0";
+    let trailing = format!("{head}, }}\nentry mid\n");
+    let plain = format!("{head} }}\nentry mid\n");
+    let comment = format!("{head} // , 注釈\n}}\nentry mid\n");
+    assert!(
+        !in_verified_route(trailing.as_bytes(), &p),
+        "末尾の , は範囲の外のはず"
+    );
+    assert!(
+        in_verified_route(plain.as_bytes(), &p),
+        "末尾の , がなければ範囲の内のはず"
+    );
+    assert!(
+        in_verified_route(comment.as_bytes(), &p),
+        "注釈の中の , は末尾の , ではない"
+    );
+    assert_eq!(verified_run(&plain, r#"{"Rect": [2, 3]}"#), "5");
+    assert_eq!(verified_run(&comment, r#"{"Rect": [2, 3]}"#), "5");
 }
 
 /// V11（S5b）：rec fn が記録を引数に取る例（HEAD は 11 を返す）は、範囲の内で、検証済みの実行も 11 を返す。

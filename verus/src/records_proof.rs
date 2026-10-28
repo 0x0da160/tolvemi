@@ -614,6 +614,63 @@ pub proof fn rbuild_inv(p: Prog, env: Map<nat, Val>, es: Seq<Expr>, w: Val) -> (
     }
 }
 
+/// pair の値を持つ式の成分（records_proof の un_eval と同じ証明）。
+proof fn fst_snd(p: Prog, env: Map<nat, Val>, e: Expr, v: Val)
+    requires
+        evals_to(p, env, e, v),
+        v is Pair,
+    ensures
+        evals_to(p, env, Expr::Builtin(Builtin::Fst, seq![e]), *v->Pair_0),
+        evals_to(p, env, Expr::Builtin(Builtin::Snd, seq![e]), *v->Pair_1),
+{
+    let n = choose|n: nat| #[trigger] eval(p, n, env, e) == Res::Done(v);
+    assert(n > 0);
+    let es = seq![e];
+    assert(es[0] == e);
+    assert(eval_args(p, n, env, es, 1) == ResSeq::Done(Seq::<Val>::empty()));
+    assert(seq![v] + Seq::<Val>::empty() =~= seq![v]);
+    assert(eval_args(p, n + 1, env, es, 0) == ResSeq::Done(seq![v]));
+    assert(eval(p, n + 2, env, Expr::Builtin(Builtin::Fst, es)) == Res::Done(*v->Pair_0));
+    assert(eval(p, n + 2, env, Expr::Builtin(Builtin::Snd, es)) == Res::Done(*v->Pair_1));
+}
+
+/// 字段の参照の評価（型に依らない）：e が字段の値の列の展開 rval(vs) を持てば、rfield(e, i, n) は
+/// i 番目の字段の値を持つ。
+pub proof fn rfield_eval(p: Prog, env: Map<nat, Val>, e: Expr, vs: Seq<Val>, i: nat)
+    requires
+        vs.len() >= 1,
+        i < vs.len(),
+        evals_to(p, env, e, rval(vs)),
+    ensures
+        evals_to(p, env, rfield(e, i, vs.len()), vs[i as int]),
+    decreases i,
+{
+    reveal_with_fuel(snds, 2);
+    reveal_with_fuel(rval, 2);
+    let n = vs.len();
+    if n == 1 {
+        assert(rval(vs) == vs[0]);
+        assert(snds(e, 0) == e);
+    } else {
+        let us = vs.drop_first();
+        assert(us.len() == n - 1);
+        assert(rval(vs) == Val::Pair(Box::new(vs[0]), Box::new(rval(us))));
+        assert(rval(vs) is Pair);
+        assert(*rval(vs)->Pair_0 == vs[0]);
+        assert(*rval(vs)->Pair_1 == rval(us));
+        fst_snd(p, env, e, rval(vs));
+        if i == 0 {
+            assert(rfield(e, 0, n) == Expr::Builtin(Builtin::Fst, seq![e]));
+        } else {
+            let e1 = Expr::Builtin(Builtin::Snd, seq![e]);
+            assert(snds(e, i) == snds(e1, (i - 1) as nat));
+            assert(rfield(e, i, n) == rfield(e1, (i - 1) as nat, us.len()));
+            rfield_eval(p, env, e1, us, (i - 1) as nat);
+            assert(us[(i - 1) as int] == vs[i as int]);
+        }
+    }
+}
+
 // ------------------------------------------------------------------ 意味の保存：構築と参照
 
 /// 構築の意味の保存：展開が値 w を持つことと、各 field の式が値の列 vs を持ち w が vs の展開であることは同値。

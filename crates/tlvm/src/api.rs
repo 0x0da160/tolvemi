@@ -16,7 +16,7 @@ use crate::profiles::*;
 use crate::records;
 use crate::recursive;
 use crate::sums;
-use crate::syntax::{Program, Ty};
+use crate::syntax::{Decl, Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -749,8 +749,8 @@ fn expansion_rejected(
 /// V4、S2C_RECURSIVE と V7）。入れないコードと理由：
 /// - E-SUM-NAME-CONFLICT、E-SUM-DUPLICATE-CTOR：検証済みの宣言の表に構築子の名前の規則が無く、検証済みが受理する。
 /// - E-SUM-UNKNOWN-CTOR、E-SUM-CTOR-ARITY、E-MATCH-MISSING、E-MATCH-DUPLICATE、E-MATCH-UNREACHABLE、
-///   E-MATCH-MIXED：検証済みの解決器は直和型の match を拒否し（SumMatch は None）、構築子は関数でないので呼出しも拒否する。
-///   その拒否は規則の証拠にならない。
+///   E-MATCH-MIXED：検証済みの解決器は直和型の match を arms_fit の条件（構築子の名前、字段の数、枝の重複、欠け、
+///   到達不能）で受理する。その条件での拒否と、返す符号の対応は検証していないので、突き合わせない。
 /// - E-TYPE-GENERIC-*、E-REC-TYPE-PARAM：検証済みの構文に型引数が無い（G1）ので、突き合わせが働かない。
 ///   （`fn g(x: U)` の例だけは構文が通るが、拒否は未知の型の規則による。総称の規則の証拠にはならない。）
 pub const CHECKED_EXPANSION_CODES: &[&str] = &[
@@ -764,28 +764,40 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
     "E-REC-FIELD-TYPE",
 ];
 
-/// S5b：記録と名前だけのプログラムか（直和型・再帰する型・総称・hof（map、filter、any、all、find、sort_by と loop）・
-/// 辞書を含まない）。展開が要るプログラムのうち、この範囲は源の文字列を検証済みの経路で
-/// 検査し、印なしの IR を実行に使う。`fold` は核の形で、hof ではない（hof.rs の冒頭）。
+/// S5b：展開が要るプログラムのうち、範囲の内のものは源の文字列を検証済みの経路で検査し、印なしの IR を実行に使う。
+/// 範囲は記録と名前、直和型の match（route_scope）と、hof を含むもの（route_scope_hof）。
+/// `fold` は核の形で、hof ではない（hof.rs の冒頭）。
 pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
     match parse_source(source, profile) {
         Parsed::Program(p) => {
-            needs_glue(&p) && (route_scope(&p) || (hof::has_hof(&p) && route_scope_hof(&p)))
+            needs_glue(&p) && (route_scope(&p, source) || (hof::has_hof(&p) && route_scope_hof(&p)))
         }
         Parsed::Failed(_) => false,
     }
 }
 
-fn route_scope(p: &Program) -> bool {
-    !(sums::has_sums(p)
-        || recursive::has_recursive(p)
+/// ユーザー定義の直和型の match は、名前の解決が源の意味を保つことを検証済みに示した（DECISION-43 の段階 3、
+/// resolve_sound の直和型の腕）ので、範囲に入る。Option と Result の枝と、`_` の束縛を二つ持つ枝は、
+/// 検証済みの解決器が扱わないので外す（sums::has_unverified_arm）。枝の並びの後ろに `,` を置いた match は、
+/// 検証済みの構文器が読まないので外す（sums::has_trailing_arm_comma）。レコード型と直和型を両方宣言する
+/// プログラムは、混ぜた形をまだ経路で検査しないので外す（V10）。
+fn route_scope(p: &Program, source: &[u8]) -> bool {
+    !(recursive::has_recursive(p)
         || generics::has_generics(p)
         || hof::has_hof(p)
-        || dict::has_dict(p))
+        || dict::has_dict(p)
+        || sums::has_unverified_arm(p)
+        || sums::has_trailing_arm_comma(p, source)
+        || mixes_records_and_sums(p))
+}
+
+/// レコード型（`type P = { … }`）と直和型を両方宣言するプログラムか。
+fn mixes_records_and_sums(p: &Program) -> bool {
+    p.declarations.iter().any(|d| matches!(d, Decl::Type(_))) && sums::has_sums(p)
 }
 
 /// hof を含むプログラムの経路の範囲（DECISION-43）。hof の解決と書換えは検証済みの部品を通るので、記録、直和型、
-/// 再帰、総称、辞書、loop は含まない（展開や型の表が要るので、この経路の外）。
+/// 再帰、総称、辞書、loop は含まない（展開や型の表が要るので、この経路の外）。直和型と hof の組は、証明の範囲の外（hof の腕は証明していない）。
 fn route_scope_hof(p: &Program) -> bool {
     !(sums::has_sums(p)
         || recursive::has_recursive(p)
@@ -812,7 +824,7 @@ fn route_expanded(
     if let Some(table) = hof_route {
         return verified_from_source_hof(source, p, r, table, profile);
     }
-    if !route_scope(p) {
+    if !route_scope(p, source) {
         return r;
     }
     verified_from_source(source, p, r, profile)

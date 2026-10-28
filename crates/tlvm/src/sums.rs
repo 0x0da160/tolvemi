@@ -1405,3 +1405,83 @@ pub fn lower_in_place(p: &mut Program) {
         }
     }
 }
+
+/// 検証済みの解決器が扱わない枝を含むか：Option と Result の枝（some・none・ok・err）と、同じ枝に `_` の束縛を
+/// 二つ以上持つもの（検証済みの側は束縛の名前を相異なるものとして扱うので、`_` の重複を拒否する）。
+/// 経路の範囲（api.rs の route_scope）はこれらを外す。
+pub fn has_unverified_arm(p: &Program) -> bool {
+    fn unverified(arm: &Arm) -> bool {
+        let wild = arm
+            .pat
+            .binds
+            .iter()
+            .filter(|(b, _)| b.as_str() == "_")
+            .count();
+        matches!(
+            arm.pat.kind,
+            PatKind::Ok | PatKind::Err | PatKind::Some | PatKind::None
+        ) || wild >= 2
+    }
+    fn ex(e: &Expr) -> bool {
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if let ExprKind::SumMatch { arms, .. } = &e.kind {
+                if arms.iter().any(unverified) {
+                    return true;
+                }
+            }
+            stack.extend(e.children());
+        }
+        false
+    }
+    p.declarations.iter().any(|d| match d {
+        Decl::Fn(f) => ex(&f.body),
+        _ => false,
+    })
+}
+
+/// 枝の並びの後ろに `,` を置いた `match` があるか（源の字句で見る）。検証済みの構文器は枝の間の `,` だけを読み、
+/// 末尾の `,` は読まない（syntax.rs の parm1）。信頼側の解析器は末尾の `,` を受理するので、そういう源は経路の外。
+/// 最後の枝の本体の終わりから閉じ括弧の前までは、空白と `//` の注釈と、末尾の `,` だけなので、その間の `,` を見る。
+pub fn has_trailing_arm_comma(p: &Program, source: &[u8]) -> bool {
+    fn comma_before_close(gap: &[u8]) -> bool {
+        let mut i = 0;
+        while i < gap.len() {
+            if gap[i] == b'/' && gap.get(i + 1) == Some(&b'/') {
+                while i < gap.len() && !matches!(gap[i], b'\n' | b'\r') {
+                    i += 1;
+                }
+                continue;
+            }
+            if gap[i] == b',' {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+    fn ex(e: &Expr, source: &[u8]) -> bool {
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if let ExprKind::SumMatch {
+                arms, close_span, ..
+            } = &e.kind
+            {
+                if let Some(last) = arms.last() {
+                    if source
+                        .get(last.span.1..close_span.0)
+                        .is_some_and(comma_before_close)
+                    {
+                        return true;
+                    }
+                }
+            }
+            stack.extend(e.children());
+        }
+        false
+    }
+    p.declarations.iter().any(|d| match d {
+        Decl::Fn(f) => ex(&f.body, source),
+        _ => false,
+    })
+}
