@@ -916,11 +916,11 @@
         {
           "kind": "delete_span",
           "constraint": "delete this arm: an earlier arm already handles {}",
-          "source": "crates/tlvm/src/recursive.rs:1079"
+          "source": "crates/tlvm/src/recursive.rs:1082"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1072",
+        "crates/tlvm/src/recursive.rs:1075",
         "crates/tlvm/src/sums.rs:785"
       ]
     },
@@ -933,11 +933,11 @@
         {
           "kind": "insert_text",
           "constraint": "arms for the missing cases, inserted before '}': `, {}` (or one final `_ => ...`)",
-          "source": "crates/tlvm/src/recursive.rs:1160"
+          "source": "crates/tlvm/src/recursive.rs:1163"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1157",
+        "crates/tlvm/src/recursive.rs:1160",
         "crates/tlvm/src/sums.rs:809"
       ]
     },
@@ -950,12 +950,12 @@
         {
           "kind": "replace_expression",
           "constraint": "pattern for the same type as the first arm: constructor of {ty}",
-          "source": "crates/tlvm/src/recursive.rs:1098"
+          "source": "crates/tlvm/src/recursive.rs:1101"
         },
         {
           "kind": "replace_expression",
           "constraint": "declared constructor of {ty}: {}",
-          "source": "crates/tlvm/src/recursive.rs:1103"
+          "source": "crates/tlvm/src/recursive.rs:1106"
         },
         {
           "kind": "replace_expression",
@@ -964,7 +964,7 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1137",
+        "crates/tlvm/src/recursive.rs:1140",
         "crates/tlvm/src/sums.rs:740"
       ]
     },
@@ -977,11 +977,11 @@
         {
           "kind": "delete_span",
           "constraint": "delete this arm: the arms before it already cover every case it could match",
-          "source": "crates/tlvm/src/recursive.rs:1028"
+          "source": "crates/tlvm/src/recursive.rs:1031"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1023",
+        "crates/tlvm/src/recursive.rs:1026",
         "crates/tlvm/src/sums.rs:775"
       ]
     },
@@ -1424,11 +1424,11 @@
         {
           "kind": "replace_type",
           "constraint": "Int, Bool, or the recursive type itself (String, List, records and other sum types are not supported in a constructor of a recursive type yet)",
-          "source": "crates/tlvm/src/recursive.rs:570"
+          "source": "crates/tlvm/src/recursive.rs:573"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:563"
+        "crates/tlvm/src/recursive.rs:566"
       ]
     },
     {
@@ -1440,11 +1440,11 @@
         {
           "kind": "replace_type",
           "constraint": "{} without type parameters: generic recursive types are not supported yet",
-          "source": "crates/tlvm/src/recursive.rs:521"
+          "source": "crates/tlvm/src/recursive.rs:524"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:518"
+        "crates/tlvm/src/recursive.rs:521"
       ]
     },
     {
@@ -1482,7 +1482,7 @@
       "repair": null,
       "emitted_by": [
         "crates/tlvm/src/records.rs:621",
-        "crates/tlvm/src/recursive.rs:512",
+        "crates/tlvm/src/recursive.rs:515",
         "crates/tlvm/src/sums.rs:863"
       ]
     },
@@ -1604,17 +1604,17 @@
         {
           "kind": "replace_expression",
           "constraint": "{ctor} has no fields: write it without parentheses",
-          "source": "crates/tlvm/src/recursive.rs:1000"
-        },
-        {
-          "kind": "replace_expression",
-          "constraint": "{} (one name or _ per field of {sig})",
           "source": "crates/tlvm/src/recursive.rs:1003"
         },
         {
           "kind": "replace_expression",
+          "constraint": "{} (one name or _ per field of {sig})",
+          "source": "crates/tlvm/src/recursive.rs:1006"
+        },
+        {
+          "kind": "replace_expression",
           "constraint": "{ctor}(...) with {fm} argument(s), as declared: {sig}",
-          "source": "crates/tlvm/src/recursive.rs:1007"
+          "source": "crates/tlvm/src/recursive.rs:1010"
         },
         {
           "kind": "replace_expression",
@@ -1623,7 +1623,7 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1014",
+        "crates/tlvm/src/recursive.rs:1017",
         "crates/tlvm/src/sums.rs:311"
       ]
     },
@@ -1636,11 +1636,11 @@
         {
           "kind": "replace_identifier",
           "constraint": "constructor name not used by any other variant in the program",
-          "source": "crates/tlvm/src/recursive.rs:535"
+          "source": "crates/tlvm/src/recursive.rs:538"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:529",
+        "crates/tlvm/src/recursive.rs:532",
         "crates/tlvm/src/sums.rs:872"
       ]
     },
@@ -1653,17 +1653,17 @@
         {
           "kind": "replace_identifier",
           "constraint": "constructor name different from the {what} {}",
-          "source": "crates/tlvm/src/recursive.rs:553"
+          "source": "crates/tlvm/src/recursive.rs:556"
         },
         {
           "kind": "replace_identifier",
           "constraint": "name different from the constructor {name} (constructors, functions, variables and types share one namespace)",
-          "source": "crates/tlvm/src/recursive.rs:685"
+          "source": "crates/tlvm/src/recursive.rs:688"
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:547",
-        "crates/tlvm/src/recursive.rs:682",
+        "crates/tlvm/src/recursive.rs:550",
+        "crates/tlvm/src/recursive.rs:685",
         "crates/tlvm/src/sums.rs:250",
         "crates/tlvm/src/sums.rs:884"
       ]
@@ -1677,12 +1677,12 @@
         {
           "kind": "replace_identifier",
           "constraint": "pattern for the same type as the first arm: constructor of {ty}",
-          "source": "crates/tlvm/src/recursive.rs:1098"
+          "source": "crates/tlvm/src/recursive.rs:1101"
         },
         {
           "kind": "replace_identifier",
           "constraint": "declared constructor of {ty}: {}",
-          "source": "crates/tlvm/src/recursive.rs:1103"
+          "source": "crates/tlvm/src/recursive.rs:1106"
         },
         {
           "kind": "replace_identifier",
@@ -1696,7 +1696,7 @@
         }
       ],
       "emitted_by": [
-        "crates/tlvm/src/recursive.rs:1132",
+        "crates/tlvm/src/recursive.rs:1135",
         "crates/tlvm/src/sums.rs:280"
       ],
       "note": "constraint の {extra} は sums.rs:270-274 の文字列で、パターンのときだけ付く"
