@@ -830,28 +830,58 @@ pub open spec fn arm_binds(p: Spat) -> Option<Seq<Seq<char>>> {
     }
 }
 
-/// 枝 j 以降は、直和型 i の構築子を宣言の順に並べたもの（枝 j は項目 j の構築子で、字段の数も項目と同じ）。
-pub open spec fn arms_ctors(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, i: nat, arms: Seq<(Spat, Sx)>, j: nat) -> bool
-    decreases arms.len() - j,
+/// 項目 es[j]（直和型の構築子の項目）に当たる最初の枝の位置を、枝 k 以降で探す。構築子の名前が項目と一致する枝に当たる。
+pub open spec fn arm_find(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>, k: nat) -> Option<nat>
+    decreases arms.len() - k,
 {
-    if j >= arms.len() {
-        true
+    if k >= arms.len() || j >= es.len() {
+        None
     } else {
-        match arms[j as int].0 {
-            Spat::Ctor(c, bs) => vent_arity(tb[i as int].2[j as int], c) == Some(bs.len()) && arm_ok(bs) && arms_ctors(tb, i, arms, j + 1),
-            _ => false,
+        match arms[k as int].0 {
+            Spat::Ctor(c, _) => match vent_arity(es[j as int], c) {
+                Some(_) => Some(k),
+                None => arm_find(es, j, arms, k + 1),
+            },
+            _ => arm_find(es, j, arms, k + 1),
         }
     }
 }
 
-/// 枝の並びが、一つの直和型の構築子を宣言の順にちょうど一つずつ並べたものなら、その型の名前表の番号。
+/// 項目 j に当たる最初の枝の位置。枝の並びは宣言の順でなくてよい。
+pub open spec fn arm_at(es: Seq<Seq<char>>, j: nat, arms: Seq<(Spat, Sx)>) -> Option<nat> {
+    arm_find(es, j, arms, 0)
+}
+
+/// 項目 j 以降の全てに、名前と字段の数が一致する枝があり、その枝の束縛は arm_ok を満たす。
+pub open spec fn arms_cover(es: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat) -> bool
+    decreases es.len() - j,
+{
+    if j >= es.len() {
+        true
+    } else {
+        match arm_at(es, j, arms) {
+            Some(k) => if k >= arms.len() {
+                false
+            } else {
+                match arms[k as int].0 {
+                    Spat::Ctor(c, bs) => vent_arity(es[j as int], c) == Some(bs.len()) && arm_ok(bs) && arms_cover(es, arms, j + 1),
+                    _ => false,
+                }
+            },
+            None => false,
+        }
+    }
+}
+
+/// 枝の並びが、一つの直和型の構築子を一つずつ並べたもの（順は問わない）なら、その型の名前表の番号。
+/// 項目は相異なり、枝の数は項目と同じで、どの項目にも枝が一つ当たる（枝と項目は一対一）。
 pub open spec fn arms_sum(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, arms: Seq<(Spat, Sx)>) -> Option<nat> {
     if arms.len() == 0 {
         None
     } else {
         match arms[0].0 {
             Spat::Ctor(c, _) => match vlook(tb, c) {
-                Some((i, _, _)) => if tb[i as int].2.len() == arms.len() && arms_ctors(tb, i, arms, 0) {
+                Some((i, _, _)) => if tb[i as int].2.len() == arms.len() && distinct(tb[i as int].2) && arms_cover(tb[i as int].2, arms, 0) {
                     Some(i)
                 } else {
                     None
@@ -863,25 +893,33 @@ pub open spec fn arms_sum(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option
     }
 }
 
-/// 直和型の枝の鎖（層 j から）。被験式 s は scope sc で整合する（sc.len() は層 j の中身の位置）。
+/// 直和型の枝の鎖（層 j から）。層 j は名前表の項目 ents[j] の構築子で、その枝は arm_at が探す（枝の並びは宣言の順でなくてよい）。
+/// 被験式 s は scope sc で整合する（sc.len() は層 j の中身の位置）。
 /// 構築子 j の枝は、中身の束縛（arm_scope）で本体を解決する。字段が二つ以上なら、本体は字段を射影で束縛する（arm_wrap）。
 /// 最後の構築子以外は、Err の側（同じ位置）で次の層を続け、その被験式は Err の束縛。最後の構築子は、残りの値そのものが中身なので let で束縛する。
-pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, n: nat, j: nat, s: Expr) -> Option<Expr>
-    decreases arms, n - j,
+pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, s: Expr) -> Option<Expr>
+    decreases arms, ents.len() - j,
 {
-    if j >= n || j >= arms.len() {
+    if j >= ents.len() {
         None
     } else {
-        match arm_binds(arms[j as int].0) {
-            Some(bs) => if !arm_ok(bs) || !binds_fresh(sc, bs) {
+        match arm_at(ents, j, arms) {
+            Some(k) => if k >= arms.len() {
                 None
             } else {
-                match rx(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1) {
-                    Some(body) => if j + 1 == n {
-                        Some(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))))
+                match arm_binds(arms[k as int].0) {
+                    Some(bs) => if !arm_ok(bs) || !binds_fresh(sc, bs) {
+                        None
                     } else {
-                        match smatch_from(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len())) {
-                            Some(rest) => Some(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest))),
+                        match rx(fs, tb, tagged, arm_scope(sc, bs), arms[k as int].1) {
+                            Some(body) => if j + 1 == ents.len() {
+                                Some(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))))
+                            } else {
+                                match smatch_from(fs, tb, tagged, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len())) {
+                                    Some(rest) => Some(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest))),
+                                    None => None,
+                                }
+                            },
                             None => None,
                         }
                     },
@@ -893,14 +931,14 @@ pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>,
     }
 }
 
-/// 直和型の枝（SumMatch）の鎖の頭。印つきの写しは、被験式を t（位置 d）に束縛し、印（構築子の番号 i の印）を検査して、
-/// 中身（snd）から鎖を作る（tfield と同じ印の検査）。印なしは鎖をそのまま作る。n は直和型の構築子の数。
-pub open spec fn smatch_top(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, i: nat, n: nat, rm: Expr) -> Option<Expr>
-    decreases arms, n + 1,
+/// 直和型の枝の頭。印つきの写しは、被験式を t（位置 d）に束縛し、印（構築子の番号 i の印）を検査して、
+/// 中身（snd）から鎖を作る（tfield と同じ印の検査）。印なしは鎖をそのまま作る。項目は直和型 i の構築子の並び（tb[i].2）。
+pub open spec fn smatch_top(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, i: nat, rm: Expr) -> Option<Expr>
+    decreases arms, tb[i as int].2.len() + 1,
 {
     if tagged {
         let d = sc.len();
-        match smatch_from(fs, tb, tagged, sc.push(Seq::empty()).push(Seq::empty()), arms, n, 0, Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)])) {
+        match smatch_from(fs, tb, tagged, sc.push(Seq::empty()).push(Seq::empty()), tb[i as int].2, arms, 0, Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)])) {
             Some(c) => Some(Expr::Let(
                 d,
                 Box::new(rm),
@@ -917,7 +955,7 @@ pub open spec fn smatch_top(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
             None => None,
         }
     } else {
-        smatch_from(fs, tb, tagged, sc, arms, n, 0, rm)
+        smatch_from(fs, tb, tagged, sc, tb[i as int].2, arms, 0, rm)
     }
 }
 
@@ -1042,7 +1080,7 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
         // 直和型の枝（v1.4）：枝の並びが一つの直和型の構築子の並びなら、その型の鎖にする（印つきは印を検査する）。
         Sx::SumMatch(m, arms) => match arms_sum(tb, arms) {
             Some(i) => match rx(fs, tb, tagged, sc, *m) {
-                Some(rm) => smatch_top(fs, tb, tagged, sc, arms, i, tb[i as int].2.len(), rm),
+                Some(rm) => smatch_top(fs, tb, tagged, sc, arms, i, rm),
                 None => None,
             },
             None => None,
@@ -2229,30 +2267,34 @@ proof fn arm_wrap_scoped(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>, body: Expr)
 }
 
 /// 直和型の枝の鎖（smatch_from）の scope 整合。被験式が scope sc で整合し、枝の本体が解決できれば、scope sc で整合する。
-proof fn smatch_from_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, n: nat, j: nat, s: Expr)
+proof fn smatch_from_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, ents: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, j: nat, s: Expr)
     requires
         dsc(sc),
         scoped(s, sc.len()),
     ensures
-        smatch_from(fs, tb, tagged, sc, arms, n, j, s) matches Some(x) ==> scoped(x, sc.len()),
-    decreases arms, n - j,
+        smatch_from(fs, tb, tagged, sc, ents, arms, j, s) matches Some(x) ==> scoped(x, sc.len()),
+    decreases arms, ents.len() - j,
 {
     reveal_with_fuel(scoped, 2);
     reveal_with_fuel(smatch_from, 2);
-    if j < n && j < arms.len() {
-        if let Some(bs) = arm_binds(arms[j as int].0) {
-            if arm_ok(bs) && binds_fresh(sc, bs) {
-                arm_scope_dsc(sc, bs);
-                rx_scoped(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1);
-                if let Some(body) = rx(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1) {
-                    arm_wrap_scoped(sc, bs, body);
-                    if j + 1 == n {
-                        assert(scoped(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))), sc.len()));
-                    } else {
-                        dsc_push_empty(sc);
-                        smatch_from_scoped(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len()));
-                        if let Some(rest) = smatch_from(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len())) {
-                            assert(scoped(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest)), sc.len()));
+    if j < ents.len() {
+        if let Some(k) = arm_at(ents, j, arms) {
+            if k < arms.len() {
+                if let Some(bs) = arm_binds(arms[k as int].0) {
+                    if arm_ok(bs) && binds_fresh(sc, bs) {
+                        arm_scope_dsc(sc, bs);
+                        rx_scoped(fs, tb, tagged, arm_scope(sc, bs), arms[k as int].1);
+                        if let Some(body) = rx(fs, tb, tagged, arm_scope(sc, bs), arms[k as int].1) {
+                            arm_wrap_scoped(sc, bs, body);
+                            if j + 1 == ents.len() {
+                                assert(scoped(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))), sc.len()));
+                            } else {
+                                dsc_push_empty(sc);
+                                smatch_from_scoped(fs, tb, tagged, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len()));
+                                if let Some(rest) = smatch_from(fs, tb, tagged, sc.push(Seq::empty()), ents, arms, j + 1, Expr::Var(sc.len())) {
+                                    assert(scoped(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest)), sc.len()));
+                                }
+                            }
                         }
                     }
                 }
@@ -2262,13 +2304,13 @@ proof fn smatch_from_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
 }
 
 /// 直和型の枝の頭（smatch_top、印つきの印の検査を含む）の scope 整合。
-proof fn smatch_top_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, i: nat, n: nat, rm: Expr)
+proof fn smatch_top_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, i: nat, rm: Expr)
     requires
         dsc(sc),
         scoped(rm, sc.len()),
     ensures
-        smatch_top(fs, tb, tagged, sc, arms, i, n, rm) matches Some(x) ==> scoped(x, sc.len()),
-    decreases arms, n + 1,
+        smatch_top(fs, tb, tagged, sc, arms, i, rm) matches Some(x) ==> scoped(x, sc.len()),
+    decreases arms, tb[i as int].2.len() + 1,
 {
     reveal_with_fuel(scoped, 3);
     if tagged {
@@ -2276,12 +2318,12 @@ proof fn smatch_top_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
         dsc_push_empty(sc);
         dsc_push_empty(sc.push(Seq::empty()));
         builtin1_scoped(Builtin::Snd, Expr::Var(d), d + 2);
-        smatch_from_scoped(fs, tb, tagged, sc.push(Seq::empty()).push(Seq::empty()), arms, n, 0, Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)]));
+        smatch_from_scoped(fs, tb, tagged, sc.push(Seq::empty()).push(Seq::empty()), tb[i as int].2, arms, 0, Expr::Builtin(Builtin::Snd, seq![Expr::Var(d)]));
         tag_expr_scoped(i, d + 1);
         builtin1_scoped(Builtin::Fst, Expr::Var(d), d + 1);
         builtin2_scoped(Builtin::Eq, Expr::Builtin(Builtin::Fst, seq![Expr::Var(d)]), tag_expr(i), d + 1);
     } else {
-        smatch_from_scoped(fs, tb, tagged, sc, arms, n, 0, rm);
+        smatch_from_scoped(fs, tb, tagged, sc, tb[i as int].2, arms, 0, rm);
     }
 }
 
@@ -2298,7 +2340,7 @@ proof fn rx_sum_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
         rx_scoped(fs, tb, tagged, sc, *m);
         if let Some(i) = arms_sum(tb, arms) {
             if let Some(rm) = rx(fs, tb, tagged, sc, *m) {
-                smatch_top_scoped(fs, tb, tagged, sc, arms, i, tb[i as int].2.len(), rm);
+                smatch_top_scoped(fs, tb, tagged, sc, arms, i, rm);
             }
         }
     }
@@ -3735,30 +3777,61 @@ fn push_arm_e(sc: &mut Vec<Vec<char>>, bs: &Vec<Vec<char>>)
     }
 }
 
-/// 枝 j 以降が、直和型 i の構築子を宣言の順に並べたもの（arms_ctors の exec 版）。
-fn arms_ctors_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, i: usize, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize) -> (r: bool)
+/// 項目 ents[j] に当たる最初の枝の位置を、枝 k 以降で探す（arm_find の exec 版）。
+fn arm_find_e(ents: &Vec<Vec<char>>, j: usize, ps: &Vec<SPat>, es: &Vec<SExpr>, k: usize) -> (r: Option<usize>)
     requires
-        i < tb.len(),
         ps.len() == es.len(),
-        ps.len() <= tb[i as int].2.len(),
+        j < ents.len(),
     ensures
-        r == arms_ctors(vtb(tb@), i as nat, varms(ps@, es@), j as nat),
-    decreases ps.len() - j,
+        match r {
+            Some(m) => m < ps.len() && arm_find(vnames(ents@), j as nat, varms(ps@, es@), k as nat) == Some(m as nat),
+            None => arm_find(vnames(ents@), j as nat, varms(ps@, es@), k as nat) is None,
+        },
+    decreases ps.len() - k,
 {
-    if j >= ps.len() {
-        true
-    } else {
-        match &ps[j] {
-            SPat::Ctor(c, bs) => match vent_arity_e(&tb[i].2[j], c) {
-                Some(m) => m == bs.len() && arm_ok_e(bs) && arms_ctors_e(tb, i, ps, es, j + 1),
-                None => false,
-            },
-            _ => false,
+    proof {
+        reveal_with_fuel(arm_find, 2);
+        assert(vnames(ents@)[j as int] == ents@[j as int]@);
+    }
+    if k >= ps.len() {
+        return None;
+    }
+    match &ps[k] {
+        SPat::Ctor(c, _) => {
+            if vent_arity_e(&ents[j], c).is_some() {
+                Some(k)
+            } else {
+                arm_find_e(ents, j, ps, es, k + 1)
+            }
         }
+        _ => arm_find_e(ents, j, ps, es, k + 1),
     }
 }
 
-/// 枝の並びが一つの直和型の構築子を宣言の順に並べたものなら、その型の番号（arms_sum の exec 版）。
+/// 項目 j 以降の全てに、名前と字段の数が一致する枝がある（arms_cover の exec 版）。
+fn arms_cover_e(ents: &Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize) -> (r: bool)
+    requires
+        ps.len() == es.len(),
+    ensures
+        r == arms_cover(vnames(ents@), varms(ps@, es@), j as nat),
+    decreases ents.len() - j,
+{
+    if j >= ents.len() {
+        return true;
+    }
+    match arm_find_e(ents, j, ps, es, 0) {
+        Some(m) => match &ps[m] {
+            SPat::Ctor(c, bs) => match vent_arity_e(&ents[j], c) {
+                Some(a) => a == bs.len() && arm_ok_e(bs) && arms_cover_e(ents, ps, es, j + 1),
+                None => false,
+            },
+            _ => false,
+        },
+        None => false,
+    }
+}
+
+/// 枝の並びが、一つの直和型の構築子を一つずつ並べたもの（順は問わない）なら、その型の番号（arms_sum の exec 版）。
 fn arms_sum_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: Option<usize>)
     requires
         ps.len() == es.len(),
@@ -3773,7 +3846,7 @@ fn arms_sum_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, ps:
     }
     match &ps[0] {
         SPat::Ctor(c, _) => match vlook_e(tb, c) {
-            Some((i, _, _)) => if tb[i].2.len() == ps.len() && arms_ctors_e(tb, i, ps, es, 0) {
+            Some((i, _, _)) => if tb[i].2.len() == ps.len() && distinct_e(&tb[i].2) && arms_cover_e(&tb[i].2, ps, es, 0) {
                 Some(i)
             } else {
                 None
@@ -3784,24 +3857,28 @@ fn arms_sum_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, ps:
     }
 }
 
-/// 直和型の枝の鎖の exec 版（smatch_from）。被験式 s は scope sc で整合する（sc は戻す）。
-fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, n: usize, j: usize, s: EExpr) -> (r: Option<EExpr>)
+/// 直和型の枝の鎖の exec 版（smatch_from）。ents は直和型の構築子の項目の並び（n はその長さ）。被験式 s は scope sc で整合する（sc は戻す）。
+fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, ents: &Vec<Vec<char>>, n: usize, ps: &Vec<SPat>, es: &Vec<SExpr>, j: usize, s: EExpr) -> (r: Option<EExpr>)
     requires
         ps.len() == es.len(),
-        n == ps.len(),
+        n == ents.len(),
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => smatch_from(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), n as nat, j as nat, view_expr(s)) == Some(view_expr(x)),
-            None => smatch_from(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), n as nat, j as nat, view_expr(s)) is None,
+            Some(x) => smatch_from(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(ents@), varms(ps@, es@), j as nat, view_expr(s)) == Some(view_expr(x)),
+            None => smatch_from(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), vnames(ents@), varms(ps@, es@), j as nat, view_expr(s)) is None,
         },
     decreases es, n - j,
 {
     let ghost s0 = sc@;
-    if j >= n || j >= ps.len() {
+    if j >= n {
         return None;
     }
-    let bs: &Vec<Vec<char>> = match &ps[j] {
+    let m = match arm_find_e(ents, j, ps, es, 0) {
+        Some(m) => m,
+        None => return None,
+    };
+    let bs: &Vec<Vec<char>> = match &ps[m] {
         SPat::Ctor(_, bs) => bs,
         _ => return None,
     };
@@ -3815,7 +3892,7 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         assert(pushed as int >= slot as int);
         assert(bs@.len() >= 2 ==> pushed as int == slot as int + 1 + bs@.len());
     }
-    let body = rx_e(fs, tb, tagged, sc, &es[j]);
+    let body = rx_e(fs, tb, tagged, sc, &es[m]);
     truncate_to_e(sc, slot);
     proof {
         assert(sc@ =~= s0);
@@ -3832,7 +3909,7 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         proof {
             vnames_push(s0, sc@[slot as int]);
         }
-        let rest = smatch_e(fs, tb, tagged, sc, ps, es, n, j + 1, EExpr::Var(slot));
+        let rest = smatch_e(fs, tb, tagged, sc, ents, n, ps, es, j + 1, EExpr::Var(slot));
         let _ = sc.pop();
         proof {
             assert(sc@ =~= s0);
@@ -3845,43 +3922,50 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
 }
 
 /// 直和型の枝の頭の exec 版（smatch_top）。印つきは、被験式を t（位置 d）に束縛し、印を検査してから中身から鎖を作る（tfield と同じ）。
-fn smatch_top_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, i: usize, n: usize, rm: EExpr) -> (r: Option<EExpr>)
+/// ents は直和型 i の構築子の項目（tb[i].2）で、n はその長さ。
+fn smatch_top_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, i: usize, ents: &Vec<Vec<char>>, n: usize, rm: EExpr) -> (r: Option<EExpr>)
     requires
         ps.len() == es.len(),
-        n == ps.len(),
+        n == ents.len(),
+        i < tb.len(),
+        ents@ == tb@[i as int].2@,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => smatch_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), i as nat, n as nat, view_expr(rm)) == Some(view_expr(x)),
-            None => smatch_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), i as nat, n as nat, view_expr(rm)) is None,
+            Some(x) => smatch_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), i as nat, view_expr(rm)) == Some(view_expr(x)),
+            None => smatch_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), i as nat, view_expr(rm)) is None,
         },
     decreases es, n + 2,
 {
     proof {
         reveal_with_fuel(smatch_top, 1);
+        assert(vtb(tb@)[i as int].2 == vnames(tb@[i as int].2@));
     }
     if !tagged {
-        return smatch_e(fs, tb, tagged, sc, ps, es, n, 0, rm);
+        return smatch_e(fs, tb, tagged, sc, ents, n, ps, es, 0, rm);
     }
-    smatch_tag_e(fs, tb, sc, ps, es, i, n, rm)
+    smatch_tag_e(fs, tb, sc, ps, es, i, ents, n, rm)
 }
 
 /// 印つきの直和型の枝の頭（smatch_top の印つきの腕）の exec 版。被験式を t（位置 d）に束縛し、印を検査してから中身から鎖を作る。
-fn smatch_tag_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, i: usize, n: usize, rm: EExpr) -> (r: Option<EExpr>)
+fn smatch_tag_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, i: usize, ents: &Vec<Vec<char>>, n: usize, rm: EExpr) -> (r: Option<EExpr>)
     requires
         ps.len() == es.len(),
-        n == ps.len(),
+        n == ents.len(),
+        i < tb.len(),
+        ents@ == tb@[i as int].2@,
     ensures
         final(sc)@ == old(sc)@,
         match r {
-            Some(x) => smatch_top(vnames(fs@), vtb(tb@), true, vnames(old(sc)@), varms(ps@, es@), i as nat, n as nat, view_expr(rm)) == Some(view_expr(x)),
-            None => smatch_top(vnames(fs@), vtb(tb@), true, vnames(old(sc)@), varms(ps@, es@), i as nat, n as nat, view_expr(rm)) is None,
+            Some(x) => smatch_top(vnames(fs@), vtb(tb@), true, vnames(old(sc)@), varms(ps@, es@), i as nat, view_expr(rm)) == Some(view_expr(x)),
+            None => smatch_top(vnames(fs@), vtb(tb@), true, vnames(old(sc)@), varms(ps@, es@), i as nat, view_expr(rm)) is None,
         },
     decreases es, n + 1,
 {
     proof {
         reveal_with_fuel(smatch_top, 1);
         reveal_with_fuel(view_expr, 4);
+        assert(vtb(tb@)[i as int].2 == vnames(tb@[i as int].2@));
     }
     let ghost s0 = sc@;
     let d = sc.len();
@@ -3911,7 +3995,7 @@ fn smatch_tag_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<ch
     proof {
         assert(sndv == Expr::Builtin(Builtin::Snd, seq![Expr::Var(d as nat)]));
     }
-    let c = smatch_e(fs, tb, true, sc, ps, es, n, 0, snd);
+    let c = smatch_e(fs, tb, true, sc, ents, n, ps, es, 0, snd);
     let _ = sc.pop();
     let _ = sc.pop();
     proof {
@@ -3965,9 +4049,10 @@ fn rx_sum_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
             Some(i) => i,
             None => return None,
         };
-        let n = tb[i].2.len();
+        let ents = &tb[i].2;
+        let n = ents.len();
         match rx_e(fs, tb, tagged, sc, m) {
-            Some(rm) => smatch_top_e(fs, tb, tagged, sc, ps, es, i, n, rm),
+            Some(rm) => smatch_top_e(fs, tb, tagged, sc, ps, es, i, ents, n, rm),
             None => None,
         }
     } else {
