@@ -1,5 +1,8 @@
 # Directory Update Log
 
+## 2026-10-28
+* **dict と loop の書換えを検証済みの exec 版に替えた（2026-10-28、DECISION-43、オーナーの「dict と loop の接着」）**：`crates/tlvm/src/dictloop_verified.rs` を置いた。被演算子を仮の変数で `dict_rw_x`・`loop_rw_x` に渡し、返した式の仮の変数を、書換え済みの被演算子の式（Rust の式のまま。節点の位置とメタも保つ）で置き換える。導入する名前は検証済みの版の番号の順に `Lower::fresh` で付けるので、従来の書換え（`dict_op_rust`・`loop_rust`）と同じ式を作る。型は `verified_ty` で写して `erase_x` で消去する。写せないものは従来の書換えを使う。単体テスト 3 件と tlvm の全テスト 402 件（失敗 0。exact 文面は変えず）。1069 件の corpus では、書換え後の文面が旧と同じで、検証済みの版を通ったのは dict 90 件と loop 11642 件（従来への回帰 0）。接着は未証明（rewrite-shape の (3)）。
+
 ## 2026-10-27
 * **hof の核の意味と源の意味の一致（2026-10-27、DECISION-43）**：`verus/src/hofmean.rs` に `hof_route_meaning` を置いた。hof_compile が受理した核のプログラム（解決した関数の列を表で写したもの、整形式）の意味は、源の意味（xeval）に等しい。源は行き詰まらず、核は OutOfFuel でないどの燃料の結果も源の結果に等しい。仮定は三つ：入力が入口の引数の型を持つこと、署名に Dict が無いこと（Rust の経路の範囲が確かめる）、燃料の源の結果が OutOfFuel でないこと。focused 4 件・error 0。full crate は 1887 verified, 0 errors（1883 から）。台帳の項目は hof-meaning（[proved]）。名前の解決（hresolve）が源の文字列の意味を保つことは未証明。
 * **hof の検証済みの経路（2026-10-27、DECISION-43、オーナーの「hof を resolve に入れる」）**：hof を含むプログラムを、源の文字列の検証済みの構文器と解決器（hof を含む）で読み、表で書き換え（rw_ex）、核のプログラムを検証済みの型検査器に通す経路を入れた（`verus/src/hofroute.rs`、`crates/tlvm/src/api.rs` の `verified_from_source_hof`）。範囲は記録・直和型・再帰・総称・Dict・loop を含まないもの。表（`crates/tlvm/src/hof_verified.rs` の `route_table`）の番号と形の並びは、検証済みの解決の並び（`verified_hofs`）と実行時に比べ、一致しなければ拒否する。拒否は検証済みの経路の判定として残す。検証は focused（hofresex 16、hofprog 6、hofroute 5、error 0）。full crate は 1883 verified, 0 errors（1856 から）。`cargo test -p tlvm` は 399 件通過、失敗 0（`crates/tlvm/tests/hof_route.rs` の 8 件を含む）。台帳の項目は hx-exec、hof-resolve、hof-route を [proved] に、rewrite-shape を [unproved] に残す。

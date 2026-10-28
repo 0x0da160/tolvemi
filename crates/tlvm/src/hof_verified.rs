@@ -602,7 +602,7 @@ fn vty_node(t: &TypeNode) -> Option<VTy> {
 }
 
 /// 検証済みの型から型の節点へ（書換えの後の注釈。消去した型だけが来る）。
-fn node_of(t: &VTy, m: Meta) -> Option<TypeNode> {
+pub(crate) fn node_of(t: &VTy, m: Meta) -> Option<TypeNode> {
     let (tag, args) = match t {
         VTy::Int => (TyTag::Int, vec![]),
         VTy::Bool => (TyTag::Bool, vec![]),
@@ -650,7 +650,7 @@ fn builtin_of(name: &str) -> Option<Builtin> {
     })
 }
 
-fn builtin_name(b: &Builtin) -> &'static str {
+pub(crate) fn builtin_name(b: &Builtin) -> &'static str {
     match b {
         Builtin::Add => "add",
         Builtin::Sub => "sub",
