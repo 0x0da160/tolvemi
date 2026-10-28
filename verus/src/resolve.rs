@@ -1023,6 +1023,28 @@ pub open spec fn smatch_top(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     }
 }
 
+/// `_` だけの枝の並び（sums.rs の MatchKind::Any）。枝は一つで、それが `_` である。
+pub open spec fn any_arms(arms: Seq<(Spat, Sx)>) -> bool {
+    arms.len() == 1 && match arms[0].0 {
+        Spat::Wild => true,
+        _ => false,
+    }
+}
+
+/// `_` だけの match の本体（sums.rs の Let と同じ）：被験式 rm を位置 sc.len() に束縛し、`_` の枝の本体を、空の名前を一つ足した scope で解決する。
+pub open spec fn any_top(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, rm: Expr) -> Option<Expr>
+    decreases arms, 0nat,
+{
+    if arms.len() != 1 {
+        None
+    } else {
+        match rx(fs, tb, tagged, sc.push(Seq::empty()), arms[0].1) {
+            Some(body) => Some(Expr::Let(sc.len(), Box::new(rm), Box::new(body))),
+            None => None,
+        }
+    }
+}
+
 /// 式の名前解決。fs は関数名の列、tb は名前表、sc は可視変数の列（外側から順）。
 pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx) -> Option<Expr>
     decreases e, 0nat,
@@ -1142,12 +1164,19 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
             None => None,
         },
         // 直和型の枝（v1.4）：枝の並びが一つの直和型の構築子の並びなら、その型の鎖にする（印つきは印を検査する）。
-        Sx::SumMatch(m, arms) => match arms_sum(tb, arms) {
-            Some(i) => match rx(fs, tb, tagged, sc, *m) {
-                Some(rm) => smatch_top(fs, tb, tagged, sc, arms, i, rm),
+        Sx::SumMatch(m, arms) => if any_arms(arms) {
+            match rx(fs, tb, tagged, sc, *m) {
+                Some(rm) => any_top(fs, tb, tagged, sc, arms, rm),
                 None => None,
-            },
-            None => None,
+            }
+        } else {
+            match arms_sum(tb, arms) {
+                Some(i) => match rx(fs, tb, tagged, sc, *m) {
+                    Some(rm) => smatch_top(fs, tb, tagged, sc, arms, i, rm),
+                    None => None,
+                },
+                None => None,
+            }
         },
         // hof は名前解決の対象外（字句・構文の段階だけで扱う）。
         Sx::Hof(..) => None,
@@ -2391,6 +2420,23 @@ proof fn smatch_top_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, S
     }
 }
 
+/// `_` だけの match の本体の scope 整合（any_top の腕）。
+proof fn any_top_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, rm: Expr)
+    requires
+        dsc(sc),
+        scoped(rm, sc.len()),
+    ensures
+        any_top(fs, tb, tagged, sc, arms, rm) matches Some(x) ==> scoped(x, sc.len()),
+    decreases arms, 0nat,
+{
+    reveal_with_fuel(scoped, 2);
+    reveal_with_fuel(any_top, 1);
+    if arms.len() == 1 {
+        dsc_push_empty(sc);
+        rx_scoped(fs, tb, tagged, sc.push(Seq::empty()), arms[0].1);
+    }
+}
+
 /// 直和型の枝（Sx::SumMatch）の scope 整合（rx_scoped の腕）。
 proof fn rx_sum_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, e: Sx)
     requires
@@ -2402,7 +2448,11 @@ proof fn rx_sum_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
 {
     if let Sx::SumMatch(m, arms) = e {
         rx_scoped(fs, tb, tagged, sc, *m);
-        if let Some(i) = arms_sum(tb, arms) {
+        if any_arms(arms) {
+            if let Some(rm) = rx(fs, tb, tagged, sc, *m) {
+                any_top_scoped(fs, tb, tagged, sc, arms, rm);
+            }
+        } else if let Some(i) = arms_sum(tb, arms) {
             if let Some(rm) = rx(fs, tb, tagged, sc, *m) {
                 smatch_top_scoped(fs, tb, tagged, sc, arms, i, rm);
             }
@@ -4180,6 +4230,54 @@ fn smatch_tag_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<ch
     Some(EExpr::Let(d, Box::new(rm), Box::new(inner)))
 }
 
+/// `_` だけの枝の並び（any_arms）か（any_arms_e の exec 版）。
+fn any_arms_e(ps: &Vec<SPat>, es: &Vec<SExpr>) -> (r: bool)
+    requires
+        ps.len() == es.len(),
+    ensures
+        r == any_arms(varms(ps@, es@)),
+{
+    if ps.len() != 1 {
+        return false;
+    }
+    match &ps[0] {
+        SPat::Wild => true,
+        _ => false,
+    }
+}
+
+/// `_` だけの match の本体の exec 版（any_top）。被験式 rm を位置 sc.len() に束縛し、`_` の枝の本体を、空の名前を一つ足した scope で解決する（sc は戻す）。
+fn any_top_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, ps: &Vec<SPat>, es: &Vec<SExpr>, rm: EExpr) -> (r: Option<EExpr>)
+    requires
+        ps.len() == es.len(),
+    ensures
+        final(sc)@ == old(sc)@,
+        match r {
+            Some(x) => any_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), view_expr(rm)) == Some(view_expr(x)),
+            None => any_top(vnames(fs@), vtb(tb@), tagged, vnames(old(sc)@), varms(ps@, es@), view_expr(rm)) is None,
+        },
+    decreases es, 0nat,
+{
+    let ghost s0 = sc@;
+    if ps.len() != 1 {
+        return None;
+    }
+    let slot = sc.len();
+    sc.push(Vec::new());
+    proof {
+        vnames_push(s0, sc@[slot as int]);
+    }
+    let body = rx_e(fs, tb, tagged, sc, &es[0]);
+    truncate_to_e(sc, slot);
+    proof {
+        assert(sc@ =~= s0);
+    }
+    match body {
+        Some(x) => Some(EExpr::Let(slot, Box::new(rm), Box::new(x))),
+        None => None,
+    }
+}
+
 /// 直和型の枝（SExpr::SumMatch）の exec 版。長さの違う枝の並びは空（vx）なので、拒否する。
 fn rx_sum_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged: bool, sc: &mut Vec<Vec<char>>, e: &SExpr) -> (r: Option<EExpr>)
     requires
@@ -4195,6 +4293,12 @@ fn rx_sum_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     if let SExpr::SumMatch(m, ps, es) = e {
         if ps.len() != es.len() {
             return None;
+        }
+        if any_arms_e(ps, es) {
+            return match rx_e(fs, tb, tagged, sc, m) {
+                Some(rm) => any_top_e(fs, tb, tagged, sc, ps, es, rm),
+                None => None,
+            };
         }
         let i = match arms_sum_e(tb, ps, es) {
             Some(i) => i,
