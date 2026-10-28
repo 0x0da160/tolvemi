@@ -11,8 +11,8 @@
 //! 型引数の違いは構造の違いとして現れる（型引数は型の中に残る）。
 //!
 //! 印の型と印の値（`tag_ty`・`tag_val`）は、検証済みの exec 版（`tlvm_verified::resolve::tag_ty_e`・`tag_expr_e`）を写す。
-//! 印の番号（`Tags::of`）と名前つきの型・補助関数（`named_ty`・`wrap_fn`）は、検証されていない接着部分
-//! （`trust-boundary.toml` の `glue`）のまま。
+//! 印の番号（`Tags::of`）は、検証済みの exec 版（`tlvm_verified::tagged_names::seen_names_e`）が決める。
+//! 名前つきの型・補助関数（`named_ty`・`wrap_fn`）は、検証されていない接着部分（`trust-boundary.toml` の `glue`）のまま。
 
 use crate::syntax::*;
 use std::collections::HashMap;
@@ -27,17 +27,30 @@ pub struct Tags {
 }
 
 impl Tags {
+    /// 型の宣言（レコード型・直和型）の名前を宣言の順に並べ、番号を決める（関数と entry は数えない）。
     pub fn of(p: &Program) -> Tags {
-        let mut idx: HashMap<String, usize> = HashMap::new();
-        for d in &p.declarations {
-            let name = match d {
-                Decl::Type(t) => &t.name,
-                Decl::Sum(s) => &s.name,
-                Decl::Fn(_) | Decl::Entry(_) => continue,
-            };
-            let n = idx.len();
-            idx.entry(name.clone()).or_insert(n);
-        }
+        let names: Vec<&str> = p
+            .declarations
+            .iter()
+            .filter_map(|d| match d {
+                Decl::Type(t) => Some(t.name.as_str()),
+                Decl::Sum(s) => Some(s.name.as_str()),
+                Decl::Fn(_) | Decl::Entry(_) => None,
+            })
+            .collect();
+        Tags::from_names(&names)
+    }
+
+    /// 名前の列から番号を作る。番号は、最初に現れた順の相異なる名前の位置（同じ名前の後の方は数えない）。
+    /// 位置は検証済みの `seen_names_e` が作る。
+    pub fn from_names(names: &[&str]) -> Tags {
+        let chars: Vec<Vec<char>> = names.iter().map(|n| n.chars().collect()).collect();
+        let seen = tlvm_verified::tagged_names::seen_names_e(&chars);
+        let idx = seen
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.iter().collect::<String>(), i))
+            .collect();
         Tags { idx }
     }
 
@@ -203,6 +216,28 @@ mod tests {
             v = pair(unit(), v, m);
         }
         v
+    }
+
+    /// 番号は、最初に現れた順の相異なる名前の位置。検証済みの版を使う前の、名前を表に入れる書き方と同じ結果になる。
+    #[test]
+    fn numbers_follow_the_first_occurrence_of_each_name() {
+        let cases: [&[&str]; 4] = [
+            &[],
+            &["A", "B", "C"],
+            &["A", "B", "A", "C", "B"],
+            &["A", "A"],
+        ];
+        for names in cases {
+            let mut old: HashMap<String, usize> = HashMap::new();
+            for n in names {
+                let k = old.len();
+                old.entry(n.to_string()).or_insert(k);
+            }
+            let tags = Tags::from_names(names);
+            for n in ["A", "B", "C", "D"] {
+                assert_eq!(tags.get(n), old.get(n).copied(), "name {n} in {names:?}");
+            }
+        }
     }
 
     #[test]

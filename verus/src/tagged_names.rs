@@ -343,4 +343,106 @@ proof fn apart_example()
     assert(idx(tnames(tb_example()), seq!['B'], 0) == Some(1nat));
 }
 
+// ------------------------------------------------------------------ 名義の番号（Tags::of の exec 版）
+
+/// 名前の列の、最初に現れた順の相異なる名前。Tags::of の番号は、この列での位置になる（同じ名前の後の方は数えない）。
+pub open spec fn seen_names(names: Seq<Seq<char>>) -> Seq<Seq<char>>
+    decreases names.len(),
+{
+    if names.len() == 0 {
+        Seq::empty()
+    } else {
+        let prev = seen_names(names.drop_last());
+        if prev.contains(names.last()) {
+            prev
+        } else {
+            prev.push(names.last())
+        }
+    }
+}
+
+/// 一つ長い列の答えは、一つ短い列の答えに、最後の名前を足すか足さないかで決まる。
+proof fn seen_names_step(s: Seq<Seq<char>>, i: int)
+    requires
+        0 <= i < s.len(),
+    ensures
+        seen_names(s.subrange(0, i + 1)) == if seen_names(s.subrange(0, i)).contains(s[i]) {
+            seen_names(s.subrange(0, i))
+        } else {
+            seen_names(s.subrange(0, i)).push(s[i])
+        },
+{
+    let t = s.subrange(0, i + 1);
+    assert(t.len() == i + 1);
+    assert(t.drop_last() =~= s.subrange(0, i));
+    assert(t.last() == s[i]);
+    assert(seen_names(t) == if seen_names(t.drop_last()).contains(t.last()) {
+        seen_names(t.drop_last())
+    } else {
+        seen_names(t.drop_last()).push(t.last())
+    });
+}
+
+/// 列に名前 x があるか（Seq の contains の exec 版）。
+fn contains_e(v: &Vec<Vec<char>>, x: &Vec<char>) -> (r: bool)
+    ensures
+        r == crate::surface::vnames(v@).contains(x@),
+{
+    let mut j: usize = 0;
+    while j < v.len()
+        invariant
+            j <= v.len(),
+            forall|k: int| 0 <= k < j ==> crate::surface::vnames(v@)[k] != x@,
+        decreases v.len() - j,
+    {
+        proof {
+            assert(crate::surface::vnames(v@)[j as int] == v@[j as int]@);
+        }
+        if eq_chars(&v[j], x) {
+            proof {
+                assert(crate::surface::vnames(v@)[j as int] == x@);
+            }
+            return true;
+        }
+        j += 1;
+    }
+    false
+}
+
+/// 名前の列を、最初に現れた順の相異なる名前の列にする（seen_names の exec 版）。Tags::of は、この列の位置を番号にする。
+pub fn seen_names_e(names: &Vec<Vec<char>>) -> (r: Vec<Vec<char>>)
+    ensures
+        crate::surface::vnames(r@) == seen_names(crate::surface::vnames(names@)),
+{
+    let mut seen: Vec<Vec<char>> = Vec::new();
+    let mut i: usize = 0;
+    while i < names.len()
+        invariant
+            i <= names.len(),
+            crate::surface::vnames(seen@) == seen_names(crate::surface::vnames(names@).subrange(0, i as int)),
+        decreases names.len() - i,
+    {
+        proof {
+            seen_names_step(crate::surface::vnames(names@), i as int);
+            assert(crate::surface::vnames(names@)[i as int] == names@[i as int]@);
+        }
+        let ghost before = crate::surface::vnames(seen@);
+        if !contains_e(&seen, &names[i]) {
+            seen.push(clone_chars(&names[i]));
+            proof {
+                assert(crate::surface::vnames(seen@) =~= before.push(crate::surface::vnames(names@)[i as int]));
+            }
+        } else {
+            proof {
+                assert(crate::surface::vnames(seen@) == before);
+            }
+        }
+        i += 1;
+    }
+    proof {
+        assert(crate::surface::vnames(names@).subrange(0, names.len() as int) =~= crate::surface::vnames(names@));
+    }
+    seen
+}
+
 } // verus!
