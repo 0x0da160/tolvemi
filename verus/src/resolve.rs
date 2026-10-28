@@ -359,23 +359,23 @@ pub open spec fn ctor_val(tagged: bool, i: nat, t: Ty, n: nat, k: nat, p: Expr) 
     }
 }
 
-/// 構築子の中身の式（字段が 0 または 1 個のとき）：字段が無ければ Unit、一つならその式。
-pub open spec fn pay1(xs: Seq<Expr>) -> Expr {
+/// 構築子の中身の式（字段の式の並び）：字段が無ければ Unit、あれば rbuild（右に入れ子にした Pair。sums.rs の payload と同じ形）。
+pub open spec fn pay_nested(xs: Seq<Expr>) -> Expr {
     if xs.len() == 0 {
         Expr::Unit
     } else {
-        xs[0]
+        rbuild(xs)
     }
 }
 
-/// 構築子 c への呼出し（字段の式の列 xs）。字段が 0 または 1 個の構築子だけを作る。
+/// 構築子 c への呼出し（字段の式の列 xs）。字段の数は構築子の項目と同じでなければならない（字段は、無くても二つ以上でもよい）。
 pub open spec fn rctor(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, c: Seq<char>, xs: Seq<Expr>) -> Option<Expr> {
     match vlook(tb, c) {
-        Some((i, k, m)) => if m > 1 || m != xs.len() || k >= tb[i as int].2.len() {
+        Some((i, k, m)) => if m != xs.len() || k >= tb[i as int].2.len() {
             None
         } else {
             match (if tagged { tb[i as int].3 } else { tb[i as int].1 }) {
-                Some(t) => ctor_val(tagged, i, t, tb[i as int].2.len(), k, pay1(xs)),
+                Some(t) => ctor_val(tagged, i, t, tb[i as int].2.len(), k, pay_nested(xs)),
                 None => None,
             }
         },
@@ -768,22 +768,64 @@ pub open spec fn params_ok(ps: Seq<(Seq<char>, SType)>, tb: Seq<(Seq<char>, Opti
     forall|k: int| 0 <= k < ps.len() ==> to_ty(#[trigger] ps[k].1, tb, tagged) is Some
 }
 
-/// 枝の束縛の名前：字段が無ければ空の名前（参照されない束縛の印）、字段が一つなら、その名前（空でないもの）。
-/// 字段が二つ以上の枝と、空でない名前の無い枝は、後の段階（None）。
-pub open spec fn arm_name(bs: Seq<Seq<char>>) -> Option<Seq<char>> {
-    if bs.len() == 0 {
-        Some(Seq::empty())
-    } else if bs.len() == 1 && bs[0].len() > 0 {
-        Some(bs[0])
+/// 枝の束縛の名前（字段が一つの枝）：その名前（arm_ok で空でない）。字段が無い枝は、参照されない空の印。
+pub open spec fn arm_name(bs: Seq<Seq<char>>) -> Seq<char> {
+    if bs.len() == 1 {
+        bs[0]
     } else {
-        None
+        Seq::empty()
     }
 }
 
-/// 枝の左辺の束縛の名前（構築子の枝だけ）。
-pub open spec fn arm_bind(p: Spat) -> Option<Seq<char>> {
+/// 枝の束縛は正しい：字段が一つなら、その名前は空でない。字段が二つ以上なら、名前は空でなく相異なる。
+pub open spec fn arm_ok(bs: Seq<Seq<char>>) -> bool {
+    if bs.len() >= 2 {
+        distinct(bs) && forall|k: int| 0 <= k < bs.len() ==> bs[k].len() > 0
+    } else if bs.len() == 1 {
+        bs[0].len() > 0
+    } else {
+        true
+    }
+}
+
+/// 枝の字段の名前は、外側の scope に無い（シャドーしない）。
+pub open spec fn binds_fresh(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>) -> bool {
+    forall|k: int| 0 <= k < bs.len() ==> idx(sc, bs[k], 0) is None
+}
+
+/// 枝の本体の scope：字段が二つ以上なら、中身の印（空の名前）の後に字段の名前を並べる。それ以外は、束縛の名前を一つ足す。
+pub open spec fn arm_scope(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>) -> Seq<Seq<char>> {
+    if bs.len() >= 2 {
+        sc.push(Seq::empty()) + bs
+    } else {
+        sc.push(arm_name(bs))
+    }
+}
+
+/// 字段が二つ以上の枝の本体：中身の値（位置 p）の字段 j（0 から m - 1）を、位置 p + 1 + j に束縛する（rbuild の形の射影）。
+pub open spec fn binds_lets(p: nat, m: nat, j: nat, body: Expr) -> Expr
+    decreases m - j,
+{
+    if j >= m {
+        body
+    } else {
+        Expr::Let(p + 1 + j, Box::new(rfield(Expr::Var(p), j, m)), Box::new(binds_lets(p, m, j + 1, body)))
+    }
+}
+
+/// 枝の本体の式：字段が二つ以上なら、字段の束縛で包む（中身の値は位置 p）。それ以外は本体そのもの。
+pub open spec fn arm_wrap(p: nat, bs: Seq<Seq<char>>, body: Expr) -> Expr {
+    if bs.len() >= 2 {
+        binds_lets(p, bs.len(), 0, body)
+    } else {
+        body
+    }
+}
+
+/// 枝の左辺の束縛（構築子の枝だけ）。
+pub open spec fn arm_binds(p: Spat) -> Option<Seq<Seq<char>>> {
     match p {
-        Spat::Ctor(_, bs) => arm_name(bs),
+        Spat::Ctor(_, bs) => Some(bs),
         _ => None,
     }
 }
@@ -796,7 +838,7 @@ pub open spec fn arms_ctors(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Opti
         true
     } else {
         match arms[j as int].0 {
-            Spat::Ctor(c, bs) => vent_arity(tb[i as int].2[j as int], c) == Some(bs.len()) && arm_name(bs) is Some && arms_ctors(tb, i, arms, j + 1),
+            Spat::Ctor(c, bs) => vent_arity(tb[i as int].2[j as int], c) == Some(bs.len()) && arm_ok(bs) && arms_ctors(tb, i, arms, j + 1),
             _ => false,
         }
     }
@@ -821,25 +863,25 @@ pub open spec fn arms_sum(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option
     }
 }
 
-/// 直和型の枝の鎖（層 j から）。被験式 s は scope sc で整合する（sc.len() は層 j の束縛の位置）。
-/// 構築子 j の枝は、中身の束縛（位置 sc.len()）で本体を解決する。最後の構築子以外は、Err の側（同じ位置）で次の層を続け、
-/// その被験式は Err の束縛。最後の構築子は、残りの値そのものが中身なので let で束縛する。
+/// 直和型の枝の鎖（層 j から）。被験式 s は scope sc で整合する（sc.len() は層 j の中身の位置）。
+/// 構築子 j の枝は、中身の束縛（arm_scope）で本体を解決する。字段が二つ以上なら、本体は字段を射影で束縛する（arm_wrap）。
+/// 最後の構築子以外は、Err の側（同じ位置）で次の層を続け、その被験式は Err の束縛。最後の構築子は、残りの値そのものが中身なので let で束縛する。
 pub open spec fn smatch_from(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, tagged: bool, sc: Seq<Seq<char>>, arms: Seq<(Spat, Sx)>, n: nat, j: nat, s: Expr) -> Option<Expr>
     decreases arms, n - j,
 {
     if j >= n || j >= arms.len() {
         None
     } else {
-        match arm_bind(arms[j as int].0) {
-            Some(b) => if b.len() > 0 && idx(sc, b, 0) is Some {
+        match arm_binds(arms[j as int].0) {
+            Some(bs) => if !arm_ok(bs) || !binds_fresh(sc, bs) {
                 None
             } else {
-                match rx(fs, tb, tagged, sc.push(b), arms[j as int].1) {
+                match rx(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1) {
                     Some(body) => if j + 1 == n {
-                        Some(Expr::Let(sc.len(), Box::new(s), Box::new(body)))
+                        Some(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))))
                     } else {
                         match smatch_from(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len())) {
-                            Some(rest) => Some(Expr::MatchR(Box::new(s), sc.len(), Box::new(body), sc.len(), Box::new(rest))),
+                            Some(rest) => Some(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest))),
                             None => None,
                         }
                     },
@@ -2031,15 +2073,30 @@ proof fn rx_matchr_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Se
 }
 
 /// 名前解決の結果は scope 整合で、scope 内の名前は常に相異なる（シャドーがない）。
-/// 構築子の中身の式（字段が 0 か 1 個）は、字段の式が範囲に収まれば収まる。
-proof fn pay1_scoped(xs: Seq<Expr>, m: nat)
+/// 構築子の中身の式（字段の式の並び）は、字段の式が範囲に収まれば収まる。
+proof fn pay_nested_scoped(xs: Seq<Expr>, m: nat)
     requires
         scoped_all(xs, m, 0),
     ensures
-        scoped(pay1(xs), m),
+        scoped(pay_nested(xs), m),
 {
     if xs.len() > 0 {
-        assert(scoped(xs[0], m));
+        scoped_all_forall(xs, m, 0);
+        rbuild_scoped(xs, m);
+    }
+}
+
+/// 列の各項（位置 i から）は範囲に収まる（添字で読む形）。
+proof fn scoped_all_forall(es: Seq<Expr>, n: nat, i: nat)
+    requires
+        scoped_all(es, n, i),
+    ensures
+        forall|k: int| i <= k < es.len() ==> scoped(#[trigger] es[k], n),
+    decreases es.len() - i,
+{
+    if i < es.len() {
+        scoped_all_forall(es, n, i + 1);
+        assert(scoped(es[i as int], n));
     }
 }
 
@@ -2075,15 +2132,99 @@ proof fn rctor_scoped(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>
     ensures
         rctor(tb, tagged, c, xs) matches Some(x) ==> scoped(x, m),
 {
-    pay1_scoped(xs, m);
+    pay_nested_scoped(xs, m);
     if let Some((i, k, mm)) = vlook(tb, c) {
-        if mm > 1 || mm != xs.len() || k >= tb[i as int].2.len() {
+        if mm != xs.len() || k >= tb[i as int].2.len() {
         } else {
             match (if tagged { tb[i as int].3 } else { tb[i as int].1 }) {
-                Some(t) => ctor_val_scoped(tagged, i, t, tb[i as int].2.len(), k, pay1(xs), m),
+                Some(t) => ctor_val_scoped(tagged, i, t, tb[i as int].2.len(), k, pay_nested(xs), m),
                 None => {},
             }
         }
+    }
+}
+
+/// 空の印と字段の名前の並びを足しても dsc は保たれる（字段の名前は空でなく、相異なり、外側に無い）。
+proof fn dsc_names(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>)
+    requires
+        dsc(sc),
+        distinct(bs),
+        forall|k: int| 0 <= k < bs.len() ==> bs[k].len() > 0,
+        binds_fresh(sc, bs),
+    ensures
+        dsc(sc.push(Seq::empty()) + bs),
+{
+    let m = sc.len();
+    let t = sc.push(Seq::<char>::empty()) + bs;
+    assert forall|i: int, j: int| 0 <= i < j < t.len() && t[i].len() > 0 implies t[i] != t[j] by {
+        if j < m {
+            assert(t[i] == sc[i]);
+            assert(t[j] == sc[j]);
+        } else if j == m {
+            assert(t[j].len() == 0);
+        } else {
+            let k = j - m - 1;
+            assert(t[j] == bs[k]);
+            assert(idx(sc, bs[k], 0) is None);
+            idx_props(sc, bs[k], 0);
+            if i < m {
+                assert(t[i] == sc[i]);
+            } else if i == m {
+                assert(t[i].len() == 0);
+            } else {
+                assert(t[i] == bs[i - m - 1]);
+            }
+        }
+    }
+}
+
+/// 枝の本体の scope（arm_scope）は dsc（字段の名前は空でなく、相異なり、外側に無い）。
+proof fn arm_scope_dsc(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>)
+    requires
+        dsc(sc),
+        arm_ok(bs),
+        binds_fresh(sc, bs),
+    ensures
+        dsc(arm_scope(sc, bs)),
+{
+    if bs.len() >= 2 {
+        dsc_names(sc, bs);
+    } else if bs.len() == 1 {
+        assert(idx(sc, bs[0], 0) is None);
+        dsc_push(sc, bs[0]);
+    } else {
+        dsc_push_empty(sc);
+    }
+}
+
+/// 字段の束縛の鎖（位置 p の中身の字段 j から m 個）は、位置 p + 1 + m の scope で本体が整合すれば、位置 p + 1 + j で整合する。
+proof fn binds_lets_scoped(p: nat, m: nat, j: nat, body: Expr)
+    requires
+        j <= m,
+        scoped(body, p + 1 + m),
+    ensures
+        scoped(binds_lets(p, m, j, body), p + 1 + j),
+    decreases m - j,
+{
+    reveal_with_fuel(scoped, 2);
+    if j < m {
+        binds_lets_scoped(p, m, j + 1, body);
+        rfield_scoped(Expr::Var(p), j, m, p + 1 + j);
+    }
+}
+
+/// 枝の本体の式は、中身の位置 sc.len() の後の scope で整合する（本体が arm_scope で整合すれば）。
+proof fn arm_wrap_scoped(sc: Seq<Seq<char>>, bs: Seq<Seq<char>>, body: Expr)
+    requires
+        scoped(body, arm_scope(sc, bs).len()),
+    ensures
+        scoped(arm_wrap(sc.len(), bs, body), sc.len() + 1),
+{
+    if bs.len() >= 2 {
+        assert(arm_scope(sc, bs).len() == sc.len() + 1 + bs.len());
+        binds_lets_scoped(sc.len(), bs.len(), 0, body);
+    } else {
+        assert(arm_scope(sc, bs).len() == sc.len() + 1);
     }
 }
 
@@ -2099,23 +2240,19 @@ proof fn smatch_from_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, 
     reveal_with_fuel(scoped, 2);
     reveal_with_fuel(smatch_from, 2);
     if j < n && j < arms.len() {
-        if let Some(b) = arm_bind(arms[j as int].0) {
-            if !(b.len() > 0 && idx(sc, b, 0) is Some) {
-                if b.len() > 0 {
-                    idx_props(sc, b, 0);
-                    dsc_push(sc, b);
-                } else {
-                    dsc_push_empty(sc);
-                }
-                rx_scoped(fs, tb, tagged, sc.push(b), arms[j as int].1);
-                if let Some(body) = rx(fs, tb, tagged, sc.push(b), arms[j as int].1) {
+        if let Some(bs) = arm_binds(arms[j as int].0) {
+            if arm_ok(bs) && binds_fresh(sc, bs) {
+                arm_scope_dsc(sc, bs);
+                rx_scoped(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1);
+                if let Some(body) = rx(fs, tb, tagged, arm_scope(sc, bs), arms[j as int].1) {
+                    arm_wrap_scoped(sc, bs, body);
                     if j + 1 == n {
-                        assert(scoped(Expr::Let(sc.len(), Box::new(s), Box::new(body)), sc.len()));
+                        assert(scoped(Expr::Let(sc.len(), Box::new(s), Box::new(arm_wrap(sc.len(), bs, body))), sc.len()));
                     } else {
                         dsc_push_empty(sc);
                         smatch_from_scoped(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len()));
                         if let Some(rest) = smatch_from(fs, tb, tagged, sc.push(Seq::empty()), arms, n, j + 1, Expr::Var(sc.len())) {
-                            assert(scoped(Expr::MatchR(Box::new(s), sc.len(), Box::new(body), sc.len(), Box::new(rest)), sc.len()));
+                            assert(scoped(Expr::MatchR(Box::new(s), sc.len(), Box::new(arm_wrap(sc.len(), bs, body)), sc.len(), Box::new(rest)), sc.len()));
                         }
                     }
                 }
@@ -3389,17 +3526,15 @@ fn vlook_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, c: &Ve
     vlook_from_e(tb, c, 0)
 }
 
-/// 構築子の中身の式の exec 版（pay1）：字段が無ければ Unit、一つならその式。
-fn pay1_e(xs: Vec<EExpr>) -> (r: EExpr)
-    requires
-        xs.len() <= 1,
+/// 構築子の中身の式の exec 版（pay_nested）：字段が無ければ Unit、あれば rbuild_e。
+fn pay_nested_e(xs: Vec<EExpr>) -> (r: EExpr)
     ensures
-        view_expr(r) == pay1(view_exprs(xs)),
+        view_expr(r) == pay_nested(view_exprs(xs)),
 {
-    let mut xs = xs;
-    match xs.pop() {
-        Some(x) => x,
-        None => EExpr::Unit,
+    if xs.len() == 0 {
+        EExpr::Unit
+    } else {
+        rbuild_e(xs)
     }
 }
 
@@ -3413,10 +3548,10 @@ fn rctor_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged
 {
     match vlook_e(tb, c) {
         Some((i, k, m)) => {
-            if m > 1 || m != xs.len() || k >= tb[i].2.len() {
+            if m != xs.len() || k >= tb[i].2.len() {
                 None
             } else {
-                let p = pay1_e(xs);
+                let p = pay_nested_e(xs);
                 match if tagged { clone_opt(&tb[i].3) } else { clone_opt(&tb[i].1) } {
                     Some(t) => ctor_val_e(tagged, i, &t, tb[i].2.len(), k, p),
                     None => None,
@@ -3428,19 +3563,175 @@ fn rctor_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, tagged
 }
 
 /// 枝の束縛の名前の exec 版（arm_name）。
-fn arm_name_e(bs: &Vec<Vec<char>>) -> (r: Option<Vec<char>>)
+fn arm_name_e(bs: &Vec<Vec<char>>) -> (r: Vec<char>)
     ensures
-        match r {
-            Some(x) => arm_name(vnames(bs@)) == Some(x@),
-            None => arm_name(vnames(bs@)) is None,
-        },
+        r@ == arm_name(vnames(bs@)),
 {
-    if bs.len() == 0 {
-        Some(Vec::new())
-    } else if bs.len() == 1 && bs[0].len() > 0 {
-        Some(clone_chars(&bs[0]))
+    if bs.len() == 1 {
+        clone_chars(&bs[0])
     } else {
-        None
+        Vec::new()
+    }
+}
+
+/// 枝の束縛は正しい exec 版（arm_ok）。
+fn arm_ok_e(bs: &Vec<Vec<char>>) -> (r: bool)
+    ensures
+        r == arm_ok(vnames(bs@)),
+{
+    if bs.len() >= 2 {
+        let mut k: usize = 0;
+        while k < bs.len()
+            invariant
+                k <= bs@.len(),
+                forall|q: int| 0 <= q < k ==> vnames(bs@)[q].len() > 0,
+            decreases bs@.len() - k,
+        {
+            if bs[k].len() == 0 {
+                proof {
+                    assert(!(forall|q: int| 0 <= q < bs@.len() ==> vnames(bs@)[q].len() > 0)) by {
+                        assert(vnames(bs@)[k as int].len() == 0);
+                    }
+                }
+                return false;
+            }
+            k += 1;
+        }
+        distinct_e(bs)
+    } else if bs.len() == 1 {
+        bs[0].len() > 0
+    } else {
+        true
+    }
+}
+
+/// 枝の字段の名前が外側の scope に無い exec 版（binds_fresh）。
+fn binds_fresh_e(sc: &Vec<Vec<char>>, bs: &Vec<Vec<char>>) -> (r: bool)
+    ensures
+        r == binds_fresh(vnames(sc@), vnames(bs@)),
+{
+    let mut k: usize = 0;
+    while k < bs.len()
+        invariant
+            k <= bs@.len(),
+            forall|q: int| 0 <= q < k ==> idx(vnames(sc@), vnames(bs@)[q], 0) is None,
+        decreases bs@.len() - k,
+    {
+        if idx_e(sc, &bs[k]).is_some() {
+            proof {
+                assert(!(forall|q: int| 0 <= q < bs@.len() ==> idx(vnames(sc@), vnames(bs@)[q], 0) is None)) by {
+                    assert(idx(vnames(sc@), vnames(bs@)[k as int], 0) is Some);
+                }
+            }
+            return false;
+        }
+        k += 1;
+    }
+    true
+}
+
+/// 字段が二つ以上の枝の本体の束縛の exec 版（binds_lets）：中身の値（位置 p）の字段 j から m 個を、位置 p + 1 + j に束縛する。
+fn binds_lets_e(p: usize, m: usize, j: usize, body: EExpr) -> (r: EExpr)
+    requires
+        j <= m,
+        p as int + 1 + m as int <= usize::MAX as int,
+    ensures
+        view_expr(r) == binds_lets(p as nat, m as nat, j as nat, view_expr(body)),
+    decreases m - j,
+{
+    if j >= m {
+        body
+    } else {
+        let rest = binds_lets_e(p, m, j + 1, body);
+        let proj = rfield_e(EExpr::Var(p), j, m);
+        EExpr::Let(p + 1 + j, Box::new(proj), Box::new(rest))
+    }
+}
+
+/// 枝の本体の式の exec 版（arm_wrap）。
+fn arm_wrap_e(p: usize, bs: &Vec<Vec<char>>, body: EExpr) -> (r: EExpr)
+    requires
+        bs@.len() >= 2 ==> p as int + 1 + bs@.len() <= usize::MAX as int,
+    ensures
+        view_expr(r) == arm_wrap(p as nat, vnames(bs@), view_expr(body)),
+{
+    if bs.len() >= 2 {
+        binds_lets_e(p, bs.len(), 0, body)
+    } else {
+        body
+    }
+}
+
+/// scope を先頭 n 個に切り詰める exec 版（戻すために使う）。
+fn truncate_to_e(sc: &mut Vec<Vec<char>>, n: usize)
+    requires
+        n <= sc@.len(),
+    ensures
+        final(sc)@ == old(sc)@.subrange(0, n as int),
+{
+    let ghost s0 = sc@;
+    while sc.len() > n
+        invariant
+            n <= sc@.len(),
+            sc@.len() <= s0.len(),
+            sc@ == s0.subrange(0, sc@.len() as int),
+        decreases sc@.len() - n,
+    {
+        let _ = sc.pop();
+        proof {
+            assert(sc@ =~= s0.subrange(0, sc@.len() as int));
+        }
+    }
+    proof {
+        assert(sc@ =~= s0.subrange(0, n as int));
+    }
+}
+
+/// 枝の本体の scope を積む exec 版（arm_scope）。字段が二つ以上なら、中身の印の後に字段の名前を並べる。
+fn push_arm_e(sc: &mut Vec<Vec<char>>, bs: &Vec<Vec<char>>)
+    ensures
+        vnames(final(sc)@) == arm_scope(vnames(old(sc)@), vnames(bs@)),
+        final(sc)@.subrange(0, old(sc)@.len() as int) =~= old(sc)@,
+        final(sc)@.len() == old(sc)@.len() + (if bs@.len() >= 2 { 1 + bs@.len() } else { 1 }),
+{
+    let ghost s0 = sc@;
+    if bs.len() >= 2 {
+        let e: Vec<char> = Vec::new();
+        sc.push(e);
+        proof {
+            vnames_push_nil(s0, sc@[s0.len() as int]);
+            assert(sc@.subrange(0, s0.len() as int) =~= s0);
+        }
+        let mut k: usize = 0;
+        while k < bs.len()
+            invariant
+                k <= bs@.len(),
+                sc@.len() == s0.len() + 1 + k,
+                vnames(sc@) == vnames(s0).push(Seq::empty()) + vnames(bs@).subrange(0, k as int),
+                sc@.subrange(0, s0.len() as int) =~= s0,
+            decreases bs@.len() - k,
+        {
+            let ghost before = sc@;
+            let c = clone_chars(&bs[k]);
+            sc.push(c);
+            proof {
+                vnames_push(before, sc@[before.len() as int]);
+                assert(vnames(sc@) =~= (vnames(s0).push(Seq::empty()) + vnames(bs@).subrange(0, k as int)).push(vnames(bs@)[k as int]));
+                assert(vnames(sc@) =~= vnames(s0).push(Seq::empty()) + vnames(bs@).subrange(0, k as int + 1));
+                assert(sc@.subrange(0, s0.len() as int) =~= s0);
+            }
+            k += 1;
+        }
+        proof {
+            assert(vnames(bs@).subrange(0, bs@.len() as int) =~= vnames(bs@));
+        }
+    } else {
+        let nm = arm_name_e(bs);
+        sc.push(nm);
+        proof {
+            vnames_push(s0, sc@[s0.len() as int]);
+            assert(sc@.subrange(0, s0.len() as int) =~= s0);
+        }
     }
 }
 
@@ -3459,7 +3750,7 @@ fn arms_ctors_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, i
     } else {
         match &ps[j] {
             SPat::Ctor(c, bs) => match vent_arity_e(&tb[i].2[j], c) {
-                Some(m) => m == bs.len() && arm_name_e(bs).is_some() && arms_ctors_e(tb, i, ps, es, j + 1),
+                Some(m) => m == bs.len() && arm_ok_e(bs) && arms_ctors_e(tb, i, ps, es, j + 1),
                 None => false,
             },
             _ => false,
@@ -3510,23 +3801,22 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
     if j >= n || j >= ps.len() {
         return None;
     }
-    let b = match &ps[j] {
-        SPat::Ctor(_, bs) => match arm_name_e(bs) {
-            Some(b) => b,
-            None => return None,
-        },
+    let bs: &Vec<Vec<char>> = match &ps[j] {
+        SPat::Ctor(_, bs) => bs,
         _ => return None,
     };
-    if b.len() > 0 && idx_e(sc, &b).is_some() {
+    if !arm_ok_e(bs) || !binds_fresh_e(sc, bs) {
         return None;
     }
     let slot = sc.len();
-    sc.push(b);
+    push_arm_e(sc, bs);
+    let pushed = sc.len();
     proof {
-        vnames_push(s0, sc@[slot as int]);
+        assert(pushed as int >= slot as int);
+        assert(bs@.len() >= 2 ==> pushed as int == slot as int + 1 + bs@.len());
     }
     let body = rx_e(fs, tb, tagged, sc, &es[j]);
-    let _ = sc.pop();
+    truncate_to_e(sc, slot);
     proof {
         assert(sc@ =~= s0);
     }
@@ -3534,6 +3824,7 @@ fn smatch_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         Some(x) => x,
         None => return None,
     };
+    let body = arm_wrap_e(slot, bs, body);
     if j + 1 == n {
         Some(EExpr::Let(slot, Box::new(s), Box::new(body)))
     } else {
