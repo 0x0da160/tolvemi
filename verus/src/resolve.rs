@@ -1885,8 +1885,8 @@ fn clone_opt(o: &Option<Ty>) -> (r: Option<Ty>)
     }
 }
 
-/// 印の型の exec 版（tag_ty の exec 版）。
-fn tag_ty_e(k: usize) -> (r: Ty)
+/// 印の型の exec 版（tag_ty の exec 版）。nominal.rs の印の型（tag_ty）が、これを呼ぶ。
+pub fn tag_ty_e(k: usize) -> (r: Ty)
     ensures
         r == tag_ty(k as nat),
     decreases k,
@@ -2820,8 +2820,8 @@ fn fld_chain_e(tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>, Option<Ty>)>, e:
     fld_chain_rec(tb, e, ns, 0)
 }
 
-/// 印の式の exec 版（tag_expr）：Pair(Unit, ·) の k 段の入れ子。
-fn tag_expr_e(k: usize) -> (r: EExpr)
+/// 印の式の exec 版（tag_expr）：Pair(Unit, ·) の k 段の入れ子。nominal.rs の印の値（tag_val）が、これを呼ぶ。
+pub fn tag_expr_e(k: usize) -> (r: EExpr)
     ensures
         view_expr(r) == tag_expr(k as nat),
     decreases k,

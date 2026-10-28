@@ -10,10 +10,15 @@
 //! 印の番号は、展開の前のプログラムの宣言の順で一度だけ決める（`Tags::of`）。総称の型は宣言ごとの一つの印で、
 //! 型引数の違いは構造の違いとして現れる（型引数は型の中に残る）。
 //!
-//! 書き換えは検証されていない接着部分（`trust-boundary.toml` の `glue`）。
+//! 印の型と印の値（`tag_ty`・`tag_val`）は、検証済みの exec 版（`tlvm_verified::resolve::tag_ty_e`・`tag_expr_e`）を写す。
+//! 印の番号（`Tags::of`）と名前つきの型・補助関数（`named_ty`・`wrap_fn`）は、検証されていない接着部分
+//! （`trust-boundary.toml` の `glue`）のまま。
 
 use crate::syntax::*;
 use std::collections::HashMap;
+use tlvm_verified::ir::EExpr;
+use tlvm_verified::resolve::{tag_expr_e, tag_ty_e};
+use tlvm_verified::spec::Ty as VTy;
 
 /// 宣言の番号：レコード型と直和型の宣言の順（同じ名前の二つ目以降は数えない）。
 #[derive(Clone, Default)]
@@ -42,24 +47,36 @@ impl Tags {
     }
 }
 
-/// 番号 `r` の印の型：`Pair<Unit, Unit>` を r 段入れ子にしたもの（段数が違えば別の型になる）。
+/// 番号 `r` の印の型：`Pair<Unit, Unit>` を r 段入れ子にしたもの（段数が違えば別の型になる）。検証済みの `tag_ty_e` を写す。
 pub fn tag_ty(r: usize, m: Meta) -> TypeNode {
-    let unit = || TypeNode::new(TyTag::Unit, vec![], m);
-    let mut t = TypeNode::new(TyTag::Pair, vec![unit(), unit()], m);
-    for _ in 0..r {
-        t = TypeNode::new(TyTag::Pair, vec![unit(), t], m);
-    }
-    t
+    verified_tag_ty(&tag_ty_e(r), m)
 }
 
-/// 番号 `r` の印の値（`tag_ty(r)` の型）。
+/// 番号 `r` の印の値（`tag_ty(r)` の型）。検証済みの `tag_expr_e` を写す。
 pub fn tag_val(r: usize, m: Meta) -> Expr {
-    let unit = || ex(ExprKind::Unit, m);
-    let mut v = pair(unit(), unit(), m);
-    for _ in 0..r {
-        v = pair(unit(), v, m);
+    verified_tag_val(&tag_expr_e(r), m)
+}
+
+/// 検証済みの印の型を写す（Unit と Pair だけ。`tag_ty_e` はこれ以外の型を作らない）。
+fn verified_tag_ty(t: &VTy, m: Meta) -> TypeNode {
+    match t {
+        VTy::Unit => TypeNode::new(TyTag::Unit, vec![], m),
+        VTy::Pair(a, b) => TypeNode::new(
+            TyTag::Pair,
+            vec![verified_tag_ty(a, m), verified_tag_ty(b, m)],
+            m,
+        ),
+        _ => unreachable!("the tag types are built from Unit and Pair"),
     }
-    v
+}
+
+/// 検証済みの印の式を写す（Unit と Pair だけ。`tag_expr_e` はこれ以外の式を作らない）。
+fn verified_tag_val(e: &EExpr, m: Meta) -> Expr {
+    match e {
+        EExpr::Unit => ex(ExprKind::Unit, m),
+        EExpr::Pair(a, b) => pair(verified_tag_val(a, m), verified_tag_val(b, m), m),
+        _ => unreachable!("the tag values are built from Unit and Pair"),
+    }
 }
 
 /// 番号 `r` の名前付きの型：`Pair<印 r, inner>`。`label` は表示用の名前と型引数（型の等価性には含めない）。
@@ -161,5 +178,47 @@ pub fn is_tagged(t: &TypeNode) -> bool {
         Some(Named::Record(r)) => r.tagged,
         Some(Named::Sum(s)) => s.tagged,
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 検証済みの版を使う前の印の型（比べる基準）。
+    fn old_tag_ty(r: usize, m: Meta) -> TypeNode {
+        let unit = || TypeNode::new(TyTag::Unit, vec![], m);
+        let mut t = TypeNode::new(TyTag::Pair, vec![unit(), unit()], m);
+        for _ in 0..r {
+            t = TypeNode::new(TyTag::Pair, vec![unit(), t], m);
+        }
+        t
+    }
+
+    /// 検証済みの版を使う前の印の値（比べる基準）。
+    fn old_tag_val(r: usize, m: Meta) -> Expr {
+        let unit = || ex(ExprKind::Unit, m);
+        let mut v = pair(unit(), unit(), m);
+        for _ in 0..r {
+            v = pair(unit(), v, m);
+        }
+        v
+    }
+
+    #[test]
+    fn verified_tags_match_the_rust_construction() {
+        let m = Meta::new((0, 0), 0);
+        for r in 0..12 {
+            assert_eq!(
+                format!("{:?}", tag_ty(r, m)),
+                format!("{:?}", old_tag_ty(r, m)),
+                "tag type {r}"
+            );
+            assert_eq!(
+                format!("{:?}", tag_val(r, m)),
+                format!("{:?}", old_tag_val(r, m)),
+                "tag value {r}"
+            );
+        }
     }
 }
