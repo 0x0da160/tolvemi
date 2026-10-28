@@ -125,7 +125,7 @@ proof fn envrel_bind(params: Seq<(nat, Ty)>, vs: Seq<RVal>, n: nat)
     }
 }
 
-/// 源の式の写し（位置で書いた字段）。resolve.rs の rx の記録の腕と同じ名前の解決（空の名前は拒否）を
+/// 源の式の写し（位置で書いた字段）。resolve.rs の rx の記録の腕と同じ名前の解決を
 /// 写す。rx が拒否する形（字段の重複、未知の字段、空の宣言）は、ここでは拒否しない（rx が None なら定理は空）。
 /// let の番号は rx と同じく sc.len()。記録の基は rx で解決して深さ（deep_rec）を決め、字段の式はその scope で写す。
 /// 呼出しは、呼出し先の本体を深さ dep まで写す（dep が 0 の呼出しは None）。循環する呼出しは、どの深さでも None になる。
@@ -498,9 +498,289 @@ proof fn absent_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>
     }
 }
 
+/// 字段の式の列（rbuild）は、要素ごとに位置 n を参照も束縛もしないなら、全体も参照も束縛もしない。
+proof fn absent_rbuild(n: nat, es: Seq<Expr>)
+    requires
+        es.len() >= 1,
+        forall|j: int| 0 <= j < es.len() ==> absent(n, #[trigger] es[j]),
+    ensures
+        absent(n, rbuild(es)),
+    decreases es.len(),
+{
+    reveal_with_fuel(rbuild, 2);
+    reveal_with_fuel(absent, 2);
+    if es.len() > 1 {
+        let rest = es.drop_first();
+        assert forall|j: int| 0 <= j < rest.len() implies absent(n, #[trigger] rest[j]) by {
+            assert(rest[j] == es[j + 1]);
+        }
+        absent_rbuild(n, rest);
+    }
+}
+
+/// 書いた字段と基の式（fill）は、書いた式と基が位置 n を参照も束縛もしないなら、要素ごとにそうである。
+proof fn absent_fill(n: nat, u: Seq<Option<Expr>>, b: Expr)
+    requires
+        absent(n, b),
+        forall|j: int| 0 <= j < u.len() ==> (#[trigger] u[j]) is Some ==> absent(n, u[j]->Some_0),
+    ensures
+        forall|j: int| 0 <= j < u.len() ==> absent(n, #[trigger] fill(u, b)[j]),
+{
+    assert forall|j: int| 0 <= j < u.len() implies absent(n, #[trigger] fill(u, b)[j]) by {
+        if u[j] is Some {
+            assert(fill(u, b)[j] == u[j]->Some_0);
+        } else {
+            assert(fill(u, b)[j] == rfield(b, j as nat, u.len()));
+            absent_rfield(n, b, j as nat, u.len());
+        }
+    }
+}
+
+/// 更新の式（rupdate）は、書いた式と基が位置 n を参照も束縛もせず、基の束縛の位置 x が n と違うなら、n を参照も束縛もしない。
+proof fn absent_rupdate(n: nat, u: Seq<Option<Expr>>, b: Expr, x: nat)
+    requires
+        n != x,
+        u.len() >= 1,
+        absent(n, b),
+        forall|j: int| 0 <= j < u.len() ==> (#[trigger] u[j]) is Some ==> absent(n, u[j]->Some_0),
+    ensures
+        absent(n, rupdate(u, b, x)),
+{
+    reveal_with_fuel(absent, 2);
+    reveal_with_fuel(rupdate, 1);
+    if b is Var || nmissing(u) <= 1 {
+        absent_fill(n, u, b);
+        absent_rbuild(n, fill(u, b));
+    } else {
+        assert(absent(n, Expr::Var(x)));
+        absent_fill(n, u, Expr::Var(x));
+        absent_rbuild(n, fill(u, Expr::Var(x)));
+    }
+}
+
+/// 字段の書込み（rec_upd）は、書いた式が位置 n を参照も束縛もしないなら、書き終えた式もそうである。字段の式は absent_at で示す。
+#[verifier::rlimit(50)]
+proof fn absent_rec_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, i: nat, u: Seq<Option<Expr>>, uf: Seq<Option<Expr>>)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        u.len() == decl.len(),
+        rec_upd(fs, tb, false, t, decl, fls, i, u) == Some(uf),
+        forall|j: int| 0 <= j < u.len() ==> (#[trigger] u[j]) is Some ==> absent(n, u[j]->Some_0),
+        forall|k: int| i <= k < fls.len() ==> rsrc(fs, tb, fds, dep, t, #[trigger] fls[k].1) is Some,
+    ensures
+        uf.len() == u.len(),
+        forall|j: int| 0 <= j < uf.len() ==> (#[trigger] uf[j]) is Some ==> absent(n, uf[j]->Some_0),
+    decreases dep, fls, fls.len() - i,
+{
+    reveal_with_fuel(rec_upd, 2);
+    if i < fls.len() {
+        if let Some(j) = idx(decl, fls[i as int].0, 0) {
+            idx_props(decl, fls[i as int].0, 0);
+            if u[j as int] is None {
+                if let Some(x) = rx(fs, tb, false, t, fls[i as int].1) {
+                    absent_at(fs, tb, fds, dep, t, n, fls[i as int].1, x);
+                    let u2 = u.update(j as int, Some(x));
+                    assert forall|m: int| 0 <= m < u2.len() && (#[trigger] u2[m]) is Some implies absent(n, u2[m]->Some_0) by {
+                        if m != j as int {
+                            assert(u2[m] == u[m]);
+                        }
+                    }
+                    absent_rec_upd(fs, tb, fds, dep, t, n, decl, fls, i + 1, u2, uf);
+                }
+            }
+        }
+    }
+}
+
+/// 字段の列の rsrc_ws が Some なら、各字段の式は写せる（rsrc が Some）。
+proof fn rsrc_ws_some(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, sc: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>)
+    requires
+        rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0) is Some,
+    ensures
+        forall|k: int| 0 <= k < fls.len() ==> rsrc(fs, tb, fds, dep, sc, #[trigger] fls[k].1) is Some,
+{
+    let ws = rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0)->Some_0;
+    rsrc_ws_at(fs, tb, fds, dep, sc, decl, fls, 0, ws);
+    assert forall|k: int| 0 <= k < fls.len() implies rsrc(fs, tb, fds, dep, sc, #[trigger] fls[k].1) is Some by {
+        assert(idx(decl, fls[k].0, 0) == idx(decl, fls[k].0, 0));
+    }
+}
+
+/// 印なしの記録の構築（基がない）は、書いていない字段がなく、書いた式がすべて位置 n を参照も束縛もしないなら、位置 n を参照も束縛もしない。
+#[verifier::rlimit(50)]
+proof fn absent_rec_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, u: Seq<Option<Expr>>, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        decl.len() > 0,
+        rsrc_ws(fs, tb, fds, dep, t, decl, fls, 0) is Some,
+        rec_upd(fs, tb, false, t, decl, fls, 0, none_upd(decl.len())) == Some(u),
+        rrecord(u, None, t.len()) == Ok(c),
+    ensures
+        absent(n, c),
+    decreases dep, fls, fls.len() + 1,
+{
+    rsrc_ws_some(fs, tb, fds, dep, t, decl, fls);
+    absent_rec_upd(fs, tb, fds, dep, t, n, decl, fls, 0, none_upd(decl.len()), u);
+    assert(nmissing(u) == 0);
+    nmissing_zero(u);
+    assert forall|j: int| 0 <= j < crate::records_exec::written(u).len() implies absent(n, #[trigger] crate::records_exec::written(u)[j]) by {
+        assert(crate::records_exec::written(u)[j] == u[j]->Some_0);
+    }
+    absent_rbuild(n, crate::records_exec::written(u));
+    assert(c == rbuild(crate::records_exec::written(u)));
+}
+
+/// 印なしの記録の構築（基がある）は、基と更新の x が位置 n を参照も束縛もせず、書いた式がすべて位置 n を参照も束縛もしないなら、位置 n を参照も束縛もしない。
+#[verifier::rlimit(50)]
+proof fn absent_rec_some(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t2: Seq<Seq<char>>, n: nat, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Expr, x: nat, u: Seq<Option<Expr>>, c: Expr)
+    requires
+        n < t2.len(),
+        t2[n as int] == Seq::<char>::empty(),
+        n != x,
+        decl.len() > 0,
+        absent(n, bx),
+        rsrc_ws(fs, tb, fds, dep, t2, decl, fls, 0) is Some,
+        rec_upd(fs, tb, false, t2, decl, fls, 0, none_upd(decl.len())) == Some(u),
+        rrecord(u, Some(bx), x) == Ok(c),
+    ensures
+        absent(n, c),
+    decreases dep, fls, fls.len() + 1,
+{
+    rsrc_ws_some(fs, tb, fds, dep, t2, decl, fls);
+    absent_rec_upd(fs, tb, fds, dep, t2, n, decl, fls, 0, none_upd(decl.len()), u);
+    absent_rupdate(n, u, bx, x);
+    assert(c == rupdate(u, bx, x));
+}
+
+/// rx の基なしの記録の腕を展開する：字段の名前は宣言にあり、印なしの rec_expr が c を返す。
+#[verifier::rlimit(50)]
+proof fn rx_rec_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, r: Seq<char>, fls: Seq<(Seq<char>, Sx)>, c: Expr)
+    requires
+        rx(fs, tb, false, t, Sx::Rec(r, fls, None)) == Some(c),
+    ensures
+        idx(tnames(tb), r, 0) is Some,
+        is_rec_slot(tb[idx(tnames(tb), r, 0)->Some_0 as int].2),
+        rec_expr(fs, tb, false, t, tb[idx(tnames(tb), r, 0)->Some_0 as int].2, fls, None) == Some(c),
+{
+    reveal_with_fuel(rx, 2);
+    reveal_with_fuel(rec_t, 2);
+}
+
+/// rx の基ありの記録の腕を展開する：基は bx に解決し、印なしの rec_expr が c を返す。
+#[verifier::rlimit(50)]
+proof fn rx_rec_some(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, r: Seq<char>, fls: Seq<(Seq<char>, Sx)>, b: Sx, bx: Expr, c: Expr)
+    requires
+        rx(fs, tb, false, t, Sx::Rec(r, fls, Some(Box::new(b)))) == Some(c),
+        rx(fs, tb, false, t, b) == Some(bx),
+    ensures
+        idx(tnames(tb), r, 0) is Some,
+        is_rec_slot(tb[idx(tnames(tb), r, 0)->Some_0 as int].2),
+        rec_expr(fs, tb, false, t, tb[idx(tnames(tb), r, 0)->Some_0 as int].2, fls, Some(bx)) == Some(c),
+{
+    reveal_with_fuel(rx, 2);
+    reveal_with_fuel(rec_t, 2);
+}
+
+/// 基なしの記録の字段の写し（rsrc）は、字段の列の rsrc_ws が Some である。
+#[verifier::rlimit(50)]
+proof fn rsrc_rec_none(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, r: Seq<char>, fls: Seq<(Seq<char>, Sx)>, k: nat)
+    requires
+        idx(tnames(tb), r, 0) == Some(k),
+        rsrc(fs, tb, fds, dep, t, Sx::Rec(r, fls, None)) is Some,
+    ensures
+        rsrc_ws(fs, tb, fds, dep, t, tb[k as int].2, fls, 0) is Some,
+{
+    reveal_with_fuel(rsrc, 2);
+}
+
+/// 基ありの記録の写し（rsrc）は、基の写しが Some で、基の scope での字段の列の rsrc_ws が Some である。
+#[verifier::rlimit(50)]
+proof fn rsrc_rec_some(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, r: Seq<char>, fls: Seq<(Seq<char>, Sx)>, b: Sx, bx: Expr, k: nat)
+    requires
+        idx(tnames(tb), r, 0) == Some(k),
+        rx(fs, tb, false, t, b) == Some(bx),
+        rsrc(fs, tb, fds, dep, t, Sx::Rec(r, fls, Some(Box::new(b)))) is Some,
+    ensures
+        rsrc(fs, tb, fds, dep, t, b) is Some,
+        rsrc_ws(fs, tb, fds, dep, scope2(t, deep_rec(Some(bx), tb[k as int].2, fls)), tb[k as int].2, fls, 0) is Some,
+{
+    reveal_with_fuel(rsrc, 2);
+}
+
+/// 印なしの記録の値（基なし）から、書き終えた字段の列 u を取り出す：rrecord は、その構築が c であることを示す。
+#[verifier::rlimit(50)]
+proof fn rec_expr_none_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, c: Expr) -> (u: Seq<Option<Expr>>)
+    requires
+        rec_expr(fs, tb, false, t, decl, fls, None) == Some(c),
+    ensures
+        rec_upd(fs, tb, false, t, decl, fls, 0, none_upd(decl.len())) == Some(u),
+        rrecord(u, None, t.len()) == Ok(c),
+{
+    reveal_with_fuel(rec_expr, 2);
+    assert(rec_upd(fs, tb, false, t, decl, fls, 0, none_upd(decl.len())) is Some);
+    rec_upd(fs, tb, false, t, decl, fls, 0, none_upd(decl.len()))->Some_0
+}
+
+/// 印なしの記録の値（基あり）から、書き終えた字段の列 u を取り出す：rrecord は、更新の式が c であることを示す。
+#[verifier::rlimit(50)]
+proof fn rec_expr_some_upd(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, t: Seq<Seq<char>>, decl: Seq<Seq<char>>, fls: Seq<(Seq<char>, Sx)>, bx: Expr, c: Expr) -> (u: Seq<Option<Expr>>)
+    requires
+        rec_expr(fs, tb, false, t, decl, fls, Some(bx)) == Some(c),
+    ensures
+        rec_upd(fs, tb, false, scope2(t, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) == Some(u),
+        rrecord(u, Some(bx), t.len()) == Ok(c),
+{
+    reveal_with_fuel(rec_expr, 2);
+    assert(rec_upd(fs, tb, false, scope2(t, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len())) is Some);
+    rec_upd(fs, tb, false, scope2(t, deep_rec(Some(bx), decl, fls)), decl, fls, 0, none_upd(decl.len()))->Some_0
+}
+
+/// 記録の構築（rx の Rec の腕）は、位置 n を参照も束縛もしない。字段と基は、同じ scope で absent_at が示す。
+#[verifier::rlimit(50)]
+proof fn absent_rec(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
+    requires
+        n < t.len(),
+        t[n as int] == Seq::<char>::empty(),
+        e is Rec,
+        rx(fs, tb, false, t, e) == Some(c),
+        rsrc(fs, tb, fds, dep, t, e) is Some,
+    ensures
+        absent(n, c),
+    decreases dep, e, 0nat,
+{
+    if let Sx::Rec(r, fls, base) = e {
+        match base {
+            None => {
+                rx_rec_none(fs, tb, t, r, fls, c);
+                let k = idx(tnames(tb), r, 0)->Some_0;
+                let decl = tb[k as int].2;
+                assert(e == Sx::Rec(r, fls, None));
+                rsrc_rec_none(fs, tb, fds, dep, t, r, fls, k);
+                let u = rec_expr_none_upd(fs, tb, t, decl, fls, c);
+                absent_rec_none(fs, tb, fds, dep, t, n, decl, fls, u, c);
+            },
+            Some(b) => {
+                if let Some(bx) = rx(fs, tb, false, t, *b) {
+                    assert(e == Sx::Rec(r, fls, Some(Box::new(*b))));
+                    rx_rec_some(fs, tb, t, r, fls, *b, bx, c);
+                    let k = idx(tnames(tb), r, 0)->Some_0;
+                    let decl = tb[k as int].2;
+                    rsrc_rec_some(fs, tb, fds, dep, t, r, fls, *b, bx, k);
+                    absent_at(fs, tb, fds, dep, t, n, *b, bx);
+                    let sc2 = scope2(t, deep_rec(Some(bx), decl, fls));
+                    assert(n < sc2.len() && sc2[n as int] == Seq::<char>::empty());
+                    let u = rec_expr_some_upd(fs, tb, t, decl, fls, bx, c);
+                    absent_rec_some(fs, tb, fds, dep, sc2, n, decl, fls, bx, t.len(), u, c);
+                }
+            },
+        }
+    }
+}
+
 /// 名前 n の位置が空の名前である scope（t[n] は空）で解決した式は、その位置を参照も束縛もしない。
-/// 深い scope の空の名前の位置が、字段の式に現れないことを示す。記録の構築（rx の Rec の腕）は、空の名前が
-/// ある scope では拒否されるので、ここには現れない。let は、束縛の名前（sc.len()）が n と違うので、その位置を覆わない。
+/// 深い scope の空の名前の位置が、字段の式に現れないことを示す。記録の構築（rx の Rec の腕）は、absent_rec が示す。let は、束縛の名前（sc.len()）が n と違うので、その位置を覆わない。
 #[verifier::rlimit(50)]
 proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
@@ -566,12 +846,7 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
                 }
             }
         },
-        Sx::Rec(r, fls, base) => {
-            if idx(t, Seq::empty(), 0) is None {
-                idx_props(t, Seq::empty(), 0);
-                assert(t[n as int] != Seq::<char>::empty());
-            }
-        },
+        Sx::Rec(..) => absent_rec(fs, tb, fds, dep, t, n, e, c),
         // 直和型の枝は rsrc が写さない（None）。要求の rsrc is Some に反する。
         Sx::SumMatch(..) => {
             assert(rsrc(fs, tb, fds, dep, t, e) is None);
@@ -2298,7 +2573,6 @@ proof fn rec_none_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
             assert(idx(tnames(tb), rn, 0) is Some);
             let k = idx(tnames(tb), rn, 0)->Some_0;
             assert(tb[k as int].2.len() != 0);
-            assert(idx(sc, Seq::empty(), 0) is None);
             let decl = tb[k as int].2;
             let n = decl.len();
             assert(rsrc_ws(fs, tb, fds, dep, sc, decl, fls, 0) is Some);
@@ -2338,7 +2612,6 @@ proof fn rec_some_top(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty
             assert(idx(tnames(tb), rn, 0) is Some);
             let k = idx(tnames(tb), rn, 0)->Some_0;
             assert(tb[k as int].2.len() != 0);
-            assert(idx(sc, Seq::empty(), 0) is None);
             let decl = tb[k as int].2;
             let n = decl.len();
             assert(rx(fs, tb, false, sc, *b) is Some);

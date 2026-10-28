@@ -1150,7 +1150,7 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
             None => None,
         },
         Sx::Rec(r, fls, base) => match idx(tnames(tb), r, 0) {
-            Some(k) => if !is_rec_slot(tb[k as int].2) || idx(sc, Seq::empty(), 0) is Some {
+            Some(k) => if !is_rec_slot(tb[k as int].2) {
                 None
             } else {
                 match base {
@@ -2075,7 +2075,7 @@ proof fn rx_rec_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
     if let Sx::Rec(r, fls, base) = e {
         idx_props(tnames(tb), r, 0);
         if let Some(k) = idx(tnames(tb), r, 0) {
-            if is_rec_slot(tb[k as int].2) && idx(sc, Seq::empty(), 0) is None {
+            if is_rec_slot(tb[k as int].2) {
                 match base {
                     None => rec_t_scoped(fs, tb, tagged, sc, k as nat, tb[k as int].2, fls, None),
                     Some(b) => {
@@ -5027,11 +5027,6 @@ fn rx_rec_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         };
         if !is_rec_slot_e(&tb[k].2) {
             return None;
-        }
-        let empty: Vec<char> = Vec::new();
-        match idx_e(sc, &empty) {
-            Some(_) => return None,
-            None => {},
         }
         let decl = &tb[k].2;
         proof {

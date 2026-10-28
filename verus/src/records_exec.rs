@@ -71,7 +71,7 @@ pub open spec fn rrecord(upd: Seq<Option<Expr>>, base: Option<Expr>, x: nat) -> 
 }
 
 /// 書いていない field がなければ、すべての field を書いている。
-proof fn nmissing_zero(upd: Seq<Option<Expr>>)
+pub proof fn nmissing_zero(upd: Seq<Option<Expr>>)
     requires
         nmissing(upd) == 0,
     ensures
