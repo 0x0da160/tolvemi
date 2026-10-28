@@ -501,6 +501,7 @@ proof fn absent_chain(tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>
 /// 名前 n の位置が空の名前である scope（t[n] は空）で解決した式は、その位置を参照も束縛もしない。
 /// 深い scope の空の名前の位置が、字段の式に現れないことを示す。記録の構築（rx の Rec の腕）は、空の名前が
 /// ある scope では拒否されるので、ここには現れない。let は、束縛の名前（sc.len()）が n と違うので、その位置を覆わない。
+#[verifier::rlimit(50)]
 proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<char>>, Option<Ty>)>, fds: Seq<Sd>, dep: nat, t: Seq<Seq<char>>, n: nat, e: Sx, c: Expr)
     requires
         n < t.len(),
@@ -570,6 +571,10 @@ proof fn absent_at(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<c
                 idx_props(t, Seq::empty(), 0);
                 assert(t[n as int] != Seq::<char>::empty());
             }
+        },
+        // 直和型の枝は rsrc が写さない（None）。要求の rsrc is Some に反する。
+        Sx::SumMatch(..) => {
+            assert(rsrc(fs, tb, fds, dep, t, e) is None);
         },
         _ => {},
     }

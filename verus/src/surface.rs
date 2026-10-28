@@ -140,7 +140,8 @@ pub open spec fn vx(e: SExpr) -> Sx
         SExpr::MatchR(m, x, a, y, b) => Sx::MatchR(Box::new(vx(*m)), x@, Box::new(vx(*a)), y@, Box::new(vx(*b))),
         SExpr::Fld(a, ns) => Sx::Fld(Box::new(vx(*a)), vnames(ns@)),
         SExpr::Rec(r, ns, es, b) => Sx::Rec(r@, vfields(ns@, es@), vbase(b)),
-        SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), varms(ps@, es@)),
+        // 枝のパターンと本体の列の長さが違えば、枝の並びは空（検証済みの解決器は拒否する）。
+        SExpr::SumMatch(m, ps, es) => Sx::SumMatch(Box::new(vx(*m)), if ps@.len() == es@.len() { varms(ps@, es@) } else { Seq::empty() }),
         SExpr::Hof(h, l, x, b) => Sx::Hof(h, Box::new(vx(*l)), x@, Box::new(vx(*b))),
         SExpr::Loop(i, m, x, b) => Sx::Loop(Box::new(vx(*i)), Box::new(vx(*m)), x@, Box::new(vx(*b))),
         SExpr::DictNew(a, b) => Sx::DictNew(vty(a), vty(b)),
@@ -2663,7 +2664,8 @@ fn parm1_e(ts: &Vec<ETok>, i: usize, d: usize, td: usize) -> (r: Option<(Vec<SPa
     ensures
         match r {
             Some((ps, es, k)) => parm1(vtoks(ts@), i as nat, d as nat, td as nat) == Some((varms(ps@, es@), k as nat))
-                && k <= ts.len(),
+                && k <= ts.len()
+                && ps@.len() == es@.len(),
             None => parm1(vtoks(ts@), i as nat, d as nat, td as nat) is None,
         },
     decreases d, 3nat,
@@ -3977,6 +3979,7 @@ fn push_dots(out: &mut Vec<char>, ns: &Vec<Vec<char>>)
 }
 
 /// レコード式の本体（字段の並びと base の前まで）。字段の式の列が名前より短いときは unit を出す（対応する値のない字段）。
+#[verifier::rlimit(50)]
 fn push_fields(out: &mut Vec<char>, ns: &Vec<Vec<char>>, es: &Vec<SExpr>)
     ensures
         final(out)@ == old(out)@ + ffe(vfields(ns@, es@), 0, Seq::empty()),
@@ -4264,7 +4267,7 @@ fn push_hof(out: &mut Vec<char>, e: &SExpr)
 }
 
 /// loop の印字（`loop(初期値, 上限, |s| 本体)`）。
-#[verifier::rlimit(10)]
+#[verifier::rlimit(50)]
 fn push_loop(out: &mut Vec<char>, e: &SExpr)
     requires
         e is Loop,
@@ -4335,13 +4338,26 @@ fn push_summatch(out: &mut Vec<char>, e: &SExpr)
         push1(out, ' ');
         push_e(out, m);
         push3(out, ' ', '{', ' ');
-        push_arms(out, ps, es);
-        proof {
-            reveal_with_fuel(vx, 1);
-            reveal_with_fuel(fe, 1);
-            fe_app(vx(**m), seq![' ', '{', ' '] + farms(varms(ps@, es@), 0, seq![' ', '}']));
-            assert(seq![' ', '}'] + z =~= seq![' ', '}']);
-            assert(out@ =~= o + fe(vx(*e), z));
+        if ps.len() == es.len() {
+            push_arms(out, ps, es);
+            proof {
+                reveal_with_fuel(vx, 1);
+                reveal_with_fuel(fe, 1);
+                fe_app(vx(**m), seq![' ', '{', ' '] + farms(varms(ps@, es@), 0, seq![' ', '}']));
+                assert(seq![' ', '}'] + z =~= seq![' ', '}']);
+                assert(out@ =~= o + fe(vx(*e), z));
+            }
+        } else {
+            // 枝の数が違うときは、枝の並びは空（vx）なので、閉じ括弧だけを出す。
+            push2(out, ' ', '}');
+            proof {
+                reveal_with_fuel(vx, 1);
+                reveal_with_fuel(fe, 1);
+                reveal_with_fuel(farms, 1);
+                fe_app(vx(**m), seq![' ', '{', ' '] + farms(Seq::<(Spat, Sx)>::empty(), 0, seq![' ', '}']));
+                assert(farms(Seq::<(Spat, Sx)>::empty(), 0, seq![' ', '}']) =~= seq![' ', '}']);
+                assert(out@ =~= o + fe(vx(*e), z));
+            }
         }
     }
 }
@@ -4533,7 +4549,7 @@ fn push_inj(out: &mut Vec<char>, e: &SExpr)
     }
 }
 
-#[verifier::rlimit(10)]
+#[verifier::rlimit(50)]
 fn push_matchr(out: &mut Vec<char>, e: &SExpr)
     requires
         e is MatchR,
