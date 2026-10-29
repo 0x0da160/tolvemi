@@ -43,7 +43,7 @@ pub open spec fn renv_below(renv: Map<nat, RVal>, sc: Seq<Seq<char>>) -> bool {
 /// `_` だけの直和型の match（any_arms）の式。
 pub open spec fn any_sm(e: Sx) -> bool {
     match e {
-        Sx::SumMatch(_, arms) => any_arms(arms),
+        Sx::SumMatch(_, arms, _) => any_arms(arms),
         _ => false,
     }
 }
@@ -258,7 +258,7 @@ pub open spec fn rsrc(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Se
             },
         },
         // 直和型の match：`_` だけの枝は let（被験式を位置 sc.len() に束縛）、それ以外は層ごとの枝（rsrc_layers）。
-        Sx::SumMatch(m, arms) => if any_arms(arms) {
+        Sx::SumMatch(m, arms, _) => if any_arms(arms) {
             match (rsrc(fs, tb, fds, dep, sc, *m), rsrc(fs, tb, fds, dep, sc.push(Seq::empty()), arms[0].1)) {
                 (Some(rm), Some(rb)) => Some(RExpr::Let(sc.len(), Box::new(rm), Box::new(rb))),
                 _ => None,
@@ -1141,7 +1141,7 @@ proof fn absent_at_sum(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
     reveal_with_fuel(rsrc, 1);
     reveal_with_fuel(absent, 2);
     match e {
-        Sx::SumMatch(m, arms) => {
+        Sx::SumMatch(m, arms, _) => {
             if any_arms(arms) {
                 assert(rx(fs, tb, false, t, *m) is Some);
                 let cm = rx(fs, tb, false, t, *m)->Some_0;
@@ -3362,7 +3362,7 @@ proof fn sum_any_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>
     reveal_with_fuel(rmean, 1);
     reveal_with_fuel(vof, 1);
     match e {
-        Sx::SumMatch(m, arms) => {
+        Sx::SumMatch(m, arms, _) => {
             assert(any_arms(arms));
             assert(rx(fs, tb, false, sc, *m) is Some);
             let cm = rx(fs, tb, false, sc, *m)->Some_0;
@@ -3411,7 +3411,7 @@ proof fn sum_layer_arm(p: Prog, fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<T
     reveal_with_fuel(pushn, 1);
     reveal_with_fuel(smatch_top, 1);
     match e {
-        Sx::SumMatch(m, arms) => {
+        Sx::SumMatch(m, arms, _) => {
             assert(!any_arms(arms));
             assert(arms_sum(tb, arms) is Some) by {
                 if arms_sum(tb, arms) is None {

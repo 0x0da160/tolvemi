@@ -770,7 +770,7 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
 pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
     match parse_source(source, profile) {
         Parsed::Program(p) => {
-            needs_glue(&p) && (route_scope(&p, source) || (hof::has_hof(&p) && route_scope_hof(&p)))
+            needs_glue(&p) && (route_scope(&p) || (hof::has_hof(&p) && route_scope_hof(&p)))
         }
         Parsed::Failed(_) => false,
     }
@@ -779,14 +779,12 @@ pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
 /// ユーザー定義の直和型の match は、名前の解決が源の意味を保つことを検証済みに示した（DECISION-43 の段階 3、
 /// resolve_sound の直和型の腕）ので、範囲に入る。レコード型と混ぜても同じ（resolve_sound は表の形によらない）。
 /// Option と Result の枝と、`_` の束縛を二つ持つ枝は、検証済みの解決器が扱わないので外す（sums::has_unverified_arm）。
-/// 枝の並びの後ろに `,` を置いた match は、検証済みの構文器が読まないので外す（sums::has_trailing_arm_comma）。
-fn route_scope(p: &Program, source: &[u8]) -> bool {
+fn route_scope(p: &Program) -> bool {
     !(recursive::has_recursive(p)
         || generics::has_generics(p)
         || hof::has_hof(p)
         || dict::has_dict(p)
-        || sums::has_unverified_arm(p)
-        || sums::has_trailing_arm_comma(p, source))
+        || sums::has_unverified_arm(p))
 }
 
 /// hof を含むプログラムの経路の範囲（DECISION-43）。hof の解決と書換えは検証済みの部品を通るので、記録、直和型、
@@ -817,7 +815,7 @@ fn route_expanded(
     if let Some(table) = hof_route {
         return verified_from_source_hof(source, p, r, table, profile);
     }
-    if !route_scope(p, source) {
+    if !route_scope(p) {
         return r;
     }
     verified_from_source(source, p, r, profile)

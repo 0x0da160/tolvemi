@@ -1186,6 +1186,36 @@ proof fn farms_lex(arms: Seq<(Spat, Sx)>, i: nat, d: nat, td: nat, tail: Seq<cha
     }
 }
 
+/// 枝の並びの閉じ部分（末尾の `,` の有無に応じた ` }`。続く字句は k）の字句。
+proof fn mclose_lex(tc: bool, k: Seq<char>, u: Seq<Tok>)
+    requires
+        lex(k) == Some(u),
+    ensures
+        lex((if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + k) == Some(mclose(tc, u)),
+{
+    ls('}', k, u);
+    lw(' ', seq!['}'] + k, seq![Tok::Sym('}')] + u);
+    if tc {
+        ls(',', seq![' '] + (seq!['}'] + k), seq![Tok::Sym('}')] + u);
+        assert(seq![',', ' ', '}'] + k =~= seq![','] + (seq![' '] + (seq!['}'] + k)));
+        assert(seq![Tok::Sym(','), Tok::Sym('}')] + u =~= seq![Tok::Sym(',')] + (seq![Tok::Sym('}')] + u));
+    } else {
+        assert(seq![' ', '}'] + k =~= seq![' '] + (seq!['}'] + k));
+    }
+}
+
+/// 枝の並びの閉じ部分は `,` か空白で始まり、字句として安全。
+proof fn msafe(tc: bool, k: Seq<char>)
+    ensures
+        safe((if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + k),
+{
+    if tc {
+        assert((seq![',', ' ', '}'] + k)[0] == ',');
+    } else {
+        assert((seq![' ', '}'] + k)[0] == ' ');
+    }
+}
+
 /// 字句の補題：`match e { 枝 }`（後ろの字句は k。閉じ括弧 `}` が後ろを区切る）。
 proof fn fe_lex_sumatch(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
     requires
@@ -1199,13 +1229,11 @@ proof fn fe_lex_sumatch(e: Sx, d: nat, td: nat, k: Seq<char>, u: Seq<Tok>)
 {
     let d1 = (d - 1) as nat;
     match e {
-        Sx::SumMatch(m, arms) => {
-            ls('}', k, u);
-            lw(' ', seq!['}'] + k, seq![Tok::Sym('}')] + u);
-            assert(seq![' ', '}'] + k =~= seq![' '] + (seq!['}'] + k));
-            let kc = seq![' ', '}'] + k;
-            let uc = seq![Tok::Sym('}')] + u;
-            assert(kc[0] == ' ');
+        Sx::SumMatch(m, arms, tc) => {
+            mclose_lex(tc, k, u);
+            msafe(tc, k);
+            let kc = (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + k;
+            let uc = mclose(tc, u);
             farms_lex(arms, 0, d1, td, kc, uc);
             let ka = farms(arms, 0, kc);
             let ua = tarms(arms, 0, uc);
@@ -2530,16 +2558,17 @@ proof fn fe_app_sumatch(e: Sx, k: Seq<char>)
     decreases e, 0nat,
 {
     let z = Seq::<char>::empty();
-    if let Sx::SumMatch(m, arms) = e {
-        farms_app(arms, 0, seq![' ', '}']);
-        farms_app(arms, 0, seq![' ', '}'] + k);
-        assert(farms(arms, 0, seq![' ', '}'] + k) =~= farms(arms, 0, seq![' ', '}']) + k);
-        let y = seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}']);
-        assert(seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}'] + k) =~= y + k);
+    if let Sx::SumMatch(m, arms, tc) = e {
+        let t = if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] };
+        farms_app(arms, 0, t);
+        farms_app(arms, 0, t + k);
+        assert(farms(arms, 0, t + k) =~= farms(arms, 0, t) + k);
+        let y = seq![' ', '{', ' '] + farms(arms, 0, t);
+        assert(seq![' ', '{', ' '] + farms(arms, 0, t + k) =~= y + k);
         fe_app(*m, y);
         fe_app(*m, y + k);
         assert(fe(*m, y + k) =~= fe(*m, y) + k);
-        assert(seq![' ', '}'] + z =~= seq![' ', '}']);
+        assert(t + z =~= t);
     }
     assert(fe(e, k) =~= fe(e, z) + k);
 }

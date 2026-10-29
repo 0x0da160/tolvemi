@@ -1129,18 +1129,18 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
     assert_eq!(codes, ["E-TYPE-RETURN"]);
 }
 
-/// V13（S5b）：枝の並びの後ろの `,` は範囲の外（検証済みの構文器が読まない）。同じ match を `,` なしで書けば範囲の内で、
-/// 注釈（`//`）の中の `,` は末尾の `,` ではない。
+/// V13（S5b）：枝の並びの後ろの `,` は範囲の内（検証済みの構文器は `[ "," ]` を読む。構文の証明）。`,` なしで書いた
+/// 同じ match と同じ出力になり、注釈（`//`）の中の `,` は末尾の `,` ではない。
 #[test]
-fn v13_trailing_comma_after_the_last_arm_is_outside_the_route() {
+fn v13_trailing_comma_after_the_last_arm_is_inside_the_route() {
     let p = StaticProfile::default();
     let head = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\nfn mid(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => add(w, h), Empty => 0";
     let trailing = format!("{head}, }}\nentry mid\n");
     let plain = format!("{head} }}\nentry mid\n");
     let comment = format!("{head} // , 注釈\n}}\nentry mid\n");
     assert!(
-        !in_verified_route(trailing.as_bytes(), &p),
-        "末尾の , は範囲の外のはず"
+        in_verified_route(trailing.as_bytes(), &p),
+        "末尾の , は範囲の内のはず"
     );
     assert!(
         in_verified_route(plain.as_bytes(), &p),
@@ -1150,6 +1150,7 @@ fn v13_trailing_comma_after_the_last_arm_is_outside_the_route() {
         in_verified_route(comment.as_bytes(), &p),
         "注釈の中の , は末尾の , ではない"
     );
+    assert_eq!(verified_run(&trailing, r#"{"Rect": [2, 3]}"#), "5");
     assert_eq!(verified_run(&plain, r#"{"Rect": [2, 3]}"#), "5");
     assert_eq!(verified_run(&comment, r#"{"Rect": [2, 3]}"#), "5");
 }

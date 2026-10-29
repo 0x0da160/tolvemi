@@ -1164,7 +1164,7 @@ pub open spec fn rx(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<Seq<
             None => None,
         },
         // 直和型の枝（v1.4）：枝の並びが一つの直和型の構築子の並びなら、その型の鎖にする（印つきは印を検査する）。
-        Sx::SumMatch(m, arms) => if any_arms(arms) {
+        Sx::SumMatch(m, arms, _) => if any_arms(arms) {
             match rx(fs, tb, tagged, sc, *m) {
                 Some(rm) => any_top(fs, tb, tagged, sc, arms, rm),
                 None => None,
@@ -2446,7 +2446,7 @@ proof fn rx_sum_scoped(fs: Seq<Seq<char>>, tb: Seq<(Seq<char>, Option<Ty>, Seq<S
         rx(fs, tb, tagged, sc, e) matches Some(x) ==> scoped(x, sc.len()),
     decreases e, 0nat,
 {
-    if let Sx::SumMatch(m, arms) = e {
+    if let Sx::SumMatch(m, arms, _) = e {
         rx_scoped(fs, tb, tagged, sc, *m);
         if any_arms(arms) {
             if let Some(rm) = rx(fs, tb, tagged, sc, *m) {
@@ -4290,7 +4290,7 @@ fn rx_sum_e(fs: &Vec<Vec<char>>, tb: &Vec<(Vec<char>, Option<Ty>, Vec<Vec<char>>
         },
     decreases e, 0nat,
 {
-    if let SExpr::SumMatch(m, ps, es) = e {
+    if let SExpr::SumMatch(m, ps, es, _) = e {
         if ps.len() != es.len() {
             return None;
         }
