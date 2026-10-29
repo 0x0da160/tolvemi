@@ -1,6 +1,7 @@
 # Directory Update Log
 
 ## 2026-10-29
+* **凍結の主張を確定した（2026-10-29、オーナーの指示「凍結して」）**：`2.stage2-route` の八項目の主張は、コミット `19594cb` の版に確定した。コードは変えていない。v1.0.0 の凍結（DECISION-6・7）は行っていない。G0 は未達、G1〜G4 は未判定で、G4 の実験と公開、spec_version（D11）、設計書 125 行の編集が残るので、これらはオーナーの作業。
 * **総称は経路の外のまま、凍結の主張から外した（2026-10-29、DECISION-30、オーナーの決定「30 のまま」）**：総称を含むプログラムは、検証済みの経路の範囲（`route_scope`）の外で、凍結の外（`trust-boundary.toml` の 2.stage2-route の (8)）。入れ直す案は、総称の型と単一化の証明を要するので取らなかった。コードは変えていない。`status-and-gates.md` の残りの一覧から総称を外し、DECISION-30 の行と `known-caveats.md` に決定を書いた。
 * **枝の並びの後ろの `,` を構文の証明で閉じた（2026-10-29、DECISION-43、オーナーの決定「枝の後ろのカンマ」）**：検証済みの構文（`verus/src/syntax.rs`）の `parm1` は、仕様の `[ "," ]`（LPTL_design_v1.md:214）のとおり、枝の並びの後ろの `,` を `}` の前に一つ読み、`Sx::SumMatch` は末尾の `,` の有無を持つ（`Sd::RecTy` と同じ作り。整形がトークン列を変えないため）。`mclose` が閉じ部分の字句を定め、`parse_proof.rs` の `parm1_complete`・`parm1_sound`・`pm_complete`・`pm_sound`・`te_app_sumatch`、`syntax_proof.rs` の `fe_lex_sumatch`（`mclose_lex`、`msafe`）、`surface.rs` の `parm1_e`・`push_arms`・`push_summatch` を書き換えた。経路の範囲の `sums::has_trailing_arm_comma` と `route_scope` の節は外した。テストは `trailing_comma_after_the_last_arm_runs_on_the_verified_route`（sums.rs）と `v13_trailing_comma_after_the_last_arm_is_inside_the_route`（record_verified.rs）。spec（LPTL_design_v1.md）は変えていない。検証は full crate で 2064 件・error 0。
 
