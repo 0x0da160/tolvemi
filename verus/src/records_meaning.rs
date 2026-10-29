@@ -1,8 +1,10 @@
 //! 源のレコードの意味（段階 2 の S4a）。展開（pair の入れ子への書き換え）を経由しない、印なしの源の意味。
 //!
 //! 値 `RVal` のレコードは field の値の列（宣言の順）で、pair とは別の値である。式 `RExpr` は記録の断片：
-//! 整数・真偽・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`。field は名前（番号）で書き、構築と参照は
+//! 整数・真偽・文字・単位・変数・pair・構築 `R { f: e, ..base }`・参照 `e.f`・if・let・Option の none・some・match・リスト（文字列は文字のリスト）・fold・組込み。field は名前（番号）で書き、構築と参照は
 //! 持ち主の宣言の名前の列（宣言の順）を添える。位置は宣言の列の中の位置で、名前の解決（resolve.rs）の仕事である。
+//!
+//! 組込みの意味は核の `apply` を、引数の値の写し（`vofs`）に当てたもの。組込みの定義は核と共有し、ここでは定義し直さない。
 //!
 //! 意味 `rmean` は部分関数。名前の規則に違反する形（未知の field、同じ field の重複、書いていない field があるのに
 //! base が無い）と、値を持たない形は None になる。base は書いていない field があるときだけ評価する。全部書いた
@@ -16,6 +18,8 @@
 //!
 //! 証明していないこと：展開（resolve.rs の rx）がこの意味と一致すること（S4b）、印つきの写し、型付け。
 
+use crate::records_proof::*;
+use crate::spec::*;
 use vstd::prelude::*;
 
 verus! {
@@ -24,15 +28,30 @@ verus! {
 pub enum RVal {
     Int(int),
     Bool(bool),
+    /// 文字（Unicode のスカラー値の整数）。
+    Char(int),
+    /// Option の none。
+    None,
+    /// Option の some（中の値）。
+    Some(Box<RVal>),
     Unit,
     Pair(Box<RVal>, Box<RVal>),
     Rec(Seq<RVal>),
+    /// リスト（要素の値の列）。文字列は文字の列。
+    List(Seq<RVal>),
+    /// 直和型の値：構築子の番号 k（宣言の順）、構築子の数 n、字段の値の列 vs（字段が無ければ空）。
+    Sum(nat, nat, Seq<RVal>),
 }
 
 /// 源の式（レコードの断片）。field は名前（番号）で書く。構築と参照は持ち主の宣言の名前の列 decl を添える。
 pub enum RExpr {
     Int(int),
     Bool(bool),
+    Char(int),
+    /// Option の none（型は値に現れないので持たない）。
+    None,
+    /// Option の some。
+    Some(Box<RExpr>),
     Unit,
     Var(nat),
     Pair(Box<RExpr>, Box<RExpr>),
@@ -40,6 +59,26 @@ pub enum RExpr {
     Rec(Seq<nat>, Seq<(nat, RExpr)>, Option<Box<RExpr>>),
     /// e.f：持ち主の宣言の名前の列 decl と、参照する field の名前 f。
     Fld(Box<RExpr>, Seq<nat>, nat),
+    /// if c then a else b。c は真偽値でなければならない。
+    If(Box<RExpr>, Box<RExpr>, Box<RExpr>),
+    /// let x = a in b：束縛する名前 x（核の番号、rx の sc.len()）、束縛する式 a、本体 b。
+    Let(nat, Box<RExpr>, Box<RExpr>),
+    /// match m { none => nb、some x => sb }：走査する式 m、none の枝 nb、束縛する名前 x（核の番号）、some の枝 sb。
+    Match(Box<RExpr>, Box<RExpr>, nat, Box<RExpr>),
+    /// リスト（要素の式の列）。型は値に現れないので持たない。文字列は文字の式の列。
+    List(Seq<RExpr>),
+    /// fold(list, init, |acc, item| body)：リスト m、初期値 init、累積の名前 acc と要素の名前 item（核の番号）、本体 body。
+    Fold(Box<RExpr>, Box<RExpr>, nat, nat, Box<RExpr>),
+    /// 組込み（引数の式の列）。意味は核の組込みの意味 apply を、引数の源の値の写しに当てたもの（rapply）。
+    Builtin(Builtin, Seq<RExpr>),
+    /// 呼出し：呼出し先の源の本体（引数の位置で書いたもの）、引数の個数、引数の式の列。
+    /// 本体の意味は、引数の値を位置 0、1、… に束縛して評価する（核の bind と同じ）。本体は宣言から写して埋め込む（records_commute.rs の rsrc の深さ dep）。循環する呼出し（rec の関数）は埋め込みが止まらず、rsrc が None になる。
+    Call(Box<RExpr>, nat, Seq<RExpr>),
+    /// 直和型の構築子：構築子の番号 k、構築子の数 n、字段の式の列（字段が無ければ空）。
+    Ctor(nat, nat, Seq<RExpr>),
+    /// 直和型の match：被験式 s と、構築子の番号ごとの枝（番号 k の枝は、字段の名前（核の番号）の列と本体）。
+    /// 枝の字段は、被験式の値の字段の値を、名前の列の順に束縛する（字段が無い枝は何も束縛しない）。
+    SMatch(Box<RExpr>, Seq<(Seq<nat>, RExpr)>),
 }
 
 /// 名前 f の位置（宣言の名前の列 decl の中で最初に現れる位置）。
@@ -112,6 +151,12 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
     match e {
         RExpr::Int(i) => Some(RVal::Int(i)),
         RExpr::Bool(b) => Some(RVal::Bool(b)),
+        RExpr::Char(c) => Some(RVal::Char(c)),
+        RExpr::None => Some(RVal::None),
+        RExpr::Some(a) => match rmean(env, *a) {
+            Some(v) => Some(RVal::Some(Box::new(v))),
+            None => None,
+        },
         RExpr::Unit => Some(RVal::Unit),
         RExpr::Var(x) => if env.contains_key(x) {
             Some(env[x])
@@ -152,6 +197,227 @@ pub open spec fn rmean(env: Map<nat, RVal>, e: RExpr) -> Option<RVal>
             },
             _ => None,
         },
+        RExpr::If(c, a, b) => match rmean(env, *c) {
+            Some(RVal::Bool(true)) => rmean(env, *a),
+            Some(RVal::Bool(false)) => rmean(env, *b),
+            _ => None,
+        },
+        RExpr::Let(x, a, b) => match rmean(env, *a) {
+            Some(va) => rmean(env.insert(x, va), *b),
+            None => None,
+        },
+        RExpr::Match(m, nb, x, sb) => match rmean(env, *m) {
+            Some(RVal::None) => rmean(env, *nb),
+            Some(RVal::Some(v)) => rmean(env.insert(x, *v), *sb),
+            _ => None,
+        },
+        RExpr::List(es) => match rmeans(env, es, 0) {
+            Some(vs) => Some(RVal::List(vs)),
+            None => None,
+        },
+        RExpr::Fold(l, i, acc, item, body) => match rmean(env, *l) {
+            Some(RVal::List(items)) => match rmean(env, *i) {
+                Some(a) => match raccs(env, acc, item, *body, items, 0, a) {
+                    Some(accs) => Some(accs[(accs.len() - 1) as int]),
+                    None => None,
+                },
+                None => None,
+            },
+            _ => None,
+        },
+        RExpr::Builtin(b, es) => match rmeans(env, es, 0) {
+            Some(vs) => rapply(b, vs),
+            None => None,
+        },
+        RExpr::Call(body, n, es) => match rmeans(env, es, 0) {
+            Some(vs) => if vs.len() == n {
+                rmean(rbind(vs, n), *body)
+            } else {
+                None
+            },
+            None => None,
+        },
+        RExpr::Ctor(k, n, es) => match rmeans(env, es, 0) {
+            Some(vs) => Some(RVal::Sum(k, n, vs)),
+            None => None,
+        },
+        RExpr::SMatch(s, es) => match rmean(env, *s) {
+            Some(RVal::Sum(k, n, vs)) => if n == es.len() && k < n {
+                smatch_arm(env, es, k, vs)
+            } else {
+                None
+            },
+            _ => None,
+        },
+    }
+}
+
+/// 直和型の match の枝（構築子の番号 k）：枝の字段（名前の列 ids）に値の列 vs を束縛し、本体の意味を取る。
+/// 枝の字段の数は、値の字段の数と同じか、字段が無い（ids が空）。番号 k が枝の並びに無ければ None。
+pub open spec fn smatch_arm(env: Map<nat, RVal>, es: Seq<(Seq<nat>, RExpr)>, k: nat, vs: Seq<RVal>) -> Option<RVal>
+    decreases es,
+{
+    if k < es.len() {
+        let (ids, body) = es[k as int];
+        if ids.len() == 0 || ids.len() == vs.len() {
+            rmean(sbind(env, ids, vs, 0), body)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// 枝の字段の束縛：名前 ids[i] に値 vs[i] を入れる（i から先。どちらかが尽きれば止まる）。
+pub open spec fn sbind(env: Map<nat, RVal>, ids: Seq<nat>, vs: Seq<RVal>, i: nat) -> Map<nat, RVal>
+    decreases ids.len() - i,
+{
+    if i >= ids.len() || i >= vs.len() {
+        env
+    } else {
+        sbind(env.insert(ids[i as int], vs[i as int]), ids, vs, i + 1)
+    }
+}
+
+/// 畳み込みの累積の列（核の eval_fold と同じ段）：位置 j から先の要素を順に、累積と要素で本体を評価する。
+/// 結果は初めの累積 a から始まり、段ごとの累積が続く（最後が畳み込みの結果）。
+pub open spec fn raccs(env: Map<nat, RVal>, acc: nat, item: nat, body: RExpr, items: Seq<RVal>, j: nat, a: RVal) -> Option<Seq<RVal>>
+    decreases body, items.len() - j,
+{
+    if j >= items.len() {
+        Some(seq![a])
+    } else {
+        match rmean(env.insert(acc, a).insert(item, items[j as int]), body) {
+            Some(v) => match raccs(env, acc, item, body, items, j + 1, v) {
+                Some(rest) => Some(seq![a] + rest),
+                None => None,
+            },
+            None => None,
+        }
+    }
+}
+
+/// 式の列の意味（位置 i から先）：要素の意味を順に取り、どれか一つでも値を持たなければ None。rxs と同じ形。
+pub open spec fn rmeans(env: Map<nat, RVal>, es: Seq<RExpr>, i: nat) -> Option<Seq<RVal>>
+    decreases es, es.len() - i,
+{
+    if i >= es.len() {
+        Some(Seq::empty())
+    } else {
+        match (rmean(env, es[i as int]), rmeans(env, es, i + 1)) {
+            (Some(v), Some(vs)) => Some(seq![v] + vs),
+            _ => None,
+        }
+    }
+}
+
+/// 源の値を核の値へ写す。レコードは字段の値の列の展開（空の列は Unit。rval は空の列を取らない）。
+pub open spec fn vof(v: RVal) -> Val
+    decreases v, 0nat,
+{
+    match v {
+        RVal::Int(i) => Val::Int(i),
+        RVal::Bool(b) => Val::Bool(b),
+        RVal::Char(i) => Val::Char(i),
+        RVal::None => Val::None,
+        RVal::Some(a) => Val::Some(Box::new(vof(*a))),
+        RVal::List(vs) => Val::List(vofs(vs, 0)),
+        RVal::Unit => Val::Unit,
+        RVal::Pair(a, b) => Val::Pair(Box::new(vof(*a)), Box::new(vof(*b))),
+        RVal::Rec(vs) => if vs.len() == 0 {
+            Val::Unit
+        } else {
+            rval(vofs(vs, 0))
+        },
+        RVal::Sum(k, n, vs) => vsum_from(k, n, 0, if vs.len() == 0 { Val::Unit } else { rval(vofs(vs, 0)) }),
+    }
+}
+
+/// 直和型の値の写し（resolve.rs の inj_from と同じ形）：層 j から、構築子 k の値 p を作る。層 k より前は Err、層 k で
+/// Ok（最後の構築子なら中身そのもの）。構築子は n 個。
+pub open spec fn vsum_from(k: nat, n: nat, j: nat, p: Val) -> Val
+    decreases k - j,
+{
+    if j >= k {
+        if k + 1 < n {
+            Val::Ok(Box::new(p))
+        } else {
+            p
+        }
+    } else {
+        Val::Err(Box::new(vsum_from(k, n, j + 1, p)))
+    }
+}
+
+/// 値の列 vs の、i 番目から先の写し（字段の値の列とリストの要素の列の両方）。
+pub open spec fn vofs(vs: Seq<RVal>, i: nat) -> Seq<Val>
+    decreases vs, vs.len() - i,
+{
+    if i >= vs.len() {
+        Seq::empty()
+    } else {
+        seq![vof(vs[i as int])] + vofs(vs, i + 1)
+    }
+}
+
+/// 核の値を源の値へ写す（vof の逆）。Ok と err は源の値にない。
+pub open spec fn rof(v: Val) -> Option<RVal>
+    decreases v, 0nat,
+{
+    match v {
+        Val::Int(i) => Some(RVal::Int(i)),
+        Val::Bool(b) => Some(RVal::Bool(b)),
+        Val::Char(i) => Some(RVal::Char(i)),
+        Val::None => Some(RVal::None),
+        Val::Some(a) => match rof(*a) {
+            Some(w) => Some(RVal::Some(Box::new(w))),
+            None => None,
+        },
+        Val::Unit => Some(RVal::Unit),
+        Val::Pair(a, b) => match (rof(*a), rof(*b)) {
+            (Some(wa), Some(wb)) => Some(RVal::Pair(Box::new(wa), Box::new(wb))),
+            _ => None,
+        },
+        Val::List(vs) => match rofs(vs, 0) {
+            Some(ws) => Some(RVal::List(ws)),
+            None => None,
+        },
+        Val::Ok(_) => None,
+        Val::Err(_) => None,
+    }
+}
+
+/// 核の値の列の、i 番目から先の源の値への写し。
+pub open spec fn rofs(vs: Seq<Val>, i: nat) -> Option<Seq<RVal>>
+    decreases vs, vs.len() - i,
+{
+    if i >= vs.len() {
+        Some(Seq::empty())
+    } else {
+        match (rof(vs[i as int]), rofs(vs, i + 1)) {
+            (Some(w), Some(ws)) => Some(seq![w] + ws),
+            _ => None,
+        }
+    }
+}
+
+/// 呼出しの環境：引数の値を位置 0、1、… に束縛する（核の bind と同じ形）。
+pub open spec fn rbind(vs: Seq<RVal>, n: nat) -> Map<nat, RVal>
+    decreases n,
+{
+    if n == 0 || n > vs.len() {
+        Map::empty()
+    } else {
+        rbind(vs, (n - 1) as nat).insert((n - 1) as nat, vs[n - 1])
+    }
+}
+
+/// 組込みの源の意味：引数の源の値の写しに、核の組込みの意味 apply を当てる。結果を源の値に写せなければ None。
+pub open spec fn rapply(b: Builtin, vs: Seq<RVal>) -> Option<RVal> {
+    match apply(b, vofs(vs, 0)) {
+        Res::Done(w) => rof(w),
+        _ => None,
     }
 }
 

@@ -558,3 +558,26 @@ fn wildcard_only_match_is_accepted_on_sums_and_options() {
         assert_eq!((code, out.trim_end()), (0, "0"));
     });
 }
+
+/// 枝の並びの後ろの `,`：検証済みの構文器は `[ "," ]`（spec の枝の並び）として末尾の `,` を読むので、範囲の内で、
+/// 検証済みの経路が受理して実行する（E-INTERNAL-VERIFIED-MISMATCH を出さない）。
+#[test]
+fn trailing_comma_after_the_last_arm_runs_on_the_verified_route() {
+    let src = "type Shape = Circle(Int) | Rect(Int, Int) | Empty
+fn mid(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => add(w, h), Empty => 0, }
+entry mid
+";
+    assert!(in_verified_route(src.as_bytes(), &StaticProfile::default()));
+    assert_eq!(run(src, r#"{"Rect": [2, 3]}"#), "5");
+    assert_eq!(run(src, r#"{"Empty": []}"#), "0");
+    let wild = "type Shape = Circle(Int) | Rect(Int, Int) | Empty
+fn mid(s: Shape) -> Int = match s { Circle(r) => r, _ => 1, }
+entry mid
+";
+    assert!(in_verified_route(
+        wild.as_bytes(),
+        &StaticProfile::default()
+    ));
+    assert_eq!(run(wild, r#"{"Empty": []}"#), "1");
+    assert_eq!(run(wild, r#"{"Circle": [4]}"#), "4");
+}

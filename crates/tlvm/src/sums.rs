@@ -1405,3 +1405,37 @@ pub fn lower_in_place(p: &mut Program) {
         }
     }
 }
+
+/// 検証済みの解決器が扱わない枝を含むか：Option と Result の枝（some・none・ok・err）と、同じ枝に `_` の束縛を
+/// 二つ以上持つもの（検証済みの側は束縛の名前を相異なるものとして扱うので、`_` の重複を拒否する）。
+/// 経路の範囲（api.rs の route_scope）はこれらを外す。
+pub fn has_unverified_arm(p: &Program) -> bool {
+    fn unverified(arm: &Arm) -> bool {
+        let wild = arm
+            .pat
+            .binds
+            .iter()
+            .filter(|(b, _)| b.as_str() == "_")
+            .count();
+        matches!(
+            arm.pat.kind,
+            PatKind::Ok | PatKind::Err | PatKind::Some | PatKind::None
+        ) || wild >= 2
+    }
+    fn ex(e: &Expr) -> bool {
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if let ExprKind::SumMatch { arms, .. } = &e.kind {
+                if arms.iter().any(unverified) {
+                    return true;
+                }
+            }
+            stack.extend(e.children());
+        }
+        false
+    }
+    p.declarations.iter().any(|d| match d {
+        Decl::Fn(f) => ex(&f.body),
+        _ => false,
+    })
+}

@@ -23,7 +23,8 @@
 //! 直和型を関数の注釈や式に使うプログラムは含めない（段階 3）。
 //!
 //! S5b：V8（範囲内の受理は源の文字列の二つの写しで検査し、添付の IR は源の印なしの IR と一致する。判定は HEAD と同じ）、
-//! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）。
+//! V10（範囲の外の混ぜたプログラムは HEAD の符号と出力のまま）、V11（rec fn が記録を引数に取る例と相互再帰）、
+//! V13（枝の並びの後ろの `,` は範囲の外で、注釈の中の `,` は範囲の内）、V14（記録と直和型を混ぜたプログラムは範囲の内）。
 //! V9 は tests/nominal.rs の hand_made_tag_shape_is_rejected_when_run にある。
 //!
 //! S5c：V7 の広い版（記録だけのプログラムの変異を本番の検査で判定し、検証済みの食い違いが出ないことを確かめる。
@@ -1086,7 +1087,7 @@ fn v8_record_literal_with_trailing_comma_is_rejected_before_the_route() {
     );
 }
 
-/// V10（S5b）：記録と、総称・直和型・Dict・hof・再帰を混ぜたプログラム。範囲の外なので、HEAD と同じ経路で、
+/// V10（S5b）：記録と、総称・Dict・hof・再帰を混ぜたプログラム。範囲の外なので、HEAD と同じ経路で、
 /// 符号と出力は HEAD の記録と同じ（HEAD の値を直書きする）。
 #[test]
 fn v10_mixed_programs_keep_head_codes_and_outputs() {
@@ -1094,12 +1095,6 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
         // 総称（id<T>）：HEAD は受理し、出力 5
         (
             "type P = { a: Int, b: Int }\nfn id<T>(x: T) -> T = x\nfn f(x: Int) -> Int = id(P { a: x, b: 2 }).a\nentry f\n",
-            "5",
-            "5",
-        ),
-        // 直和型（match）：HEAD は受理し、出力 5
-        (
-            "type P = { a: Int, b: Int }\ntype S = Circle(Int) | Empty\nfn g(s: S) -> Int = match s { Circle(r) => P { a: r, b: 1 }.a, Empty => 0 }\nfn f(x: Int) -> Int = g(Circle(x))\nentry f\n",
             "5",
             "5",
         ),
@@ -1132,6 +1127,73 @@ fn v10_mixed_programs_keep_head_codes_and_outputs() {
     );
     let codes: Vec<String> = rejected(rec_src).into_iter().map(|r| r.1).collect();
     assert_eq!(codes, ["E-TYPE-RETURN"]);
+}
+
+/// V13（S5b）：枝の並びの後ろの `,` は範囲の内（検証済みの構文器は `[ "," ]` を読む。構文の証明）。`,` なしで書いた
+/// 同じ match と同じ出力になり、注釈（`//`）の中の `,` は末尾の `,` ではない。
+#[test]
+fn v13_trailing_comma_after_the_last_arm_is_inside_the_route() {
+    let p = StaticProfile::default();
+    let head = "type Shape = Circle(Int) | Rect(Int, Int) | Empty\nfn mid(s: Shape) -> Int = match s { Circle(r) => r, Rect(w, h) => add(w, h), Empty => 0";
+    let trailing = format!("{head}, }}\nentry mid\n");
+    let plain = format!("{head} }}\nentry mid\n");
+    let comment = format!("{head} // , 注釈\n}}\nentry mid\n");
+    assert!(
+        in_verified_route(trailing.as_bytes(), &p),
+        "末尾の , は範囲の内のはず"
+    );
+    assert!(
+        in_verified_route(plain.as_bytes(), &p),
+        "末尾の , がなければ範囲の内のはず"
+    );
+    assert!(
+        in_verified_route(comment.as_bytes(), &p),
+        "注釈の中の , は末尾の , ではない"
+    );
+    assert_eq!(verified_run(&trailing, r#"{"Rect": [2, 3]}"#), "5");
+    assert_eq!(verified_run(&plain, r#"{"Rect": [2, 3]}"#), "5");
+    assert_eq!(verified_run(&comment, r#"{"Rect": [2, 3]}"#), "5");
+}
+
+/// V14（S5b）：記録と直和型を混ぜたプログラムは範囲の内（resolve_sound は表の形によらない）。検証済みの経路が受理し、
+/// 検証済みの実行の出力は HEAD と同じ。字段の記録を枝に入れる、基ありの記録の構築、記録を持つ構築子を含む。
+#[test]
+fn v14_mixed_records_and_sums_run_on_the_verified_route() {
+    const MIXED: &[(&str, &str, &str)] = &[
+        (
+            "type P = { a: Int, b: Int }\ntype S = Circle(Int) | Empty\nfn g(s: S) -> Int = match s { Circle(r) => P { a: r, b: 1 }.a, Empty => 0 }\nfn f(x: Int) -> Int = g(Circle(x))\nentry f\n",
+            "5",
+            "5",
+        ),
+        (
+            "type P = { a: Int, b: Int }\ntype S = Circle(Int) | Empty\nfn g(s: S, q: P) -> P = match s { Circle(r) => P { a: r, ..q }, Empty => q }\nfn f(x: Int) -> Int = g(Circle(x), P { a: 0, b: 2 }).b\nentry f\n",
+            "5",
+            "2",
+        ),
+        (
+            "type P = { a: Int, b: Int }\ntype S = Circle(P) | Empty\nfn f(x: Int) -> Int = match Circle(P { a: x, b: 1 }) { Circle(p) => p.a, Empty => 0 }\nentry f\n",
+            "5",
+            "5",
+        ),
+        (
+            "type P = { a: Int, b: Int }\ntype S = Circle(Int) | Pt(P)\nfn g(s: S) -> Int = match s { Circle(r) => r, Pt(p) => add(p.a, p.b) }\nfn f(x: Int) -> Int = add(g(Circle(x)), g(Pt(P { a: 1, b: x })))\nentry f\n",
+            "5",
+            "11",
+        ),
+    ];
+    let p = StaticProfile::default();
+    for (src, input, want) in MIXED {
+        assert!(
+            in_verified_route(src.as_bytes(), &p),
+            "範囲の内のはず: {src}"
+        );
+        assert_eq!(cli_run(src, input), *want, "出力が HEAD と違う: {src}");
+        assert_eq!(
+            verified_run(src, input),
+            *want,
+            "検証済みの出力が違う: {src}"
+        );
+    }
 }
 
 /// V11（S5b）：rec fn が記録を引数に取る例（HEAD は 11 を返す）は、範囲の内で、検証済みの実行も 11 を返す。

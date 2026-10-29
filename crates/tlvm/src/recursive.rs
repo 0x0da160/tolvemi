@@ -5,7 +5,8 @@
 //! 項ごとに `[長さ] ++ 中身` が続く。Int の項の中身は一つの整数、Bool の項の中身は 0 か 1、再帰する型の項の
 //! 中身はその値そのもの。項の長さを前に置くので、次の項の位置を求めるのに子の中身を再帰で読まずに済む。
 //!
-//! 検査の前に書き換える（検証されていない接着部分）。
+//! 循環の判定（どの型が再帰するか）は検証済みの `reach_e`（verus/src/recursive_plan.rs）。
+//! それ以外は検査の前に書き換える（検証されていない接着部分）。
 //! - 構築 `Node(l, v, r)` は、値の列を作る関数 `node_new(l, v, r)` の呼び出しに。引数のない構築子は列の定数に。
 //! - `match` は、先頭の番号と比べる `if` の連鎖に。束縛は補助関数 `rec_at`・`rec_take`・`rec_drop` で項を
 //!   取り出す（どれも LPTL の関数として書き、型検査と検証済み部品が検査する）。
@@ -22,8 +23,10 @@ use crate::sums::pattern_text;
 use crate::syntax::*;
 use num_bigint::BigInt;
 use std::collections::{HashMap, HashSet};
+use tlvm_verified::recursive_plan::reach_e;
 
 /// 循環に入る直和型の名前（宣言の型の名前をたどって自分に戻るもの）。
+/// 辺の表（どの名前がどの名前を書くか）はここで作る。循環の判定は検証済みの `reach_e`。
 fn recursive_names(p: &Program) -> HashSet<String> {
     let mut edges: HashMap<String, Vec<String>> = HashMap::new();
     for d in &p.declarations {
@@ -45,10 +48,30 @@ fn recursive_names(p: &Program) -> HashSet<String> {
             _ => {}
         }
     }
+    let mut names: Vec<String> = edges.keys().cloned().collect();
+    for out in edges.values() {
+        names.extend(out.iter().cloned());
+    }
+    names.sort();
+    names.dedup();
+    let id: HashMap<&str, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let mut adj = vec![vec![false; names.len()]; names.len()];
+    for (from, out) in &edges {
+        for to in out {
+            adj[id[from.as_str()]][id[to.as_str()]] = true;
+        }
+    }
     p.declarations
         .iter()
         .filter_map(|d| match d {
-            Decl::Sum(s) if reaches(&edges, &s.name, &s.name) => Some(s.name.clone()),
+            Decl::Sum(s) => {
+                let i = id[s.name.as_str()];
+                reach_e(&adj, i)[i].then(|| s.name.clone())
+            }
             _ => None,
         })
         .collect()
@@ -64,26 +87,6 @@ fn mentions(t: &TypeNode, out: &mut Vec<String>) {
     for a in &t.args {
         mentions(a, out);
     }
-}
-
-/// `from` の辺をたどって `target` に戻るか。
-fn reaches(edges: &HashMap<String, Vec<String>>, from: &str, target: &str) -> bool {
-    let mut seen: HashSet<&str> = HashSet::new();
-    let mut todo: Vec<&str> = edges
-        .get(from)
-        .into_iter()
-        .flatten()
-        .map(String::as_str)
-        .collect();
-    while let Some(n) = todo.pop() {
-        if n == target {
-            return true;
-        }
-        if seen.insert(n) {
-            todo.extend(edges.get(n).into_iter().flatten().map(String::as_str));
-        }
-    }
-    false
 }
 
 /// 再帰する直和型を含むか（あれば `expand` で書き換える）。

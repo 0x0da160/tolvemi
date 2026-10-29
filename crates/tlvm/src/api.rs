@@ -20,6 +20,7 @@ use crate::syntax::{Program, Ty};
 use crate::values::{self, DecodeResult, TypedValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tlvm_verified::hofroute::{hof_compile, hof_resolve_source, HofCompiled};
 use tlvm_verified::pipeline::{canonical_source, compile_source, Compiled};
 use tlvm_verified::resolve::resolve_e;
 use tlvm_verified::surface::parse_e;
@@ -246,13 +247,16 @@ fn compile_expanded(
             // v1.10：総称の関数は型検査の後で単相化し、以降は単相化したプログラムを書き換える
             let (o, pm) = generics::check(&px, source.len(), profile);
             // v1.7：印 `rec` は検証済み parser の構文にないので外して整形し、印は別に渡す（cross_check）
-            // v1.9：辞書の操作は hof::lower が書き換え、最後に型の Dict<K, V> を List<Pair<K, V>> にする
-            let mut glued = hof::lower(&pm, &o.hof);
+            // v1.9：hof と辞書の操作を書き換える（hof は hof_verified、写せなければ hof::lower）。最後に型の Dict<K, V> を List<Pair<K, V>> にする
+            let mut glued = crate::hof_verified::lower_hof(&pm, &o.hof);
             lower_in_place(&mut glued);
             dict::erase_in_place(&mut glued);
             glued.unmark();
             let text = format_program(&glued);
             let at = hof::deepest_loop_nest(&pm).map_or((0, 0), |(_, s)| s);
+            // hof を含み範囲内のプログラムは、検証済みの経路の表を作る（番号は型検査器の節点の pm に付く）
+            let hof_route = (hof::has_hof(p) && route_scope_hof(p))
+                .then(|| crate::hof_verified::route_table(&pm, &o.hof));
             let r = check_rewritten_size(&text, result(o.diagnostics.clone(), Some(o)), profile);
             route_expanded(
                 source,
@@ -260,6 +264,7 @@ fn compile_expanded(
                 tagged,
                 cross_check_at(&text, r, profile, at),
                 profile,
+                hof_route,
             )
         }
     }
@@ -311,7 +316,7 @@ pub fn needs_glue(p: &Program) -> bool {
 }
 
 /// 型引数、直和型、レコードの順に展開する（診断の phase は name）。結果は型検査器が検査できる形。
-/// map などはそのまま残る（型検査の後で `hof::lower` が書き換える）。総称の関数も残る（型検査の後で
+/// map などはそのまま残る（型検査の後で `hof_verified::lower_hof` が書き換える）。総称の関数も残る（型検査の後で
 /// `generics::check` が単相化する）。
 pub fn expand(p: &Program) -> Result<Program, Vec<crate::diagnostics::Diagnostic>> {
     expand_with(p, false)
@@ -624,7 +629,7 @@ pub fn compile_ast(data: &[u8], profile: &StaticProfile, tp: &AstTransportProfil
             // v1.7：印 `rec` は外して整形する（印は cross_check が別に渡す）
             // v1.9：辞書も同じく書き換え、型の Dict<K, V> を List<Pair<K, V>> にする
             let text = if hof::has_hof(&p) || dict::has_dict(&p) {
-                let mut glued = hof::lower(&p, &o.hof);
+                let mut glued = crate::hof_verified::lower_hof(&p, &o.hof);
                 dict::erase_in_place(&mut glued);
                 glued.unmark();
                 format_program(&glued)
@@ -744,8 +749,8 @@ fn expansion_rejected(
 /// V4、S2C_RECURSIVE と V7）。入れないコードと理由：
 /// - E-SUM-NAME-CONFLICT、E-SUM-DUPLICATE-CTOR：検証済みの宣言の表に構築子の名前の規則が無く、検証済みが受理する。
 /// - E-SUM-UNKNOWN-CTOR、E-SUM-CTOR-ARITY、E-MATCH-MISSING、E-MATCH-DUPLICATE、E-MATCH-UNREACHABLE、
-///   E-MATCH-MIXED：検証済みの解決器は直和型の match を拒否し（SumMatch は None）、構築子は関数でないので呼出しも拒否する。
-///   その拒否は規則の証拠にならない。
+///   E-MATCH-MIXED：検証済みの解決器は直和型の match を arms_fit の条件（構築子の名前、字段の数、枝の重複、欠け、
+///   到達不能）で受理する。その条件での拒否と、返す符号の対応は検証していないので、突き合わせない。
 /// - E-TYPE-GENERIC-*、E-REC-TYPE-PARAM：検証済みの構文に型引数が無い（G1）ので、突き合わせが働かない。
 ///   （`fn g(x: U)` の例だけは構文が通るが、拒否は未知の型の規則による。総称の規則の証拠にはならない。）
 pub const CHECKED_EXPANSION_CODES: &[&str] = &[
@@ -759,22 +764,38 @@ pub const CHECKED_EXPANSION_CODES: &[&str] = &[
     "E-REC-FIELD-TYPE",
 ];
 
-/// S5b：記録と名前だけのプログラムか（直和型・再帰する型・総称・hof（map、filter、any、all、find、sort_by と loop）・
-/// 辞書を含まない）。展開が要るプログラムのうち、この範囲は源の文字列を検証済みの経路で
-/// 検査し、印なしの IR を実行に使う。`fold` は核の形で、hof ではない（hof.rs の冒頭）。
+/// S5b：展開が要るプログラムのうち、範囲の内のものは源の文字列を検証済みの経路で検査し、印なしの IR を実行に使う。
+/// 範囲は記録と名前、直和型の match（route_scope）と、hof を含むもの（route_scope_hof）。
+/// `fold` は核の形で、hof ではない（hof.rs の冒頭）。
 pub fn in_verified_route(source: &[u8], profile: &StaticProfile) -> bool {
     match parse_source(source, profile) {
-        Parsed::Program(p) => needs_glue(&p) && route_scope(&p),
+        Parsed::Program(p) => {
+            needs_glue(&p) && (route_scope(&p) || (hof::has_hof(&p) && route_scope_hof(&p)))
+        }
         Parsed::Failed(_) => false,
     }
 }
 
+/// ユーザー定義の直和型の match は、名前の解決が源の意味を保つことを検証済みに示した（DECISION-43 の段階 3、
+/// resolve_sound の直和型の腕）ので、範囲に入る。レコード型と混ぜても同じ（resolve_sound は表の形によらない）。
+/// Option と Result の枝と、`_` の束縛を二つ持つ枝は、検証済みの解決器が扱わないので外す（sums::has_unverified_arm）。
 fn route_scope(p: &Program) -> bool {
+    !(recursive::has_recursive(p)
+        || generics::has_generics(p)
+        || hof::has_hof(p)
+        || dict::has_dict(p)
+        || sums::has_unverified_arm(p))
+}
+
+/// hof を含むプログラムの経路の範囲（DECISION-43）。hof の解決と書換えは検証済みの部品を通るので、記録、直和型、
+/// 再帰、総称、辞書、loop は含まない（展開や型の表が要るので、この経路の外）。直和型と hof の組は、証明の範囲の外（hof の腕は証明していない）。
+fn route_scope_hof(p: &Program) -> bool {
     !(sums::has_sums(p)
         || recursive::has_recursive(p)
         || generics::has_generics(p)
-        || hof::has_hof(p)
-        || dict::has_dict(p))
+        || dict::has_dict(p)
+        || records::has_records(p)
+        || hof::has_loop(p))
 }
 
 /// S5b：展開のゲート（印なし）が受理した、範囲内のプログラムを源の文字列で検証済みの経路に通す。
@@ -785,11 +806,75 @@ fn route_expanded(
     tagged: bool,
     r: CompileResult,
     profile: &StaticProfile,
+    hof_route: Option<Option<crate::hof_verified::RouteTable>>,
 ) -> CompileResult {
-    if tagged || !route_scope(p) {
+    if tagged {
+        return r;
+    }
+    // hof を含み範囲内のプログラムは、hof の経路の表（作れなければ None）で源を検証する
+    if let Some(table) = hof_route {
+        return verified_from_source_hof(source, p, r, table, profile);
+    }
+    if !route_scope(p) {
         return r;
     }
     verified_from_source(source, p, r, profile)
+}
+
+/// hof を含むプログラムの、源の文字列の検証済みの経路（DECISION-43）。源を検証済みの構文器と解決器（hof を含む）で読み、
+/// 解決した関数の本体を表で書き換え（検証済みの rw_ex）、核のプログラムを検証済みの型検査器に通す。表の束縛の並びが
+/// 検証済みの解決の並びと一致しなければ、また、どの段でも拒否なら、拒否する（経路は第二の判定を兼ねる）。
+fn verified_from_source_hof(
+    source: &[u8],
+    p: &Program,
+    r: CompileResult,
+    table: Option<crate::hof_verified::RouteTable>,
+    profile: &StaticProfile,
+) -> CompileResult {
+    let CompileResult::Accepted {
+        mut program,
+        warnings,
+        work,
+    } = r
+    else {
+        return r;
+    };
+    let Some(table) = table else {
+        return reject_verified("verified-hof-table-rejected", warnings, work);
+    };
+    let text = without_rec_markers(std::str::from_utf8(source).unwrap_or(""), p);
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() >= VERIFIED_MAX_CHARS {
+        return reject_verified("source-too-long-for-verified-parser", warnings, work);
+    }
+    let rank: Vec<usize> = p
+        .functions()
+        .map(|f| program.rank.get(&f.name).copied().unwrap_or(usize::MAX))
+        .collect();
+    let rec: Vec<bool> = p.functions().map(|f| f.rec).collect();
+    let (d, td) = depth_bounds(profile);
+    let Some((fs, g, _)) = hof_resolve_source(&chars, d, td) else {
+        return reject_verified("verified-hof-resolver-rejected", warnings, work);
+    };
+    if table.hofs != crate::hof_verified::verified_hofs(&fs) {
+        return reject_verified("verified-hof-binders-mismatch", warnings, work);
+    }
+    match hof_compile(&fs, g, &table.table, rank, rec) {
+        HofCompiled::Accepted(e) => {
+            program.verified = Some(Arc::new(VerifiedProgram(e)));
+            CompileResult::Accepted {
+                program,
+                warnings,
+                work,
+            }
+        }
+        HofCompiled::RewriteRejected => {
+            reject_verified("verified-rewrite-rejected", warnings, work)
+        }
+        HofCompiled::NotWellFormed => {
+            reject_verified("verified-typechecker-rejected", warnings, work)
+        }
+    }
 }
 
 /// S5b：源の文字列の検証済みの検査。印つきの写しが受理し、印なしの写しが受理したとき、印なしの IR を付ける。

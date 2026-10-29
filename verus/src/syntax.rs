@@ -723,8 +723,8 @@ pub enum Sx {
     Fld(Box<Sx>, Seq<Seq<char>>),
     /// v1.1：R { f: e, ..b }（フィールドの並びと、省略できる base）
     Rec(Seq<char>, Seq<(Seq<char>, Sx)>, Option<Box<Sx>>),
-    /// v1.4：match e { P => a, ... }（枝の並びは空でない）
-    SumMatch(Box<Sx>, Seq<(Spat, Sx)>),
+    /// v1.4：match e { P => a, ... }（枝の並びは空でない。末尾の `,` の有無を持つ。整形がトークン列を変えないため）
+    SumMatch(Box<Sx>, Seq<(Spat, Sx)>, bool),
     /// v1.5：hof(xs, |x| e)（hof の語、被験の列、binder、本体）。binder は IDENT か文脈キーワード。
     Hof(Hf, Box<Sx>, Seq<char>, Box<Sx>),
     /// v1.6：loop(init, max, |s| e)（初期値、上限、binder、本体）。binder は IDENT か文脈キーワード。
@@ -876,7 +876,7 @@ pub open spec fn te(e: Sx, k: Seq<Tok>) -> Seq<Tok>
         ),
         Sx::Fld(a, fs) => te(*a, tdots(fs, k)),
         Sx::Rec(r, fs, b) => seq![word_tok(r), Tok::Sym('{')] + tfe(fs, 0, rtail(fs.len() > 0, b, k)),
-        Sx::SumMatch(m, arms) => seq![word_tok(mword())] + te(*m, seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')] + k)),
+        Sx::SumMatch(m, arms, tc) => seq![word_tok(mword())] + te(*m, seq![Tok::Sym('{')] + tarms(arms, 0, mclose(tc, k))),
         Sx::Hof(h, l, x, b) => seq![Tok::Kw(hkw(h)), Tok::Sym('(')] + te(
             *l,
             seq![Tok::Sym(','), Tok::Sym('|'), word_tok(x), Tok::Sym('|')] + te(*b, seq![Tok::Sym(')')] + k),
@@ -940,6 +940,15 @@ pub open spec fn tarms(arms: Seq<(Spat, Sx)>, i: nat, k: Seq<Tok>) -> Seq<Tok>
                 seq![Tok::Sym(',')] + tarms(arms, i + 1, k)
             },
         ))
+    }
+}
+
+/// match の枝の並びの後ろ：末尾の `,` の有無 tc（true なら `,`）、閉じ括弧 `}`、そして続き k。
+pub open spec fn mclose(tc: bool, k: Seq<Tok>) -> Seq<Tok> {
+    if tc {
+        seq![Tok::Sym(','), Tok::Sym('}')] + k
+    } else {
+        seq![Tok::Sym('}')] + k
     }
 }
 
@@ -1199,7 +1208,10 @@ pub open spec fn fe(e: Sx, k: Seq<char>) -> Seq<char>
         } else {
             seq![' '] + ffe(fs, 0, frtail(fs.len() > 0, b, k))
         }),
-        Sx::SumMatch(m, arms) => mword() + (seq![' '] + fe(*m, seq![' ', '{', ' '] + farms(arms, 0, seq![' ', '}'] + k))),
+        Sx::SumMatch(m, arms, tc) => mword() + (seq![' '] + fe(
+            *m,
+            seq![' ', '{', ' '] + farms(arms, 0, (if tc { seq![',', ' ', '}'] } else { seq![' ', '}'] }) + k),
+        )),
         Sx::Hof(h, l, x, b) => kwt(hkw(h)) + (seq!['('] + fe(
             *l,
             seq![',', ' ', '|'] + (x + (seq!['|', ' '] + fe(*b, seq![')'] + k))),
@@ -2170,7 +2182,7 @@ pub open spec fn pm(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
         match pe(ts, i + 1, d1, td) {
             Some((m, j)) => if sym(ts, j, '{') {
                 match parm1(ts, j + 1, d1, td) {
-                    Some((arms, k)) => Some((Sx::SumMatch(Box::new(m), arms), k)),
+                    Some((arms, tc, k)) => Some((Sx::SumMatch(Box::new(m), arms, tc), k)),
                     None => None,
                 }
             } else {
@@ -2181,19 +2193,24 @@ pub open spec fn pm(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Sx, nat)>
     }
 }
 
-/// 枝の並び（一つ以上）と、閉じ括弧 `}` の後の位置。枝の間は `,`、末尾に `,` は書かない（字句と枝の並びを一対一に対応させるため）。
-pub open spec fn parm1(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Spat, Sx)>, nat)>
+/// 枝の並び（一つ以上）と、末尾の `,` の有無と、閉じ括弧 `}` の後の位置。枝の間は `,`、末尾の `,` は `}` の前に一つだけ
+/// 置ける（spec の `[ "," ]`）。末尾の `,` の有無は枝の並びの字句に残す（字句と AST を一対一に対応させるため）。
+pub open spec fn parm1(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> Option<(Seq<(Spat, Sx)>, bool, nat)>
     decreases d, 2nat, ts.len() - i,
 {
     match ppat(ts, i) {
         Some((p, j)) => if sym(ts, j, '=') && sym(ts, j + 1, '>') {
             match pe(ts, j + 2, d, td) {
                 Some((b, m)) => if sym(ts, m, '}') {
-                    Some((seq![(p, b)], m + 1))
+                    Some((seq![(p, b)], false, m + 1))
                 } else if sym(ts, m, ',') && i < m {
-                    match parm1(ts, m + 1, d, td) {
-                        Some((arms, k)) => Some((seq![(p, b)] + arms, k)),
-                        None => None,
+                    if sym(ts, m + 1, '}') {
+                        Some((seq![(p, b)], true, m + 2))
+                    } else {
+                        match parm1(ts, m + 1, d, td) {
+                            Some((arms, tc, k)) => Some((seq![(p, b)] + arms, tc, k)),
+                            None => None,
+                        }
                     }
                 } else {
                     None
@@ -2495,7 +2512,7 @@ pub open spec fn bx(e: Sx, d: nat, td: nat) -> bool
             Sx::MatchR(m, x, a, y, b) => name_ok(x) && name_ok(y) && bx(*m, d1, td) && bx(*a, d1, td) && bx(*b, d1, td),
             Sx::Fld(a, fs) => recv_ok(*a) && fs.len() > 0 && nms(fs) && bx(*a, d, td),
             Sx::Rec(r, fs, b) => ident_ok(r) && bfs(fs, 0, d1, td) && bopt(b, d1, td),
-            Sx::SumMatch(m, arms) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
+            Sx::SumMatch(m, arms, _) => arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td),
             Sx::Hof(_, l, x, b) => name_ok(x) && bx(*l, d1, td) && bx(*b, d1, td),
             Sx::Loop(i, m, x, b) => name_ok(x) && bx(*i, d1, td) && bx(*m, d1, td) && bx(*b, d1, td),
             Sx::DictNew(a, b) => bt(a, td) && bt(b, td),

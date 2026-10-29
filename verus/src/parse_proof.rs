@@ -577,6 +577,18 @@ pub proof fn tarms_app(arms: Seq<(Spat, Sx)>, i: nat, k: Seq<Tok>)
     assert(tarms(arms, i, k) =~= tarms(arms, i, z) + k);
 }
 
+/// 枝の並びの閉じ部分は後ろの続き k に対して結合する。
+proof fn mclose_app(tc: bool, k: Seq<Tok>)
+    ensures
+        mclose(tc, k) == mclose(tc, Seq::empty()) + k,
+{
+    if tc {
+        assert(seq![Tok::Sym(','), Tok::Sym('}')] + k =~= (seq![Tok::Sym(','), Tok::Sym('}')] + Seq::<Tok>::empty()) + k);
+    } else {
+        assert(seq![Tok::Sym('}')] + k =~= (seq![Tok::Sym('}')] + Seq::<Tok>::empty()) + k);
+    }
+}
+
 /// match 式の token は後ろの続き k に対して結合する。
 proof fn te_app_sumatch(e: Sx, k: Seq<Tok>)
     requires
@@ -588,15 +600,15 @@ proof fn te_app_sumatch(e: Sx, k: Seq<Tok>)
     decreases e, 0nat,
 {
     let z = Seq::<Tok>::empty();
-    if let Sx::SumMatch(m, arms) = e {
-        tarms_app(arms, 0, seq![Tok::Sym('}')] + k);
-        tarms_app(arms, 0, seq![Tok::Sym('}')]);
-        let y = seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')]);
-        assert(seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')] + k) =~= y + k);
+    if let Sx::SumMatch(m, arms, tc) = e {
+        mclose_app(tc, k);
+        tarms_app(arms, 0, mclose(tc, k));
+        tarms_app(arms, 0, mclose(tc, z));
+        let y = seq![Tok::Sym('{')] + tarms(arms, 0, mclose(tc, z));
+        assert(seq![Tok::Sym('{')] + tarms(arms, 0, mclose(tc, k)) =~= y + k);
         te_app(*m, y);
         te_app(*m, y + k);
         assert(te(*m, y + k) =~= te(*m, y) + k);
-        assert(seq![Tok::Sym('}')] + z =~= seq![Tok::Sym('}')]);
     }
     assert(te(e, k) =~= te(e, z) + k);
 }
@@ -2071,29 +2083,29 @@ proof fn ppat_complete(ts: Seq<Tok>, i: nat, p: Spat, k: Seq<Tok>)
     }
 }
 
-/// 枝の並びの完全性（位置 i から arms[idx..]、閉じ括弧の後ろは k）。
-proof fn parm1_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, arms: Seq<(Spat, Sx)>, idx: nat, k: Seq<Tok>)
+/// 枝の並びの完全性（位置 i から arms[idx..]、末尾の `,` の有無は tc、閉じ括弧の後ろは k）。
+proof fn parm1_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, arms: Seq<(Spat, Sx)>, idx: nat, tc: bool, k: Seq<Tok>)
     requires
         i <= ts.len(),
         idx < arms.len(),
         barms(arms, idx, d, td),
-        suf(ts, i) == tarms(arms, idx, seq![Tok::Sym('}')] + k),
+        suf(ts, i) == tarms(arms, idx, mclose(tc, k)),
     ensures
-        parm1(ts, i, d, td) == Some((arms.subrange(idx as int, arms.len() as int), (ts.len() - k.len()) as nat)),
+        parm1(ts, i, d, td) == Some((arms.subrange(idx as int, arms.len() as int), tc, (ts.len() - k.len()) as nat)),
     decreases d, 5nat, arms, arms.len() - idx,
 {
     let p = arms[idx as int].0;
     let b = arms[idx as int].1;
     let last = idx + 1 == arms.len();
     let cont = if last {
-        seq![Tok::Sym('}')] + k
+        mclose(tc, k)
     } else {
-        seq![Tok::Sym(',')] + tarms(arms, idx + 1, seq![Tok::Sym('}')] + k)
+        seq![Tok::Sym(',')] + tarms(arms, idx + 1, mclose(tc, k))
     };
     let q = seq![Tok::Sym('='), Tok::Sym('>')] + te(b, cont);
     assert(bpat(p));
     assert(bx(b, d, td));
-    assert(tarms(arms, idx, seq![Tok::Sym('}')] + k) == tpat(p, q));
+    assert(tarms(arms, idx, mclose(tc, k)) == tpat(p, q));
     if !last {
         assert(barms(arms, idx + 1, d, td));
     }
@@ -2110,11 +2122,21 @@ proof fn parm1_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, arms: Seq<(Spat, 
     assert(pe(ts, j + 2, d, td) == Some((b, m)));
     assert(i < j + 2 && j + 2 <= m);
     if last {
-        hd(ts, m, seq![Tok::Sym('}')], k);
+        if tc {
+            assert(cont =~= seq![Tok::Sym(',')] + (seq![Tok::Sym('}')] + k));
+            hd(ts, m, seq![Tok::Sym(',')], seq![Tok::Sym('}')] + k);
+            hd(ts, m + 1, seq![Tok::Sym('}')], k);
+        } else {
+            hd(ts, m, seq![Tok::Sym('}')], k);
+        }
         assert(arms.subrange(idx as int, arms.len() as int) =~= seq![arms[idx as int]]);
     } else {
-        hd(ts, m, seq![Tok::Sym(',')], tarms(arms, idx + 1, seq![Tok::Sym('}')] + k));
-        parm1_complete(ts, m + 1, d, td, arms, idx + 1, k);
+        let rest = tarms(arms, idx + 1, mclose(tc, k));
+        hd(ts, m, seq![Tok::Sym(',')], rest);
+        tarms_head2(arms, idx + 1, mclose(tc, k));
+        pfx1(ts, m + 1);
+        assert(!sym(ts, m + 1, '}'));
+        parm1_complete(ts, m + 1, d, td, arms, idx + 1, tc, k);
         assert(arms.subrange(idx as int, arms.len() as int) =~= seq![arms[idx as int]] + arms.subrange(
             (idx + 1) as int,
             arms.len() as int,
@@ -2176,9 +2198,9 @@ proof fn pm_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
         pm(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
     decreases d, 1nat, e,
 {
-    if let Sx::SumMatch(m, arms) = e {
+    if let Sx::SumMatch(m, arms, tc) = e {
         let d1 = (d - 1) as nat;
-        let kt = seq![Tok::Sym('}')] + k;
+        let kt = mclose(tc, k);
         let kms = seq![Tok::Sym('{')] + tarms(arms, 0, kt);
         assert(d > 0 && arms.len() > 0 && bx(*m, d1, td) && barms(arms, 0, d1, td));
         assert(te(e, k) =~= seq![word_tok(mword())] + te(*m, kms));
@@ -2191,9 +2213,9 @@ proof fn pm_complete(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Seq<Tok>)
         at_end(ts, i + 1, te(*m, Seq::<Tok>::empty()), kms);
         let j = (ts.len() - kms.len()) as nat;
         hd(ts, j, seq![Tok::Sym('{')], tarms(arms, 0, kt));
-        parm1_complete(ts, j + 1, d1, td, arms, 0, k);
+        parm1_complete(ts, j + 1, d1, td, arms, 0, tc, k);
         assert(arms.subrange(0, arms.len() as int) =~= arms);
-        assert(Sx::SumMatch(Box::new(*m), arms) == e);
+        assert(Sx::SumMatch(Box::new(*m), arms, tc) == e);
     }
 }
 
@@ -2206,8 +2228,8 @@ proof fn pp_complete_sumatch(ts: Seq<Tok>, i: nat, d: nat, td: nat, e: Sx, k: Se
         pp(ts, i, d, td) == Some((e, (ts.len() - k.len()) as nat)),
     decreases d, 2nat, e,
 {
-    if let Sx::SumMatch(m, arms) = e {
-        let kms = seq![Tok::Sym('{')] + tarms(arms, 0, seq![Tok::Sym('}')] + k);
+    if let Sx::SumMatch(m, arms, tc) = e {
+        let kms = seq![Tok::Sym('{')] + tarms(arms, 0, mclose(tc, k));
         assert(te(e, k) =~= seq![word_tok(mword())] + te(*m, kms));
         hd(ts, i, seq![word_tok(mword())], te(*m, kms));
         mword_word();
@@ -3279,10 +3301,10 @@ pub proof fn ppat_sound(ts: Seq<Tok>, i: nat)
 
 pub open spec fn parm1_post(ts: Seq<Tok>, i: nat, d: nat, td: nat) -> bool {
     match parm1(ts, i, d, td) {
-        Some((arms, k)) => i < k <= ts.len() && arms.len() > 0 && barms(arms, 0, d, td) && suf(ts, i) == tarms(
+        Some((arms, tc, k)) => i < k <= ts.len() && arms.len() > 0 && barms(arms, 0, d, td) && suf(ts, i) == tarms(
             arms,
             0,
-            seq![Tok::Sym('}')] + suf(ts, k),
+            mclose(tc, suf(ts, k)),
         ),
         None => true,
     }
@@ -3311,18 +3333,29 @@ pub proof fn parm1_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                     assert(bx(b, d, td));
                     barms_single((p, b), d, td);
                     assert(barms(seq![(p, b)], 0, d, td));
-                    assert(suf(ts, i) =~= tarms(seq![(p, b)], 0, seq![Tok::Sym('}')] + suf(ts, m + 1)));
+                    assert(suf(ts, i) =~= tarms(seq![(p, b)], 0, mclose(false, suf(ts, m + 1))));
                 } else if sym(ts, m, ',') && i < m {
                     pfx1(ts, m);
                     assert(suf(ts, m) =~= seq![Tok::Sym(',')] + suf(ts, m + 1));
-                    parm1_sound(ts, m + 1, d, td);
-                    if let Some((arms, k)) = parm1(ts, m + 1, d, td) {
-                        tarms_shift((p, b), arms, 0, seq![Tok::Sym('}')] + suf(ts, k));
-                        barms_shift((p, b), arms, 0, d, td);
+                    if sym(ts, m + 1, '}') {
+                        pfx1(ts, m + 1);
+                        assert(suf(ts, m + 1) =~= seq![Tok::Sym('}')] + suf(ts, m + 2));
+                        assert(mclose(true, suf(ts, m + 2)) =~= suf(ts, m));
                         assert(bpat(p));
                         assert(bx(b, d, td));
-                        assert(barms(seq![(p, b)] + arms, 0, d, td));
-                        assert(suf(ts, i) =~= tarms(seq![(p, b)] + arms, 0, seq![Tok::Sym('}')] + suf(ts, k)));
+                        barms_single((p, b), d, td);
+                        assert(barms(seq![(p, b)], 0, d, td));
+                        assert(suf(ts, i) =~= tarms(seq![(p, b)], 0, mclose(true, suf(ts, m + 2))));
+                    } else {
+                        parm1_sound(ts, m + 1, d, td);
+                        if let Some((arms, tc, k)) = parm1(ts, m + 1, d, td) {
+                            tarms_shift((p, b), arms, 0, mclose(tc, suf(ts, k)));
+                            barms_shift((p, b), arms, 0, d, td);
+                            assert(bpat(p));
+                            assert(bx(b, d, td));
+                            assert(barms(seq![(p, b)] + arms, 0, d, td));
+                            assert(suf(ts, i) =~= tarms(seq![(p, b)] + arms, 0, mclose(tc, suf(ts, k))));
+                        }
                     }
                 }
             }
@@ -3355,8 +3388,8 @@ proof fn pm_sound(ts: Seq<Tok>, i: nat, d: nat, td: nat)
                 pfx1(ts, i);
                 pfx1(ts, j);
                 parm1_sound(ts, j + 1, d1, td);
-                if let Some((arms, k)) = parm1(ts, j + 1, d1, td) {
-                    let e = Sx::SumMatch(Box::new(m), arms);
+                if let Some((arms, tc, k)) = parm1(ts, j + 1, d1, td) {
+                    let e = Sx::SumMatch(Box::new(m), arms, tc);
                     assert(suf(ts, i) =~= te(e, suf(ts, k)));
                     assert(bx(e, d, td));
                 }
@@ -3758,6 +3791,7 @@ proof fn pp_sound_match(ts: Seq<Tok>, i: nat, d: nat, td: nat)
 
 /// loop の健全性：語の直後が `(` で、初期値、`,`、上限、`,`、`|x|`、本体、`)` の形なら、pp はその式を読む。
 /// 語の直後が `<` なら loop は型引数を持たないので、pp は読まない（None）。
+#[verifier::rlimit(60)]
 proof fn pp_sound_loop(ts: Seq<Tok>, i: nat, d: nat, td: nat)
     requires
         d > 0,

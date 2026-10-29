@@ -81,8 +81,24 @@ pub(crate) fn lower_new(t: &TypeNode, m: Meta) -> Expr {
 }
 
 impl Lower<'_> {
-    /// 辞書の操作 `op(args)`（引数は書き換え済み。k、v は鍵と値の型）。形はモジュールの説明を参照。
+    /// 辞書の操作 `op(args)`（引数は書き換え済み。k、v は鍵と値の型）。検証済みの exec 版（dictloop_verified）で
+    /// 写せるならそれを使い、写せなければ `dict_op_rust`。形はモジュールの説明を参照。
     pub(crate) fn dict_op(&mut self, m: Meta, op: &str, args: Vec<Expr>, k: &Ty, v: &Ty) -> Expr {
+        if let Some(e) = crate::dictloop_verified::dict_op(self, m, op, &args, k, v) {
+            return e;
+        }
+        self.dict_op_rust(m, op, args, k, v)
+    }
+
+    /// 従来の書換え（`dict_op` が検証済みの版で写せないとき）。同じ形を作る。
+    pub(crate) fn dict_op_rust(
+        &mut self,
+        m: Meta,
+        op: &str,
+        args: Vec<Expr>,
+        k: &Ty,
+        v: &Ty,
+    ) -> Expr {
         let b = B { m };
         let entry = Ty::pair(k.clone(), v.clone());
         let mut args = args.into_iter();

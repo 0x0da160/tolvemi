@@ -77,6 +77,14 @@ pub fn has_hof(p: &Program) -> bool {
     p.functions().any(|f| ex(&f.body))
 }
 
+/// `loop` を一つでも含むか（検証済みの hof の経路は loop を含まない。`has_hof` は loop も数える）。
+pub fn has_loop(p: &Program) -> bool {
+    fn ex(e: &Expr) -> bool {
+        matches!(e.kind, ExprKind::Loop { .. }) || e.children().into_iter().any(ex)
+    }
+    p.functions().any(|f| ex(&f.body))
+}
+
 /// 入れ子の loop の最も深い連鎖の段数と、その連鎖で一番外側の loop の span（loop を含まないプログラムは None）。
 /// 書き換えの前の構文木で数える（式の深さの上限を超えた診断の位置に使う）。
 pub fn deepest_loop_nest(p: &Program) -> Option<(usize, crate::diagnostics::Span)> {
@@ -102,7 +110,7 @@ pub fn deepest_loop_nest(p: &Program) -> Option<(usize, crate::diagnostics::Span
 }
 
 /// プログラム中の名前（関数名、引数、変数、束縛、呼び出し先）。
-fn collect(e: &Expr, out: &mut HashSet<String>) {
+pub(crate) fn collect(e: &Expr, out: &mut HashSet<String>) {
     match &e.kind {
         ExprKind::Var(n) | ExprKind::Let { name: n, .. } | ExprKind::Call { callee: n, .. } => {
             out.insert(n.clone());
@@ -211,7 +219,15 @@ impl B {
     }
 }
 
-impl Lower<'_> {
+impl<'a> Lower<'a> {
+    pub(crate) fn new(types: &'a HofTypes, taken: HashSet<String>) -> Lower<'a> {
+        Lower {
+            types,
+            taken,
+            fresh: 0,
+        }
+    }
+
     pub(crate) fn fresh(&mut self) -> String {
         loop {
             self.fresh += 1;
@@ -350,8 +366,25 @@ pub const LOOP_BASE: u64 = 16;
 pub const LOOP_LEVELS: u32 = 16;
 
 impl Lower<'_> {
-    /// v1.6：`loop(init, max, |s| e)`（`st` は状態の型 S）。段の構成はモジュールの説明を参照。
+    /// v1.6：`loop(init, max, |s| e)`（`st` は状態の型 S）。検証済みの exec 版（dictloop_verified）で写せるならそれを
+    /// 使い、写せなければ `loop_rust`。段の構成はモジュールの説明を参照。
     fn loop_(&mut self, m: Meta, init: Expr, max: Expr, s: String, body: Expr, st: &Ty) -> Expr {
+        if let Some(e) = crate::dictloop_verified::loop_(self, m, &init, &max, &s, &body, st) {
+            return e;
+        }
+        self.loop_rust(m, init, max, s, body, st)
+    }
+
+    /// 従来の書換え（`loop_` が検証済みの版で写せないとき）。同じ段の構成を作る。
+    pub(crate) fn loop_rust(
+        &mut self,
+        m: Meta,
+        init: Expr,
+        max: Expr,
+        s: String,
+        body: Expr,
+        st: &Ty,
+    ) -> Expr {
         let k = B { m };
         let int = |n: u64| k.ex(ExprKind::Int(n.into()));
         let (mx, rg, one) = (self.fresh(), self.fresh(), self.fresh());
@@ -491,11 +524,7 @@ pub fn lower(p: &Program, types: &HofTypes) -> Program {
         taken.extend(f.params.iter().map(|q| q.name.clone()));
         collect(&f.body, &mut taken);
     }
-    let mut l = Lower {
-        types,
-        taken,
-        fresh: 0,
-    };
+    let mut l = Lower::new(types, taken);
     let declarations = p
         .declarations
         .iter()
